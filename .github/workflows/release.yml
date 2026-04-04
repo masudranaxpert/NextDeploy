@@ -1,0 +1,226 @@
+name: Release
+
+# Trigger:
+#   - push a tag like v1.0.0  → builds image, creates release
+#   - push/PR to main         → CI build check only (no image push)
+on:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/nextdeploy
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 1. Build & push Docker image, then create a GitHub Release
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Build, push & release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create GitHub Release
+      packages: write
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Extract version from tag ───────────────────────────────────────────────
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"          # e.g. v1.2.3
+          VERSION="${TAG#v}"                # e.g. 1.2.3
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building $TAG ($VERSION)"
+
+      # ── Set up QEMU (multi-arch: amd64 + arm64) ───────────────────────────────
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # ── Set up Docker Buildx ──────────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Log in to Docker Hub ──────────────────────────────────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # ── Build & push image ────────────────────────────────────────────────────
+      # Tags pushed:
+      #   masudranaxpert/nextdeploy:v1.2.3   ← exact version
+      #   masudranaxpert/nextdeploy:1.2       ← minor alias
+      #   masudranaxpert/nextdeploy:1         ← major alias
+      #   masudranaxpert/nextdeploy:latest    ← always latest
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.title=NextDeploy
+            org.opencontainers.image.description=Fast self-hosted deployment platform built with Go & Caddy
+            org.opencontainers.image.url=https://github.com/masudranaxpert/NextDeploy
+            org.opencontainers.image.source=https://github.com/masudranaxpert/NextDeploy
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Delete older Docker Hub tags (keep only last 5 versioned tags) ────────
+      # Uses Docker Hub API to list and delete old tags so the registry stays clean.
+      - name: Clean up old Docker Hub tags
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          IMAGE: nextdeploy
+        run: |
+          set -euo pipefail
+
+          # Authenticate and get a JWT
+          TOKEN=$(curl -s -X POST \
+            "https://hub.docker.com/v2/users/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKER_USERNAME}\",\"password\":\"${DOCKER_TOKEN}\"}" \
+            | jq -r '.token')
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::warning::Could not authenticate with Docker Hub — skipping tag cleanup."
+            exit 0
+          fi
+
+          # Fetch all tags sorted by last_updated (newest first), page size 100
+          TAGS=$(curl -s \
+            "https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags?page_size=100&ordering=last_updated" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            | jq -r '.results[].name')
+
+          # Collect versioned tags (vX.Y.Z pattern), skip latest/major/minor aliases
+          VERSIONED=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+
+          # Keep the 5 most recent versioned tags; delete the rest
+          KEEP=5
+          TO_DELETE=$(echo "$VERSIONED" | tail -n +$((KEEP + 1)))
+
+          if [ -z "$TO_DELETE" ]; then
+            echo "Nothing to delete (≤${KEEP} versioned tags found)."
+            exit 0
+          fi
+
+          echo "Tags to delete:"
+          echo "$TO_DELETE"
+
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "Deleting tag: $TAG"
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+              "https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags/${TAG}/" \
+              -H "Authorization: Bearer ${TOKEN}")
+            echo "  → HTTP $HTTP"
+          done <<< "$TO_DELETE"
+
+          echo "Cleanup complete."
+
+      # ── Build release notes from git log ──────────────────────────────────────
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            CHANGES=$(git log --pretty=format:"- %s" "${PREV}..HEAD" | head -40)
+          else
+            CHANGES=$(git log --pretty=format:"- %s" | head -40)
+          fi
+
+          TAG="${{ steps.version.outputs.tag }}"
+          IMAGE="${{ env.IMAGE_NAME }}"
+
+          {
+            echo "## What's changed"
+            echo ""
+            if [ -n "$CHANGES" ]; then
+              echo "$CHANGES"
+            else
+              echo "- Initial release"
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo "**Docker image**"
+            echo '```bash'
+            echo "docker pull ${IMAGE}:${TAG}"
+            echo '```'
+          } > /tmp/release_notes.md
+
+          echo "Release notes written."
+
+      # ── Create GitHub Release ─────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "NextDeploy ${{ steps.version.outputs.tag }}"
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2. Lightweight CI check on every push/PR to main (no image push)
+  # ─────────────────────────────────────────────────────────────────────────────
+  ci:
+    name: Build check (CI)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Build CSS
+        run: npm run build:css
+
+      - name: Go mod tidy
+        run: go mod tidy
+
+      - name: Go build
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+      - name: Go vet
+        run: go vet ./...

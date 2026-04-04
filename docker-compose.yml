@@ -26,6 +26,8 @@ services:
     restart: unless-stopped
 
   panel:
+    # Use a released image from Docker Hub, or build locally with: docker compose up -d --build
+    image: masudranaxpert/nextdeploy:latest
     build: .
     container_name: panel
     ports:

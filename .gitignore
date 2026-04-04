@@ -20,7 +20,7 @@
 
 # Node / npm
 node_modules/
-package-lock.json
+# Note: package-lock.json is tracked so CI can use `npm ci`
 
 # Tailwind output (rebuild with npm run build:css)
 web/static/css/app.css

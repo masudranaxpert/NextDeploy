@@ -2,7 +2,15 @@
 
 ![NextDeploy overview](image/readme.png)
 
+[![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go)](https://go.dev)
+
 A lightweight Docker deployment panel built with Go and Caddy. Deploy Docker Compose stacks, manage domains with automatic HTTPS, and monitor your containers — all from a clean web UI.
+
+> **GitHub:** [github.com/masudranaxpert/NextDeploy](https://github.com/masudranaxpert/NextDeploy)
+> **Docker Hub:** [hub.docker.com/r/masudranaxpert/nextdeploy](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 
 ## Features
 
@@ -19,13 +27,32 @@ A lightweight Docker deployment panel built with Go and Caddy. Deploy Docker Com
 
 ## Quick start
 
+### From Docker Hub (recommended)
+
 ```bash
-git clone <repo>
-cd nextdeploy
-docker compose up -d --build
+# Create the data directory on your host
+mkdir -p /data
+
+# Run the panel + Caddy proxy
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml \
+  | docker compose -f - up -d
+```
+
+Or with a local clone:
+
+```bash
+git clone https://github.com/masudranaxpert/NextDeploy.git
+cd NextDeploy
+docker compose up -d
 ```
 
 Open `http://localhost:8080` — you will be prompted to create an admin account on first visit.
+
+### Pull image manually
+
+```bash
+docker pull masudranaxpert/nextdeploy:latest
+```
 
 ## Requirements
 
@@ -34,7 +61,7 @@ Open `http://localhost:8080` — you will be prompted to create an admin account
 
 ## Configuration
 
-All settings are stored in a SQLite database at `/data/panel.db` inside the container. The Docker volume `pass_panel_data` persists data across restarts.
+All settings are stored in a SQLite database at `/data/panel.db` inside the container. The bind mount `/data` persists data across restarts.
 
 | Environment variable | Default | Description |
 |---|---|---|
@@ -49,6 +76,21 @@ The panel uses [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker
 
 For local/development domains (`.test`, `.localhost`, etc.) the panel automatically uses `tls internal` when HTTPS is enabled.
 
+## Releases
+
+New releases are published automatically when a version tag is pushed:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions will:
+1. Build a multi-arch Docker image (`linux/amd64` + `linux/arm64`)
+2. Push it to Docker Hub with version tags (`v1.0.0`, `latest`)
+3. Create a GitHub Release with auto-generated changelog
+4. Clean up old Docker Hub tags (keeps the 5 most recent)
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
