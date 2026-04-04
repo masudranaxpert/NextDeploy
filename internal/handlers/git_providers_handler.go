@@ -48,7 +48,7 @@ func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
 		provider = "github"
 	}
 	switch provider {
-	case "github", "gitlab", "other":
+	case "github", "gitlab":
 	default:
 		provider = "github"
 	}
@@ -87,7 +87,7 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 		provider = existing.Provider
 	}
 	switch provider {
-	case "github", "gitlab", "other":
+	case "github", "gitlab":
 	default:
 		provider = existing.Provider
 	}

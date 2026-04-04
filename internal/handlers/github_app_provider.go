@@ -54,12 +54,29 @@ type githubAppInstallation struct {
 	} `json:"account"`
 }
 
+type githubInstallationDetail struct {
+	ID      int64 `json:"id"`
+	Account struct {
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	} `json:"account"`
+}
+
 func randomState() string {
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {
 		return fmt.Sprintf("state-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
+}
+
+func uniqueGitHubAppName() string {
+	now := time.Now().UTC().Format("2006-01-02")
+	suffix := randomState()
+	if len(suffix) > 6 {
+		suffix = suffix[:6]
+	}
+	return fmt.Sprintf("NextDeploy-%s-%s", now, strings.ToLower(suffix))
 }
 
 func (p *Panel) panelBaseURL(c *fiber.Ctx) string {
@@ -77,6 +94,10 @@ func (p *Panel) githubManifestCallbackURL(c *fiber.Ctx) string {
 	return strings.TrimRight(p.panelBaseURL(c), "/") + "/git/github/callback"
 }
 
+func (p *Panel) githubSetupURL(c *fiber.Ctx) string {
+	return strings.TrimRight(p.panelBaseURL(c), "/") + "/git/github/setup"
+}
+
 func (p *Panel) githubManifestWebhookURL(c *fiber.Ctx) string {
 	base := strings.TrimRight(p.panelBaseURL(c), "/")
 	return base + "/webhooks/github/provider"
@@ -88,7 +109,7 @@ func (p *Panel) buildGitHubManifest(c *fiber.Ctx, providerName string) githubMan
 		URL:         strings.TrimRight(p.panelBaseURL(c), "/"),
 		Description: "NextDeploy GitHub App",
 		RedirectURL: p.githubManifestCallbackURL(c),
-		SetupURL:    strings.TrimRight(p.panelBaseURL(c), "/") + "/git",
+		SetupURL:    p.githubSetupURL(c),
 		Public:      false,
 		DefaultPermissions: map[string]string{
 			"contents":       "read",
@@ -100,6 +121,18 @@ func (p *Panel) buildGitHubManifest(c *fiber.Ctx, providerName string) githubMan
 	manifest.HookAttributes.URL = p.githubManifestWebhookURL(c)
 	manifest.HookAttributes.Active = true
 	return manifest
+}
+
+func githubAppInstallationURL(appSlug, state string) string {
+	appSlug = strings.TrimSpace(appSlug)
+	if appSlug == "" {
+		return ""
+	}
+	target := "https://github.com/apps/" + appSlug + "/installations/new"
+	if strings.TrimSpace(state) == "" {
+		return target
+	}
+	return target + "?state=" + url.QueryEscape(state)
 }
 
 func githubAppInstallURL(appName string) string {
@@ -176,10 +209,38 @@ func refreshGitHubProviderInstallation(ctx context.Context, detail db.GitHubProv
 	return detail, nil
 }
 
+func fetchGitHubInstallation(ctx context.Context, detail db.GitHubProviderDetail, installationID string) (githubInstallationDetail, error) {
+	var out githubInstallationDetail
+	appJWT, err := gitxAppJWT(detail.GitHubAppID, detail.PrivateKeyPEM)
+	if err != nil {
+		return out, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/app/installations/"+url.PathEscape(strings.TrimSpace(installationID)), nil)
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Authorization", "Bearer "+appJWT)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return out, fmt.Errorf("github installation verify failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
-		name = "NextDeploy"
+		name = uniqueGitHubAppName()
 	}
 	state := randomState()
 	if err := p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, name); err != nil {
@@ -199,6 +260,31 @@ func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 </form>
 <script>document.getElementById('gh-manifest-form').submit();</script>
 </body></html>`)
+}
+
+func (p *Panel) GitHubAppSetup(c *fiber.Ctx) error {
+	installationID := strings.TrimSpace(c.Query("installation_id"))
+	state := strings.TrimSpace(c.Query("state"))
+	if installationID == "" || state == "" {
+		return c.Redirect("/git?error=Missing+GitHub+installation+data")
+	}
+	detail, err := p.DB.GetGitHubProviderDetailByManifestState(c.UserContext(), state)
+	if err != nil {
+		return c.Redirect("/git?error=Unknown+GitHub+installation+state")
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 20*time.Second)
+	defer cancel()
+	verified, err := fetchGitHubInstallation(ctx, detail, installationID)
+	if err != nil {
+		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+	}
+	detail.InstallationID = fmt.Sprintf("%d", verified.ID)
+	detail.AccountLogin = strings.TrimSpace(verified.Account.Login)
+	detail.ManifestState = ""
+	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
+		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+	}
+	return c.Redirect("/git?saved=1")
 }
 
 func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
@@ -284,6 +370,36 @@ func (p *Panel) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
 		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
 	}
 	return c.Redirect("/git?saved=1")
+}
+
+func (p *Panel) GitHubProviderInstall(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("pid"), 10, 64)
+	if err != nil {
+		return c.Redirect("/git?error=Invalid+provider+ID")
+	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), id)
+	if err != nil {
+		return c.Redirect("/git?error=Provider+not+found")
+	}
+	if provider.Provider != "github" {
+		return c.Redirect("/git?error=This+provider+is+not+GitHub")
+	}
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), id)
+	if err != nil {
+		return c.Redirect("/git?error=GitHub+App+details+not+found")
+	}
+	if strings.TrimSpace(detail.AppSlug) == "" {
+		return c.Redirect("/git?error=GitHub+App+slug+is+missing")
+	}
+	detail.ManifestState = "gh_setup:" + randomState()
+	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
+		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+	}
+	target := githubAppInstallationURL(detail.AppSlug, detail.ManifestState)
+	if target == "" {
+		return c.Redirect("/git?error=Could+not+build+GitHub+install+URL")
+	}
+	return c.Redirect(target)
 }
 
 func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {

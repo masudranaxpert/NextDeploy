@@ -262,6 +262,22 @@ type githubRepoHook struct {
 	} `json:"config"`
 }
 
+type githubInstallationRepository struct {
+	Name          string `json:"name"`
+	FullName      string `json:"full_name"`
+	CloneURL      string `json:"clone_url"`
+	DefaultBranch string `json:"default_branch"`
+	Private       bool   `json:"private"`
+}
+
+type githubInstallationRepositoriesResponse struct {
+	Repositories []githubInstallationRepository `json:"repositories"`
+}
+
+type githubBranch struct {
+	Name string `json:"name"`
+}
+
 func githubAPIRequest(ctx context.Context, method, rawURL, token string, body any) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
@@ -346,6 +362,91 @@ func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID strin
 		return fmt.Errorf("github webhook create failed: HTTP %d: %s", resStatus, strings.TrimSpace(string(resBody)))
 	}
 	return nil
+}
+
+func (p *Panel) AppGitProviderRepos(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
+	if err != nil || pid <= 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
+	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	if provider.Provider != "github" {
+		return c.Status(400).JSON(fiber.Map{"error": "repository picker is only available for GitHub App providers"})
+	}
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "github provider details not found"})
+	}
+	if strings.TrimSpace(detail.InstallationID) == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "install the GitHub App first from the Git Providers page"})
+	}
+	token, err := gitx.MintGitHubInstallationToken(c.UserContext(), detail.GitHubAppID, detail.InstallationID, detail.PrivateKeyPEM)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	body, status, err := githubAPIRequest(c.UserContext(), http.MethodGet, "https://api.github.com/installation/repositories?per_page=100", token, nil)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if status >= 300 {
+		return c.Status(status).JSON(fiber.Map{"error": strings.TrimSpace(string(body))})
+	}
+	var payload githubInstallationRepositoriesResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"repos": payload.Repositories})
+}
+
+func (p *Panel) AppGitProviderBranches(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
+	if err != nil || pid <= 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
+	}
+	repoFullName := strings.TrimSpace(c.Query("repo"))
+	parts := strings.SplitN(repoFullName, "/", 2)
+	if len(parts) != 2 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid repo"})
+	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	if provider.Provider != "github" {
+		return c.Status(400).JSON(fiber.Map{"error": "branch picker is only available for GitHub App providers"})
+	}
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "github provider details not found"})
+	}
+	token, err := gitx.MintGitHubInstallationToken(c.UserContext(), detail.GitHubAppID, detail.InstallationID, detail.PrivateKeyPEM)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches?per_page=100", parts[0], parts[1])
+	body, status, err := githubAPIRequest(c.UserContext(), http.MethodGet, endpoint, token, nil)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if status >= 300 {
+		return c.Status(status).JSON(fiber.Map{"error": strings.TrimSpace(string(body))})
+	}
+	var branches []githubBranch
+	if err := json.Unmarshal(body, &branches); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"branches": branches})
 }
 
 func (p *Panel) GitSync(c *fiber.Ctx) error {

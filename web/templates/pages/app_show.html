@@ -353,7 +353,7 @@
           <div class="grid gap-4 lg:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Branch</label>
-              <input class="input w-full" name="branch" placeholder="main" value="{{if .HasGitConfig}}{{.GitConfig.Branch}}{{else}}main{{end}}">
+              <input class="input w-full" id="git-branch-input" name="branch" placeholder="main" value="{{if .HasGitConfig}}{{.GitConfig.Branch}}{{else}}main{{end}}">
             </div>
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Global provider</label>
@@ -367,13 +367,41 @@
             </div>
           </div>
 
+          <div id="git-github-picker" class="hidden rounded-xl border border-border/50 bg-muted/10 p-4 space-y-4">
+            <div class="grid gap-4 lg:grid-cols-2">
+              <div>
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                  <label class="block text-xs font-medium text-muted-foreground">Accessible repositories</label>
+                  <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitProviderRepos(true)">Refresh</button>
+                </div>
+                <select class="input w-full" id="git-repo-select" onchange="applyGitRepoSelection()">
+                  <option value="">Select repository</option>
+                </select>
+                <p class="mt-1 text-[11px] text-muted-foreground/60">Only repositories granted to the selected GitHub App installation appear here.</p>
+              </div>
+              <div>
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                  <label class="block text-xs font-medium text-muted-foreground">Available branches</label>
+                  <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitProviderBranches(true)">Refresh</button>
+                </div>
+                <select class="input w-full" id="git-branch-select" onchange="applyGitBranchSelection()">
+                  <option value="">Select branch</option>
+                </select>
+                <p class="mt-1 text-[11px] text-muted-foreground/60">Pick a branch here, or type one manually in the branch field above.</p>
+              </div>
+            </div>
+            <div id="git-picker-message" class="rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+              Select a GitHub App provider to load repositories.
+            </div>
+          </div>
+
           <div id="git-provider-status" class="rounded-xl border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
             {{if and .HasGitConfig (gt .GitConfig.GitProviderID 0)}}
               {{$selected := index .GitHubProviderMap .GitConfig.GitProviderID}}
               {{if and (eq .GitConfig.AuthMode "github_app") $selected.GitHubAppID}}
                 <p><span class="font-medium text-foreground">Selected GitHub App:</span> App ID <span class="font-mono">{{$selected.GitHubAppID}}</span>{{if $selected.AccountLogin}} installed for <span class="font-medium text-foreground">{{$selected.AccountLogin}}</span>{{end}}</p>
                 {{if not $selected.InstallationID}}
-                <p class="mt-1 text-yellow-300">Installation has not been captured yet. Use `Git Providers` → `Refresh install` after installing the app to your GitHub account.</p>
+                <p class="mt-1 text-yellow-300">Installation has not been captured yet. Open `Git Providers`, click `Install app`, finish the GitHub install flow, then come back here.</p>
                 {{end}}
               {{else if gt .GitConfig.GitProviderID 0}}
                 <p><span class="font-medium text-foreground">Selected provider:</span> NextDeploy will use the saved credential from the global provider instead of storing a raw token only on this app.</p>
@@ -480,6 +508,7 @@
         providerHidden.value = repoProvider.value;
       }
       updateGitAuthMode();
+      loadGitProviderRepos(false);
     }
 
     function updateGitAuthMode() {
@@ -487,6 +516,7 @@
       var providerSelect = document.getElementById('git-provider-select');
       var tokenSection = document.getElementById('git-token-section');
       var tokenHint = document.getElementById('git-token-hint');
+      var picker = document.getElementById('git-github-picker');
       if (mode === 'token') {
         tokenSection.classList.remove('hidden');
         tokenHint.innerHTML = 'Use a saved provider token when possible. Raw token entry stays available for private repo compatibility.';
@@ -496,6 +526,142 @@
       if (mode === 'github_app' && providerSelect && providerSelect.value === '0') {
         tokenSection.classList.remove('hidden');
         tokenHint.innerHTML = 'GitHub App mode needs a GitHub provider from the <code class="rounded bg-muted px-1">Git Providers</code> page. Select one above before saving.';
+      }
+      if (picker) {
+        if (mode === 'github_app') {
+          picker.classList.remove('hidden');
+        } else {
+          picker.classList.add('hidden');
+        }
+      }
+    }
+
+    function selectedGitProviderMeta() {
+      var providerSelect = document.getElementById('git-provider-select');
+      if (!providerSelect || providerSelect.value === '0') return null;
+      var option = providerSelect.options[providerSelect.selectedIndex];
+      return {
+        id: providerSelect.value,
+        provider: option ? option.dataset.provider : ''
+      };
+    }
+
+    function setGitPickerMessage(text, isError) {
+      var box = document.getElementById('git-picker-message');
+      if (!box) return;
+      box.textContent = text;
+      box.className = 'rounded-lg border px-3 py-2 text-xs ' + (isError
+        ? 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+        : 'border-border/50 bg-background/60 text-muted-foreground');
+    }
+
+    function loadGitProviderRepos(forceReload) {
+      var meta = selectedGitProviderMeta();
+      var mode = document.getElementById('git-auth-mode-sel').value;
+      var repoSelect = document.getElementById('git-repo-select');
+      if (!repoSelect) return;
+      if (mode !== 'github_app') {
+        repoSelect.innerHTML = '<option value="">Select repository</option>';
+        setGitPickerMessage('GitHub App mode shows accessible repositories here.', false);
+        return;
+      }
+      if (!meta || meta.provider !== 'github') {
+        repoSelect.innerHTML = '<option value="">Select repository</option>';
+        setGitPickerMessage('Select a GitHub provider first.', false);
+        return;
+      }
+      if (!forceReload && repoSelect.dataset.loadedFor === meta.id) {
+        return;
+      }
+      setGitPickerMessage('Loading repositories...', false);
+      fetch('/apps/{{.ID}}/git/providers/' + encodeURIComponent(meta.id) + '/repos')
+        .then(function(res) { return res.json().then(function(body) { return { ok: res.ok, body: body }; }); })
+        .then(function(result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not load repositories');
+          var repos = result.body.repos || [];
+          var currentURL = document.querySelector('input[name="repo_url"]').value;
+          var currentRepo = currentURL.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '');
+          repoSelect.innerHTML = '<option value="">Select repository</option>';
+          repos.forEach(function(repo) {
+            var option = document.createElement('option');
+            option.value = repo.full_name;
+            option.textContent = repo.full_name;
+            option.dataset.cloneUrl = repo.clone_url;
+            option.dataset.defaultBranch = repo.default_branch || 'main';
+            if (repo.full_name === currentRepo) option.selected = true;
+            repoSelect.appendChild(option);
+          });
+          repoSelect.dataset.loadedFor = meta.id;
+          if (repos.length === 0) {
+            setGitPickerMessage('This installation has no accessible repositories yet. Grant repo access during GitHub App installation first.', true);
+          } else {
+            setGitPickerMessage('Loaded ' + repos.length + ' accessible repositories from the selected GitHub App installation.', false);
+            if (repoSelect.value) {
+              applyGitRepoSelection();
+            }
+          }
+        })
+        .catch(function(err) {
+          repoSelect.innerHTML = '<option value="">Select repository</option>';
+          setGitPickerMessage(err.message || 'Could not load repositories.', true);
+        });
+    }
+
+    function applyGitRepoSelection() {
+      var repoSelect = document.getElementById('git-repo-select');
+      var repoInput = document.querySelector('input[name="repo_url"]');
+      if (!repoSelect || !repoInput) return;
+      var option = repoSelect.options[repoSelect.selectedIndex];
+      if (!option || !option.value) return;
+      repoInput.value = option.dataset.cloneUrl || ('https://github.com/' + option.value + '.git');
+      var branchInput = document.getElementById('git-branch-input');
+      if (branchInput && !branchInput.value) {
+        branchInput.value = option.dataset.defaultBranch || 'main';
+      }
+      loadGitProviderBranches(false);
+    }
+
+    function loadGitProviderBranches(forceReload) {
+      var meta = selectedGitProviderMeta();
+      var mode = document.getElementById('git-auth-mode-sel').value;
+      var branchSelect = document.getElementById('git-branch-select');
+      var repoSelect = document.getElementById('git-repo-select');
+      if (!branchSelect) return;
+      if (mode !== 'github_app' || !meta || meta.provider !== 'github' || !repoSelect || !repoSelect.value) {
+        branchSelect.innerHTML = '<option value="">Select branch</option>';
+        return;
+      }
+      var cacheKey = meta.id + ':' + repoSelect.value;
+      if (!forceReload && branchSelect.dataset.loadedFor === cacheKey) {
+        return;
+      }
+      fetch('/apps/{{.ID}}/git/providers/' + encodeURIComponent(meta.id) + '/branches?repo=' + encodeURIComponent(repoSelect.value))
+        .then(function(res) { return res.json().then(function(body) { return { ok: res.ok, body: body }; }); })
+        .then(function(result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not load branches');
+          var branches = result.body.branches || [];
+          var currentBranch = document.getElementById('git-branch-input').value;
+          branchSelect.innerHTML = '<option value="">Select branch</option>';
+          branches.forEach(function(branch) {
+            var option = document.createElement('option');
+            option.value = branch.name;
+            option.textContent = branch.name;
+            if (branch.name === currentBranch) option.selected = true;
+            branchSelect.appendChild(option);
+          });
+          branchSelect.dataset.loadedFor = cacheKey;
+        })
+        .catch(function(err) {
+          setGitPickerMessage(err.message || 'Could not load branches.', true);
+          branchSelect.innerHTML = '<option value="">Select branch</option>';
+        });
+    }
+
+    function applyGitBranchSelection() {
+      var branchSelect = document.getElementById('git-branch-select');
+      var branchInput = document.getElementById('git-branch-input');
+      if (branchSelect && branchInput && branchSelect.value) {
+        branchInput.value = branchSelect.value;
       }
     }
 

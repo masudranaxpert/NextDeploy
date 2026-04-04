@@ -221,6 +221,8 @@ func main() {
 	app.Post("/git", p.GitProviderCreate)
 	app.Post("/git/github/start", p.GitHubAppManifestStart)
 	app.Get("/git/github/callback", p.GitHubAppManifestCallback)
+	app.Get("/git/github/setup", p.GitHubAppSetup)
+	app.Get("/git/:pid/github/install", p.GitHubProviderInstall)
 	app.Post("/git/:pid/github/refresh-installation", p.GitHubProviderRefreshInstall)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
@@ -228,6 +230,8 @@ func main() {
 
 	// App source type switching
 	app.Post("/apps/:id/switch-source", p.AppSwitchSource)
+	app.Get("/apps/:id/git/providers/:pid/repos", p.AppGitProviderRepos)
+	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
 
 	// User management
 	app.Get("/users", p.UsersPage)

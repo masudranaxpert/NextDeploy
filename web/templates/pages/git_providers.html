@@ -74,18 +74,13 @@
         </div>
         <span class="inline-flex items-center rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-medium text-slate-300">Recommended</span>
       </div>
-      <div class="mt-4 grid gap-3 sm:grid-cols-2">
-        <form method="post" action="{{.GitHubManifestStart}}" class="contents">
-          <input type="hidden" name="name" value="NextDeploy">
-          <button type="submit" class="rounded-xl border border-border/50 bg-muted/20 p-4 text-left transition-all hover:border-primary/40 hover:bg-primary/5">
+      <div class="mt-4">
+        <form method="post" action="{{.GitHubManifestStart}}">
+          <button type="submit" class="w-full rounded-xl border border-border/50 bg-muted/20 p-4 text-left transition-all hover:border-primary/40 hover:bg-primary/5">
             <p class="text-sm font-medium text-foreground">Create GitHub App</p>
-            <p class="mt-1 text-xs text-muted-foreground">Launch the prefilled GitHub App manifest flow for a personal account installation.</p>
+            <p class="mt-1 text-xs text-muted-foreground">Launch the prefilled GitHub App manifest flow with an automatic unique app name, then install it to your GitHub account.</p>
           </button>
         </form>
-        <div class="rounded-xl border border-border/50 bg-muted/10 p-4">
-          <p class="text-sm font-medium text-foreground">After GitHub setup</p>
-          <p class="mt-1 text-xs text-muted-foreground">The new provider appears below, then each app can bind to it and use installation tokens instead of a long-lived PAT.</p>
-        </div>
       </div>
       <div class="mt-4 rounded-xl border border-border/50 bg-muted/10 p-4 text-xs text-muted-foreground">
         <p class="font-medium text-foreground/80">Suggested GitHub App permissions</p>
@@ -152,9 +147,9 @@
               {{if eq .Provider "github"}}
                 {{$gh := index $.GitHubDetails .ID}}
                 {{if $gh.GitHubAppID}}
-                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">App ready</span>
+                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">Installed</span>
                 {{else}}
-                <span class="inline-flex items-center rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-medium text-yellow-300">Needs setup</span>
+                <span class="inline-flex items-center rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-medium text-yellow-300">Action required</span>
                 {{end}}
               {{end}}
             </div>
@@ -164,9 +159,13 @@
           {{if eq .Provider "github"}}
             {{$gh := index $.GitHubDetails .ID}}
             {{if not $gh.InstallationID}}
+            <a href="/git/{{.ID}}/github/install" class="btn-ghost h-8 px-3 text-xs text-emerald-300 hover:bg-emerald-950/30">
+              Install app
+            </a>
+            {{else}}
             <form method="post" action="/git/{{.ID}}/github/refresh-installation">
               <button type="submit" class="btn-ghost h-8 px-3 text-xs text-emerald-300 hover:bg-emerald-950/30">
-                Refresh install
+                Re-check
               </button>
             </form>
             {{end}}
@@ -188,7 +187,7 @@
           <p class="text-[10px] text-muted-foreground/60">GitHub App</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
             {{if $gh.GitHubAppID}}
-              App ID <span class="font-mono text-foreground">{{$gh.GitHubAppID}}</span>{{if $gh.AccountLogin}} • installed for <span class="font-medium text-foreground">{{$gh.AccountLogin}}</span>{{else}} • installation not captured yet{{end}}
+              App ID <span class="font-mono text-foreground">{{$gh.GitHubAppID}}</span>{{if $gh.AccountLogin}} • installed for <span class="font-medium text-foreground">{{$gh.AccountLogin}}</span>{{else}} • click <span class="font-medium text-foreground">Install app</span> to finish setup{{end}}
             {{else}}
               Manifest flow not completed yet.
             {{end}}

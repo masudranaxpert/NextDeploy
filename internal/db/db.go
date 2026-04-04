@@ -969,6 +969,26 @@ FROM github_provider_details WHERE provider_id=?`, providerID).Scan(
 	return d, nil
 }
 
+func (s *Store) GetGitHubProviderDetailByManifestState(ctx context.Context, state string) (GitHubProviderDetail, error) {
+	var d GitHubProviderDetail
+	var created, updated string
+	var createdVia int
+	err := s.db.QueryRowContext(ctx, `
+SELECT provider_id, github_app_id, client_id, client_secret, private_key_pem, webhook_secret,
+       installation_id, account_login, app_slug, manifest_state, created_via_manifest, created_at, updated_at
+FROM github_provider_details WHERE manifest_state=?`, state).Scan(
+		&d.ProviderID, &d.GitHubAppID, &d.ClientID, &d.ClientSecret, &d.PrivateKeyPEM, &d.WebhookSecret,
+		&d.InstallationID, &d.AccountLogin, &d.AppSlug, &d.ManifestState, &createdVia, &created, &updated,
+	)
+	if err != nil {
+		return GitHubProviderDetail{}, err
+	}
+	d.CreatedViaManifest = createdVia != 0
+	d.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	d.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+	return d, nil
+}
+
 func (s *Store) UpsertGitHubProviderDetail(ctx context.Context, d GitHubProviderDetail) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx, `
