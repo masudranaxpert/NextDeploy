@@ -93,81 +93,34 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).SendString("app not found")
 	}
-	authMode := strings.TrimSpace(c.FormValue("auth_mode"))
-	switch authMode {
-	case "public", "token", "github_app":
-	default:
-		authMode = "public"
-	}
 	repoURL := normalizeRepoURL(c.FormValue("repo_url"))
 	if repoURL == "" {
 		return c.Status(400).SendString("repo url required")
 	}
 	cfg := db.AppGitConfig{
 		AppID:          appID,
-		Provider:       strings.TrimSpace(c.FormValue("provider")),
+		Provider:       "github",
 		RepoURL:        repoURL,
 		RepoFullName:   repoFullNameFromURL(repoURL),
 		Branch:         normalizeBranch(c.FormValue("branch")),
-		AuthMode:       authMode,
-		Token:          strings.TrimSpace(c.FormValue("token")),
-		AppGitID:       strings.TrimSpace(c.FormValue("github_app_id")),
-		InstallationID: strings.TrimSpace(c.FormValue("installation_id")),
-		PrivateKeyPEM:  strings.TrimSpace(c.FormValue("private_key_pem")),
+		AuthMode:       "public",
+		Token:          "",
+		AppGitID:       "",
+		InstallationID: "",
+		PrivateKeyPEM:  "",
 		AutoDeploy:     c.FormValue("auto_deploy") == "on",
 	}
-	if cfg.Provider == "" {
-		cfg.Provider = "github"
-	}
-	if pid := strings.TrimSpace(c.FormValue("git_provider_id")); pid != "" {
-		if parsed, err := strconv.ParseInt(pid, 10, 64); err == nil && parsed > 0 {
-			cfg.GitProviderID = parsed
-		}
-	}
 	old, err := p.DB.GetAppGitConfig(c.UserContext(), appID)
-	if strings.TrimSpace(cfg.Token) == "" && err == nil {
-		cfg.Token = old.Token
-	}
-	if strings.TrimSpace(cfg.AppGitID) == "" && err == nil {
-		cfg.AppGitID = old.AppGitID
-	}
-	if strings.TrimSpace(cfg.InstallationID) == "" && err == nil {
-		cfg.InstallationID = old.InstallationID
-	}
-	if strings.TrimSpace(cfg.PrivateKeyPEM) == "" && err == nil {
-		cfg.PrivateKeyPEM = old.PrivateKeyPEM
-	}
 	if err == nil && strings.TrimSpace(old.WebhookSecret) != "" {
 		cfg.WebhookSecret = old.WebhookSecret
 	} else {
 		cfg.WebhookSecret = randomSecret()
 	}
-	if cfg.GitProviderID == 0 && err == nil {
-		cfg.GitProviderID = old.GitProviderID
-	}
-	if cfg.AuthMode == "github_app" && cfg.GitProviderID == 0 {
-		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&error=%s", appID, url.QueryEscape("Select a GitHub provider first")))
-	}
-	if cfg.AuthMode == "github_app" && cfg.GitProviderID > 0 {
-		detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), cfg.GitProviderID)
-		if derr != nil {
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&error=%s", appID, url.QueryEscape("Selected GitHub provider is not ready yet")))
-		}
-		cfg.Provider = "github"
-		cfg.AppGitID = detail.GitHubAppID
-		cfg.InstallationID = detail.InstallationID
-		cfg.PrivateKeyPEM = detail.PrivateKeyPEM
-		if strings.TrimSpace(detail.WebhookSecret) != "" {
-			cfg.WebhookSecret = detail.WebhookSecret
-		}
-	}
 	if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if cfg.AuthMode == "github_app" {
-		if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&error=%s", appID, url.QueryEscape(err.Error())))
-		}
+	if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&error=%s", appID, url.QueryEscape(err.Error())))
 	}
 	// Mark app as git-sourced
 	_ = p.DB.SetAppSourceType(c.UserContext(), appID, "git")

@@ -74,24 +74,11 @@
           <div>
             <label class="mb-1.5 block text-sm font-medium text-foreground" for="repo-url">Repository URL</label>
             <input class="input w-full font-mono text-xs" id="repo-url" name="repo_url" placeholder="https://github.com/owner/repo.git" autocomplete="off">
-            <p class="mt-1 text-xs text-muted-foreground">Public repos work with HTTPS only. Private repos can use a GitHub token below.</p>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="mb-1.5 block text-sm font-medium text-foreground" for="branch">Branch</label>
-              <input class="input w-full" id="branch" name="branch" value="main" placeholder="main" autocomplete="off">
-            </div>
-            <div>
-              <label class="mb-1.5 block text-sm font-medium text-foreground" for="auth-mode">Access</label>
-              <select class="input w-full" id="auth-mode" name="auth_mode">
-                <option value="public">Public repo</option>
-                <option value="token">Private repo (token)</option>
-              </select>
-            </div>
+            <p class="mt-1 text-xs text-muted-foreground">Public repos work with HTTPS only.</p>
           </div>
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-foreground" for="token">GitHub token</label>
-            <input class="input w-full font-mono text-xs" id="token" name="token" type="password" placeholder="Only needed for private repos" autocomplete="new-password">
+            <label class="mb-1.5 block text-sm font-medium text-foreground" for="branch">Branch</label>
+            <input class="input w-full" id="branch" name="branch" value="main" placeholder="main" autocomplete="off">
           </div>
         </div>
         <div class="flex justify-end gap-2 pt-1">

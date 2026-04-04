@@ -491,12 +491,6 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	domainServices := p.loadComposeServices(c, id)
 	gitCfg, hasGitCfg := p.appGitConfig(c.UserContext(), id)
 	panelDomain := p.DB.GetSetting(c.UserContext(), settingPanelDomain)
-	gitProviders, _ := p.DB.ListGitProviders(c.UserContext())
-	gitHubProviderDetails, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
-	gitHubProviderMap := map[int64]db.GitHubProviderDetail{}
-	for _, detail := range gitHubProviderDetails {
-		gitHubProviderMap[detail.ProviderID] = detail
-	}
 	appWebhookURL := ""
 	if hasGitCfg {
 		appWebhookURL = p.appWebhookURL(c, id)
@@ -514,8 +508,6 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"IsGitApp":           isGitApp,
 		"HasGitConfig":       hasGitCfg,
 		"GitConfig":          gitCfg,
-		"GitProviders":       gitProviders,
-		"GitHubProviderMap":  gitHubProviderMap,
 		"PanelDomain":        panelDomain,
 		"AppWebhookURL":      appWebhookURL,
 		"HasCompose":         hasComp,
