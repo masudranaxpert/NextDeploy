@@ -17,6 +17,32 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+func sanitizeQuotedField(v string) string {
+	v = strings.TrimSpace(v)
+	for len(v) >= 2 {
+		first := v[0]
+		last := v[len(v)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
+			if unquoted, err := strconv.Unquote(v); err == nil {
+				v = strings.TrimSpace(unquoted)
+				continue
+			}
+			v = strings.TrimSpace(v[1 : len(v)-1])
+			continue
+		}
+		break
+	}
+	return v
+}
+
+func sanitizeDomainRecord(d *db.AppDomain) {
+	if d == nil {
+		return
+	}
+	d.Domain = sanitizeQuotedField(d.Domain)
+	d.Service = sanitizeQuotedField(d.Service)
+}
+
 func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
@@ -96,6 +122,9 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
 	id := c.Params("id")
 	domains, _ := p.DB.ListAppDomains(c.UserContext(), id)
+	for i := range domains {
+		sanitizeDomainRecord(&domains[i])
+	}
 	services := p.loadComposeServices(c, id)
 	return c.Render("partials/domain_tab", fiber.Map{
 		"ID":       id,
@@ -117,8 +146,8 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	}
 	d := db.AppDomain{
 		AppID:       id,
-		Domain:      strings.TrimSpace(c.FormValue("domain")),
-		Service:     strings.TrimSpace(c.FormValue("service")),
+		Domain:      sanitizeQuotedField(c.FormValue("domain")),
+		Service:     sanitizeQuotedField(c.FormValue("service")),
 		Port:        port,
 		EnableHTTPS: c.FormValue("enable_https") == "on",
 		EnableWWW:   c.FormValue("enable_www") == "on",
@@ -171,8 +200,8 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	d := db.AppDomain{
 		ID:          did,
 		AppID:       id,
-		Domain:      strings.TrimSpace(c.FormValue("domain")),
-		Service:     strings.TrimSpace(c.FormValue("service")),
+		Domain:      sanitizeQuotedField(c.FormValue("domain")),
+		Service:     sanitizeQuotedField(c.FormValue("service")),
 		Port:        port,
 		EnableHTTPS: c.FormValue("enable_https") == "on",
 		EnableWWW:   c.FormValue("enable_www") == "on",
@@ -204,6 +233,7 @@ func (p *Panel) AppDomainLabels(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
+	sanitizeDomainRecord(&d)
 	labels := caddy.GenerateLabels(d)
 	yamlStr := caddy.LabelsToYAML(labels)
 	return c.JSON(fiber.Map{
@@ -219,6 +249,7 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "domain not found"})
 	}
+	sanitizeDomainRecord(&d)
 	domain := strings.TrimSpace(d.Domain)
 	if domain == "" {
 		return c.JSON(fiber.Map{"ok": false, "error": "empty domain"})

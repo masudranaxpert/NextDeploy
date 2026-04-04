@@ -58,8 +58,8 @@ var (
 	//   HTTP/1.1 404 Not Found
 	httpStatusCode = regexp.MustCompile(`(?:"\s+|HTTP/[\d.]+\s+|\s)([1-9]\d{2})\b`)
 
-	// tsPattern matches common timestamp prefixes like [2026-04-03 19:24:58 +0000] or 2026-04-03T19:24:58Z
-	tsPattern = regexp.MustCompile(`^(\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[^\]]*)?\]|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s*`)
+	// tsPattern matches Docker/nginx/common timestamp prefixes.
+	tsPattern = regexp.MustCompile(`^(\[\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2}(?: [+\-]\d{4})?\]|\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[^\]]*)?\]|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:\d{2})?)\s*`)
 )
 
 // ansiToHTML converts ANSI SGR escape sequences to HTML <span> elements with CSS classes.

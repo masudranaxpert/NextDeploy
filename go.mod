@@ -3,6 +3,7 @@ module panel
 go 1.22
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/docker/docker v24.0.9+incompatible
 	github.com/fasthttp/websocket v1.5.8
 	github.com/gofiber/contrib/websocket v1.3.4

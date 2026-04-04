@@ -129,6 +129,7 @@ func main() {
 	app.Get("/login", p.LoginPage)
 	app.Post("/login", p.LoginPost)
 	app.Get("/logout", p.Logout)
+	app.Post("/webhooks/github/:id", p.GitHubWebhook)
 
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)
@@ -137,6 +138,13 @@ func main() {
 		return c.Redirect("/overview")
 	})
 	app.Get("/overview", p.Overview)
+	app.Get("/monitor", p.MonitorPage)
+	app.Get("/partials/monitor", p.MonitorPartial)
+	app.Use("/monitor/ws", p.MonitorWSUpgrade)
+	app.Get("/monitor/ws", fws.New(p.MonitorWebSocket))
+	app.Get("/terminal", p.VPSTerminalPage)
+	app.Use("/terminal/ws", p.VPSTerminalWSUpgrade)
+	app.Get("/terminal/ws", fws.New(p.VPSTerminalWebSocket))
 	app.Get("/nextdeploy", p.NextDeployPage)
 	app.Get("/containers", p.Containers)
 	app.Get("/images", p.ImagesPage)
@@ -166,11 +174,16 @@ func main() {
 	app.Get("/apps/:id/file", p.WorkspaceFile)
 	app.Get("/apps/:id/file-preview", p.WorkspaceFileModal)
 	app.Get("/apps/:id", p.AppShow)
+	app.Post("/apps/:id/git", p.GitConfigSave)
+	app.Post("/apps/:id/git/delete", p.GitConfigDelete)
+	app.Post("/apps/:id/git/sync", p.GitSync)
 	app.Get("/apps/:id/partials/browser", p.BrowsePartial)
 	app.Post("/apps/:id/files/delete", p.BrowseDelete)
 	app.Get("/apps/:id/partials/compose", p.AppComposePartial)
 	app.Get("/apps/:id/partials/deploy-progress", p.DeployProgressPartial)
 	app.Get("/apps/:id/partials/logs", p.AppLogPartial)
+	app.Use("/apps/:id/ws/logs", p.AppLogWSUpgrade)
+	app.Get("/apps/:id/ws/logs", fws.New(p.AppLogWebSocket))
 	app.Post("/apps/:id/exec", p.AppExec)
 	app.Use("/apps/:id/ws/terminal", p.TerminalWSUpgrade)
 	app.Get("/apps/:id/ws/terminal", fws.New(p.TerminalWebSocket))
@@ -202,6 +215,19 @@ func main() {
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
+
+	// Git providers (global credentials)
+	app.Get("/git", p.GitProvidersPage)
+	app.Post("/git", p.GitProviderCreate)
+	app.Post("/git/github/start", p.GitHubAppManifestStart)
+	app.Get("/git/github/callback", p.GitHubAppManifestCallback)
+	app.Post("/git/:pid/github/refresh-installation", p.GitHubProviderRefreshInstall)
+	app.Post("/git/:pid/update", p.GitProviderUpdate)
+	app.Post("/git/:pid/delete", p.GitProviderDelete)
+	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
+
+	// App source type switching
+	app.Post("/apps/:id/switch-source", p.AppSwitchSource)
 
 	// User management
 	app.Get("/users", p.UsersPage)

@@ -78,6 +78,29 @@ func (p *Panel) composeProjectName(app db.App, id string) string {
 	return id
 }
 
+func (p *Panel) appSourcePath(ctx context.Context, appID string) string {
+	if _, err := p.DB.GetAppGitConfig(ctx, appID); err == nil {
+		return filepath.Join(p.Store.ReservedPath(appID), "repo")
+	}
+	return p.Store.Path(appID)
+}
+
+func (p *Panel) isGitApp(ctx context.Context, appID string) bool {
+	if p.DB.GetAppSourceType(ctx, appID) == "git" {
+		return true
+	}
+	_, err := p.DB.GetAppGitConfig(ctx, appID)
+	return err == nil
+}
+
+func (p *Panel) appGitConfig(ctx context.Context, appID string) (db.AppGitConfig, bool) {
+	cfg, err := p.DB.GetAppGitConfig(ctx, appID)
+	if err != nil {
+		return db.AppGitConfig{}, false
+	}
+	return cfg, true
+}
+
 func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 	current := p.composeProjectName(app, id)
 	if current == id {
@@ -89,7 +112,7 @@ func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 func (p *Panel) activeComposeProjectName(ctx context.Context, app db.App, id string) string {
 	names := p.legacyProjectNames(app, id)
 	for _, project := range names {
-		rows, res := dockerx.ComposePS(ctx, p.Store.Path(id), p.effectiveComposePaths(ctx, app, id), project)
+		rows, res := dockerx.ComposePS(ctx, p.appSourcePath(ctx, id), p.effectiveComposePaths(ctx, app, id), project)
 		if res.OK && len(rows) > 0 {
 			return project
 		}
@@ -100,11 +123,19 @@ func (p *Panel) activeComposeProjectName(ctx context.Context, app db.App, id str
 func (p *Panel) composeFilePath(app db.App, id string) string {
 	rel := workspace.NormalizeComposeRel(app.ComposeFile)
 	parts := strings.Split(rel, "/")
-	return filepath.Join(append([]string{p.Store.Path(id)}, parts...)...)
+	base := p.Store.Path(id)
+	if cfg, err := p.DB.GetAppGitConfig(context.Background(), id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
+		base = filepath.Join(p.Store.ReservedPath(id), "repo")
+	}
+	return filepath.Join(append([]string{base}, parts...)...)
 }
 
 func (p *Panel) composeOverridePath(id string) string {
-	return filepath.Join(p.Store.Path(id), caddy.GeneratedCompose)
+	base := p.Store.Path(id)
+	if cfg, err := p.DB.GetAppGitConfig(context.Background(), id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
+		base = filepath.Join(p.Store.ReservedPath(id), "repo")
+	}
+	return filepath.Join(base, caddy.GeneratedCompose)
 }
 
 func (p *Panel) effectiveComposePaths(ctx context.Context, app db.App, id string) []string {
@@ -123,6 +154,28 @@ func (p *Panel) Overview(c *fiber.Ctx) error {
 		"Title": "Overview",
 		"Sys":   si,
 	}), "layouts/shell")
+}
+
+func (p *Panel) MonitorPage(c *fiber.Ctx) error {
+	sys := sysinfo.Collect(c.UserContext())
+	rows, errMsg := dockerapi.ListContainerUsage(c.UserContext())
+	return c.Render("pages/monitor", withUser(c, fiber.Map{
+		"Nav":         "monitor",
+		"Title":       "Monitor",
+		"Sys":         sys,
+		"UsageRows":   rows,
+		"DockerError": errMsg,
+	}), "layouts/shell")
+}
+
+func (p *Panel) MonitorPartial(c *fiber.Ctx) error {
+	sys := sysinfo.Collect(c.UserContext())
+	rows, errMsg := dockerapi.ListContainerUsage(c.UserContext())
+	return c.Render("partials/monitor_stats", fiber.Map{
+		"Sys":         sys,
+		"UsageRows":   rows,
+		"DockerError": errMsg,
+	})
 }
 
 func (p *Panel) Containers(c *fiber.Ctx) error {
@@ -250,7 +303,7 @@ func (p *Panel) AppsPage(c *fiber.Ctx) error {
 	items := make([]appListItem, 0, len(list))
 	for _, app := range list {
 		project := p.activeComposeProjectName(c.UserContext(), app, app.ID)
-		rows, _ := dockerx.ComposePS(c.UserContext(), p.Store.Path(app.ID), p.effectiveComposePaths(c.UserContext(), app, app.ID), project)
+		rows, _ := dockerx.ComposePS(c.UserContext(), p.appSourcePath(c.UserContext(), app.ID), p.effectiveComposePaths(c.UserContext(), app, app.ID), project)
 		item := appListItem{App: app, State: "not deployed"}
 		for _, row := range rows {
 			item.ContainerCount++
@@ -313,6 +366,33 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(err.Error())
 	}
+	sourceType := strings.TrimSpace(c.FormValue("source_type"))
+	if sourceType == "github" || sourceType == "git" {
+		_ = p.DB.SetAppSourceType(c.UserContext(), id, "git")
+		repoURL := strings.TrimSpace(c.FormValue("repo_url"))
+		if repoURL != "" {
+			cfg := db.AppGitConfig{
+				AppID:         id,
+				Provider:      "github",
+				RepoURL:       normalizeRepoURL(repoURL),
+				RepoFullName:  repoFullNameFromURL(repoURL),
+				Branch:        normalizeBranch(c.FormValue("branch")),
+				AuthMode:      strings.TrimSpace(c.FormValue("auth_mode")),
+				Token:         strings.TrimSpace(c.FormValue("token")),
+				WebhookSecret: randomSecret(),
+				AutoDeploy:    true,
+			}
+			if cfg.AuthMode == "" {
+				cfg.AuthMode = "public"
+			}
+			if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			if err := os.MkdirAll(filepath.Join(p.Store.ReservedPath(id), "repo"), 0750); err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+		}
+	}
 	return c.Redirect(fmt.Sprintf("/apps/%s", id))
 }
 
@@ -337,7 +417,7 @@ func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 		return c.Status(404).SendString("app not found")
 	}
 	content := c.FormValue("env")
-	if err := p.Store.WriteDotEnv(id, content); err != nil {
+	if err := p.Store.WriteDotEnv(p.appSourcePath(c.UserContext(), id), content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=environment", id))
@@ -350,18 +430,26 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		return c.Status(404).SendString("app not found")
 	}
 	tab := c.Query("tab", "overview")
+	isGitApp := p.isGitApp(c.UserContext(), id)
 	switch tab {
-	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains":
+	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git":
 	default:
 		tab = "overview"
 	}
+	if isGitApp && tab == "files" {
+		tab = "git"
+	}
 	rel := c.Query("path", "")
-	children, err := p.Store.ListChildren(id, rel)
-	if err != nil {
-		children = nil
+	var children []workspace.FileEntry
+	if !isGitApp {
+		children, err = p.Store.ListChildren(id, rel)
+		if err != nil {
+			children = nil
+		}
 	}
 	parent := p.Store.ParentRel(rel)
-	hasDF, _ := p.Store.HasDockerArtifacts(id)
+	sourcePath := p.appSourcePath(c.UserContext(), id)
+	hasDF, _ := p.Store.HasDockerArtifacts(sourcePath)
 
 	composePath := p.composeFilePath(app, id)
 	composeDisplay := workspace.NormalizeComposeRel(app.ComposeFile)
@@ -372,16 +460,16 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		composeName = composeDisplay
 	}
 
-	storagePath := filepath.ToSlash(filepath.Join(p.WorkspacesRoot, id))
+	storagePath := filepath.ToSlash(sourcePath)
 
-	envContent, _ := p.Store.ReadDotEnv(id)
+	envContent, _ := p.Store.ReadDotEnv(sourcePath)
 
 	var composeRows []dockerx.ComposePsRow
 	var composePsMsg string
 	if hasComp {
 		ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 		project := p.activeComposeProjectName(ctx, app, id)
-		rows, pr := dockerx.ComposePS(ctx, p.Store.Path(id), p.effectiveComposePaths(c.UserContext(), app, id), project)
+		rows, pr := dockerx.ComposePS(ctx, sourcePath, p.effectiveComposePaths(c.UserContext(), app, id), project)
 		cancel()
 		if pr.OK {
 			composeRows = rows
@@ -397,7 +485,22 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 
 	// Domains tab data
 	appDomains, _ := p.DB.ListAppDomains(c.UserContext(), id)
+	for i := range appDomains {
+		sanitizeDomainRecord(&appDomains[i])
+	}
 	domainServices := p.loadComposeServices(c, id)
+	gitCfg, hasGitCfg := p.appGitConfig(c.UserContext(), id)
+	panelDomain := p.DB.GetSetting(c.UserContext(), settingPanelDomain)
+	gitProviders, _ := p.DB.ListGitProviders(c.UserContext())
+	gitHubProviderDetails, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
+	gitHubProviderMap := map[int64]db.GitHubProviderDetail{}
+	for _, detail := range gitHubProviderDetails {
+		gitHubProviderMap[detail.ProviderID] = detail
+	}
+	appWebhookURL := ""
+	if hasGitCfg {
+		appWebhookURL = p.appWebhookURL(c, id)
+	}
 
 	return c.Render("pages/app_show", withUser(c, fiber.Map{
 		"Nav":                "apps",
@@ -408,6 +511,13 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"ParentPath":         parent,
 		"Children":           children,
 		"HasDockerfile":      hasDF,
+		"IsGitApp":           isGitApp,
+		"HasGitConfig":       hasGitCfg,
+		"GitConfig":          gitCfg,
+		"GitProviders":       gitProviders,
+		"GitHubProviderMap":  gitHubProviderMap,
+		"PanelDomain":        panelDomain,
+		"AppWebhookURL":      appWebhookURL,
 		"HasCompose":         hasComp,
 		"ComposeFile":        composeName,
 		"ComposeFileSetting": composeDisplay,
@@ -433,6 +543,10 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"AppDomains":         appDomains,
 		"DomainServices":     domainServices,
 		"DomainSaved":        c.Query("domainSaved") == "1",
+		"GitSaved":           c.Query("saved") == "1",
+		"GitSynced":          c.Query("synced") == "1",
+		"GitError":           c.Query("error"),
+		"SourceSwitched":     c.Query("sourceSwitched") == "1",
 	}), "layouts/shell")
 }
 
@@ -440,6 +554,9 @@ func (p *Panel) BrowsePartial(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("files browser is disabled for git-backed apps")
 	}
 	return p.renderBrowse(c, id, c.Query("path", ""), "")
 }
@@ -464,6 +581,9 @@ func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("files delete is disabled for git-backed apps")
 	}
 	returnPath := c.FormValue("path")
 	var paths []string
@@ -531,6 +651,9 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("app not found")
 	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("file view is disabled for git-backed apps")
+	}
 	rel := c.Query("path", "")
 	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
@@ -585,6 +708,11 @@ func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("app not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
+			"PreviewError": "Files preview is disabled for git-backed apps. Use the Git tab and redeploy from repository source.",
+		})
 	}
 	rel := c.Query("path", "")
 	full, err := p.Store.SafeFilePath(id, rel)
@@ -722,7 +850,7 @@ func (p *Panel) renderComposeTable(c *fiber.Ctx, id string) error {
 	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
-	dir := p.Store.Path(id)
+	dir := p.appSourcePath(c.UserContext(), id)
 	cp := p.composeFilePath(app, id)
 	if _, err := os.Stat(cp); err != nil {
 		return c.Render("partials/compose_table", fiber.Map{
@@ -913,7 +1041,7 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).SendString("app not found")
 	}
-	dir := p.Store.Path(id)
+	dir := p.appSourcePath(c.UserContext(), id)
 	cp := p.composeFilePath(app, id)
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
@@ -955,6 +1083,9 @@ func (p *Panel) UploadZip(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("app not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("ZIP upload is disabled for git-backed apps")
 	}
 	app, _ := p.DB.GetApp(c.UserContext(), id)
 	fh, err := c.FormFile("archive")
@@ -1007,6 +1138,9 @@ func (p *Panel) UploadFile(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("app not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("file upload is disabled for git-backed apps")
 	}
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -1120,9 +1254,22 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 	if err != nil {
 		return c.Status(404).SendString("app not found")
 	}
+	if p.isGitApp(c.UserContext(), id) {
+		ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
+		if out, err := p.syncGitAppSource(ctx, id); err != nil {
+			cancel()
+			msg := "[error]\nGit sync failed.\n\n" + err.Error()
+			if strings.TrimSpace(out) != "" {
+				msg += "\n\n" + out
+			}
+			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+		}
+		cancel()
+	}
 	cp := p.composeFilePath(app, id)
 	if _, err := os.Stat(cp); err != nil {
-		msg := "[error]\nCompose file not found. Set path on Overview or upload in Files."
+		msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
 		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 	}

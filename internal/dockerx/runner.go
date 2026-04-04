@@ -211,8 +211,9 @@ func DockerLogs(ctx context.Context, container string, tail int) Result {
 	if strings.TrimSpace(container) == "" {
 		return Result{OK: false, Output: "no container selected"}
 	}
+	// Keep Docker timestamps so the browser toggle has a stable source.
 	// No --no-color so ANSI from apps is preserved for browser rendering.
-	return run(ctx, ".", "docker", "logs", "--tail", fmt.Sprintf("%d", tail), container)
+	return run(ctx, ".", "docker", "logs", "-t", "--tail", fmt.Sprintf("%d", tail), container)
 }
 
 func DockerPruneUnused(ctx context.Context) Result {

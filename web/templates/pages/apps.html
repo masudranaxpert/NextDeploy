@@ -45,11 +45,54 @@
         </button>
       </div>
 
-      <form method="post" action="/apps" class="space-y-4" @submit="open = false">
+      <form method="post" action="/apps" class="space-y-4" @submit="open = false" x-data="{ sourceType: 'github' }">
         <div>
           <label class="mb-1.5 block text-sm font-medium text-foreground" for="app-name">App name</label>
           <input class="input w-full" id="app-name" name="name" placeholder="my-service" required autocomplete="off" x-ref="nameInput" x-model="appName">
           <p class="mt-1.5 text-xs text-muted-foreground">Lowercase letters, numbers, and hyphens only</p>
+        </div>
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground">Source</label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+              <input type="radio" name="source_type" value="github" x-model="sourceType" checked>
+              <div>
+                <p class="text-sm font-medium text-foreground">GitHub</p>
+                <p class="text-[10px] text-muted-foreground/60">Recommended: deploy from repo + webhook</p>
+              </div>
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+              <input type="radio" name="source_type" value="files" x-model="sourceType">
+              <div>
+                <p class="text-sm font-medium text-foreground">Manual files</p>
+                <p class="text-[10px] text-muted-foreground/60">Upload ZIP/files yourself</p>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div x-show="sourceType === 'github'" x-cloak class="space-y-3 rounded-xl border border-border/60 bg-muted/15 p-4">
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-foreground" for="repo-url">Repository URL</label>
+            <input class="input w-full font-mono text-xs" id="repo-url" name="repo_url" placeholder="https://github.com/owner/repo.git" autocomplete="off">
+            <p class="mt-1 text-xs text-muted-foreground">Public repos work with HTTPS only. Private repos can use a GitHub token below.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-foreground" for="branch">Branch</label>
+              <input class="input w-full" id="branch" name="branch" value="main" placeholder="main" autocomplete="off">
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-foreground" for="auth-mode">Access</label>
+              <select class="input w-full" id="auth-mode" name="auth_mode">
+                <option value="public">Public repo</option>
+                <option value="token">Private repo (token)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-foreground" for="token">GitHub token</label>
+            <input class="input w-full font-mono text-xs" id="token" name="token" type="password" placeholder="Only needed for private repos" autocomplete="new-password">
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-1">
           <button type="button" class="btn-secondary px-4 py-2" @click="open = false">Cancel</button>

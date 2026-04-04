@@ -1,0 +1,200 @@
+<div class="mx-auto max-w-7xl space-y-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <div class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
+          <svg class="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h3.75l1.5-6 3 12 2.25-9 1.5 3H21"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="page-title">Monitor</h1>
+          <p class="page-subtitle">Realtime CPU, memory, network, and container usage</p>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="button" class="btn-secondary h-9 px-3 text-xs" onclick="window.__monitorReconnect && window.__monitorReconnect()">
+        Reconnect stream
+      </button>
+      <div id="monitor-live-badge" class="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-300">
+        <span id="monitor-live-dot" class="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="monitor-live-label">Active only while open</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="monitor-root">
+    {{template "partials/monitor_stats" .}}
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('monitor-root');
+  var badge = document.getElementById('monitor-live-badge');
+  var label = document.getElementById('monitor-live-label');
+  var dot = document.getElementById('monitor-live-dot');
+  var ws = null;
+  var retryTimer = 0;
+  var shouldReconnect = true;
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function setLiveState(kind, text) {
+    if (!badge || !label || !dot) return;
+    if (kind === 'live') {
+      badge.className = 'inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-300';
+      dot.className = 'inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse';
+    } else if (kind === 'error') {
+      badge.className = 'inline-flex items-center gap-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium text-rose-300';
+      dot.className = 'inline-flex h-2 w-2 rounded-full bg-rose-400';
+    } else {
+      badge.className = 'inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-300';
+      dot.className = 'inline-flex h-2 w-2 rounded-full bg-amber-400 animate-pulse';
+    }
+    label.textContent = text;
+  }
+
+  function renderRows(rows) {
+    if (!rows || !rows.length) {
+      return '<tr><td colspan="6" class="px-4 py-10 text-center text-sm text-muted-foreground">No containers found on this Docker engine.</td></tr>';
+    }
+    return rows.map(function (row) {
+      var stateDot = 'bg-slate-500';
+      if (row.State === 'running') stateDot = 'bg-emerald-400';
+      else if (row.State === 'exited') stateDot = 'bg-amber-400';
+      return '' +
+        '<tr class="bg-background/30 align-top">' +
+          '<td class="px-4 py-3">' +
+            '<div class="flex items-start gap-3">' +
+              '<span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full ' + stateDot + '"></span>' +
+              '<div class="min-w-[16rem]">' +
+                '<p class="font-mono text-[13px] font-semibold text-foreground">' + escHtml(row.Name) + '</p>' +
+                '<p class="mt-0.5 text-xs text-muted-foreground">' + escHtml(row.Image) + '</p>' +
+                '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +
+              '</div>' +
+            '</div>' +
+          '</td>' +
+          '<td class="px-4 py-3"><p class="font-semibold tabular-nums text-foreground">' + escHtml((row.CPUPercent || 0).toFixed(1)) + '%</p></td>' +
+          '<td class="px-4 py-3">' +
+            '<p class="font-semibold tabular-nums text-foreground">' + escHtml(row.MemUsageHuman || '—') + '</p>' +
+            '<p class="mt-0.5 text-[11px] text-muted-foreground">' + escHtml((row.MemPercent || 0).toFixed(1)) + '% of ' + escHtml(row.MemLimitHuman || '—') + '</p>' +
+          '</td>' +
+          '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
+            '<p>DL ' + escHtml(row.NetInputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetDLRateHuman || '—') + ')</span></p>' +
+            '<p>UL ' + escHtml(row.NetOutputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetULRateHuman || '—') + ')</span></p>' +
+          '</td>' +
+          '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
+            '<p>Read ' + escHtml(row.BlockReadHuman || '0 B') + '</p>' +
+            '<p>Write ' + escHtml(row.BlockWriteHuman || '0 B') + '</p>' +
+          '</td>' +
+          '<td class="px-4 py-3"><p class="font-semibold tabular-nums text-foreground">' + escHtml(String(row.Pids || 0)) + '</p></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderMonitor(data) {
+    var sys = data.sys || {};
+    if (data.dockerError) {
+      root.innerHTML = '<div class="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">' + escHtml(data.dockerError) + '</div>';
+      return;
+    }
+    root.innerHTML = '' +
+      '<div class="space-y-5">' +
+        '<div class="grid gap-4 md:grid-cols-3">' +
+          '<div class="panel-card p-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Host CPU</p><p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">' + escHtml(((sys.CPUPercent || 0).toFixed ? (sys.CPUPercent || 0).toFixed(0) : '0')) + '%</p><p class="mt-1 text-xs text-muted-foreground">' + escHtml(String(sys.NumCPU || 0)) + ' logical CPUs visible to panel</p></div>' +
+              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20"><svg class="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h3.75l1.5-6 3 12 2.25-9 1.5 3H21"/></svg></div>' +
+            '</div>' +
+            '<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40"><div class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-lime-400" style="width: ' + escHtml(String(Math.max(0, Math.min(100, sys.CPUPercent || 0)))) + '%"></div></div>' +
+          '</div>' +
+          '<div class="panel-card p-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Host Memory</p><p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">' + escHtml(((sys.MemUsedGB || 0).toFixed ? (sys.MemUsedGB || 0).toFixed(1) : '0.0')) + ' GB</p><p class="mt-1 text-xs text-muted-foreground">of ' + escHtml(((sys.MemTotalGB || 0).toFixed ? (sys.MemTotalGB || 0).toFixed(1) : '0.0')) + ' GB</p></div>' +
+              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 ring-1 ring-sky-500/20"><svg class="h-5 w-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v4H6V6zm0 6h12v4H6v-4z"/></svg></div>' +
+            '</div>' +
+            '<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40"><div class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400" style="width: ' + escHtml(String(Math.max(0, Math.min(100, sys.MemUsedPct || 0)))) + '%"></div></div>' +
+          '</div>' +
+          '<div class="panel-card p-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Visible Runtime</p><p class="mt-1.5 text-sm font-semibold text-foreground">' + escHtml(sys.GoVersion || '') + '</p><p class="mt-1 text-xs text-muted-foreground">' + escHtml(sys.HostNote || '') + '</p></div>' +
+              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20"><svg class="h-5 w-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="panel-card overflow-hidden">' +
+          '<div class="flex flex-col gap-2 border-b border-border/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">' +
+            '<div><h3 class="text-sm font-semibold text-foreground">Container Usage</h3><p class="text-xs text-muted-foreground">Live WebSocket stream. Updates stop as soon as you leave this page.</p></div>' +
+            '<div class="text-[11px] text-muted-foreground">Updated ' + escHtml(data.updatedAt || '') + '</div>' +
+          '</div>' +
+          '<div class="overflow-x-auto">' +
+            '<table class="min-w-full text-sm">' +
+              '<thead class="bg-muted/20 text-left text-[11px] uppercase tracking-wide text-muted-foreground"><tr><th class="px-4 py-3 font-medium">Container</th><th class="px-4 py-3 font-medium">CPU</th><th class="px-4 py-3 font-medium">Memory</th><th class="px-4 py-3 font-medium">Network</th><th class="px-4 py-3 font-medium">Block I/O</th><th class="px-4 py-3 font-medium">PIDs</th></tr></thead>' +
+              '<tbody class="divide-y divide-border/40">' + renderRows(data.usageRows || []) + '</tbody>' +
+            '</table>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function closeSocket() {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = 0;
+    }
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+  }
+
+  function connect() {
+    closeSocket();
+    setLiveState('connecting', 'Connecting live stream…');
+    var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    ws = new WebSocket(proto + window.location.host + '/monitor/ws');
+    ws.onopen = function () {
+      setLiveState('live', 'Live WebSocket stream');
+    };
+    ws.onmessage = function (event) {
+      try {
+        renderMonitor(JSON.parse(event.data));
+      } catch (e) {
+        setLiveState('error', 'Invalid monitor payload');
+      }
+    };
+    ws.onerror = function () {
+      setLiveState('error', 'Monitor stream error');
+    };
+    ws.onclose = function () {
+      ws = null;
+      if (!shouldReconnect) {
+        setLiveState('error', 'Monitor stopped');
+        return;
+      }
+      setLiveState('connecting', 'Reconnecting…');
+      retryTimer = setTimeout(connect, 1500);
+    };
+  };
+
+  window.__monitorReconnect = function () {
+    shouldReconnect = true;
+    connect();
+  };
+
+  window.addEventListener('beforeunload', function () {
+    shouldReconnect = false;
+    closeSocket();
+  });
+
+  connect();
+})();
+</script>

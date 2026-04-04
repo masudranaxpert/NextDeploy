@@ -20,6 +20,8 @@ type Store struct {
 	Root string
 }
 
+const ReservedDir = ".nextdeploy"
+
 func NewStore(root string) *Store {
 	return &Store{Root: root}
 }
@@ -50,6 +52,10 @@ func (s *Store) Create(name string) (Meta, error) {
 
 func (s *Store) Path(id string) string {
 	return filepath.Join(s.Root, id)
+}
+
+func (s *Store) ReservedPath(id string) string {
+	return filepath.Join(s.Path(id), ReservedDir)
 }
 
 func (s *Store) List() ([]Meta, error) {

@@ -2,8 +2,11 @@ package dockerapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +50,67 @@ type ImageRow struct {
 	RepoTags  []string
 }
 
+type ContainerUsageRow struct {
+	ID            string
+	Name          string
+	Image         string
+	State         string
+	Status        string
+	CPUPercent    float64
+	MemUsage      uint64
+	MemLimit      uint64
+	MemPercent    float64
+	NetInput      uint64
+	NetOutput     uint64
+	BlockRead     uint64
+	BlockWrite    uint64
+	Pids          uint64
+	MemUsageHuman string
+	MemLimitHuman string
+	NetInputHuman  string
+	NetOutputHuman string
+	BlockReadHuman string
+	BlockWriteHuman string
+	NetDLRateHuman string
+	NetULRateHuman string
+}
+
+type statsJSON struct {
+	Read        time.Time `json:"read"`
+	PreCPUStats struct {
+		CPUUsage struct {
+			TotalUsage uint64 `json:"total_usage"`
+		} `json:"cpu_usage"`
+		SystemUsage uint64 `json:"system_cpu_usage"`
+	} `json:"precpu_stats"`
+	CPUStats struct {
+		CPUUsage struct {
+			TotalUsage uint64 `json:"total_usage"`
+			PercpuUsage []uint64 `json:"percpu_usage"`
+		} `json:"cpu_usage"`
+		SystemUsage uint64 `json:"system_cpu_usage"`
+		OnlineCPUs  uint32 `json:"online_cpus"`
+	} `json:"cpu_stats"`
+	MemoryStats struct {
+		Usage uint64 `json:"usage"`
+		Limit uint64 `json:"limit"`
+		Stats map[string]uint64 `json:"stats"`
+	} `json:"memory_stats"`
+	Networks map[string]struct {
+		RxBytes uint64 `json:"rx_bytes"`
+		TxBytes uint64 `json:"tx_bytes"`
+	} `json:"networks"`
+	BlkioStats struct {
+		IoServiceBytesRecursive []struct {
+			Op    string `json:"op"`
+			Value uint64 `json:"value"`
+		} `json:"io_service_bytes_recursive"`
+	} `json:"blkio_stats"`
+	PidsStats struct {
+		Current uint64 `json:"current"`
+	} `json:"pids_stats"`
+}
+
 func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 	cli, err := newAPIClient()
 	if err != nil {
@@ -74,6 +138,98 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 			Created: time.Unix(c.Created, 0).UTC(),
 		})
 	}
+	return out, ""
+}
+
+func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
+	cli, err := newAPIClient()
+	if err != nil {
+		return nil, err.Error()
+	}
+	defer cli.Close()
+
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err.Error()
+	}
+
+	out := make([]ContainerUsageRow, 0, len(list))
+	for _, c := range list {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		row := ContainerUsageRow{
+			ID:     c.ID[:12],
+			Name:   name,
+			Image:  c.Image,
+			State:  c.State,
+			Status: c.Status,
+		}
+
+		stats, err := cli.ContainerStatsOneShot(ctx, c.ID)
+		if err == nil {
+			var payload statsJSON
+			body, readErr := io.ReadAll(stats.Body)
+			_ = stats.Body.Close()
+			if readErr == nil && json.Unmarshal(body, &payload) == nil {
+				row.CPUPercent = calculateCPUPercent(payload)
+				memUsage := payload.MemoryStats.Usage
+				if cache := payload.MemoryStats.Stats["cache"]; cache > 0 && memUsage > cache {
+					memUsage -= cache
+				}
+				row.MemUsage = memUsage
+				row.MemLimit = payload.MemoryStats.Limit
+				if row.MemLimit > 0 {
+					row.MemPercent = (float64(row.MemUsage) / float64(row.MemLimit)) * 100
+				}
+				row.MemUsageHuman = formatBytes(int64(row.MemUsage))
+				row.MemLimitHuman = formatBytes(int64(row.MemLimit))
+				for _, net := range payload.Networks {
+					row.NetInput += net.RxBytes
+					row.NetOutput += net.TxBytes
+				}
+				for _, entry := range payload.BlkioStats.IoServiceBytesRecursive {
+					switch strings.ToLower(strings.TrimSpace(entry.Op)) {
+					case "read":
+						row.BlockRead += entry.Value
+					case "write":
+						row.BlockWrite += entry.Value
+					}
+				}
+				row.Pids = payload.PidsStats.Current
+			}
+		}
+
+		if row.MemUsageHuman == "" {
+			row.MemUsageHuman = "—"
+		}
+		if row.MemLimitHuman == "" {
+			row.MemLimitHuman = "—"
+		}
+		row.NetInputHuman = formatBytes(int64(row.NetInput))
+		row.NetOutputHuman = formatBytes(int64(row.NetOutput))
+		row.BlockReadHuman = formatBytes(int64(row.BlockRead))
+		row.BlockWriteHuman = formatBytes(int64(row.BlockWrite))
+		out = append(out, row)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].State == out[j].State {
+			if out[i].CPUPercent == out[j].CPUPercent {
+				return out[i].Name < out[j].Name
+			}
+			return out[i].CPUPercent > out[j].CPUPercent
+		}
+		if out[i].State == "running" {
+			return true
+		}
+		if out[j].State == "running" {
+			return false
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out, ""
 }
 
@@ -125,6 +281,26 @@ func formatBytes(n int64) string {
 		return fmt.Sprintf("%.1f MB", u/(kb*kb))
 	}
 	return fmt.Sprintf("%.2f GB", u/(kb*kb*kb))
+}
+
+func HumanBytes(n uint64) string {
+	return formatBytes(int64(n))
+}
+
+func calculateCPUPercent(s statsJSON) float64 {
+	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(s.CPUStats.SystemUsage) - float64(s.PreCPUStats.SystemUsage)
+	if cpuDelta <= 0 || systemDelta <= 0 {
+		return 0
+	}
+	online := float64(s.CPUStats.OnlineCPUs)
+	if online <= 0 {
+		online = float64(len(s.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if online <= 0 {
+		online = 1
+	}
+	return (cpuDelta / systemDelta) * online * 100
 }
 
 func formatPorts(ports []types.Port) string {

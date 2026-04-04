@@ -116,7 +116,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 	var list []FileEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".panel-meta" {
+		if name == ".panel-meta" || name == ReservedDir {
 			continue
 		}
 		relPath := name

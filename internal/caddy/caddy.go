@@ -28,6 +28,24 @@ const (
 	GeneratedCompose   = ".nextdeploy.generated.compose.yml"
 )
 
+func cleanQuotedValue(v string) string {
+	v = strings.TrimSpace(v)
+	for len(v) >= 2 {
+		first := v[0]
+		last := v[len(v)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
+			if unquoted, err := strconv.Unquote(v); err == nil {
+				v = strings.TrimSpace(unquoted)
+				continue
+			}
+			v = strings.TrimSpace(v[1 : len(v)-1])
+			continue
+		}
+		break
+	}
+	return v
+}
+
 // AdminStatus calls the Caddy admin /config/ endpoint to check if Caddy is up.
 func AdminStatus(ctx context.Context, adminAPI string) (bool, string) {
 	if adminAPI == "" {
@@ -164,7 +182,9 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 
 	byService := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {
-		service := strings.TrimSpace(d.Service)
+		service := cleanQuotedValue(d.Service)
+		d.Domain = cleanQuotedValue(d.Domain)
+		d.Service = service
 		if service == "" || strings.TrimSpace(d.Domain) == "" {
 			continue
 		}
@@ -314,7 +334,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableWWW bool, e
 }
 
 func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
-	domain := strings.TrimSpace(d.Domain)
+	domain := cleanQuotedValue(d.Domain)
 	if domain == "" {
 		return
 	}
@@ -371,7 +391,7 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 }
 
 func shouldUseInternalTLS(domain string) bool {
-	domain = strings.TrimSpace(strings.ToLower(domain))
+	domain = strings.TrimSpace(strings.ToLower(cleanQuotedValue(domain)))
 	if domain == "" {
 		return false
 	}

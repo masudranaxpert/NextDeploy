@@ -53,7 +53,7 @@ func (w *deployRunWriter) Write(p []byte) (int, error) {
 }
 
 func (p *Panel) startComposeJob(id, project string, composePaths []string, action string, fn func(context.Context, string, []string, string, io.Writer) dockerx.Result) error {
-	dir := p.Store.Path(id)
+	dir := p.appSourcePath(context.Background(), id)
 	r := p.getDeployRun(id)
 	r.mu.Lock()
 	if r.Running {
