@@ -1,0 +1,126 @@
+<div class="mx-auto max-w-7xl space-y-6">
+
+  <!-- Page header -->
+  <div class="section-header">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 ring-1 ring-cyan-500/20">
+        <svg class="h-5 w-5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title">Containers</h1>
+        <p class="page-subtitle">All containers visible to the Docker daemon</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <form method="post" action="/containers/prune"
+            onsubmit="return confirm('Remove all stopped containers? Running containers are not affected.');">
+        <button type="submit" class="btn-secondary h-10 px-4 text-sm text-rose-400 hover:border-rose-500/40 hover:bg-rose-950/30 hover:text-rose-300">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+          </svg>
+          Delete stopped
+        </button>
+      </form>
+      <a class="btn-secondary h-10 px-4 text-sm" href="/containers">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+        </svg>
+        Refresh
+      </a>
+    </div>
+  </div>
+
+  {{if .DockerError}}
+    <div class="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3">
+      <svg class="mt-0.5 h-4 w-4 shrink-0 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <p class="text-sm text-red-300">Docker error: {{.DockerError}}</p>
+    </div>
+  {{end}}
+
+  <div class="panel-card overflow-hidden">
+    <div class="table-wrap border-0 rounded-none">
+      <table class="min-w-full divide-y divide-border text-sm">
+        <thead class="bg-muted/30">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">ID</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Image</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">State</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ports</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border/50">
+          {{if .Containers}}
+            {{range .Containers}}
+              <tr class="group transition-colors hover:bg-muted/20">
+                <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.ID}}</td>
+                <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+                <td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[200px]">{{.Image}}</td>
+                <td class="px-4 py-3">
+                  {{$state := .State}}
+                  {{if eq $state "running"}}
+                    <span class="badge badge-running">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]"></span>
+                      {{$state}}
+                    </span>
+                  {{else if eq $state "exited"}}
+                    <span class="badge badge-exited">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-red-400"></span>
+                      {{$state}}
+                    </span>
+                  {{else if eq $state "paused"}}
+                    <span class="badge badge-paused">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                      {{$state}}
+                    </span>
+                  {{else if eq $state "created"}}
+                    <span class="badge badge-created">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                      {{$state}}
+                    </span>
+                  {{else}}
+                    <span class="badge badge-stopped">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                      {{$state}}
+                    </span>
+                  {{end}}
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.Ports}}</td>
+                <td class="px-4 py-3 text-right">
+                  <form method="post" action="/containers/remove" class="inline"
+                        onsubmit="return confirm('Force remove container {{.Name}}?');">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <button type="submit" class="btn-ghost inline-flex h-7 items-center gap-1 px-2.5 text-xs text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 transition-colors">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                      </svg>
+                      Remove
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {{end}}
+          {{else}}
+            <tr>
+              <td colspan="6" class="px-4 py-16 text-center">
+                <div class="flex flex-col items-center gap-3">
+                  <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
+                    <svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+                    </svg>
+                  </div>
+                  <p class="text-sm text-muted-foreground">No containers found</p>
+                </div>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

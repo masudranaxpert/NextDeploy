@@ -1,0 +1,79 @@
+<div class="mx-auto max-w-5xl space-y-6">
+
+  <!-- Page header -->
+  <div class="flex items-center gap-3">
+    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 ring-1 ring-amber-500/20">
+      <svg class="h-5 w-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="page-title">Volumes</h1>
+      <p class="page-subtitle">Docker named volumes — browse, backup, or restore</p>
+    </div>
+  </div>
+
+  {{if .VolumeError}}
+    <div class="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+      <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <p class="text-sm text-amber-200">{{.VolumeError}}</p>
+    </div>
+  {{end}}
+
+  {{if .Volumes}}
+    <div class="grid gap-3 sm:grid-cols-2">
+      {{range .Volumes}}
+        <div class="panel-card group flex items-center justify-between gap-4 p-4 transition-all hover:border-border">
+          <div class="flex min-w-0 items-center gap-3">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20">
+              <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+              </svg>
+            </div>
+            <span class="min-w-0 truncate font-mono text-xs text-foreground">{{.}}</span>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <a href="/volumes/browse?name={{urlquery .}}"
+               class="btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-xs">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+              </svg>
+              Browse
+            </a>
+            <a href="/volumes/download?name={{urlquery .}}"
+               class="btn-ghost inline-flex h-8 items-center gap-1.5 px-3 text-xs">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Backup
+            </a>
+            <form method="post" action="/volumes/remove" class="inline"
+                  onsubmit="return confirm('Delete volume {{.}}? Data will be permanently lost if no container is using it.');">
+              <input type="hidden" name="name" value="{{.}}">
+              <button type="submit" class="btn-ghost inline-flex h-8 items-center gap-1 px-2.5 text-xs text-red-400 hover:bg-red-950/40 hover:text-red-300">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+                Delete
+              </button>
+            </form>
+          </div>
+        </div>
+      {{end}}
+    </div>
+  {{else}}
+    {{if not .VolumeError}}
+      <div class="panel-card flex flex-col items-center justify-center py-20 text-center">
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/50 ring-1 ring-border">
+          <svg class="h-8 w-8 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+          </svg>
+        </div>
+        <p class="mt-4 text-base font-medium text-foreground">No Docker volumes found</p>
+        <p class="mt-1 text-sm text-muted-foreground">Deploy a compose stack to create named volumes</p>
+      </div>
+    {{end}}
+  {{end}}
+</div>

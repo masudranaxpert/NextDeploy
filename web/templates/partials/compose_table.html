@@ -1,0 +1,67 @@
+{{define "partials/compose_table"}}
+<div class="space-y-3">
+  {{if .ComposeRows}}
+    {{if .ComposePsMsg}}
+      <p class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 whitespace-pre-wrap">{{.ComposePsMsg}}</p>
+    {{end}}
+    <form class="space-y-3"
+          hx-post="/apps/{{.ID}}/containers/remove-selected"
+          hx-target="#compose-table-root"
+          hx-swap="innerHTML"
+          hx-confirm="Remove selected containers? This removes only the chosen containers.">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs text-muted-foreground">Container names use the app project prefix so volumes become predictable like <code class="rounded bg-muted px-1">app_volume</code>.</p>
+        <button type="submit" class="btn-stop h-8 px-3 py-0 text-[11px]">Remove selected</button>
+      </div>
+    <div class="table-wrap">
+      <table class="min-w-full divide-y divide-border text-sm">
+        <thead class="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th class="w-10 px-2 py-2">
+              <input type="checkbox" class="rounded border-border"
+                     onclick="document.querySelectorAll('[data-compose-pick]').forEach(function(el){ el.checked = event.target.checked; });">
+            </th>
+            <th class="px-3 py-2 font-medium">Name</th>
+            <th class="px-3 py-2 font-medium">Service</th>
+            <th class="px-3 py-2 font-medium">State</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2 font-medium text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+          {{range .ComposeRows}}
+            <tr class="hover:bg-muted/30">
+              <td class="px-2 py-2 align-middle">
+                <input type="checkbox" name="containers" value="{{.Name}}" data-compose-pick class="rounded border-border">
+              </td>
+              <td class="px-3 py-2 font-mono text-xs">{{.Name}}</td>
+              <td class="px-3 py-2">{{.Service}}</td>
+              <td class="px-3 py-2"><span class="rounded-full bg-muted px-2 py-0.5 text-xs">{{.State}}</span></td>
+              <td class="px-3 py-2 text-xs text-muted-foreground">{{.Status}}</td>
+              <td class="px-2 py-2 text-right">
+                <div class="flex flex-wrap justify-end gap-1">
+                  <form hx-post="/apps/{{$.ID}}/containers/restart" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
+                    <input type="hidden" name="container" value="{{.Name}}">
+                    <button type="submit" class="btn-restart h-7 px-2 py-0 text-[11px]">Restart</button>
+                  </form>
+                  <form hx-post="/apps/{{$.ID}}/containers/remove" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
+                    <input type="hidden" name="container" value="{{.Name}}">
+                    <button type="submit" class="btn-stop h-7 px-2 py-0 text-[11px]" hx-confirm="Remove this container? Data in anonymous volumes may be lost.">Remove</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    </form>
+  {{else}}
+    {{if .ComposePsMsg}}
+      <p class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">{{composeFriendly .ComposePsMsg}}</p>
+    {{else}}
+      <p class="text-sm text-muted-foreground">No compose containers yet. Deploy from Overview, then refresh.</p>
+    {{end}}
+  {{end}}
+</div>
+{{end}}

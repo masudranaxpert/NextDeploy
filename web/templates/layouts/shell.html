@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="hsl(224 71% 4%)">
+  <title>{{.Title}} · NextDeploy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script>
+    (function () {
+      function scrollDeployPreToBottom() {
+        var pre = document.getElementById('deploy-live-pre');
+        if (!pre) return;
+        function setBottom() {
+          pre.scrollTop = pre.scrollHeight;
+        }
+        setBottom();
+        requestAnimationFrame(setBottom);
+        setTimeout(setBottom, 0);
+        setTimeout(setBottom, 80);
+      }
+
+      function getLogWrap(target) {
+        if (!target || !target.closest) return null;
+        return target.closest('.log-view-wrap');
+      }
+
+      function getFilterButtonClasses(filter, active) {
+        var base = 'log-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ';
+        if (!active) {
+          if (filter === 'error') return base + 'text-muted-foreground hover:text-rose-300 hover:bg-rose-950/30';
+          if (filter === 'warn') return base + 'text-muted-foreground hover:text-amber-300 hover:bg-amber-950/30';
+          if (filter === 'info') return base + 'text-muted-foreground hover:text-cyan-300 hover:bg-cyan-950/30';
+          if (filter === 'debug') return base + 'text-muted-foreground hover:text-violet-300 hover:bg-violet-950/30';
+          return base + 'text-muted-foreground hover:text-foreground hover:bg-muted/60';
+        }
+        if (filter === 'error') return base + 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/30';
+        if (filter === 'warn') return base + 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/30';
+        if (filter === 'info') return base + 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/30';
+        if (filter === 'debug') return base + 'bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/30';
+        return base + 'bg-primary/20 text-primary ring-1 ring-primary/30';
+      }
+
+      function applyLogFilter(wrap, level) {
+        if (!wrap) return;
+        wrap.dataset.logFilter = level;
+        var viewport = wrap.querySelector('.log-viewport');
+        if (!viewport) return;
+        var lines = viewport.querySelectorAll('.log-line, .log-line-spacer');
+        lines.forEach(function (line) {
+          if (line.classList.contains('log-line-spacer')) {
+            line.style.display = level === 'all' ? '' : 'none';
+            return;
+          }
+          if (level === 'all') {
+            line.style.display = '';
+            return;
+          }
+          var cls = line.className;
+          var show = false;
+          if (level === 'error' && (cls.indexOf('log-lvl-error') !== -1 || cls.indexOf('log-lvl-fatal') !== -1)) show = true;
+          else if (level === 'warn' && cls.indexOf('log-lvl-warn') !== -1) show = true;
+          else if (level === 'info' && cls.indexOf('log-lvl-info') !== -1) show = true;
+          else if (level === 'debug' && cls.indexOf('log-lvl-debug') !== -1) show = true;
+          line.style.display = show ? '' : 'none';
+        });
+
+        wrap.querySelectorAll('.log-filter-btn').forEach(function (btn) {
+          var filter = btn.getAttribute('data-filter') || 'all';
+          btn.className = getFilterButtonClasses(filter, filter === level);
+        });
+      }
+
+      function setTimestampState(wrap, showTs) {
+        if (!wrap) return;
+        wrap.dataset.showTs = showTs ? 'true' : 'false';
+        var viewport = wrap.querySelector('.log-viewport');
+        var toggle = wrap.querySelector('.log-ts-toggle');
+        var label = wrap.querySelector('.log-ts-label');
+        if (viewport) {
+          viewport.classList.toggle('hide-timestamps', !showTs);
+        }
+        if (label) {
+          label.textContent = showTs ? 'Hide TS' : 'Show TS';
+        }
+        if (toggle) {
+          toggle.className = showTs
+            ? 'log-ts-toggle inline-flex items-center gap-1.5 rounded-lg bg-sky-600/25 px-2.5 py-1.5 text-[11px] font-medium text-sky-300 ring-1 ring-sky-500/35 transition-all hover:text-sky-200'
+            : 'log-ts-toggle inline-flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground';
+        }
+      }
+
+      function downloadLog(wrap) {
+        if (!wrap) return;
+        var viewport = wrap.querySelector('.log-viewport');
+        if (!viewport) return;
+        var lines = viewport.querySelectorAll('.log-line');
+        var text = '';
+        if (lines.length > 0) {
+          lines.forEach(function (line) {
+            if (line.style.display === 'none') return;
+            text += (line.innerText || line.textContent || '') + '\n';
+          });
+        } else {
+          text = viewport.innerText || viewport.textContent || '';
+        }
+        var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'container-logs.txt';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(function () {
+          URL.revokeObjectURL(link.href);
+        }, 100);
+      }
+
+      function scrollLogViewportToBottom(root) {
+        if (!root) return;
+        var wraps = root.matches && root.matches('.log-view-wrap')
+          ? [root]
+          : (root.querySelectorAll ? root.querySelectorAll('.log-view-wrap') : []);
+        wraps.forEach(function (wrap) {
+          var viewport = wrap.querySelector('.log-viewport');
+          if (!viewport) return;
+          function doScroll() { viewport.scrollTop = viewport.scrollHeight; }
+          doScroll();
+          requestAnimationFrame(doScroll);
+          setTimeout(doScroll, 50);
+          setTimeout(doScroll, 200);
+        });
+      }
+
+      function initLogWrap(root) {
+        if (!root) return;
+        var wraps = root.matches && root.matches('.log-view-wrap')
+          ? [root]
+          : (root.querySelectorAll ? root.querySelectorAll('.log-view-wrap') : []);
+        wraps.forEach(function (wrap) {
+          applyLogFilter(wrap, wrap.dataset.logFilter || 'all');
+          setTimestampState(wrap, wrap.dataset.showTs === 'true');
+        });
+        scrollLogViewportToBottom(root);
+      }
+
+      document.addEventListener('click', function (event) {
+        var filterBtn = event.target.closest('.log-filter-btn');
+        if (filterBtn) {
+          applyLogFilter(getLogWrap(filterBtn), filterBtn.getAttribute('data-filter') || 'all');
+          return;
+        }
+
+        var tsToggle = event.target.closest('.log-ts-toggle');
+        if (tsToggle) {
+          var wrap = getLogWrap(tsToggle);
+          var nextState = !(wrap && wrap.dataset.showTs === 'true');
+          setTimestampState(wrap, nextState);
+          return;
+        }
+
+        var downloadBtn = event.target.closest('.log-download-btn');
+        if (downloadBtn) {
+          downloadLog(getLogWrap(downloadBtn));
+        }
+      });
+
+      document.addEventListener('DOMContentLoaded', function () {
+        initLogWrap(document);
+        scrollDeployPreToBottom();
+      });
+      document.addEventListener('htmx:afterSwap', function (event) {
+        initLogWrap(event.target || document);
+        scrollDeployPreToBottom();
+      });
+      document.addEventListener('htmx:oobAfterSwap', function () {
+        scrollDeployPreToBottom();
+      });
+      document.addEventListener('htmx:afterSettle', function () {
+        scrollDeployPreToBottom();
+      });
+      window.scrollDeployPreToBottom = scrollDeployPreToBottom;
+    })();
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="min-h-full bg-background text-foreground antialiased" style="font-family: 'Inter', system-ui, sans-serif;">
+  <div class="flex min-h-screen" x-data="{ mobileNav: false }" @nav-close="mobileNav = false">
+
+    <!-- Mobile menu backdrop -->
+    <div
+      x-show="mobileNav"
+      x-cloak
+      x-transition.opacity.duration.200ms
+      class="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden"
+      @click="mobileNav = false"
+      aria-hidden="true"></div>
+
+    <!-- Mobile slide-over -->
+    <aside
+      x-show="mobileNav"
+      x-cloak
+      x-transition:enter="transition ease-out duration-200"
+      x-transition:enter-start="-translate-x-full"
+      x-transition:enter-end="translate-x-0"
+      x-transition:leave="transition ease-in duration-150"
+      x-transition:leave-start="translate-x-0"
+      x-transition:leave-end="-translate-x-full"
+      class="fixed inset-y-0 left-0 z-50 flex w-[min(88vw,18rem)] flex-col border-r border-border bg-card/98 shadow-2xl backdrop-blur-xl supports-[padding:max(0px)]:pb-[max(0px,env(safe-area-inset-bottom))] md:hidden"
+      id="mobile-drawer"
+      aria-label="Main navigation">
+      <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-3 supports-[padding:max(0px)]:pt-[max(0px,env(safe-area-inset-top))]">
+        <div class="flex min-w-0 items-center gap-2.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-xs font-bold text-white shadow-md">
+            ND
+          </div>
+          <div class="min-w-0 leading-tight">
+            <span class="block truncate text-sm font-semibold tracking-tight">NextDeploy</span>
+            <span class="text-[10px] text-muted-foreground">Ship compose stacks</span>
+          </div>
+        </div>
+        <button type="button" class="btn-icon" @click="mobileNav = false" aria-label="Close menu">
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      {{template "partials/shell_nav" .}}
+      <div class="mt-auto border-t border-border p-3">
+        {{if .CurrentUser}}
+        <div class="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2">
+          <div class="flex min-w-0 items-center gap-2">
+            <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-[9px] font-bold text-indigo-300 uppercase">
+              {{initials .CurrentUser.Username}}
+            </div>
+            <span class="truncate text-[11px] font-medium text-foreground">{{.CurrentUser.Username}}</span>
+            {{if eq .CurrentUser.Role "admin"}}
+              <span class="text-[9px] text-amber-400">admin</span>
+            {{end}}
+          </div>
+          <a href="/logout" class="text-muted-foreground hover:text-foreground transition-colors" title="Sign out">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+            </svg>
+          </a>
+        </div>
+        {{else}}
+        <div class="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
+          <span class="inline-flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.4)]"></span>
+          <span class="text-[11px] text-muted-foreground">Panel running</span>
+        </div>
+        {{end}}
+      </div>
+    </aside>
+
+    <!-- Desktop sidebar -->
+    <aside class="hidden w-64 shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-xl md:flex">
+      <!-- Logo -->
+      <div class="flex items-center gap-3 border-b border-border px-4 py-4">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-white shadow-lg shadow-primary/25">
+          ND
+        </div>
+        <div class="min-w-0 leading-tight">
+          <span class="block truncate text-sm font-bold tracking-tight text-foreground">NextDeploy</span>
+          <span class="text-[11px] text-muted-foreground">Ship compose stacks</span>
+        </div>
+      </div>
+
+      {{template "partials/shell_nav" .}}
+
+      <!-- Footer -->
+      <div class="mt-auto border-t border-border p-3">
+        {{if .CurrentUser}}
+        <div class="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2.5">
+          <div class="flex min-w-0 items-center gap-2">
+            <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-[10px] font-bold text-indigo-300 uppercase">
+              {{initials .CurrentUser.Username}}
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-[11px] font-medium text-foreground">{{.CurrentUser.Username}}</p>
+              {{if eq .CurrentUser.Role "admin"}}
+                <p class="text-[9px] text-amber-400">admin</p>
+              {{else}}
+                <p class="text-[9px] text-muted-foreground">user</p>
+              {{end}}
+            </div>
+          </div>
+          <a href="/logout" class="text-muted-foreground hover:text-foreground transition-colors p-1 rounded" title="Sign out">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+            </svg>
+          </a>
+        </div>
+        {{else}}
+        <div class="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2.5">
+          <span class="inline-flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.4)]"></span>
+          <span class="text-[11px] text-muted-foreground">Panel running</span>
+        </div>
+        {{end}}
+      </div>
+    </aside>
+
+    <!-- Main content area -->
+    <div class="flex min-w-0 flex-1 flex-col">
+      <!-- Mobile top bar -->
+      <header class="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-md supports-[padding:max(0px)]:pt-[max(0px,env(safe-area-inset-top))] md:hidden">
+        <button type="button"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card/60 text-foreground shadow-sm hover:bg-muted/60 transition-colors"
+          @click="mobileNav = true"
+          aria-label="Open menu"
+          :aria-expanded="mobileNav ? 'true' : 'false'">
+          <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <a href="/overview" class="min-w-0 flex-1 flex items-center gap-2">
+          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-[10px] font-bold text-white">ND</div>
+          <div class="min-w-0">
+            <span class="block truncate text-sm font-semibold tracking-tight">NextDeploy</span>
+          </div>
+        </a>
+      </header>
+
+      <main class="flex-1 px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
+        {{embed}}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

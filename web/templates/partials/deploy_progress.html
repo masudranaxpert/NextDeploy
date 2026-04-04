@@ -1,0 +1,42 @@
+{{define "partials/deploy_progress"}}
+{{if .OOBOnly}}
+  {{if .LiveRunning}}
+<pre id="deploy-live-pre" hx-swap-oob="innerHTML">{{.LiveOutput}}</pre>
+  {{else}}
+<div id="deploy-live" hx-swap-oob="outerHTML" class="rounded-xl border border-border bg-[#060a10] overflow-hidden">
+  {{if .LiveAction}}
+  <div class="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
+    <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{{.LiveAction}}</span>
+    <span class="badge badge-success">Finished</span>
+  </div>
+  {{end}}
+  <pre id="deploy-live-pre" class="max-h-[min(28rem,55vh)] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-muted-foreground">{{.LiveOutput}}</pre>
+</div>
+  {{end}}
+{{else}}
+<div id="deploy-live"
+     class="rounded-xl border border-border bg-[#060a10] overflow-hidden"
+     {{if .LiveRunning}}hx-get="/apps/{{.ID}}/partials/deploy-progress?oob=1" hx-trigger="load delay:0ms, every 1s" hx-swap="none"{{end}}>
+  {{if .LiveAction}}
+  <div class="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
+    <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{{.LiveAction}}</span>
+    {{if .LiveRunning}}
+      <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300 ring-1 ring-amber-500/25">
+        <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400"></span>
+        Running
+      </span>
+    {{else}}
+      <span class="badge badge-success">Finished</span>
+    {{end}}
+  </div>
+  {{end}}
+  <pre id="deploy-live-pre" class="max-h-[min(28rem,55vh)] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-muted-foreground">{{.LiveOutput}}</pre>
+  {{if .LiveRunning}}
+  <div class="flex items-center gap-2 border-t border-border/50 px-4 py-2.5 text-xs text-amber-200/80">
+    <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400"></span>
+    Running in background — switch tabs freely; updates every second.
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}

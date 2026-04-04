@@ -1,0 +1,65 @@
+<div class="mx-auto max-w-5xl space-y-6">
+  <div class="section-header">
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-subtitle">Background cleanup and panel-level maintenance defaults.</p>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">Cleanup started in the background. Refresh in a moment to see the result.</p>
+  </div>
+  {{end}}
+
+  <div class="panel-card p-5 space-y-5">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Docker Cleanup</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Removes unused containers and images. Running containers are never touched.</p>
+      </div>
+      <form method="post" action="/settings/cleanup/run">
+        <button type="submit" class="btn-secondary h-9 px-3 text-xs text-amber-400 hover:border-amber-500/40 hover:bg-amber-950/30 hover:text-amber-300 shrink-0">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9"/>
+          </svg>
+          Run now
+        </button>
+      </form>
+    </div>
+
+    <form method="POST" action="/settings" class="space-y-4">
+      <label class="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 cursor-pointer">
+        <input type="checkbox" name="cleanup_enabled" class="mt-1 rounded border-border" {{if .CleanupEnabled}}checked{{end}}>
+        <div>
+          <p class="text-sm font-medium text-foreground">Enable scheduled auto-cleanup</p>
+          <p class="mt-0.5 text-xs text-muted-foreground">Runs automatically on the interval below. Default is enabled.</p>
+        </div>
+      </label>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="cleanup_interval">Cleanup interval</label>
+        <select id="cleanup_interval" name="cleanup_interval" class="input w-full max-w-xs">
+          {{range .CleanupIntervals}}
+            <option value="{{.Value}}" {{if eq $.CleanupInterval .Value}}selected{{end}}>{{.Label}}</option>
+          {{end}}
+        </select>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+          <p class="text-xs font-medium text-muted-foreground">Last run</p>
+          <p class="mt-1 font-mono text-xs text-foreground">{{if .CleanupLastRun}}{{.CleanupLastRun}}{{else}}<span class="text-muted-foreground/60">Not run yet</span>{{end}}</p>
+        </div>
+        <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+          <p class="text-xs font-medium text-muted-foreground">Last result</p>
+          <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground">{{if .CleanupLastLog}}{{.CleanupLastLog}}{{else}}<span class="text-muted-foreground/50">No output yet</span>{{end}}</pre>
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="btn-primary px-5 py-2 text-sm">Save Settings</button>
+      </div>
+    </form>
+  </div>
+</div>

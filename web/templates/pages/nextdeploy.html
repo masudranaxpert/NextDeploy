@@ -1,0 +1,326 @@
+<div class="space-y-6">
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div>
+      <h1 class="page-title">NextDeploy</h1>
+      <p class="page-subtitle">Shared proxy, panel domain, and root stack settings for this installation.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      {{if .CaddyRunning}}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">Caddy running</span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-500/10 px-3 py-1 text-xs font-medium text-slate-400 ring-1 ring-slate-500/20">Caddy stopped</span>
+      {{end}}
+      {{if .CaddyUp}}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-400 ring-1 ring-sky-500/20">Admin API reachable</span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300 ring-1 ring-amber-500/20">Admin API check failed</span>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+    <div class="space-y-6">
+      <div class="panel-card p-5">
+        <div class="section-header mb-4"><span>Panel Domain</span></div>
+        <form method="POST" action="/nextdeploy/panel" class="space-y-4">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="panel_domain">Panel domain</label>
+              <input id="panel_domain" name="panel_domain" type="text" class="input w-full" value="{{.PanelDomain}}" placeholder="panel.example.com">
+              <p class="mt-1 text-[11px] text-muted-foreground/70">When saved, NextDeploy updates the root `docker-compose.yml` so the `panel` service is routed by Caddy.</p>
+            </div>
+            <label class="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+              <input type="checkbox" name="panel_enable_www" class="mt-1 rounded border-border" {{if .PanelEnableWWW}}checked{{end}}>
+              <div>
+                <p class="text-sm font-medium text-foreground">Also route `www`</p>
+                <p class="mt-1 text-xs text-muted-foreground">Adds `www.domain` to the panel route.</p>
+              </div>
+            </label>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-primary">Save Panel Domain</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel-card p-5">
+        <div class="section-header mb-4"><span>Proxy Control</span></div>
+        <form method="POST" action="/caddy/config" class="mb-4 grid gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="admin_api">Admin API URL</label>
+            <input id="admin_api" name="admin_api" type="text" class="input w-full" value="{{.AdminAPI}}" placeholder="http://caddy:2019">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="email">ACME Email</label>
+            <input id="email" name="email" type="email" class="input w-full" value="{{.Email}}" placeholder="you@example.com">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="caddy_image">Caddy image</label>
+            <input id="caddy_image" name="caddy_image" type="text" class="input w-full" value="{{if .CaddyImage}}{{.CaddyImage}}{{else}}lucaslorentz/caddy-docker-proxy:ci-alpine{{end}}">
+          </div>
+          <div class="flex items-end justify-end">
+            <button type="submit" class="btn btn-primary">Save Proxy Settings</button>
+          </div>
+        </form>
+        <div class="mb-4 flex flex-wrap gap-2">
+          <form method="POST" action="/caddy/container">
+            <input type="hidden" name="action" value="start">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30 transition-all hover:bg-emerald-600/30 disabled:opacity-40" {{if .CaddyRunning}}disabled{{end}}>Start</button>
+          </form>
+          <form method="POST" action="/caddy/container">
+            <input type="hidden" name="action" value="restart">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600/20 px-3 py-2 text-xs font-medium text-sky-300 ring-1 ring-sky-500/30 transition-all hover:bg-sky-600/30">Restart</button>
+          </form>
+          <form method="POST" action="/caddy/container" onsubmit="return confirm('Stop the Caddy proxy container?')">
+            <input type="hidden" name="action" value="stop">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-rose-600/20 px-3 py-2 text-xs font-medium text-rose-300 ring-1 ring-rose-500/30 transition-all hover:bg-rose-600/30 disabled:opacity-40" {{if not .CaddyRunning}}disabled{{end}}>Stop</button>
+          </form>
+          <button type="button" onclick="loadCaddyLogs()" class="inline-flex items-center gap-1.5 rounded-lg bg-violet-600/20 px-3 py-2 text-xs font-medium text-violet-300 ring-1 ring-violet-500/30 transition-all hover:bg-violet-600/30">View Logs</button>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+            <p class="text-xs text-muted-foreground">Admin API</p>
+            <code class="mt-1 block text-xs text-foreground">{{.AdminAPI}}</code>
+            {{if .CaddyUp}}
+              <p class="mt-2 text-xs text-emerald-300">Reachable from the panel container.</p>
+            {{else}}
+              <p class="mt-2 text-xs text-amber-300">If Caddy is running but this fails, ensure `CADDY_ADMIN=0.0.0.0:2019` is present in the root stack.</p>
+              <p class="mt-1 break-all text-[11px] text-muted-foreground">{{.StatusMsg}}</p>
+            {{end}}
+          </div>
+          <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+            <p class="text-xs text-muted-foreground">ACME email</p>
+            <p class="mt-1 text-sm text-foreground">{{if .Email}}{{.Email}}{{else}}Not set{{end}}</p>
+            <p class="mt-2 text-[11px] text-muted-foreground">Optional only. Caddy can issue certificates without an email; email is just recommended for expiry notifications and issuer account recovery.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-card p-5" id="caddy-log-card" style="display:none">
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+          <h2 class="text-sm font-semibold text-foreground">Caddy Container Logs</h2>
+          <select id="caddy-log-tail" class="input ml-auto h-8 w-28 text-xs" onchange="loadCaddyLogs()">
+            <option value="100">Last 100</option>
+            <option value="300" selected>Last 300</option>
+            <option value="500">Last 500</option>
+          </select>
+          <button type="button" onclick="loadCaddyLogs()" class="btn-secondary h-8 px-3 text-[11px]">Refresh</button>
+          <button type="button" onclick="downloadCaddyLogs()" class="inline-flex h-8 items-center rounded-lg bg-emerald-600/20 px-3 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/30 transition-all hover:bg-emerald-600/30">Download</button>
+        </div>
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <button type="button" data-caddy-filter="all" onclick="setCaddyFilter('all')" class="caddy-filter-btn rounded-md bg-primary/20 px-2.5 py-1 text-[11px] font-medium text-primary ring-1 ring-primary/30">All</button>
+          <button type="button" data-caddy-filter="error" onclick="setCaddyFilter('error')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-rose-950/30 hover:text-rose-300">Error</button>
+          <button type="button" data-caddy-filter="warn" onclick="setCaddyFilter('warn')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-amber-950/30 hover:text-amber-300">Warn</button>
+          <button type="button" data-caddy-filter="info" onclick="setCaddyFilter('info')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-cyan-950/30 hover:text-cyan-300">Info</button>
+          <button type="button" id="caddy-ts-btn" onclick="toggleCaddyTs()" class="inline-flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground"><span>Show TS</span></button>
+        </div>
+        <div id="caddy-log-viewport" class="log-viewport max-h-[min(36rem,70vh)] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[12px] leading-relaxed shadow-inner ring-1 ring-black/40 hide-timestamps">
+          <span class="text-[11px] text-muted-foreground/50">Click "View Logs" to load the latest Caddy output.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-6">
+      <div class="panel-card p-5">
+        <div class="section-header mb-4"><span>Panel Labels Preview</span></div>
+        <pre class="max-h-80 overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .PanelLabelsYAML}}{{.PanelLabelsYAML}}{{else}}No panel domain configured yet.{{end}}</pre>
+      </div>
+
+      <div class="panel-card p-5">
+        <div class="section-header mb-4">
+          <span>Root Stack Compose</span>
+          <span class="ml-auto text-[11px] text-muted-foreground">{{.RootComposePath}}</span>
+        </div>
+        <pre class="max-h-[36rem] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}Root compose preview unavailable.{{end}}</pre>
+      </div>
+
+      {{if .LiveConfig}}
+      <div class="panel-card p-5">
+        <div class="section-header mb-4"><span>Live Running Config</span></div>
+        <pre class="max-h-80 overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.LiveConfig}}</pre>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var caddyLogFilter = 'all';
+  var caddyShowTs = false;
+
+  window.loadCaddyLogs = function () {
+    var card = document.getElementById('caddy-log-card');
+    var vp = document.getElementById('caddy-log-viewport');
+    var tail = document.getElementById('caddy-log-tail').value || '300';
+    card.style.display = '';
+    vp.innerHTML = '<span class="text-[11px] text-muted-foreground/50">Loading latest logs…</span>';
+    fetch('/caddy/logs?tail=' + encodeURIComponent(tail))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        renderCaddyLogs(vp, data.lines || []);
+        applyCaddyFilter(vp, caddyLogFilter);
+        if (!caddyShowTs) vp.classList.add('hide-timestamps');
+        else vp.classList.remove('hide-timestamps');
+        vp.scrollTop = vp.scrollHeight;
+        requestAnimationFrame(function () { vp.scrollTop = vp.scrollHeight; });
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      })
+      .catch(function (e) {
+        vp.innerHTML = '<span class="text-[11px] text-rose-400">Error: ' + escHtml(e.message) + '</span>';
+      });
+  };
+
+  window.setCaddyFilter = function (level) {
+    caddyLogFilter = level;
+    document.querySelectorAll('.caddy-filter-btn').forEach(function (btn) {
+      var active = btn.dataset.caddyFilter === level;
+      btn.className = 'caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all';
+      if (!active) {
+        btn.classList.add('text-muted-foreground');
+        if (btn.dataset.caddyFilter === 'error') btn.classList.add('hover:text-rose-300', 'hover:bg-rose-950/30');
+        else if (btn.dataset.caddyFilter === 'warn') btn.classList.add('hover:text-amber-300', 'hover:bg-amber-950/30');
+        else if (btn.dataset.caddyFilter === 'info') btn.classList.add('hover:text-cyan-300', 'hover:bg-cyan-950/30');
+        else btn.classList.add('hover:text-foreground', 'hover:bg-muted/60');
+        return;
+      }
+      if (level === 'error') btn.classList.add('bg-rose-500/20', 'text-rose-300', 'ring-1', 'ring-rose-500/30');
+      else if (level === 'warn') btn.classList.add('bg-amber-500/20', 'text-amber-300', 'ring-1', 'ring-amber-500/30');
+      else if (level === 'info') btn.classList.add('bg-cyan-500/20', 'text-cyan-300', 'ring-1', 'ring-cyan-500/30');
+      else btn.classList.add('bg-primary/20', 'text-primary', 'ring-1', 'ring-primary/30');
+    });
+    applyCaddyFilter(document.getElementById('caddy-log-viewport'), level);
+  };
+
+  window.toggleCaddyTs = function () {
+    caddyShowTs = !caddyShowTs;
+    var vp = document.getElementById('caddy-log-viewport');
+    var btn = document.getElementById('caddy-ts-btn');
+    var label = btn ? btn.querySelector('span') : null;
+    if (!vp || !btn || !label) return;
+    vp.classList.toggle('hide-timestamps', !caddyShowTs);
+    label.textContent = caddyShowTs ? 'Hide TS' : 'Show TS';
+    btn.classList.toggle('bg-sky-600/25', caddyShowTs);
+    btn.classList.toggle('text-sky-300', caddyShowTs);
+    btn.classList.toggle('ring-sky-500/35', caddyShowTs);
+    btn.classList.toggle('bg-muted/40', !caddyShowTs);
+    btn.classList.toggle('text-muted-foreground', !caddyShowTs);
+    btn.classList.toggle('ring-border', !caddyShowTs);
+  };
+
+  window.downloadCaddyLogs = function () {
+    var vp = document.getElementById('caddy-log-viewport');
+    var text = '';
+    if (!vp) return;
+    vp.querySelectorAll('.log-line').forEach(function (line) {
+      if (line.style.display === 'none') return;
+      text += (line.innerText || line.textContent || '') + '\n';
+    });
+    var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'caddy-logs.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 100);
+  };
+
+  function renderCaddyLogs(vp, lines) {
+    if (!lines.length) {
+      vp.innerHTML = '<span class="text-[11px] text-muted-foreground/50">No log output.</span>';
+      return;
+    }
+    vp.innerHTML = lines.map(function (line) {
+      var parsed = parseCaddyLine(line);
+      return '<div class="log-line ' + parsed.cls + '">' +
+        (parsed.ts ? '<span class="log-ts mr-2 select-none text-muted-foreground/40">' + escHtml(parsed.ts) + '</span>' : '') +
+        badgeFor(parsed.badge) +
+        '<span>' + escHtml(parsed.msg) + '</span></div>';
+    }).join('');
+  }
+
+  function parseCaddyLine(line) {
+    var raw = String(line || '');
+    var parsed = tryParseJSONLine(raw);
+    if (parsed) return parsed;
+    var cls = classifyPlainLine(raw);
+    var parts = splitTimestamp(raw);
+    return { ts: parts.ts, msg: parts.rest, cls: cls, badge: cls };
+  }
+
+  function tryParseJSONLine(line) {
+    var trimmed = line.trim();
+    var idx = trimmed.indexOf('{');
+    if (idx < 0) return null;
+    var prefix = trimmed.slice(0, idx).trim();
+    var jsonPart = trimmed.slice(idx);
+    try {
+      var obj = JSON.parse(jsonPart);
+      var level = String(obj.level || prefix || 'info').toLowerCase();
+      var msg = obj.msg || obj.message || jsonPart;
+      var meta = [];
+      if (obj.logger) meta.push('logger=' + obj.logger);
+      if (obj.address) meta.push('address=' + obj.address);
+      if (obj.error) meta.push('error=' + obj.error);
+      var ts = '';
+      if (typeof obj.ts === 'number') ts = new Date(obj.ts * 1000).toISOString();
+      else if (typeof obj.ts === 'string') ts = obj.ts;
+      if (meta.length) msg += ' [' + meta.join(' ') + ']';
+      var cls = levelClass(level);
+      return { ts: ts, msg: msg, cls: cls, badge: cls };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function levelClass(level) {
+    if (level === 'error' || level === 'fatal' || level === 'panic') return 'log-lvl-error';
+    if (level === 'warn' || level === 'warning') return 'log-lvl-warn';
+    if (level === 'info') return 'log-lvl-info';
+    if (level === 'debug' || level === 'trace') return 'log-lvl-debug';
+    return 'log-lvl-default';
+  }
+
+  function classifyPlainLine(line) {
+    var l = line.toLowerCase();
+    if (/\b(error|fatal|panic|exception)\b/.test(l)) return 'log-lvl-error';
+    if (/\b(warn|warning)\b/.test(l)) return 'log-lvl-warn';
+    if (/\b(info|started|listening|serving|certificate|tls|acme|issued)\b/.test(l)) return 'log-lvl-info';
+    return 'log-lvl-default';
+  }
+
+  function badgeFor(cls) {
+    if (cls === 'log-lvl-error') return '<span class="log-badge log-badge-error">ERROR</span>';
+    if (cls === 'log-lvl-warn') return '<span class="log-badge log-badge-warn">WARN</span>';
+    if (cls === 'log-lvl-info') return '<span class="log-badge log-badge-info">INFO</span>';
+    return '';
+  }
+
+  function splitTimestamp(line) {
+    var m = String(line || '').match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)\s+(.*)$/s);
+    if (m) return { ts: m[1], rest: m[2] };
+    return { ts: '', rest: String(line || '') };
+  }
+
+  function applyCaddyFilter(vp, level) {
+    if (!vp) return;
+    vp.querySelectorAll('.log-line').forEach(function (el) {
+      if (level === 'all') {
+        el.style.display = '';
+        return;
+      }
+      var cls = el.className;
+      var show = false;
+      if (level === 'error') show = cls.indexOf('log-lvl-error') !== -1;
+      else if (level === 'warn') show = cls.indexOf('log-lvl-warn') !== -1;
+      else if (level === 'info') show = cls.indexOf('log-lvl-info') !== -1;
+      el.style.display = show ? '' : 'none';
+    });
+  }
+
+  function escHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+})();
+</script>

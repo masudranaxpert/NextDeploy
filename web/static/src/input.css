@@ -1,0 +1,299 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+[x-cloak] {
+  display: none !important;
+}
+
+@layer base {
+  :root {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 224 71% 5.5%;
+    --card-foreground: 213 31% 91%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --primary: 263.4 70% 60%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --ring: 263.4 70% 60%;
+    --radius: 0.65rem;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background-color: hsl(var(--border)); border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--muted-foreground) / 0.5); }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer components {
+  /* ── Sidebar ── */
+  .sidebar-link {
+    @apply flex min-h-[2.5rem] touch-manipulation items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-all duration-150 active:scale-[0.98] hover:text-foreground;
+  }
+  .sidebar-link:hover {
+    background-color: hsl(var(--muted) / 0.9);
+  }
+  .sidebar-link-active {
+    @apply text-primary;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.15), hsl(var(--primary) / 0.08));
+    border: 1px solid hsl(var(--primary) / 0.25);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08) inset;
+  }
+
+  /* ── Cards ── */
+  .panel-card {
+    @apply rounded-xl text-card-foreground;
+    background: linear-gradient(145deg, hsl(var(--card) / 0.95), hsl(var(--card) / 0.85));
+    border: 1px solid hsl(var(--border) / 0.8);
+    box-shadow:
+      0 1px 3px rgb(0 0 0 / 0.12),
+      0 1px 2px rgb(0 0 0 / 0.08),
+      0 0 0 1px rgb(255 255 255 / 0.03) inset;
+  }
+
+  .stat-card {
+    @apply panel-card p-5 relative overflow-hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.3), transparent);
+  }
+
+  /* ── Tabs ── */
+  .app-tab-strip {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .app-tab-strip::-webkit-scrollbar { display: none; }
+
+  .app-tab {
+    @apply inline-flex shrink-0 touch-manipulation items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150;
+  }
+  .app-tab-active {
+    @apply text-primary;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.1));
+    border: 1px solid hsl(var(--primary) / 0.3);
+    box-shadow: 0 1px 4px hsl(var(--primary) / 0.15);
+  }
+  .app-tab-inactive {
+    @apply text-muted-foreground transition-all hover:text-foreground;
+    border: 1px solid transparent;
+  }
+  .app-tab-inactive:hover {
+    background-color: hsl(var(--muted) / 0.7);
+    border-color: hsl(var(--border) / 0.5);
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+  }
+  .btn-primary {
+    @apply btn px-4 py-2 text-primary-foreground shadow-sm;
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.85));
+    box-shadow: 0 1px 3px hsl(var(--primary) / 0.4), 0 0 0 1px hsl(var(--primary) / 0.2) inset;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--primary) / 0.75));
+    box-shadow: 0 2px 6px hsl(var(--primary) / 0.5), 0 0 0 1px hsl(var(--primary) / 0.25) inset;
+  }
+  .btn-secondary {
+    @apply btn border border-border bg-muted/60 px-4 py-2 text-foreground;
+  }
+  .btn-secondary:hover {
+    background-color: hsl(var(--muted) / 0.9);
+    border-color: hsl(var(--border) / 0.8);
+  }
+  .btn-ghost {
+    @apply btn px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground;
+  }
+  .btn-deploy {
+    @apply btn px-4 py-2 text-white shadow-sm;
+    background: linear-gradient(135deg, #059669, #047857);
+    box-shadow: 0 1px 3px rgb(5 150 105 / 0.4);
+  }
+  .btn-deploy:hover {
+    background: linear-gradient(135deg, #10b981, #059669);
+    box-shadow: 0 2px 6px rgb(5 150 105 / 0.5);
+  }
+  .btn-restart {
+    @apply btn border border-sky-500/40 bg-sky-950/50 px-4 py-2 text-sky-200 hover:bg-sky-900/60 hover:border-sky-400/50;
+  }
+  .btn-stop {
+    @apply btn px-4 py-2 text-white shadow-sm;
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    box-shadow: 0 1px 3px rgb(220 38 38 / 0.4);
+  }
+  .btn-stop:hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+  }
+  .btn-icon {
+    @apply btn h-8 w-8 rounded-lg border border-border bg-muted/50 p-0 text-muted-foreground hover:bg-muted hover:text-foreground;
+  }
+
+  /* ── Form inputs ── */
+  .input {
+    @apply flex h-10 w-full rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/50 transition-colors;
+  }
+
+  /* ── Tables ── */
+  .table-wrap {
+    @apply w-full overflow-x-auto rounded-xl border border-border;
+  }
+
+  /* ── Status badges ── */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-running {
+    @apply bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/25;
+  }
+  .badge-stopped {
+    @apply bg-slate-500/15 text-slate-400 ring-1 ring-slate-500/20;
+  }
+  .badge-exited {
+    @apply bg-red-500/15 text-red-400 ring-1 ring-red-500/20;
+  }
+  .badge-paused {
+    @apply bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/20;
+  }
+  .badge-created {
+    @apply bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/20;
+  }
+  .badge-success {
+    @apply bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/20;
+  }
+  .badge-error {
+    @apply bg-red-500/15 text-red-300 ring-1 ring-red-500/20;
+  }
+
+  /* ── Progress bar ── */
+  .progress-bar {
+    @apply h-1.5 w-full overflow-hidden rounded-full bg-muted/60;
+  }
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+
+  /* ── Log filter default active state ── */
+  .log-filter-btn.log-filter-active {
+    @apply bg-primary/20 text-primary ring-1 ring-primary/30;
+  }
+
+  /* ── Log styles ── */
+  .log-viewport .log-line {
+    @apply whitespace-pre-wrap break-words border-l-[3px] border-transparent py-[3px] pl-3 text-[13px] leading-relaxed;
+  }
+  .log-lvl-fatal,
+  .log-lvl-error {
+    @apply border-l-rose-500 bg-rose-950/40 text-rose-100;
+  }
+  .log-lvl-warn {
+    @apply border-l-amber-400 bg-amber-950/30 text-amber-100;
+  }
+  .log-lvl-success {
+    @apply border-l-emerald-500 bg-emerald-950/25 text-emerald-100;
+  }
+  .log-lvl-info {
+    @apply border-l-cyan-500 bg-cyan-950/20 text-cyan-100;
+  }
+  .log-lvl-debug {
+    @apply border-l-violet-500/70 bg-violet-950/20 text-violet-200/90;
+  }
+  .log-lvl-default {
+    @apply border-l-slate-600/40 text-slate-200/90;
+  }
+  .log-line-spacer {
+    @apply h-2;
+  }
+
+  /* Log level badge pills */
+  .log-badge {
+    @apply mr-2 inline-block rounded-md px-1.5 py-px align-middle font-mono text-[9px] font-bold uppercase leading-tight tracking-wider;
+  }
+  .log-badge-fatal { @apply bg-rose-700 text-white; }
+  .log-badge-error { @apply bg-rose-600/90 text-white; }
+  .log-badge-warn  { @apply bg-amber-500/90 text-black; }
+  .log-badge-success { @apply bg-emerald-600/90 text-white; }
+  .log-badge-info  { @apply bg-cyan-600/80 text-white; }
+  .log-badge-debug { @apply bg-violet-600/70 text-white; }
+
+  /* ANSI color spans */
+  .ansi-bold      { @apply font-bold; }
+  .ansi-dim       { @apply opacity-60; }
+  .ansi-italic    { @apply italic; }
+  .ansi-underline { @apply underline; }
+  .ansi-black     { color: #4a4a4a; }
+  .ansi-red       { color: #f87171; }
+  .ansi-green     { color: #4ade80; }
+  .ansi-yellow    { color: #facc15; }
+  .ansi-blue      { color: #60a5fa; }
+  .ansi-magenta   { color: #e879f9; }
+  .ansi-cyan      { color: #22d3ee; }
+  .ansi-white     { color: #f1f5f9; }
+  .ansi-bright-black   { color: #6b7280; }
+  .ansi-bright-red     { color: #fca5a5; }
+  .ansi-bright-green   { color: #86efac; }
+  .ansi-bright-yellow  { color: #fde68a; }
+  .ansi-bright-blue    { color: #93c5fd; }
+  .ansi-bright-magenta { color: #f0abfc; }
+  .ansi-bright-cyan    { color: #67e8f9; }
+  .ansi-bright-white   { color: #ffffff; }
+  .ansi-bg-black   { background-color: #111827; }
+  .ansi-bg-red     { background-color: #7f1d1d; }
+  .ansi-bg-green   { background-color: #14532d; }
+  .ansi-bg-yellow  { background-color: #713f12; }
+  .ansi-bg-blue    { background-color: #1e3a5f; }
+  .ansi-bg-magenta { background-color: #581c87; }
+  .ansi-bg-cyan    { background-color: #164e63; }
+  .ansi-bg-white   { background-color: #e2e8f0; }
+
+  /* Timestamp toggle */
+  .log-viewport.hide-timestamps .log-ts {
+    display: none;
+  }
+
+  /* ── Modal overlay ── */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+  .modal-box {
+    @apply relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl;
+    box-shadow: 0 25px 50px rgb(0 0 0 / 0.5), 0 0 0 1px hsl(var(--border) / 0.5);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* ── Section header ── */
+  .section-header {
+    @apply flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between;
+  }
+  .page-title {
+    @apply text-2xl font-bold tracking-tight text-foreground md:text-3xl;
+  }
+  .page-subtitle {
+    @apply mt-1 text-sm text-muted-foreground;
+  }
+}

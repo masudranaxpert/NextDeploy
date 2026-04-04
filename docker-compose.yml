@@ -1,0 +1,47 @@
+networks:
+  nextdeploy:
+    name: NextDeploy
+
+volumes:
+  caddy_data: {}
+
+services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:ci-alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+      - "443:443/udp"
+    environment:
+      - CADDY_INGRESS_NETWORKS=NextDeploy
+      - CADDY_ADMIN=0.0.0.0:2019
+    networks:
+      - nextdeploy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - caddy_data:/data
+      # Mount app workspaces so Caddy can serve static/media files directly
+      - /data/workspaces:/data/workspaces:ro
+    restart: unless-stopped
+
+  panel:
+    build: .
+    container_name: panel
+    ports:
+      - "8080:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      DATA_DIR: /data
+      WORKSPACES_ROOT: /data/workspaces
+      # Match your Docker Engine minimum API (error if client is too old)
+      DOCKER_API_VERSION: "1.45"
+    # Bind mount: workspace paths inside the panel (/data/workspaces/...) must match the host paths the Docker daemon resolves for compose volume sources (e.g. ./nginx.conf). A named volume hides the real host location, so binds from child stacks break.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data:/data
+    networks:
+      - nextdeploy
+    restart: unless-stopped
+    depends_on:
+      - caddy

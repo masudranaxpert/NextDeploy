@@ -1,0 +1,102 @@
+<div class="mx-auto max-w-7xl space-y-6">
+
+  <!-- Page header -->
+  <div class="section-header">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20">
+        <svg class="h-5 w-5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title">Images</h1>
+        <p class="page-subtitle">Docker images on this engine</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <form method="post" action="/images/prune"
+            onsubmit="return confirm('Remove all unused (dangling + untagged) images? Active images are safe.');">
+        <button type="submit" class="btn-secondary h-10 px-4 text-sm text-rose-400 hover:border-rose-500/40 hover:bg-rose-950/30 hover:text-rose-300">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+          </svg>
+          Delete unused
+        </button>
+      </form>
+      <a class="btn-secondary h-10 px-4 text-sm" href="/images">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+        </svg>
+        Refresh
+      </a>
+    </div>
+  </div>
+
+  {{if .DockerError}}
+    <div class="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3">
+      <svg class="mt-0.5 h-4 w-4 shrink-0 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <p class="text-sm text-red-300">Docker error: {{.DockerError}}</p>
+    </div>
+  {{end}}
+
+  <div class="panel-card overflow-hidden">
+    <div class="table-wrap border-0 rounded-none">
+      <table class="min-w-full divide-y divide-border text-sm">
+        <thead class="bg-muted/30">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">ID</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Size</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Created</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border/50">
+          {{if .Images}}
+            {{range .Images}}
+              <tr class="group transition-colors hover:bg-muted/20">
+                <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.ID}}</td>
+                <td class="px-4 py-3">
+                  {{if .Tags}}
+                    <span class="inline-flex items-center rounded-md bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300 ring-1 ring-violet-500/20">{{.Tags}}</span>
+                  {{else}}
+                    <span class="text-xs text-muted-foreground italic">untagged</span>
+                  {{end}}
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-xs font-medium text-foreground">{{.SizeHuman}}</td>
+                <td class="px-4 py-3 text-xs text-muted-foreground">{{.Created.Format "Jan 02, 2006 15:04"}}</td>
+                <td class="px-4 py-3 text-right">
+                  <form method="post" action="/images/remove" class="inline"
+                        onsubmit="return confirm('Remove image {{.Tags}}? This cannot be undone.');">
+                    <input type="hidden" name="image_id" value="{{.ID}}">
+                    <button type="submit" class="btn-ghost inline-flex h-7 items-center gap-1 px-2.5 text-xs text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 transition-colors">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                      </svg>
+                      Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {{end}}
+          {{else}}
+            <tr>
+              <td colspan="5" class="px-4 py-16 text-center">
+                <div class="flex flex-col items-center gap-3">
+                  <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
+                    <svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"/>
+                    </svg>
+                  </div>
+                  <p class="text-sm text-muted-foreground">No images found</p>
+                </div>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

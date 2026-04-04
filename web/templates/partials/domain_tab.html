@@ -1,0 +1,450 @@
+{{define "partials/domain_tab"}}
+<div class="space-y-5" id="domain-tab-content">
+  {{if .DomainSaved}}
+  <div id="domain-toast" class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+    <svg class="h-4 w-4 mt-0.5 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+    <div>
+      <p class="text-sm font-medium text-amber-200">Domain config saved</p>
+      <p class="text-xs text-amber-300/70 mt-0.5">Redeploy this app to apply the updated Caddy routing.</p>
+    </div>
+  </div>
+  {{end}}
+
+  <!-- Header -->
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <h3 class="text-sm font-semibold text-foreground">Domains &amp; Routing</h3>
+      <p class="text-xs text-muted-foreground mt-0.5">Add domains to route traffic via caddy-docker-proxy. NextDeploy merges Caddy labels into the generated compose automatically.</p>
+    </div>
+    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden')"
+      class="btn btn-primary text-xs shrink-0">
+      <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+      Add Domain
+    </button>
+  </div>
+
+  <!-- Domain List -->
+  {{if .Domains}}
+  <div class="space-y-3">
+    {{range .Domains}}
+    <div class="panel-card p-4" id="domain-{{.ID}}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <!-- Domain name + badges row -->
+          <div class="flex flex-wrap items-center gap-2 mb-2">
+            <span class="font-mono text-sm font-semibold text-foreground truncate">{{.Domain}}</span>
+            {{if .EnableHTTPS}}
+              <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+                HTTPS
+              </span>
+            {{else}}
+              <span class="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-medium text-slate-300 ring-1 ring-slate-500/25">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25h18M4.5 19.5h15A1.5 1.5 0 0021 18V8.25H3V18a1.5 1.5 0 001.5 1.5z"/></svg>
+                HTTP only
+              </span>
+            {{end}}
+            {{if .EnableWWW}}
+              <span class="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-sky-500/25">www</span>
+            {{end}}
+            {{if .RouteRules}}
+              <span class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-violet-500/25">{{len .RouteRules}} file routes</span>
+            {{end}}
+            <!-- DNS status badge (populated by JS) -->
+            <span id="dns-badge-{{.ID}}" class="hidden"></span>
+          </div>
+
+          <!-- Service + routes info -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {{if .Service}}
+              <span class="flex items-center gap-1">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                {{.Service}}:{{.Port}}
+              </span>
+            {{else}}
+              <span class="flex items-center gap-1 text-muted-foreground/50">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                port {{.Port}}
+              </span>
+            {{end}}
+            {{if .RouteRules}}
+              {{range .RouteRules}}
+              <span class="flex items-center gap-1">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5h16.5v4.5H3.75zM3.75 12h16.5v7.5H3.75z"/></svg>
+                p{{.Priority}}: {{.Path}} → {{.Root}}
+              </span>
+              {{end}}
+            {{end}}
+          </div>
+          <p class="mt-2 text-[11px] text-amber-300/70 flex items-center gap-1">
+            <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            Redeploy app to apply routing changes.
+          </p>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="flex flex-col items-end gap-1.5 shrink-0">
+          <div class="flex items-center gap-1.5">
+            <!-- DNS Validate -->
+            <button type="button"
+              class="inline-flex items-center gap-1 rounded-lg border border-yellow-700/40 bg-yellow-500/10 px-2.5 py-1.5 text-[11px] font-medium text-yellow-400 hover:bg-yellow-500/20 transition-all"
+              onclick="validateDNS({{.ID}}, '{{$.ID}}')"
+              title="Check DNS resolution and Cloudflare detection">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16M8 16H3v5"/></svg>
+              Validate DNS
+            </button>
+            <!-- Labels Preview -->
+            <button type="button"
+              class="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all"
+              onclick="showLabels({{.ID}}, '{{$.ID}}')"
+              title="View generated Caddy labels">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+              Labels
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <!-- Edit -->
+            <button type="button"
+              class="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all"
+              onclick='openEditDomain({{.ID}}, {{jsq .Domain}}, {{jsq .Service}}, {{.Port}}, {{if .EnableHTTPS}}true{{else}}false{{end}}, {{if .EnableWWW}}true{{else}}false{{end}}, {{jsq .RouteRulesJSON}})'
+              title="Edit domain">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+              Edit
+            </button>
+            <!-- Delete -->
+            <form method="POST" action="/apps/{{$.ID}}/domains/{{.ID}}/delete" onsubmit="return confirm('Delete domain {{.Domain}}?')">
+              <button type="submit" class="inline-flex items-center gap-1 rounded-lg border border-rose-800/40 bg-rose-950/20 px-2.5 py-1.5 text-[11px] font-medium text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 transition-all">
+                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                Delete
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/10 py-14 text-center">
+    <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted/30 ring-1 ring-border/50">
+      <svg class="h-7 w-7 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/>
+      </svg>
+    </div>
+    <p class="text-sm font-medium text-muted-foreground">No domains configured</p>
+    <p class="text-xs text-muted-foreground/60 mt-1 max-w-xs">Add a domain and NextDeploy will automatically merge Caddy labels into the generated compose file.</p>
+    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden')"
+      class="mt-5 btn btn-primary text-xs">
+      <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+      Add First Domain
+    </button>
+  </div>
+  {{end}}
+
+</div>
+
+<!-- ── Add Domain Modal ──────────────────────────────────────────────────── -->
+<div id="add-domain-modal" class="modal-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-box max-w-lg w-full" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-base font-semibold text-foreground flex items-center gap-2">
+        <svg class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Add Domain
+      </h3>
+      <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form method="POST" action="/apps/{{.ID}}/domains" class="space-y-4">
+      {{template "partials/domain_form" .}}
+      <div class="flex justify-end gap-2 pt-2 border-t border-border/50">
+        <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="btn text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Add Domain</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Domain Modal ─────────────────────────────────────────────────── -->
+<div id="edit-domain-modal" class="modal-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-box max-w-lg w-full" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-base font-semibold text-foreground flex items-center gap-2">
+        <svg class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
+        Edit Domain
+      </h3>
+      <button type="button" onclick="document.getElementById('edit-domain-modal').classList.add('hidden')" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="edit-domain-form" method="POST" action="" class="space-y-4">
+      {{template "partials/domain_form" .}}
+      <div class="flex justify-end gap-2 pt-2 border-t border-border/50">
+        <button type="button" onclick="document.getElementById('edit-domain-modal').classList.add('hidden')" class="btn text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Labels Preview Modal ──────────────────────────────────────────────── -->
+<div id="labels-modal" class="modal-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-box max-w-2xl w-full" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-base font-semibold text-foreground flex items-center gap-2">
+        <svg class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+        Generated Caddy Labels
+      </h3>
+      <button type="button" onclick="document.getElementById('labels-modal').classList.add('hidden')" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <p class="text-xs text-muted-foreground mb-3">Debug preview. NextDeploy already merges these labels into the generated compose file automatically.</p>
+    <pre id="labels-preview" class="overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-sky-300/80 whitespace-pre select-all min-h-[4rem]">Loading...</pre>
+    <div class="flex justify-end mt-4">
+      <button type="button" onclick="copyLabels(this)" class="btn text-xs">
+        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+        Copy
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DNS Check Result Modal ────────────────────────────────────────────── -->
+<div id="dns-modal" class="modal-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-box max-w-md w-full" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-base font-semibold text-foreground flex items-center gap-2">
+        <svg class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16M8 16H3v5"/></svg>
+        DNS Check
+      </h3>
+      <button type="button" onclick="document.getElementById('dns-modal').classList.add('hidden')" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="dns-modal-body">Loading…</div>
+    <div class="flex justify-end mt-5">
+      <button type="button" onclick="document.getElementById('dns-modal').classList.add('hidden')" class="btn text-xs">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Labels ────────────────────────────────────────────────────────────────────
+function showLabels(domainId, appId) {
+  var modal = document.getElementById('labels-modal');
+  var pre = document.getElementById('labels-preview');
+  pre.textContent = 'Loading...';
+  modal.classList.remove('hidden');
+  fetch('/apps/' + appId + '/domains/' + domainId + '/labels')
+    .then(function(r){ return r.json(); })
+    .then(function(data){ pre.textContent = data.yaml || 'No labels generated.'; })
+    .catch(function(e){ pre.textContent = 'Error: ' + e.message; });
+}
+
+function copyLabels(btn) {
+  var text = document.getElementById('labels-preview').textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.innerHTML;
+    btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Copied!';
+    setTimeout(function(){ btn.innerHTML = orig; }, 2000);
+  });
+}
+
+// ── DNS Validate ──────────────────────────────────────────────────────────────
+function validateDNS(domainId, appId) {
+  var modal = document.getElementById('dns-modal');
+  var body = document.getElementById('dns-modal-body');
+  var badge = document.getElementById('dns-badge-' + domainId);
+  body.innerHTML = '<div class="flex items-center gap-2 text-sm text-muted-foreground"><svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg> Checking DNS…</div>';
+  modal.classList.remove('hidden');
+
+  fetch('/apps/' + appId + '/domains/' + domainId + '/dns-check')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data.ok) {
+        body.innerHTML = renderDNSError(data);
+        if (badge) { badge.className = 'hidden'; }
+        return;
+      }
+      body.innerHTML = renderDNSSuccess(data);
+      if (badge) {
+        badge.className = '';
+        badge.innerHTML = data.cloudflare
+          ? '<span class="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25"><svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4"/></svg>Behind Cloudflare</span>'
+          : '<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25"><svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4"/></svg>DNS OK</span>';
+      }
+    })
+    .catch(function(e){
+      body.innerHTML = '<p class="text-sm text-rose-400">Error: ' + e.message + '</p>';
+    });
+}
+
+function renderDNSError(data) {
+  return '<div class="space-y-3">' +
+    '<div class="flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-3">' +
+      '<svg class="h-4 w-4 shrink-0 mt-0.5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>' +
+      '<div><p class="text-xs font-medium text-rose-300">DNS lookup failed</p><p class="mt-0.5 text-[11px] text-rose-400/70 break-all">' + escHtml(data.error || 'Unknown error') + '</p></div>' +
+    '</div>' +
+    '<p class="text-[11px] text-muted-foreground/60">Make sure the domain\'s A record points to your server IP and DNS has propagated.</p>' +
+  '</div>';
+}
+
+function renderDNSSuccess(data) {
+  var tlsHtml = data.internalTLS
+    ? '<div class="flex items-center gap-2 rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">' +
+        '<svg class="h-4 w-4 shrink-0 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3v7.5a3 3 0 01-3 3h-7.5a3 3 0 01-3-3v-7.5a3 3 0 013-3h7.5z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 9h6v6H9z"/></svg>' +
+        '<div><p class="text-xs font-medium text-violet-300">Development domain detected</p><p class="mt-0.5 text-[11px] text-violet-400/70">This domain uses a reserved/local suffix, so public ACME certificates will fail. NextDeploy should use Caddy internal TLS for it.</p></div>' +
+      '</div>'
+    : '';
+
+  var cfHtml = data.cloudflare
+    ? '<div class="flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2.5">' +
+        '<svg class="h-4 w-4 shrink-0 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>' +
+        '<div><p class="text-xs font-medium text-orange-300">Behind Cloudflare</p><p class="mt-0.5 text-[11px] text-orange-400/70">Caddy will use HTTP challenge. For DNS challenge, configure Cloudflare API token.</p></div>' +
+      '</div>'
+    : '<div class="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">' +
+        '<svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+        '<p class="text-xs text-emerald-300">Direct DNS — Caddy can issue certificates via HTTP challenge.</p>' +
+      '</div>';
+
+  var ipsHtml = (data.ips || []).map(function(ip) {
+    return '<code class="rounded bg-muted/40 px-1.5 py-0.5 text-[11px] text-foreground font-mono">' + escHtml(ip) + '</code>';
+  }).join(' ');
+
+  return '<div class="space-y-3">' +
+    '<div class="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">' +
+      '<span class="text-xs text-muted-foreground">Domain</span>' +
+      '<code class="text-xs font-mono text-foreground">' + escHtml(data.domain) + '</code>' +
+    '</div>' +
+    '<div class="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">' +
+      '<p class="text-[11px] text-muted-foreground mb-1.5">Resolved IPs</p>' +
+      '<div class="flex flex-wrap gap-1.5">' + ipsHtml + '</div>' +
+    '</div>' +
+    tlsHtml +
+    cfHtml +
+  '</div>';
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Edit Domain ───────────────────────────────────────────────────────────────
+function openEditDomain(id, domain, service, port, https, www, routeRulesJSON) {
+  var form = document.getElementById('edit-domain-form');
+  form.action = '/apps/{{.ID}}/domains/' + id + '/edit';
+  form.querySelector('[name="domain"]').value = domain;
+  form.querySelector('[name="service"]').value = service;
+  form.querySelector('[name="port"]').value = port;
+  form.querySelector('[name="enable_https"]').checked = https;
+  form.querySelector('[name="enable_www"]').checked = www;
+  setRouteRows(form, routeRulesJSON);
+  document.getElementById('edit-domain-modal').classList.remove('hidden');
+}
+
+// ── Route Builder ─────────────────────────────────────────────────────────────
+function routeRowHTML(priority, path, root) {
+  return '<div class="route-row grid grid-cols-12 gap-2 rounded-lg border border-border/50 bg-background/50 p-2">' +
+    '<div class="col-span-2">' +
+      '<label class="mb-1 block text-[10px] font-medium text-muted-foreground">Priority</label>' +
+      '<input name="route_priority" type="number" min="1" class="input w-full text-xs" value="' + String(priority || 1) + '">' +
+    '</div>' +
+    '<div class="col-span-4">' +
+      '<label class="mb-1 block text-[10px] font-medium text-muted-foreground">Path</label>' +
+      '<input name="route_path" type="text" class="input w-full text-xs" placeholder="/static/*" value="' + escHtml(path || '') + '">' +
+    '</div>' +
+    '<div class="col-span-5">' +
+      '<label class="mb-1 block text-[10px] font-medium text-muted-foreground">Root Path</label>' +
+      '<input name="route_root" type="text" class="input w-full text-xs" placeholder="/data/workspaces/{{.ID}}/static" value="' + escHtml(root || '') + '">' +
+    '</div>' +
+    '<div class="col-span-1 flex items-end">' +
+      '<button type="button" class="btn w-full px-0 text-xs text-rose-400 hover:text-rose-300" onclick="removeRouteRow(this)">×</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function getRouteList(form) {
+  return form.querySelector('.route-list');
+}
+
+function addRouteRow(form, path, root, priority) {
+  var list = getRouteList(form);
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', routeRowHTML(priority || (list.children.length + 1), path || '', root || ''));
+  refreshRoutePreview(form);
+}
+
+function removeRouteRow(btn) {
+  var form = btn.closest('form');
+  btn.closest('.route-row').remove();
+  refreshRoutePreview(form);
+}
+
+function setRouteRows(form, routeRulesJSON) {
+  var list = getRouteList(form);
+  if (!list) return;
+  list.innerHTML = '';
+  var rules = [];
+  try { rules = JSON.parse(routeRulesJSON || '[]') || []; } catch (e) {}
+  if (!Array.isArray(rules) || rules.length === 0) {
+    refreshRoutePreview(form);
+    return;
+  }
+  rules.forEach(function(rule, i) {
+    addRouteRow(form, rule.path || '', rule.root || '', rule.priority || (i + 1));
+  });
+  refreshRoutePreview(form);
+}
+
+function refreshRoutePreview(form) {
+  var preview = form ? form.querySelector('.route-preview') : null;
+  if (!preview) return;
+  var rows = Array.from(form.querySelectorAll('.route-row')).map(function(row) {
+    var p = row.querySelector('[name="route_priority"]').value;
+    var path = row.querySelector('[name="route_path"]').value;
+    var root = row.querySelector('[name="route_root"]').value;
+    return { priority: parseInt(p || '0', 10) || 0, path: path, root: root };
+  }).filter(function(rule) {
+    return rule.path.trim() !== '' || rule.root.trim() !== '';
+  }).sort(function(a, b) { return a.priority - b.priority; });
+
+  if (rows.length === 0) {
+    preview.textContent = 'No direct file routes yet. App traffic will go to the selected service.';
+    return;
+  }
+  preview.innerHTML = rows.map(function(rule) {
+    return '<div class="flex flex-wrap items-center gap-2">' +
+      '<span class="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">p' + rule.priority + '</span>' +
+      '<code class="rounded bg-muted px-1.5 py-0.5 text-foreground">' + escHtml(rule.path) + '</code>' +
+      '<span class="text-muted-foreground">→</span>' +
+      '<code class="rounded bg-muted px-1.5 py-0.5 text-foreground">' + escHtml(rule.root) + '</code>' +
+    '</div>';
+  }).join('');
+}
+
+document.addEventListener('input', function (event) {
+  if (event.target.matches('[name="route_priority"], [name="route_path"], [name="route_root"]')) {
+    refreshRoutePreview(event.target.closest('form'));
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('#add-domain-modal form, #edit-domain-modal form').forEach(function(f) {
+    refreshRoutePreview(f);
+  });
+  {{if .DomainSaved}}
+  setTimeout(function () {
+    var toast = document.getElementById('domain-toast');
+    if (toast) { toast.style.transition = 'opacity 0.5s'; toast.style.opacity = '0'; setTimeout(function(){ toast.remove(); }, 500); }
+  }, 4000);
+  {{end}}
+});
+
+document.addEventListener('htmx:afterSwap', function () {
+  document.querySelectorAll('#add-domain-modal form, #edit-domain-modal form').forEach(function(f) {
+    refreshRoutePreview(f);
+  });
+});
+</script>
+{{end}}

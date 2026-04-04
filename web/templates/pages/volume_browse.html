@@ -1,0 +1,74 @@
+<div class="mx-auto max-w-5xl space-y-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <a href="/volumes" class="text-xs text-muted-foreground hover:text-foreground">← Volumes</a>
+      <h1 class="mt-1 font-mono text-xl font-semibold tracking-tight md:text-2xl">{{.VolumeName}}</h1>
+      <p class="mt-1 break-all font-mono text-xs text-muted-foreground">
+        {{if .Path}}/{{.Path}}{{else}}(root){{end}}
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="/volumes/download?name={{urlquery .VolumeName}}" class="inline-flex items-center rounded-md border border-cyan-500/40 bg-cyan-950/30 px-3 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-900/40">Download full backup</a>
+    </div>
+  </div>
+
+  {{if .Flash}}
+    <p class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100 whitespace-pre-wrap">{{.Flash}}</p>
+  {{end}}
+  {{if .BrowseError}}
+    <p class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-200 whitespace-pre-wrap">{{.BrowseError}}</p>
+  {{end}}
+
+  <div class="panel-card space-y-4 p-5">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      {{if .Path}}
+        <a href="/volumes/browse?name={{urlquery .VolumeName}}&path={{urlquery .ParentPath}}" class="rounded-md border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/80">↑ Up</a>
+      {{end}}
+      <a href="/volumes/browse?name={{urlquery .VolumeName}}" class="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60">Volume root</a>
+    </div>
+
+    {{if .VolRows}}
+      <div class="table-wrap">
+        <table class="min-w-full divide-y divide-border text-sm">
+          <thead class="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th class="px-3 py-2 font-medium">Name</th>
+              <th class="px-3 py-2 font-medium">Type</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            {{range .VolRows}}
+              <tr class="hover:bg-muted/25">
+                <td class="px-3 py-2 font-mono text-xs">
+                  {{if .IsDir}}
+                    <a class="font-medium text-emerald-300 hover:underline" href="/volumes/browse?name={{urlquery $.VolumeName}}&path={{urlquery .RelPath}}">{{.Name}}</a>
+                  {{else}}
+                    <span class="text-foreground">{{.Name}}</span>
+                  {{end}}
+                </td>
+                <td class="px-3 py-2 text-xs text-muted-foreground">{{if .IsDir}}folder{{else}}file{{end}}</td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    {{else}}
+      {{if not .BrowseError}}
+        <p class="text-sm text-muted-foreground">This folder is empty.</p>
+      {{end}}
+    {{end}}
+  </div>
+
+  <div class="panel-card space-y-3 p-5">
+    <h2 class="text-lg font-semibold">Restore from backup</h2>
+    <p class="text-sm text-muted-foreground">Upload a <code class="rounded bg-muted px-1">.tar.gz</code> created from “Download full backup”. Existing files in the volume may be overwritten.</p>
+    <form class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end" action="/volumes/restore" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="name" value="{{.VolumeName}}">
+      <div class="min-w-[220px] flex-1">
+        <label class="text-xs font-medium text-muted-foreground" for="vol-restore">Backup file</label>
+        <input id="vol-restore" class="input mt-1" type="file" name="backup" accept=".gz,.tgz,.tar.gz,application/gzip" required>
+      </div>
+      <button type="submit" class="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500">Restore into volume</button>
+    </form>
+  </div>
+</div>

@@ -1,0 +1,46 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/panel
+
+# Go build cache
+/vendor/
+
+# Data / runtime
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+.cursor/
+
+
+# Node / npm
+node_modules/
+package-lock.json
+
+# Tailwind output (rebuild with npm run build:css)
+web/static/css/app.css
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker
+*.zip
+
+# Cursor
+.cursor/
+
+# Environment
+.env
+.env.local
+.env.*.local

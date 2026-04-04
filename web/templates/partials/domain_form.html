@@ -1,0 +1,84 @@
+{{define "partials/domain_form"}}
+<div class="space-y-4">
+  <!-- Domain -->
+  <div>
+    <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="domain-input">Domain <span class="text-rose-400">*</span></label>
+    <input id="domain-input" name="domain" type="text" class="input w-full font-mono" placeholder="app.example.com" required autocomplete="off">
+    <p class="mt-1 text-[11px] text-muted-foreground/60">Use a real domain or a local test host like <code class="rounded bg-muted px-1">gcloud.test</code>. DNS or local hosts entry must point here.</p>
+  </div>
+
+  <!-- Service + Port -->
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="service-input">Service Name <span class="text-rose-400">*</span></label>
+      {{if .Services}}
+      <select id="service-input" name="service" class="input w-full" required>
+        <option value="">— select service —</option>
+        {{range .Services}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}
+      </select>
+      {{else}}
+      <input id="service-input" name="service" type="text" class="input w-full" placeholder="web" required autocomplete="off">
+      {{end}}
+      <p class="mt-1 text-[11px] text-muted-foreground/60">Compose service that receives this domain's traffic</p>
+    </div>
+    <div>
+      <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="port-input">Port</label>
+      <input id="port-input" name="port" type="number" class="input w-full" value="80" min="1" max="65535">
+      <p class="mt-1 text-[11px] text-muted-foreground/60">Container port to proxy to</p>
+    </div>
+  </div>
+
+  <!-- Toggles -->
+  <div class="grid grid-cols-2 gap-3">
+    <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 hover:bg-muted/40 transition-colors">
+      <input type="checkbox" name="enable_https" class="h-4 w-4 rounded accent-primary" checked>
+      <div>
+        <p class="text-xs font-medium text-foreground">Enable HTTPS</p>
+        <p class="text-[10px] text-muted-foreground/60">On: Caddy serves HTTPS. Off: HTTP only, no certificate request.</p>
+      </div>
+    </label>
+    <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 hover:bg-muted/40 transition-colors">
+      <input type="checkbox" name="enable_www" class="h-4 w-4 rounded accent-primary">
+      <div>
+        <p class="text-xs font-medium text-foreground">www alias</p>
+        <p class="text-[10px] text-muted-foreground/60">Also serve <code class="rounded bg-muted px-1">www.domain</code></p>
+      </div>
+    </label>
+  </div>
+
+  <!-- File Routes -->
+  <div class="rounded-lg border border-border/50 bg-muted/10 p-3">
+    <div class="mb-3">
+      <p class="text-xs font-medium text-foreground">Direct File Routes</p>
+      <p class="mt-0.5 text-[10px] text-muted-foreground/70">
+        Add path rules like <code class="rounded bg-muted px-1">/static/*</code> or <code class="rounded bg-muted px-1">/media/*</code>.
+        Lower priority number runs first (p1 before p2).
+      </p>
+    </div>
+    <div class="space-y-2 route-builder">
+      <div class="route-list space-y-2"></div>
+      <div class="flex flex-wrap gap-2 pt-1">
+        <button type="button" class="btn text-[11px] px-2.5 py-1.5"
+          onclick="(function(btn){ var f = btn.closest('form'); if(f && typeof addRouteRow === 'function') addRouteRow(f, '', '', 0); })(this)">
+          <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Add Route
+        </button>
+        <button type="button" class="btn text-[11px] px-2.5 py-1.5"
+          onclick="(function(btn){ var f = btn.closest('form'); if(f && typeof addRouteRow === 'function') addRouteRow(f, '/static/*', '/data/workspaces/{{.ID}}/static', 1); })(this)">
+          + Static Demo
+        </button>
+        <button type="button" class="btn text-[11px] px-2.5 py-1.5"
+          onclick="(function(btn){ var f = btn.closest('form'); if(f && typeof addRouteRow === 'function') addRouteRow(f, '/media/*', '/data/workspaces/{{.ID}}/media', 2); })(this)">
+          + Media Demo
+        </button>
+      </div>
+      <div class="rounded-lg border border-dashed border-border/50 bg-background/40 p-3">
+        <p class="mb-2 text-[11px] font-medium text-foreground">Priority Preview</p>
+        <div class="route-preview text-[11px] text-muted-foreground">No direct file routes yet. App traffic will go to the selected service.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

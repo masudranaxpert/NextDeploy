@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="hsl(224 71% 4%)">
+  <title>{{.Title}} · NextDeploy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="min-h-full bg-background text-foreground antialiased" style="font-family: 'Inter', system-ui, sans-serif;">
+  <div class="flex min-h-screen flex-col items-center justify-center p-4">
+    <!-- Logo -->
+    <div class="mb-8 flex flex-col items-center gap-3">
+      <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-xl font-bold text-white shadow-xl shadow-primary/30">
+        ND
+      </div>
+      <div class="text-center">
+        <h1 class="text-xl font-bold tracking-tight text-foreground">NextDeploy</h1>
+        <p class="text-sm text-muted-foreground">Docker deployment panel</p>
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div class="w-full max-w-sm">
+      {{embed}}
+    </div>
+  </div>
+</body>
+</html>

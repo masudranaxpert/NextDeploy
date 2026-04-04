@@ -1,0 +1,7 @@
+data
+node_modules
+.env
+.git
+**/*.md
+.cursor
+mcps

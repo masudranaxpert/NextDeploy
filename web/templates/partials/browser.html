@@ -1,0 +1,88 @@
+{{define "partials/browser"}}
+<div id="browser-root" class="space-y-3">
+  {{if .BrowseFlash}}
+    <div class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">{{.BrowseFlash}}</div>
+  {{end}}
+  <form class="space-y-3"
+        hx-post="{{.DeleteTarget}}"
+        hx-target="#browser-root"
+        hx-swap="outerHTML"
+        hx-confirm="Delete selected files and/or folders? This cannot be undone.">
+    <input type="hidden" name="path" value="{{.Path}}">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <span class="text-muted-foreground">Path:</span>
+      <code class="rounded-md bg-muted px-2 py-1 font-mono text-xs">{{if .Path}}{{.Path}}{{else}}/{{end}}</code>
+      {{if .Path}}
+        <a class="btn-ghost h-8 px-2 text-xs"
+           href="/apps/{{.ID}}?tab=files&amp;path={{urlquery .ParentPath}}"
+           hx-get="/apps/{{.ID}}/partials/browser?path={{urlquery .ParentPath}}"
+           hx-target="#browser-root"
+           hx-swap="outerHTML">Up</a>
+      {{end}}
+      <a class="btn-ghost h-8 px-2 text-xs" href="/apps/{{.ID}}?tab=files">Root</a>
+      <span class="flex-1"></span>
+      <button type="submit" class="btn-secondary h-8 px-3 text-xs text-destructive hover:border-destructive/50 hover:bg-destructive/10">Delete selected</button>
+    </div>
+    <div class="table-wrap">
+      <table class="min-w-full divide-y divide-border text-sm">
+        <thead class="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th class="w-10 px-2 py-2">
+              <input type="checkbox" class="rounded border-border" title="Select all"
+                     onclick="document.querySelectorAll('[data-browse-pick]').forEach(function(el){ el.checked = event.target.checked; });">
+            </th>
+            <th class="px-3 py-2 font-medium">Name</th>
+            <th class="px-3 py-2 font-medium text-right">Size</th>
+            <th class="px-3 py-2 font-medium">Updated</th>
+            <th class="px-3 py-2 font-medium text-right">Open</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+          {{if .Children}}
+            {{range .Children}}
+              <tr class="hover:bg-muted/30">
+                <td class="px-2 py-2 align-middle">
+                  <input type="checkbox" name="paths" value="{{.RelPath}}" data-browse-pick class="rounded border-border">
+                </td>
+                <td class="px-3 py-2">
+                  {{if .IsDir}}
+                    <button type="button"
+                            class="text-left font-medium text-primary hover:underline"
+                            hx-get="/apps/{{$.ID}}/partials/browser?path={{urlquery .RelPath}}"
+                            hx-target="#browser-root"
+                            hx-swap="outerHTML">
+                      {{.Name}}/
+                    </button>
+                  {{else}}
+                    <span class="font-mono text-xs">{{.Name}}</span>
+                  {{end}}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-xs text-muted-foreground">
+                  {{if .IsDir}}—{{else}}{{bytesize .Size}}{{end}}
+                </td>
+                <td class="px-3 py-2 text-xs text-muted-foreground">{{.ModTime.Format "Jan 02 15:04"}}</td>
+                <td class="px-3 py-2 text-right text-xs">
+                  {{if .IsDir}}
+                    <span class="text-muted-foreground">—</span>
+                  {{else}}
+                    <a class="text-primary hover:underline"
+                       href="#"
+                       hx-get="/apps/{{$.ID}}/file-preview?path={{urlquery .RelPath}}"
+                       hx-target="body"
+                       hx-swap="beforeend"
+                       onclick="event.preventDefault(); event.stopPropagation();">View</a>
+                    <span class="text-muted-foreground mx-1">·</span>
+                    <a class="text-muted-foreground hover:text-primary hover:underline" href="/apps/{{$.ID}}/file?path={{urlquery .RelPath}}&amp;download=1">Download</a>
+                  {{end}}
+                </td>
+              </tr>
+            {{end}}
+          {{else}}
+            <tr><td colspan="5" class="px-3 py-6 text-center text-muted-foreground">This folder is empty.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+{{end}}

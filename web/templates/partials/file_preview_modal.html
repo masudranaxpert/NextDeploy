@@ -1,0 +1,29 @@
+{{define "partials/file_preview_modal"}}
+<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+  <div class="modal-box max-w-5xl w-full" onclick="event.stopPropagation()">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">{{if .PreviewName}}{{.PreviewName}}{{else}}File Preview{{end}}</h3>
+        {{if .PreviewPath}}<p class="mt-0.5 text-xs text-muted-foreground font-mono">{{.PreviewPath}}</p>{{end}}
+      </div>
+      <div class="flex items-center gap-2">
+        {{if .PreviewPath}}
+        <a class="btn text-xs" href="?download=1" onclick="event.preventDefault(); window.location.href='/apps/{{$.ID}}/file?path={{urlquery .PreviewPath}}&download=1'">Download</a>
+        {{end}}
+        <button type="button" class="text-muted-foreground hover:text-foreground transition-colors" onclick="this.closest('.modal-overlay').remove()">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    {{if .PreviewError}}
+      <div class="rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">{{.PreviewError}}</div>
+    {{else if .PreviewTooBig}}
+      <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">File is too large for inline preview. Use download instead.</div>
+    {{else if .PreviewBinary}}
+      <div class="rounded-xl border border-border/50 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">This file looks binary and cannot be safely previewed inline. Use download instead.</div>
+    {{else}}
+      <pre class="max-h-[72vh] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all text-sky-300/80">{{.PreviewContent}}</pre>
+    {{end}}
+  </div>
+</div>
+{{end}}
