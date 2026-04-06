@@ -255,6 +255,8 @@ func main() {
 	app.Get("/git/github/setup", p.GitHubAppSetup)
 	app.Get("/git/:pid/github/install", p.GitHubProviderInstall)
 	app.Post("/git/:pid/github/refresh-installation", p.GitHubProviderRefreshInstall)
+	app.Post("/git/gitlab/start", p.GitLabOAuthStart)
+	app.Get("/git/gitlab/callback", p.GitLabOAuthCallback)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
 	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
