@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -149,35 +150,40 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 	return list, ""
 }
 
-func OpenTarStream(ctx context.Context, vol string) (io.ReadCloser, error) {
+// BackupToTemp creates a gzipped tar archive of vol into a temp file, returning
+// the path. The caller is responsible for removing the file after use.
+// This is synchronous — it blocks until docker tar finishes, which ensures the
+// full archive is ready before the HTTP response begins.
+func BackupToTemp(ctx context.Context, vol string) (path string, err error) {
 	if !ValidVolumeName(vol) {
-		return nil, errors.New("invalid volume")
+		return "", errors.New("invalid volume")
 	}
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/b:ro", "alpine:3.20", "tar", "czf", "-", "-C", "/b", ".")
-
-	// Use an io.Pipe so the goroutine writes into one end while the caller
-	// reads from the other. This avoids the StdoutPipe + Wait deadlock.
-	pr, pw := io.Pipe()
-	cmd.Stdout = pw
-
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
-
-	if err := cmd.Start(); err != nil {
-		_ = pw.Close()
-		return pr, err
+	f, err := os.CreateTemp("", "vol-backup-*.tar.gz")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
 	}
-
-	go func() {
-		err := cmd.Wait()
+	tmpPath := f.Name()
+	defer func() {
+		f.Close()
 		if err != nil {
-			_ = pw.CloseWithError(fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(stderrBuf.String())))
-		} else {
-			_ = pw.Close()
+			os.Remove(tmpPath)
 		}
 	}()
 
-	return pr, nil
+	var stderrBuf bytes.Buffer
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/b:ro",
+		"alpine:3.20", "tar", "czf", "-", "-C", "/b", ".")
+	cmd.Stdout = f
+	cmd.Stderr = &stderrBuf
+
+	if runErr := cmd.Run(); runErr != nil {
+		errMsg := strings.TrimSpace(stderrBuf.String())
+		if errMsg == "" {
+			errMsg = runErr.Error()
+		}
+		return "", fmt.Errorf("docker tar: %s", errMsg)
+	}
+	return tmpPath, nil
 }
 
 func RestoreTarGz(ctx context.Context, vol string, in io.Reader) string {

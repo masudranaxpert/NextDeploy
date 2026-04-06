@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 
@@ -121,22 +121,23 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	if !volumex.ValidVolumeName(name) {
 		return c.Status(400).SendString("invalid volume")
 	}
-	// Use background context — the defer cancel() in a normal handler fires
-	// before SetBodyStreamWriter's callback runs (the callback executes after
-	// the handler returns), which would kill the docker process mid-stream.
-	r, err := volumex.OpenTarStream(context.Background(), name)
+
+	// Build the tar archive into a temp file first so we know the final size
+	// before the HTTP response starts. fasthttp/Fiber cannot do true streaming
+	// of an unknown-length body without buffering it anyway, so writing to a
+	// temp file is the most reliable approach and allows Content-Length.
+	ctx := c.UserContext()
+	tmpPath, err := volumex.BackupToTemp(ctx, name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	// Remove the temp file once Fiber has sent it.
+	defer os.Remove(tmpPath)
 
 	safe := strings.ReplaceAll(name, `"`, "")
 	c.Set("Content-Type", "application/gzip")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-backup.tar.gz"`, safe))
-	// SetBodyStream(-1) tells fasthttp to stream from r without a Content-Length,
-	// using chunked transfer encoding. This avoids buffering large archives in memory.
-	// The -1 content-size means "unknown length — stream until EOF".
-	c.Context().Response.SetBodyStream(r, -1)
-	return nil
+	return c.SendFile(tmpPath)
 }
 
 func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
