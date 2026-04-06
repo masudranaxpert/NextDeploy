@@ -119,6 +119,13 @@ func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, pr
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
+// ComposeApply runs `docker compose up -d` (no rebuild) — used to apply label/config
+// changes without rebuilding images, e.g. after a domain add/edit/delete.
+func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	fixLineEndings(projectDir)
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d")
+}
+
 func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down")
 }
@@ -147,11 +154,6 @@ func ComposeUpServices(ctx context.Context, projectDir string, composeFiles []st
 		}
 	}
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
-}
-
-func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
-	fixLineEndings(projectDir)
-	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d")
 }
 
 func ComposePullUpServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {

@@ -107,7 +107,9 @@ func (p *Panel) applyComposeConfigSmart(ctx context.Context, app db.App, appID s
 	return nil
 }
 
-func (p *Panel) syncAndApplyCaddyOverride(c *fiber.Ctx, appID string) error {
+// syncAndApplyBackground writes the Caddy override then runs compose (smart for
+// PHP Panel, full for others) in a background goroutine so handlers return immediately.
+func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 	if err := p.syncAppCaddyOverride(c, appID); err != nil {
 		return err
 	}
@@ -121,6 +123,12 @@ func (p *Panel) syncAndApplyCaddyOverride(c *fiber.Ctx, appID string) error {
 		_ = p.applyComposeConfigSmart(ctx, app, appID)
 	}()
 	return nil
+}
+
+// syncAndApplyCaddyOverride is kept for callers that need a synchronous override write
+// followed by a background smart compose apply (e.g. PHP Panel internal handlers).
+func (p *Panel) syncAndApplyCaddyOverride(c *fiber.Ctx, appID string) error {
+	return p.syncAndApplyBackground(c, appID)
 }
 
 // syncAndApplyCaddyOverrideCtx is a context-based variant used from goroutines (no fiber.Ctx).
@@ -231,7 +239,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if _, err := p.DB.CreateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -244,7 +252,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.DB.DeleteAppDomain(c.UserContext(), did); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -285,7 +293,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")

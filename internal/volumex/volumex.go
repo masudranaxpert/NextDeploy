@@ -148,6 +148,19 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 	return list, ""
 }
 
+// pipeReadCloser wraps a StdoutPipe so that Close() also waits for the
+// underlying command to exit, preventing zombie processes.
+type pipeReadCloser struct {
+	io.ReadCloser
+	cmd *exec.Cmd
+}
+
+func (p *pipeReadCloser) Close() error {
+	err := p.ReadCloser.Close()
+	_ = p.cmd.Wait()
+	return err
+}
+
 func OpenTarStream(ctx context.Context, vol string) (io.ReadCloser, error) {
 	if !ValidVolumeName(vol) {
 		return nil, errors.New("invalid volume")
@@ -160,11 +173,7 @@ func OpenTarStream(ctx context.Context, vol string) (io.ReadCloser, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	go func() {
-		_ = cmd.Wait()
-		_ = r.Close()
-	}()
-	return r, nil
+	return &pipeReadCloser{ReadCloser: r, cmd: cmd}, nil
 }
 
 func RestoreTarGz(ctx context.Context, vol string, in io.Reader) string {

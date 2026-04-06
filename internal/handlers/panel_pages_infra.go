@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"sort"
 	"strings"
@@ -141,10 +143,17 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	c.Set("Content-Type", "application/gzip")
+	defer r.Close()
+
 	safe := strings.ReplaceAll(name, `"`, "")
+	c.Set("Content-Type", "application/x-tar")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-backup.tar.gz"`, safe))
-	return c.SendStream(r)
+	// Stream directly into the response writer to avoid buffering the whole archive in memory.
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		_, _ = io.Copy(w, r)
+		_ = w.Flush()
+	})
+	return nil
 }
 
 func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
