@@ -1,11 +1,11 @@
 {{/* Installation-wide proxy, domain, and root stack. Layout: layouts/shell. */}}
-<div class="space-y-6">
-  <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-    <div>
+<div class="page-shell max-w-[1600px] space-y-6">
+  <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div class="min-w-0">
       <h1 class="page-title">NextDeploy</h1>
       <p class="page-subtitle">Shared proxy, panel domain, and root stack settings for this installation.</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex min-w-0 flex-wrap items-center gap-2">
       {{if .CaddyRunning}}
         <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">Caddy running</span>
       {{else}}
@@ -38,8 +38,8 @@
               </div>
             </label>
           </div>
-          <div class="flex justify-end">
-            <button type="submit" class="btn btn-primary">Save Panel Domain</button>
+          <div class="flex justify-stretch sm:justify-end">
+            <button type="submit" class="btn btn-primary h-11 w-full sm:h-auto sm:w-auto">Save Panel Domain</button>
           </div>
         </form>
       </div>
@@ -59,8 +59,8 @@
             <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="caddy_image">Caddy image</label>
             <input id="caddy_image" name="caddy_image" type="text" class="input w-full" value="{{if .CaddyImage}}{{.CaddyImage}}{{else}}lucaslorentz/caddy-docker-proxy:ci-alpine{{end}}">
           </div>
-          <div class="flex items-end justify-end">
-            <button type="submit" class="btn btn-primary">Save Proxy Settings</button>
+          <div class="flex items-stretch justify-stretch sm:items-end sm:justify-end">
+            <button type="submit" class="btn btn-primary h-11 w-full sm:h-auto sm:w-auto">Save Proxy Settings</button>
           </div>
         </form>
         <div class="mb-4 flex flex-wrap gap-2">
@@ -128,9 +128,9 @@
       </div>
 
       <div class="panel-card p-5">
-        <div class="section-header mb-4">
-          <span>Root Stack Compose</span>
-          <span class="ml-auto text-[11px] text-muted-foreground">{{.RootComposePath}}</span>
+        <div class="section-header mb-4 items-start">
+          <span class="text-sm font-medium text-foreground">Root Stack Compose</span>
+          <span class="break-all text-left text-[11px] text-muted-foreground sm:ml-auto sm:text-right">{{.RootComposePath}}</span>
         </div>
         <pre class="max-h-[36rem] overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}Root compose preview unavailable.{{end}}</pre>
       </div>

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +18,65 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// panelTempPatterns are the glob patterns NextDeploy uses for temp files in os.TempDir().
+var panelTempPatterns = []string{
+	"vol-backup-*.tar.gz",
+	"panel-upload-*.zip",
+}
+
+// ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
+func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
+	dir := os.TempDir()
+	for _, pattern := range panelTempPatterns {
+		matches, err := filepath.Glob(filepath.Join(dir, pattern))
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			st, err := os.Stat(m)
+			if err != nil {
+				continue
+			}
+			count++
+			totalBytes += st.Size()
+			paths = append(paths, m)
+		}
+	}
+	return
+}
+
+// CleanPanelTempFiles removes all orphaned NextDeploy temp files and returns
+// the number removed and the freed bytes.
+func CleanPanelTempFiles() (removed int, freedBytes int64) {
+	_, _, paths := ScanPanelTempFiles()
+	for _, p := range paths {
+		st, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		size := st.Size()
+		if err := os.Remove(p); err == nil {
+			removed++
+			freedBytes += size
+		}
+	}
+	return
+}
+
+// formatBytes returns a human-readable byte size string.
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
 
 const (
 	settingCleanupEnabled  = "cleanup_enabled"
@@ -119,6 +179,7 @@ func (p *Panel) SyncRootStackComposeOnStart() error {
 
 func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	cfg, _ := p.DB.GetAllSettings(c.UserContext())
+	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
 	return c.Render("pages/settings", withUser(c, fiber.Map{
 		"Nav":              "settings",
 		"Title":            "Settings",
@@ -130,7 +191,29 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 		"CleanupLastLog":   cfg[settingCleanupLastLog],
 		"UploadMaxMB":      normalizeUploadMaxMB(cfg[settingUploadMaxMB]),
 		"UploadMaxMBMax":   maxUploadMaxMB,
+		"TmpFileCount":     tmpCount,
+		"TmpFileSize":      formatBytes(tmpBytes),
+		"TmpFileSizeRaw":   tmpBytes,
 	}), "layouts/shell")
+}
+
+// TempCleanupRun deletes orphaned NextDeploy temp files immediately.
+func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
+	removed, freed := CleanPanelTempFiles()
+	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
+	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
+	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
+	return c.Redirect("/settings?flash=tmp_cleaned")
+}
+
+// TempCleanupInfo returns live temp file info as JSON (for AJAX refresh).
+func (p *Panel) TempCleanupInfo(c *fiber.Ctx) error {
+	count, totalBytes, _ := ScanPanelTempFiles()
+	return c.JSON(fiber.Map{
+		"count": count,
+		"size":  formatBytes(totalBytes),
+		"bytes": totalBytes,
+	})
 }
 
 func (p *Panel) SettingsSave(c *fiber.Ctx) error {
@@ -196,6 +279,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
 	go p.migratePHPPanelComposeFiles()
+	go p.cleanOrphanTempFiles()
 }
 
 // migratePHPPanelComposeFiles updates any existing PHP Panel compose.yml files
@@ -216,6 +300,17 @@ func (p *Panel) migratePHPPanelComposeFiles() {
 		if err := phppanel.MigrateCompose(workspaceRoot); err != nil {
 			log.Printf("php panel compose migrate %s: %v", app.ID, err)
 		}
+	}
+}
+
+// cleanOrphanTempFiles removes any leftover NextDeploy temp files from a previous
+// run (e.g. after a panel crash mid-download). Runs once at startup.
+func (p *Panel) cleanOrphanTempFiles() {
+	removed, freed := CleanPanelTempFiles()
+	if removed > 0 {
+		msg := fmt.Sprintf("[startup] Removed %d orphaned temp file(s), freed %s.", removed, formatBytes(freed))
+		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
+		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_log", msg)
 	}
 }
 

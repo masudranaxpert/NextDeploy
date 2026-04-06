@@ -1,15 +1,15 @@
 {{/* Browse files inside a Docker volume. Layout: layouts/shell. */}}
-<div class="mx-auto max-w-5xl space-y-6">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div>
+<div class="page-shell max-w-5xl">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
       <a href="/volumes" class="text-xs text-muted-foreground hover:text-foreground">← Volumes</a>
       <h1 class="mt-1 font-mono text-xl font-semibold tracking-tight md:text-2xl">{{.VolumeName}}</h1>
       <p class="mt-1 break-all font-mono text-xs text-muted-foreground">
         {{if .Path}}/{{.Path}}{{else}}(root){{end}}
       </p>
     </div>
-    <div class="flex flex-wrap gap-2">
-      <a href="/volumes/download?name={{urlquery .VolumeName}}" class="inline-flex items-center rounded-md border border-orange-500/40 bg-orange-950/30 px-3 py-2 text-sm font-medium text-orange-100 hover:bg-orange-900/40">Download full backup</a>
+    <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+      <a href="/volumes/download?name={{urlquery .VolumeName}}" class="inline-flex min-h-11 items-center justify-center rounded-md border border-orange-500/40 bg-orange-950/30 px-3 py-2 text-center text-sm font-medium text-orange-100 hover:bg-orange-900/40 sm:min-h-0">Download full backup</a>
     </div>
   </div>
 
@@ -20,7 +20,7 @@
     <p class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-200 whitespace-pre-wrap">{{.BrowseError}}</p>
   {{end}}
 
-  <div class="panel-card space-y-4 p-5">
+  <div class="panel-card space-y-4 p-4 sm:p-5">
     <div class="flex flex-wrap items-center gap-2 text-sm">
       {{if .Path}}
         <a href="/volumes/browse?name={{urlquery .VolumeName}}&path={{urlquery .ParentPath}}" class="rounded-md border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/80">↑ Up</a>

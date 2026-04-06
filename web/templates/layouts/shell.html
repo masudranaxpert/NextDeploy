@@ -359,9 +359,10 @@
         </a>
       </header>
 
-      <main class="relative flex-1 px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
+      <main class="relative min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
         <div class="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-transparent to-[hsl(25_35%_9%/0.35)]" aria-hidden="true"></div>
-        {{embed}}
+        <!-- flow-root: block-level mx-auto children center reliably; avoid clipping negative margins from tabs -->
+        <div class="relative z-0 min-w-0 w-full max-w-full flow-root">{{embed}}</div>
       </main>
     </div>
   </div>

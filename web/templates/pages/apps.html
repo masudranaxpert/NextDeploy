@@ -1,20 +1,20 @@
 {{/* Apps list and create-app modal. Layout: layouts/shell. */}}
-<div class="mx-auto max-w-6xl space-y-6" x-data="{ open: false, appName: '' }">
+<div class="page-shell max-w-6xl" x-data="{ open: false, appName: '' }">
 
   <!-- Page header -->
   <div class="section-header">
-    <div class="flex items-center gap-3">
+    <div class="flex min-w-0 items-center gap-3">
       <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
         <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z"/>
         </svg>
       </div>
-      <div>
+      <div class="min-w-0">
         <h1 class="page-title">Apps</h1>
         <p class="page-subtitle">Manage your compose stacks and deployments</p>
       </div>
     </div>
-    <button type="button" class="btn-primary h-10 px-4 text-sm" @click="open = true; $nextTick(() => $refs.nameInput && $refs.nameInput.focus())">
+    <button type="button" class="section-header-btn btn-primary px-4 text-sm" @click="open = true; $nextTick(() => $refs.nameInput && $refs.nameInput.focus())">
       <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
       </svg>
@@ -54,7 +54,7 @@
         </div>
         <div>
           <label class="mb-1.5 block text-sm font-medium text-foreground">Source</label>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex items-center gap-2.5 cursor-pointer rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
               <input type="radio" name="source_type" value="github" x-model="sourceType" checked>
               <div>
@@ -77,7 +77,7 @@
             <input class="input w-full font-mono text-xs" id="repo-url" name="repo_url" placeholder="https://github.com/owner/repo.git" autocomplete="off">
             <p class="mt-1 text-xs text-muted-foreground">Public repos work with HTTPS only.</p>
           </div>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-sm font-medium text-foreground" for="branch">Branch</label>
               <input class="input w-full" id="branch" name="branch" value="main" placeholder="main" autocomplete="off">
@@ -120,11 +120,11 @@
             {{range .Apps}}
               <tr class="group transition-colors hover:bg-muted/20">
                 <td class="px-4 py-3">
-                  <a class="flex items-center gap-2.5 font-semibold text-foreground hover:text-primary transition-colors" href="/apps/{{.ID}}">
+                  <a class="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-foreground hover:text-primary transition-colors" href="/apps/{{.ID}}">
                     <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 ring-1 ring-primary/20 text-[10px] font-bold text-primary uppercase">
                       {{initials .Name}}
                     </div>
-                    <span>{{.Name}}</span>
+                    <span class="min-w-0 break-words">{{.Name}}</span>
                     {{if eq .TemplateID "php_panel"}}
                       <span class="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-violet-500/25">PHP Panel</span>
                     {{end}}
