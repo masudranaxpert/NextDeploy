@@ -1,32 +1,43 @@
 {{/* Panel user accounts. Layout: layouts/shell. */}}
-<div class="mx-auto max-w-4xl space-y-6">
+<div class="mx-auto max-w-3xl space-y-6">
 
   <!-- Page header -->
   <div class="section-header">
-    <div class="flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20">
-        <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20">
+        <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
         </svg>
       </div>
-      <div>
+      <div class="min-w-0">
         <h1 class="page-title">Users</h1>
         <p class="page-subtitle">Manage panel access and permissions</p>
       </div>
     </div>
+    {{if eq .CurrentUser.Role "admin"}}
+    <button type="button"
+      class="btn-primary h-10 shrink-0 px-4 text-sm"
+      onclick="document.getElementById('add-user-modal').classList.remove('hidden')">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Add User
+    </button>
+    {{end}}
   </div>
 
+  <!-- Flash / Error alerts -->
   {{if .Flash}}
-  <div class="flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
-    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
     <p class="text-sm text-emerald-300">{{.Flash}}</p>
   </div>
   {{end}}
   {{if .Error}}
-  <div class="flex items-center gap-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">
-    <svg class="h-4 w-4 shrink-0 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+  <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3" role="alert">
+    <svg class="h-4 w-4 shrink-0 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
     </svg>
     <p class="text-sm text-rose-300">{{.Error}}</p>
@@ -35,117 +46,106 @@
 
   <!-- User list -->
   <div class="panel-card overflow-hidden">
-    <div class="border-b border-border/50 px-5 py-4">
+    <div class="flex items-center justify-between border-b border-border/50 px-5 py-4">
       <h2 class="text-sm font-semibold text-foreground">All users</h2>
+      <span class="inline-flex items-center rounded-full bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">
+        {{len .Users}} total
+      </span>
     </div>
-    <div class="divide-y divide-border/50">
-      {{range .Users}}
-      <div class="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
-        <!-- User info -->
-        <div class="flex items-start gap-3 min-w-0">
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20 text-xs font-bold text-orange-300 uppercase">
-            {{initials .Username}}
-          </div>
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="text-sm font-semibold text-foreground">{{.Username}}</span>
-              {{if eq .Role "admin"}}
-                <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-500/25">admin</span>
-              {{else}}
-                <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">user</span>
-              {{end}}
-              {{if eq .ID $.CurrentUser.ID}}
-                <span class="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-primary/25">you</span>
-              {{end}}
-            </div>
-            <p class="mt-0.5 text-xs text-muted-foreground">Created {{.CreatedAt.Format "Jan 02, 2006"}}</p>
-            <div class="mt-2 flex flex-wrap items-center gap-1.5">
-              {{if .PHPPanelEnabled}}
-              <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">PHP Panel enabled</span>
-              {{else}}
-              <span class="inline-flex items-center rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300 ring-1 ring-rose-500/25">PHP Panel disabled</span>
-              {{end}}
-              <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{.SiteUsage}} / {{.SiteLimit}} sites</span>
-              <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{.DatabaseUsage}} / {{.DatabaseLimit}} databases</span>
-            </div>
-          </div>
-        </div>
 
-        <!-- Actions -->
-        <div class="flex flex-col gap-2 sm:items-end">
-          {{if $.HasPHPPanel}}
-          <!-- PHP Panel settings row -->
-          <form method="post" action="/users/{{.ID}}/php-panel/settings" class="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2.5">
-            <!-- Toggle switch -->
-            <label class="relative inline-flex cursor-pointer items-center gap-2 text-xs text-foreground select-none">
-              {{if eq .Role "admin"}}
-              <input type="hidden" name="php_panel_enabled" value="on">
-              <button type="button" role="switch" aria-checked="true" disabled
-                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-emerald-500/60 opacity-60 cursor-not-allowed">
-                <span class="inline-block h-3.5 w-3.5 translate-x-4 rounded-full bg-white shadow transition-transform"></span>
-              </button>
-              {{else}}
-              <input type="checkbox" name="php_panel_enabled" id="php-toggle-{{.ID}}" class="sr-only peer" {{if .PHPPanelEnabled}}checked{{end}}
-                onchange="this.form.querySelector('[data-toggle-knob]').classList.toggle('translate-x-4', this.checked); this.form.querySelector('[data-toggle-track]').classList.toggle('bg-emerald-500', this.checked); this.form.querySelector('[data-toggle-track]').classList.toggle('bg-muted', !this.checked);">
-              <button type="button" role="switch" data-toggle-track
-                onclick="document.getElementById('php-toggle-{{.ID}}').click()"
-                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors {{if .PHPPanelEnabled}}bg-emerald-500{{else}}bg-muted{{end}}">
-                <span data-toggle-knob class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform {{if .PHPPanelEnabled}}translate-x-4{{else}}translate-x-0.5{{end}}"></span>
-              </button>
-              {{end}}
-              <span class="text-muted-foreground">PHP Panel</span>
-            </label>
-            <div class="flex items-center gap-1.5">
-              <input type="number" min="1" max="100" name="site_limit" value="{{.SiteLimit}}" class="input h-7 w-16 py-0 text-xs" title="Site limit (max sites)">
-              <span class="text-[10px] text-muted-foreground">sites</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <input type="number" min="1" max="100" name="database_limit" value="{{.DatabaseLimit}}" class="input h-7 w-16 py-0 text-xs" title="Database limit (max databases)">
-              <span class="text-[10px] text-muted-foreground">dbs</span>
-            </div>
-            <button type="submit" class="btn-secondary h-7 px-2.5 text-[11px]">Save</button>
-          </form>
-          <!-- Open PHP Panel as user -->
-          <div class="flex flex-wrap gap-2">
-            {{if ne .ID $.CurrentUser.ID}}
-            <form method="post" action="/users/{{.ID}}/php-panel/open" class="inline" target="_blank">
-              <button type="submit" class="btn-secondary h-8 px-3 text-xs">
-                <svg class="mr-1 h-3.5 w-3.5 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>
-                </svg>
-                Open as user
-              </button>
-            </form>
-            {{end}}
-          </div>
-          {{end}}
+    <ul class="divide-y divide-border/40 list-none p-0 m-0" role="list">
+    {{range .Users}}
+    <li class="group">
+      <div class="flex flex-col gap-4 px-5 py-4 transition-colors hover:bg-muted/10">
 
-          <!-- Role + Password + Delete row -->
-          <div class="flex flex-wrap items-center gap-2">
+        <!-- Top row: avatar + info + core actions -->
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+
+          <!-- Avatar + info -->
+          <div class="flex min-w-0 items-start gap-3">
+            <div class="relative shrink-0">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl
+                {{if eq .Role "admin"}}bg-amber-500/15 ring-1 ring-amber-500/25 text-amber-300
+                {{else}}bg-primary/10 ring-1 ring-primary/20 text-primary{{end}}
+                text-xs font-bold uppercase select-none">
+                {{initials .Username}}
+              </div>
+              {{if eq .Role "admin"}}
+              <span class="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500/20 ring-1 ring-background" title="Admin">
+                <svg class="h-2 w-2 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9.664 1.319a.75.75 0 01.672 0 41.059 41.059 0 018.198 5.424.75.75 0 01-.254 1.285 31.372 31.372 0 00-7.86 3.83.75.75 0 01-.84 0 31.508 31.508 0 00-2.08-1.287V9.394c0-.244.116-.463.302-.592a35.504 35.504 0 013.305-2.033.75.75 0 00-.714-1.319 37 37 0 00-3.446 2.12A2.216 2.216 0 006 9.393v.38a31.293 31.293 0 00-4.28-1.746.75.75 0 01-.254-1.285 41.059 41.059 0 018.198-5.424zM6 11.459a29.848 29.848 0 00-2.455-1.158 41.029 41.029 0 00-.39 3.114.75.75 0 00.419.74c.528.256 1.046.53 1.554.82-.21.324-.455.63-.739.914a.75.75 0 101.06 1.06c.37-.369.69-.77.96-1.193a26.61 26.61 0 013.095 2.348.75.75 0 00.992 0 26.547 26.547 0 015.93-3.95.75.75 0 00.42-.739 41.053 41.053 0 00-.39-3.114 29.925 29.925 0 00-2.456 1.158 27.45 27.45 0 01-.997 7.527 26.566 26.566 0 00-3.093-2.347 29.71 29.71 0 01-.262-2.35zM15.466 13.849a25.012 25.012 0 01-.175 2.032 29.71 29.71 0 005.096-1.96.75.75 0 00.42-.74 35.785 35.785 0 00-2.342-10.06.75.75 0 10-1.38.584 34.33 34.33 0 012.17 9.22 27.517 27.517 0 01-3.789 1.924z" clip-rule="evenodd"/></svg>
+              </span>
+              {{end}}
+            </div>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-sm font-semibold text-foreground">{{.Username}}</span>
+                {{if eq .Role "admin"}}
+                  <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-500/25">admin</span>
+                {{else}}
+                  <span class="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">user</span>
+                {{end}}
+                {{if eq .ID $.CurrentUser.ID}}
+                  <span class="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-primary/25">you</span>
+                {{end}}
+              </div>
+              <p class="mt-0.5 text-xs text-muted-foreground">Joined {{.CreatedAt.Format "Jan 02, 2006"}}</p>
+
+              <!-- PHP Panel status badges -->
+              {{if $.HasPHPPanel}}
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                {{if .PHPPanelEnabled}}
+                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">
+                  <svg class="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>
+                  PHP Panel
+                </span>
+                {{else}}
+                <span class="inline-flex items-center rounded-full bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">PHP Panel off</span>
+                {{end}}
+                <span class="inline-flex items-center rounded-full bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/40">{{.SiteUsage}} / {{.SiteLimit}} sites</span>
+                <span class="inline-flex items-center rounded-full bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/40">{{.DatabaseUsage}} / {{.DatabaseLimit}} DBs</span>
+              </div>
+              {{end}}
+            </div>
+          </div>
+
+          <!-- Core action buttons -->
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
             {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
             <form method="post" action="/users/{{.ID}}/role" class="inline-flex items-center gap-1.5">
-              <select name="role" class="input h-8 py-0 text-xs pr-7">
-                <option value="user" {{if eq .Role "user"}}selected{{end}}>user</option>
+              <select name="role" class="input h-8 py-0 pr-7 text-xs w-24">
+                <option value="user"  {{if eq .Role "user"}}selected{{end}}>user</option>
                 <option value="admin" {{if eq .Role "admin"}}selected{{end}}>admin</option>
               </select>
-              <button type="submit" class="btn-secondary h-8 px-2.5 text-xs">Set role</button>
+              <button type="submit" class="btn-secondary h-8 px-2.5 text-xs">Set</button>
             </form>
             {{end}}
 
             <button type="button"
-              class="btn-secondary h-8 px-3 text-xs"
-              onclick="document.getElementById('pw-modal-{{.ID}}').classList.remove('hidden')">
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              class="btn-secondary h-8 gap-1.5 px-3 text-xs"
+              onclick="document.getElementById('pw-modal-{{.ID}}').classList.remove('hidden')"
+              aria-label="Change password for {{.Username}}">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
               </svg>
               Password
             </button>
 
+            {{if ne .ID $.CurrentUser.ID}}
+            {{if $.HasPHPPanel}}
+            <form method="post" action="/users/{{.ID}}/php-panel/open" class="inline" target="_blank">
+              <button type="submit" class="btn-secondary h-8 gap-1.5 px-3 text-xs" title="Open PHP Panel as this user">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                Open
+              </button>
+            </form>
+            {{end}}
+            {{end}}
+
             {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
             <form method="post" action="/users/{{.ID}}/delete" class="inline"
-                  onsubmit="return confirm('Delete user {{.Username}}?');">
-              <button type="submit" class="btn-delete-sm gap-1.5">
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  onsubmit="return confirm('Permanently delete {{.Username}}? All their PHP Panel data will be removed too.');">
+              <button type="submit" class="btn-delete-sm gap-1.5" aria-label="Delete {{.Username}}">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
                 </svg>
                 Delete
@@ -154,82 +154,216 @@
             {{end}}
           </div>
         </div>
-      </div>
 
-      <!-- Password change modal for this user -->
-      <div id="pw-modal-{{.ID}}" class="modal-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
-        <div class="modal-box max-w-sm" onclick="event.stopPropagation()">
-          <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-foreground">Change password — {{.Username}}</h3>
-            <button type="button" onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')" class="text-muted-foreground hover:text-foreground">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        <!-- PHP Panel settings row (admin + hasPhpPanel + not self) -->
+        {{if and $.HasPHPPanel (ne .ID $.CurrentUser.ID) (eq $.CurrentUser.Role "admin")}}
+        <div class="ml-13 pl-0 sm:pl-13">
+          <form method="post" action="/users/{{.ID}}/php-panel/settings"
+                class="flex flex-wrap items-center gap-2 rounded-xl border border-border/50 bg-muted/10 px-3 py-2.5">
+            <!-- Toggle -->
+            <label class="relative inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
+              {{if eq .Role "admin"}}
+              <input type="hidden" name="php_panel_enabled" value="on">
+              <button type="button" role="switch" aria-checked="true" disabled title="Admins always have PHP Panel access"
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-emerald-500/50 cursor-not-allowed opacity-70">
+                <span class="inline-block h-3.5 w-3.5 translate-x-4 rounded-full bg-white shadow"></span>
+              </button>
+              {{else}}
+              <input type="checkbox" name="php_panel_enabled" id="php-toggle-{{.ID}}" class="sr-only peer"
+                {{if .PHPPanelEnabled}}checked{{end}}
+                onchange="var t=this.form.querySelector('[data-tk]');var r=this.form.querySelector('[data-tr]');t.classList.toggle('translate-x-4',this.checked);t.classList.toggle('translate-x-0.5',!this.checked);r.classList.toggle('bg-emerald-500',this.checked);r.classList.toggle('bg-muted',!this.checked);">
+              <button type="button" role="switch" data-tr
+                onclick="document.getElementById('php-toggle-{{.ID}}').click()"
+                aria-label="Toggle PHP Panel for {{.Username}}"
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors {{if .PHPPanelEnabled}}bg-emerald-500{{else}}bg-muted{{end}}">
+                <span data-tk class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform {{if .PHPPanelEnabled}}translate-x-4{{else}}translate-x-0.5{{end}}"></span>
+              </button>
+              {{end}}
+              <span class="font-medium text-foreground">PHP Panel</span>
+            </label>
+
+            <div class="flex items-center gap-1.5">
+              <label class="text-[10px] text-muted-foreground" for="sl-{{.ID}}">Sites</label>
+              <input id="sl-{{.ID}}" type="number" min="1" max="100" name="site_limit" value="{{.SiteLimit}}"
+                class="input h-7 w-16 py-0 text-xs" title="Max sites">
+            </div>
+            <div class="flex items-center gap-1.5">
+              <label class="text-[10px] text-muted-foreground" for="dl-{{.ID}}">DBs</label>
+              <input id="dl-{{.ID}}" type="number" min="1" max="100" name="database_limit" value="{{.DatabaseLimit}}"
+                class="input h-7 w-16 py-0 text-xs" title="Max databases">
+            </div>
+            <button type="submit" class="btn-secondary h-7 px-2.5 text-[11px]">Save</button>
+          </form>
+        </div>
+        {{end}}
+
+      </div>
+    </li>
+
+    <!-- Password change modal for this user -->
+    <div id="pw-modal-{{.ID}}" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pw-modal-title-{{.ID}}"
+         onclick="if(event.target===this)this.classList.add('hidden')">
+      <div class="modal-box max-w-sm w-full" onclick="event.stopPropagation()">
+        <div class="mb-5 flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+              <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+              </svg>
+            </div>
+            <div>
+              <h3 id="pw-modal-title-{{.ID}}" class="text-sm font-semibold text-foreground">Change password</h3>
+              <p class="text-xs text-muted-foreground">{{.Username}}</p>
+            </div>
+          </div>
+          <button type="button"
+            onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')"
+            class="btn-icon shrink-0"
+            aria-label="Close">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <form method="post" action="/users/{{.ID}}/password" class="space-y-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="pw-new-{{.ID}}">New password</label>
+            <input id="pw-new-{{.ID}}" type="password" name="password" class="input w-full" placeholder="Min 8 characters" required minlength="8" autocomplete="new-password">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="pw-confirm-{{.ID}}">Confirm password</label>
+            <input id="pw-confirm-{{.ID}}" type="password" name="confirm" class="input w-full" placeholder="Repeat password" required minlength="8" autocomplete="new-password">
+          </div>
+          <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <button type="button"
+              onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')"
+              class="btn-secondary px-4 py-2 text-sm">
+              Cancel
+            </button>
+            <button type="submit" class="btn-primary px-4 py-2 text-sm">
+              Update password
             </button>
           </div>
-          <form method="post" action="/users/{{.ID}}/password" class="space-y-3">
+        </form>
+      </div>
+    </div>
+    {{end}}
+
+    {{if not .Users}}
+    <li class="flex flex-col items-center gap-3 px-5 py-12 text-center">
+      <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/30 ring-1 ring-border/40">
+        <svg class="h-6 w-6 text-muted-foreground/50" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
+      </div>
+      <div>
+        <p class="text-sm font-medium text-foreground">No users yet</p>
+        <p class="mt-1 text-xs text-muted-foreground">Add your first user above.</p>
+      </div>
+    </li>
+    {{end}}
+    </ul>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Add User Modal (admin only)                                -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+{{if eq .CurrentUser.Role "admin"}}
+<div id="add-user-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="add-user-title"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-box max-w-md w-full" onclick="event.stopPropagation()">
+    <div class="mb-5 flex items-start justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+          <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 id="add-user-title" class="text-base font-semibold text-foreground">Add new user</h2>
+          <p class="text-xs text-muted-foreground">Create a panel account</p>
+        </div>
+      </div>
+      <button type="button"
+        onclick="document.getElementById('add-user-modal').classList.add('hidden')"
+        class="btn-icon shrink-0"
+        aria-label="Close">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form method="post" action="/users" class="space-y-4" onsubmit="this.querySelector('[type=submit]').disabled=true">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground" for="new-username">Username <span class="text-rose-400">*</span></label>
+          <input id="new-username" type="text" name="username" class="input w-full" placeholder="e.g. john" required minlength="3" autocomplete="username">
+        </div>
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground" for="new-password">Password <span class="text-rose-400">*</span></label>
+          <input id="new-password" type="password" name="password" class="input w-full" placeholder="Min 8 characters" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div>
+        <label class="mb-1.5 block text-sm font-medium text-foreground">Role</label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border/60 bg-muted/10 px-3 py-2.5 transition-colors hover:bg-muted/20 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5">
+            <input type="radio" name="role" value="user" class="accent-primary" checked>
             <div>
-              <label class="mb-1 block text-xs font-medium text-muted-foreground">New password</label>
-              <input type="password" name="password" class="input w-full" placeholder="••••••••" required minlength="8">
+              <p class="text-xs font-medium text-foreground">User</p>
+              <p class="text-[10px] text-muted-foreground">Standard access</p>
             </div>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border/60 bg-muted/10 px-3 py-2.5 transition-colors hover:bg-muted/20 has-[:checked]:border-amber-500/40 has-[:checked]:bg-amber-500/5">
+            <input type="radio" name="role" value="admin" class="accent-amber-500">
             <div>
-              <label class="mb-1 block text-xs font-medium text-muted-foreground">Confirm password</label>
-              <input type="password" name="confirm" class="input w-full" placeholder="••••••••" required minlength="8">
+              <p class="text-xs font-medium text-foreground">Admin</p>
+              <p class="text-[10px] text-muted-foreground">Full control</p>
             </div>
-            <div class="flex justify-end gap-2 pt-1">
-              <button type="button" onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')" class="btn-secondary px-3 py-1.5 text-xs">Cancel</button>
-              <button type="submit" class="btn-primary px-3 py-1.5 text-xs">Update</button>
-            </div>
-          </form>
+          </label>
+        </div>
+      </div>
+
+      {{if $.HasPHPPanel}}
+      <div class="rounded-xl border border-border/50 bg-muted/10 p-4 space-y-3">
+        <p class="text-xs font-semibold text-foreground">PHP Panel settings</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex cursor-pointer items-center gap-2 text-xs text-foreground select-none">
+            <input type="checkbox" name="php_panel_enabled" id="new-php-toggle"
+              class="sr-only peer"
+              onchange="var t=this.parentElement.querySelector('[data-nktk]');var r=this.parentElement.querySelector('[data-nktr]');t.classList.toggle('translate-x-4',this.checked);t.classList.toggle('translate-x-0.5',!this.checked);r.classList.toggle('bg-emerald-500',this.checked);r.classList.toggle('bg-muted',!this.checked);">
+            <button type="button" data-nktr role="switch"
+              onclick="document.getElementById('new-php-toggle').click()"
+              class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-muted transition-colors">
+              <span data-nktk class="inline-block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-white shadow transition-transform"></span>
+            </button>
+            Enable PHP Panel
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1 block text-xs text-muted-foreground" for="new-site-limit">Site limit</label>
+            <input id="new-site-limit" type="number" name="site_limit" class="input w-full h-8 py-0 text-xs" value="3" min="1" max="100">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs text-muted-foreground" for="new-db-limit">Database limit</label>
+            <input id="new-db-limit" type="number" name="database_limit" class="input w-full h-8 py-0 text-xs" value="3" min="1" max="100">
+          </div>
         </div>
       </div>
       {{end}}
-    </div>
-  </div>
 
-  <!-- Create new user (admin only) -->
-  {{if eq .CurrentUser.Role "admin"}}
-  <div class="panel-card p-5 space-y-4">
-    <h2 class="text-sm font-semibold text-foreground">Add new user</h2>
-    <form method="post" action="/users" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">Username</label>
-        <input type="text" name="username" class="input w-full" placeholder="username" required minlength="3">
-      </div>
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">Password</label>
-        <input type="password" name="password" class="input w-full" placeholder="••••••••" required minlength="8">
-      </div>
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">Role</label>
-        <select name="role" class="input w-full">
-          <option value="user">user</option>
-          <option value="admin">admin</option>
-        </select>
-      </div>
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">PHP Panel</label>
-        <label class="flex h-10 items-center gap-2 rounded-xl border border-border/60 bg-muted/15 px-3 text-xs text-foreground">
-          <input type="checkbox" name="php_panel_enabled" class="rounded">
-          <span>Enable on create</span>
-        </label>
-      </div>
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">Site limit</label>
-        <input type="number" name="site_limit" class="input w-full" value="3" min="1" max="100">
-      </div>
-      <div>
-        <label class="mb-1 block text-xs font-medium text-muted-foreground">Database limit</label>
-        <input type="number" name="database_limit" class="input w-full" value="3" min="1" max="100">
-      </div>
-      <div class="flex items-end">
-        <button type="submit" class="btn-primary h-10 w-full text-sm">
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+        <button type="button"
+          onclick="document.getElementById('add-user-modal').classList.add('hidden')"
+          class="btn-secondary px-4 py-2.5 text-sm">
+          Cancel
+        </button>
+        <button type="submit" class="btn-primary inline-flex items-center justify-center gap-1.5 px-5 py-2.5 text-sm">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z"/>
           </svg>
-          Add User
+          Create user
         </button>
       </div>
     </form>
   </div>
-  {{end}}
-
 </div>
+{{end}}
