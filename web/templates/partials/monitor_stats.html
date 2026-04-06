@@ -79,7 +79,7 @@
               <td class="px-4 py-3">
                 <div class="flex items-start gap-3">
                   <span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full {{if eq .State "running"}}bg-emerald-400{{else if eq .State "exited"}}bg-amber-400{{else}}bg-slate-500{{end}}"></span>
-                  <div class="min-w-[16rem]">
+                  <div class="min-w-0 max-w-full sm:max-w-md">
                     <p class="font-mono text-[13px] font-semibold text-foreground">{{.Name}}</p>
                     <p class="mt-0.5 text-xs text-muted-foreground">{{.Image}}</p>
                     <p class="mt-1 text-[11px] text-muted-foreground">{{.Status}}</p>

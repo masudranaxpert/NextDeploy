@@ -1,29 +1,89 @@
 {{/* Panel maintenance and cleanup defaults. Layout: layouts/shell. */}}
-<div class="mx-auto max-w-5xl space-y-6">
+<div class="page-shell max-w-5xl">
   <div class="section-header">
-    <div>
+    <div class="min-w-0">
       <h1 class="page-title">Settings</h1>
       <p class="page-subtitle">Background cleanup and panel-level maintenance defaults.</p>
     </div>
   </div>
 
   {{if .Flash}}
-  <div class="flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
+  <div class="flex flex-col gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center" role="status">
     <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
+    {{if eq .Flash "tmp_cleaned"}}
+    <p class="text-sm text-emerald-300">Temp files cleaned successfully.</p>
+    {{else}}
     <p class="text-sm text-emerald-300">Cleanup started in the background. Refresh in a moment to see the result.</p>
+    {{end}}
   </div>
   {{end}}
 
-  <div class="panel-card p-5 space-y-5">
-    <div class="flex items-start justify-between gap-4">
-      <div>
+  <!-- ── Temp File Cleaner ─────────────────────────────────── -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5">
+      <h2 class="text-sm font-semibold text-foreground">Temp File Cleaner</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        Orphaned archive files left over from interrupted volume backups or uploads.
+        Panel removes them automatically on startup and after each successful download.
+      </p>
+    </div>
+    <div class="space-y-4 px-4 py-4 sm:px-5">
+      <!-- Live stats -->
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div class="flex flex-col gap-1 rounded-xl border border-border/50 bg-muted/15 px-4 py-3">
+          <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Orphan files</p>
+          <p id="tmp-count" class="text-2xl font-bold tabular-nums text-foreground">{{.TmpFileCount}}</p>
+        </div>
+        <div class="flex flex-col gap-1 rounded-xl border border-border/50 bg-muted/15 px-4 py-3">
+          <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Total size</p>
+          <p id="tmp-size" class="text-2xl font-bold tabular-nums {{if gt .TmpFileSizeRaw 0}}text-amber-300{{else}}text-foreground{{end}}">{{.TmpFileSize}}</p>
+        </div>
+        <div class="flex flex-col gap-1 rounded-xl border border-border/50 bg-muted/15 px-4 py-3">
+          <p class="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Patterns scanned</p>
+          <p class="text-xs font-mono text-muted-foreground leading-relaxed mt-1">
+            vol-backup-*.tar.gz<br>
+            panel-upload-*.zip
+          </p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <form method="post" action="/settings/tmp/clean" class="w-full sm:w-auto"
+              onsubmit="this.querySelector('[type=submit]').disabled=true;this.querySelector('[type=submit]').textContent='Cleaning…'">
+          <button type="submit"
+            class="btn-secondary h-11 w-full gap-1.5 px-4 text-xs sm:h-9 sm:w-auto {{if gt .TmpFileSizeRaw 0}}text-amber-400 hover:border-amber-500/40 hover:bg-amber-950/30 hover:text-amber-300{{end}}"
+            {{if eq .TmpFileCount 0}}disabled title="Nothing to clean"{{end}}>
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+            </svg>
+            Clean now
+          </button>
+        </form>
+        <button type="button" onclick="refreshTmpInfo()" class="btn-secondary h-11 w-full gap-1.5 px-4 text-xs sm:h-9 sm:w-auto">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+          </svg>
+          Refresh
+        </button>
+        <p class="text-xs leading-relaxed text-muted-foreground sm:flex-1 sm:min-w-[12rem]">
+          Also cleaned automatically on panel startup and after each successful download.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Docker Cleanup ─────────────────────────────────────── -->
+  <div class="panel-card space-y-5 p-4 sm:p-5">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div class="min-w-0">
         <h2 class="text-sm font-semibold text-foreground">Docker Cleanup</h2>
         <p class="mt-0.5 text-xs text-muted-foreground">Removes unused containers and images. Running containers are never touched.</p>
       </div>
-      <form method="post" action="/settings/cleanup/run">
-        <button type="submit" class="btn-secondary h-9 px-3 text-xs text-amber-400 hover:border-amber-500/40 hover:bg-amber-950/30 hover:text-amber-300 shrink-0">
+      <form method="post" action="/settings/cleanup/run" class="w-full shrink-0 sm:w-auto">
+        <button type="submit" class="btn-secondary h-11 w-full px-3 text-xs text-amber-400 hover:border-amber-500/40 hover:bg-amber-950/30 hover:text-amber-300 sm:h-9 sm:w-auto">
           <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9"/>
           </svg>
@@ -47,7 +107,7 @@
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="cleanup_interval">Cleanup interval</label>
-        <select id="cleanup_interval" name="cleanup_interval" class="input w-full max-w-xs">
+        <select id="cleanup_interval" name="cleanup_interval" class="input w-full max-w-full sm:max-w-xs">
           {{range .CleanupIntervals}}
             <option value="{{.Value}}" {{if eq $.CleanupInterval .Value}}selected{{end}}>{{.Label}}</option>
           {{end}}
@@ -63,9 +123,26 @@
           <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground">{{if .CleanupLastLog}}{{.CleanupLastLog}}{{else}}<span class="text-muted-foreground/50">No output yet</span>{{end}}</pre>
         </div>
       </div>
-      <div class="flex justify-end">
-        <button type="submit" class="btn-primary px-5 py-2 text-sm">Save Settings</button>
+      <div class="flex justify-stretch sm:justify-end">
+        <button type="submit" class="btn-primary w-full px-5 py-2.5 text-sm sm:w-auto sm:py-2">Save Settings</button>
       </div>
     </form>
   </div>
 </div>
+
+<script>
+function refreshTmpInfo() {
+  var countEl = document.getElementById('tmp-count');
+  var sizeEl  = document.getElementById('tmp-size');
+  if (!countEl || !sizeEl) return;
+  fetch('/settings/tmp/info')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      countEl.textContent = d.count;
+      sizeEl.textContent  = d.size;
+      sizeEl.classList.toggle('text-amber-300', d.bytes > 0);
+      sizeEl.classList.toggle('text-foreground', d.bytes <= 0);
+    })
+    .catch(function() {});
+}
+</script>

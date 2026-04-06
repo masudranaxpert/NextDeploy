@@ -173,7 +173,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		return c.Status(500).SendString("failed to render switch modal: " + err.Error())
 	}
 	var page strings.Builder
-	page.WriteString(`<div class="mx-auto max-w-6xl space-y-5 sm:space-y-6">`)
+	page.WriteString(`<div class="mx-auto max-w-6xl min-w-0 w-full space-y-5 sm:space-y-6">`)
 	page.Write(headerBuf.Bytes())
 	page.Write(tabBuf.Bytes())
 	page.WriteString(`</div>`)

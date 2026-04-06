@@ -1,24 +1,24 @@
 {{/* Live resource monitor; embeds partials/monitor_stats. Layout: layouts/shell. */}}
-<div class="mx-auto max-w-7xl space-y-6">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-    <div>
-      <div class="flex items-center gap-3">
+<div class="page-shell max-w-7xl">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div class="min-w-0">
+      <div class="flex min-w-0 items-center gap-3">
         <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
           <svg class="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h3.75l1.5-6 3 12 2.25-9 1.5 3H21"/>
           </svg>
         </div>
-        <div>
+        <div class="min-w-0">
           <h1 class="page-title">Monitor</h1>
           <p class="page-subtitle">Realtime CPU, memory, network, and container usage</p>
         </div>
       </div>
     </div>
-    <div class="flex items-center gap-2">
-      <button type="button" class="btn-secondary h-9 px-3 text-xs" onclick="window.__monitorReconnect && window.__monitorReconnect()">
+    <div class="section-header-actions sm:items-stretch">
+      <button type="button" class="btn-secondary h-11 px-3 text-xs sm:h-9" onclick="window.__monitorReconnect && window.__monitorReconnect()">
         Reconnect stream
       </button>
-      <div id="monitor-live-badge" class="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-300">
+      <div id="monitor-live-badge" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[11px] font-medium text-emerald-300 sm:min-h-0 sm:w-auto sm:py-1.5">
         <span id="monitor-live-dot" class="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
         <span id="monitor-live-label">Active only while open</span>
       </div>
@@ -50,14 +50,15 @@
 
   function setLiveState(kind, text) {
     if (!badge || !label || !dot) return;
+    var badgeBase = 'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-3 py-2 text-[11px] font-medium sm:min-h-0 sm:w-auto sm:py-1.5 ';
     if (kind === 'live') {
-      badge.className = 'inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-300';
+      badge.className = badgeBase + 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-300';
       dot.className = 'inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse';
     } else if (kind === 'error') {
-      badge.className = 'inline-flex items-center gap-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium text-rose-300';
+      badge.className = badgeBase + 'border border-rose-500/20 bg-rose-500/10 text-rose-300';
       dot.className = 'inline-flex h-2 w-2 rounded-full bg-rose-400';
     } else {
-      badge.className = 'inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-300';
+      badge.className = badgeBase + 'border border-amber-500/20 bg-amber-500/10 text-amber-300';
       dot.className = 'inline-flex h-2 w-2 rounded-full bg-amber-400 animate-pulse';
     }
     label.textContent = text;
@@ -76,7 +77,7 @@
           '<td class="px-4 py-3">' +
             '<div class="flex items-start gap-3">' +
               '<span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full ' + stateDot + '"></span>' +
-              '<div class="min-w-[16rem]">' +
+              '<div class="min-w-0 max-w-full sm:max-w-md">' +
                 '<p class="font-mono text-[13px] font-semibold text-foreground">' + escHtml(row.Name) + '</p>' +
                 '<p class="mt-0.5 text-xs text-muted-foreground">' + escHtml(row.Image) + '</p>' +
                 '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +

@@ -158,6 +158,8 @@ func main() {
 	app.Post("/containers/remove", p.GlobalContainerRemove)
 	app.Post("/containers/prune", p.GlobalContainerPrune)
 	app.Post("/settings/cleanup/run", p.ManualCleanupRun)
+	app.Post("/settings/tmp/clean", p.TempCleanupRun)
+	app.Get("/settings/tmp/info", p.TempCleanupInfo)
 	app.Get("/settings", p.SettingsPage)
 	app.Post("/settings", p.SettingsSave)
 	app.Get("/apps", p.AppsPage)
