@@ -10,22 +10,20 @@ import (
 
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
-	"github.com/gofiber/fiber/v2"
 )
-
-// AppLogWSUpgrade upgrades HTTP requests to a WebSocket for live container logs.
-func (p *Panel) AppLogWSUpgrade(c *fiber.Ctx) error {
-	if fws.IsWebSocketUpgrade(c) {
-		return c.Next()
-	}
-	return fiber.ErrUpgradeRequired
-}
 
 // AppLogWebSocket streams `docker logs -f` output to the browser.
 // The initial history is still loaded by the normal partial; this stream only appends new output.
 func (p *Panel) AppLogWebSocket(c *fws.Conn) {
-	appID := c.Params("id")
+	appID := strings.TrimSpace(c.Params("id"))
+	if appID == "" {
+		appID = strings.TrimSpace(c.Query("app"))
+	}
 	container := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")
+	if appID == "" {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("missing app id (route or ?app=)"))
+		return
+	}
 	if _, err := p.DB.GetApp(context.Background(), appID); err != nil {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return

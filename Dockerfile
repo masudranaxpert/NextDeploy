@@ -12,11 +12,11 @@ FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
 # Download known deps first for layer caching (best-effort; new deps resolved below)
-RUN go mod download -x 2>/dev/null || true
+RUN GOPROXY=https://proxy.golang.org,direct go mod download -x 2>/dev/null || true
 COPY . .
 COPY --from=assets /app/web/static/css/app.css ./web/static/css/app.css
 # tidy after full source copy so new imports (e.g. golang.org/x/crypto) are resolved
-RUN go mod tidy
+RUN GOPROXY=https://proxy.golang.org,direct go mod tidy
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /panel .
 
 FROM docker:27-cli

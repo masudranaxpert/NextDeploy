@@ -10,6 +10,7 @@ import (
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
+	"panel/internal/runutil"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -157,11 +158,7 @@ func (p *Panel) runScheduledCleanupForce() {
 	res := dockerx.DockerPruneUnused(runCtx)
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))
-	status := "[ok]\n" + res.Output
-	if !res.OK {
-		status = "[error]\n" + res.Output
-	}
-	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, status)
+	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, runutil.StatusText(runutil.Result{OK: res.OK, Output: res.Output}))
 }
 
 func (p *Panel) StartBackgroundJobs() {
@@ -215,11 +212,7 @@ func (p *Panel) runScheduledCleanup() {
 	res := dockerx.DockerPruneUnused(runCtx)
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))
-	status := "[ok]\n" + res.Output
-	if !res.OK {
-		status = "[error]\n" + res.Output
-	}
-	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, status)
+	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, runutil.StatusText(runutil.Result{OK: res.OK, Output: res.Output}))
 }
 
 func nextDeployPanelDomain(cfg map[string]string) db.AppDomain {

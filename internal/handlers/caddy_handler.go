@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,30 +18,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func sanitizeQuotedField(v string) string {
-	v = strings.TrimSpace(v)
-	for len(v) >= 2 {
-		first := v[0]
-		last := v[len(v)-1]
-		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
-			if unquoted, err := strconv.Unquote(v); err == nil {
-				v = strings.TrimSpace(unquoted)
-				continue
-			}
-			v = strings.TrimSpace(v[1 : len(v)-1])
-			continue
-		}
-		break
-	}
-	return v
-}
-
 func sanitizeDomainRecord(d *db.AppDomain) {
 	if d == nil {
 		return
 	}
-	d.Domain = sanitizeQuotedField(d.Domain)
-	d.Service = sanitizeQuotedField(d.Service)
+	d.Domain = caddy.CleanQuotedValue(d.Domain)
+	d.Service = caddy.CleanQuotedValue(d.Service)
 }
 
 func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
@@ -126,7 +109,7 @@ func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
 		sanitizeDomainRecord(&domains[i])
 	}
 	services := p.loadComposeServices(c, id)
-	return c.Render("partials/domain_tab", fiber.Map{
+	return c.Render("partials/domain/domain_tab", fiber.Map{
 		"ID":       id,
 		"Domains":  domains,
 		"Services": services,
@@ -146,8 +129,8 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	}
 	d := db.AppDomain{
 		AppID:       id,
-		Domain:      sanitizeQuotedField(c.FormValue("domain")),
-		Service:     sanitizeQuotedField(c.FormValue("service")),
+		Domain:      caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:     caddy.CleanQuotedValue(c.FormValue("service")),
 		Port:        port,
 		EnableHTTPS: c.FormValue("enable_https") == "on",
 		EnableWWW:   c.FormValue("enable_www") == "on",
@@ -200,8 +183,8 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	d := db.AppDomain{
 		ID:          did,
 		AppID:       id,
-		Domain:      sanitizeQuotedField(c.FormValue("domain")),
-		Service:     sanitizeQuotedField(c.FormValue("service")),
+		Domain:      caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:     caddy.CleanQuotedValue(c.FormValue("service")),
 		Port:        port,
 		EnableHTTPS: c.FormValue("enable_https") == "on",
 		EnableWWW:   c.FormValue("enable_www") == "on",
@@ -302,7 +285,7 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 		"domain":     domain,
 		"ips":        addrs,
 		"cloudflare": isBehindCF,
-		"internalTLS": caddyShouldUseInternalTLS(domain),
+		"internalTLS": caddy.ShouldUseInternalTLS(domain),
 	})
 }
 
@@ -330,22 +313,6 @@ func splitLogLines(s string) []string {
 		}
 	}
 	return out
-}
-
-func caddyShouldUseInternalTLS(domain string) bool {
-	domain = strings.TrimSpace(strings.ToLower(domain))
-	if domain == "" {
-		return false
-	}
-	if !strings.Contains(domain, ".") {
-		return true
-	}
-	for _, suffix := range []string{".local", ".localhost", ".internal", ".test", ".example", ".invalid"} {
-		if strings.HasSuffix(domain, suffix) {
-			return true
-		}
-	}
-	return false
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -394,11 +361,7 @@ func parseComposeServiceNames(data []byte) []string {
 			}
 		}
 	}
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j] < names[j-1]; j-- {
-			names[j], names[j-1] = names[j-1], names[j]
-		}
-	}
+	sort.Strings(names)
 	return names
 }
 

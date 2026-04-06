@@ -1,20 +1,24 @@
-{{define "partials/deploy_progress"}}
 {{if .OOBOnly}}
   {{if .LiveRunning}}
 <pre id="deploy-live-pre" hx-swap-oob="innerHTML">{{.LiveOutput}}</pre>
   {{else}}
-<div id="deploy-live" hx-swap-oob="outerHTML" class="rounded-xl border border-border bg-[#060a10] overflow-hidden">
+<div id="deploy-live" data-deploy-live-wrap hx-swap-oob="outerHTML" class="rounded-xl border border-border bg-[#060a10] overflow-hidden">
   {{if .LiveAction}}
   <div class="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
     <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{{.LiveAction}}</span>
     <span class="badge badge-success">Finished</span>
   </div>
   {{end}}
+  <div class="flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/10 px-3 py-2">
+    <button type="button" data-deploy-log-toggle class="btn-secondary h-8 px-2.5 text-[11px]">Full log</button>
+    <span class="text-[10px] text-muted-foreground">Each line is prefixed with a timestamp when captured.</span>
+  </div>
   <pre id="deploy-live-pre" class="max-h-[min(28rem,55vh)] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-muted-foreground">{{.LiveOutput}}</pre>
 </div>
   {{end}}
 {{else}}
 <div id="deploy-live"
+     data-deploy-live-wrap
      class="rounded-xl border border-border bg-[#060a10] overflow-hidden"
      {{if .LiveRunning}}hx-get="/apps/{{.ID}}/partials/deploy-progress?oob=1" hx-trigger="load delay:0ms, every 1s" hx-swap="none"{{end}}>
   {{if .LiveAction}}
@@ -30,6 +34,10 @@
     {{end}}
   </div>
   {{end}}
+  <div class="flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/10 px-3 py-2">
+    <button type="button" data-deploy-log-toggle class="btn-secondary h-8 px-2.5 text-[11px]">Full log</button>
+    <span class="text-[10px] text-muted-foreground">Full log expands the viewport; timestamps are added per line when captured.</span>
+  </div>
   <pre id="deploy-live-pre" class="max-h-[min(28rem,55vh)] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-relaxed text-muted-foreground">{{.LiveOutput}}</pre>
   {{if .LiveRunning}}
   <div class="flex items-center gap-2 border-t border-border/50 px-4 py-2.5 text-xs text-amber-200/80">
@@ -38,5 +46,4 @@
   </div>
   {{end}}
 </div>
-{{end}}
 {{end}}

@@ -123,14 +123,10 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 	}
 	out := make([]ContainerRow, 0, len(list))
 	for _, c := range list {
-		name := ""
-		if len(c.Names) > 0 {
-			name = strings.TrimPrefix(c.Names[0], "/")
-		}
 		ports := formatPorts(c.Ports)
 		out = append(out, ContainerRow{
 			ID:      c.ID[:12],
-			Name:    name,
+			Name:    containerName(c),
 			Image:   c.Image,
 			State:   c.State,
 			Status:  c.Status,
@@ -155,14 +151,9 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 
 	out := make([]ContainerUsageRow, 0, len(list))
 	for _, c := range list {
-		name := ""
-		if len(c.Names) > 0 {
-			name = strings.TrimPrefix(c.Names[0], "/")
-		}
-
 		row := ContainerUsageRow{
 			ID:     c.ID[:12],
-			Name:   name,
+			Name:   containerName(c),
 			Image:  c.Image,
 			State:  c.State,
 			Status: c.Status,
@@ -385,10 +376,7 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	}
 	var errs []string
 	for _, c := range list {
-		name := ""
-		if len(c.Names) > 0 {
-			name = strings.TrimPrefix(c.Names[0], "/")
-		}
+		name := containerName(c)
 		if !strings.Contains(name, projectID) {
 			continue
 		}
@@ -538,4 +526,11 @@ func PruneContainers(ctx context.Context) error {
 	defer cli.Close()
 	_, err = cli.ContainersPrune(ctx, filters.Args{})
 	return err
+}
+
+func containerName(c types.Container) string {
+	if len(c.Names) > 0 {
+		return strings.TrimPrefix(c.Names[0], "/")
+	}
+	return ""
 }

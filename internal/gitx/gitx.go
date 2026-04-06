@@ -1,39 +1,22 @@
 package gitx
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"panel/internal/runutil"
 )
 
-type Result struct {
-	OK     bool
-	Output string
-}
+// Result is an alias to the shared runutil.Result for backward compatibility.
+type Result = runutil.Result
 
-func run(ctx context.Context, dir string, env []string, args ...string) Result {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = dir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	output := strings.TrimSpace(out.String())
-	if err != nil {
-		if output == "" {
-			output = err.Error()
-		}
-		return Result{OK: false, Output: output}
-	}
-	return Result{OK: true, Output: output}
+func run(ctx context.Context, dir string, env []string, args ...string) runutil.Result {
+	return runutil.Run(ctx, dir, env, args...)
 }
 
 func SafeRepoURL(raw string) string {
@@ -125,9 +108,53 @@ func EnsureSafeRemote(ctx context.Context, repoDir, authMode, token string) {
 	_ = run(ctx, repoDir, nil, "git", "remote", "set-url", "origin", authURL)
 }
 
+// legacyGitDirPresent reports whether repoDir has a classic .git directory or a .git gitdir file.
+func legacyGitDirPresent(repoDir string) bool {
+	gitPath := filepath.Join(repoDir, ".git")
+	st, err := os.Lstat(gitPath)
+	if err != nil {
+		return false
+	}
+	if st.IsDir() {
+		return true
+	}
+	if !st.Mode().IsRegular() {
+		return false
+	}
+	b, err := os.ReadFile(gitPath)
+	if err != nil {
+		return false
+	}
+	s := strings.TrimSpace(string(b))
+	if !strings.HasPrefix(s, "gitdir: ") {
+		return false
+	}
+	link := strings.TrimSpace(strings.TrimPrefix(s, "gitdir: "))
+	if link == "" {
+		return false
+	}
+	if !filepath.IsAbs(link) {
+		link = filepath.Join(repoDir, link)
+	}
+	st2, err := os.Stat(filepath.Clean(link))
+	return err == nil && st2.IsDir()
+}
+
+// RepoExists returns true if repoDir is a usable Git working tree (authoritative check via git,
+// with fallbacks for minimal environments and .git-as-file layouts).
 func RepoExists(repoDir string) bool {
-	st, err := os.Stat(filepath.Join(repoDir, ".git"))
-	return err == nil && st.IsDir()
+	repoDir = filepath.Clean(repoDir)
+	st, err := os.Stat(repoDir)
+	if err != nil || !st.IsDir() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	res := run(ctx, repoDir, []string{"GIT_TERMINAL_PROMPT=0"}, "git", "rev-parse", "--is-inside-work-tree")
+	if res.OK && strings.TrimSpace(res.Output) == "true" {
+		return true
+	}
+	return legacyGitDirPresent(repoDir)
 }
 
 func join(parts ...string) string {

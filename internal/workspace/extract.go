@@ -144,7 +144,87 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 	return list, nil
 }
 
-func (s *Store) ParentRel(rel string) string {
+// ListGitRepoChildren lists files and directories under the git checkout root (…/repo).
+// The .git directory is never exposed. Path traversal and ".git" path segments are rejected.
+func (s *Store) ListGitRepoChildren(wsID, rel string) ([]FileEntry, error) {
+	base := filepath.Clean(filepath.Join(s.ReservedPath(wsID), "repo"))
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	rel = strings.Trim(rel, "/")
+	if rel != "" {
+		for _, seg := range strings.Split(rel, "/") {
+			if seg == ".git" {
+				return nil, os.ErrInvalid
+			}
+		}
+	}
+	var dir string
+	if rel == "" {
+		dir = base
+	} else {
+		parts := strings.Split(rel, "/")
+		var safe []string
+		for _, p := range parts {
+			if p == "" || p == "." || p == ".." {
+				continue
+			}
+			if p == ".git" {
+				return nil, os.ErrInvalid
+			}
+			safe = append(safe, p)
+		}
+		if len(safe) == 0 {
+			dir = base
+		} else {
+			dir = filepath.Join(append([]string{base}, safe...)...)
+		}
+	}
+	cleanBase := filepath.Clean(base)
+	cleanDir := filepath.Clean(dir)
+	rp, err := filepath.Rel(cleanBase, cleanDir)
+	if err != nil || rp == ".." || strings.HasPrefix(rp, ".."+string(os.PathSeparator)) {
+		return nil, os.ErrInvalid
+	}
+	gitDir := filepath.Join(cleanBase, ".git")
+	if cleanDir == gitDir || strings.HasPrefix(cleanDir, gitDir+string(os.PathSeparator)) {
+		return nil, os.ErrInvalid
+	}
+	entries, err := os.ReadDir(cleanDir)
+	if err != nil {
+		return nil, err
+	}
+	var list []FileEntry
+	for _, e := range entries {
+		name := e.Name()
+		if name == ".git" {
+			continue
+		}
+		relPath := name
+		if rel != "" {
+			relPath = rel + "/" + name
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		list = append(list, FileEntry{
+			Name:    name,
+			RelPath: filepath.ToSlash(relPath),
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+			IsDir:   e.IsDir(),
+		})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].IsDir != list[j].IsDir {
+			return list[i].IsDir
+		}
+		return strings.ToLower(list[i].Name) < strings.ToLower(list[j].Name)
+	})
+	return list, nil
+}
+
+// ParentRel strips the last path segment from a relative path.
+func ParentRel(rel string) string {
 	rel = filepath.ToSlash(strings.TrimSpace(rel))
 	rel = strings.Trim(rel, "/")
 	if rel == "" {
@@ -155,4 +235,8 @@ func (s *Store) ParentRel(rel string) string {
 		return ""
 	}
 	return rel[:i]
+}
+
+func (s *Store) ParentRel(rel string) string {
+	return ParentRel(rel)
 }

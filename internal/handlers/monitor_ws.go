@@ -10,7 +10,6 @@ import (
 
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
-	"github.com/gofiber/fiber/v2"
 )
 
 type monitorPayload struct {
@@ -18,13 +17,6 @@ type monitorPayload struct {
 	UsageRows   []dockerapi.ContainerUsageRow `json:"usageRows"`
 	DockerError string                     `json:"dockerError"`
 	UpdatedAt   string                     `json:"updatedAt"`
-}
-
-func (p *Panel) MonitorWSUpgrade(c *fiber.Ctx) error {
-	if fws.IsWebSocketUpgrade(c) {
-		return c.Next()
-	}
-	return fiber.ErrUpgradeRequired
 }
 
 func (p *Panel) MonitorWebSocket(c *fws.Conn) {

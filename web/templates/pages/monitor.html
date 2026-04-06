@@ -1,3 +1,4 @@
+{{/* Live resource monitor; embeds partials/monitor_stats. Layout: layouts/shell. */}}
 <div class="mx-auto max-w-7xl space-y-6">
   <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div>
@@ -119,14 +120,14 @@
           '<div class="panel-card p-4">' +
             '<div class="flex items-start justify-between gap-3">' +
               '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Host Memory</p><p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">' + escHtml(((sys.MemUsedGB || 0).toFixed ? (sys.MemUsedGB || 0).toFixed(1) : '0.0')) + ' GB</p><p class="mt-1 text-xs text-muted-foreground">of ' + escHtml(((sys.MemTotalGB || 0).toFixed ? (sys.MemTotalGB || 0).toFixed(1) : '0.0')) + ' GB</p></div>' +
-              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 ring-1 ring-sky-500/20"><svg class="h-5 w-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v4H6V6zm0 6h12v4H6v-4z"/></svg></div>' +
+              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-stone-500/10 ring-1 ring-stone-500/20"><svg class="h-5 w-5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v4H6V6zm0 6h12v4H6v-4z"/></svg></div>' +
             '</div>' +
-            '<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40"><div class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400" style="width: ' + escHtml(String(Math.max(0, Math.min(100, sys.MemUsedPct || 0)))) + '%"></div></div>' +
+            '<div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40"><div class="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400" style="width: ' + escHtml(String(Math.max(0, Math.min(100, sys.MemUsedPct || 0)))) + '%"></div></div>' +
           '</div>' +
           '<div class="panel-card p-4">' +
             '<div class="flex items-start justify-between gap-3">' +
               '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Visible Runtime</p><p class="mt-1.5 text-sm font-semibold text-foreground">' + escHtml(sys.GoVersion || '') + '</p><p class="mt-1 text-xs text-muted-foreground">' + escHtml(sys.HostNote || '') + '</p></div>' +
-              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20"><svg class="h-5 w-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>' +
+              '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20"><svg class="h-5 w-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>' +
             '</div>' +
           '</div>' +
         '</div>' +

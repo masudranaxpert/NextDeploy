@@ -1,10 +1,9 @@
-{{define "partials/log_view"}}
 <div class="log-view-wrap space-y-3">
 
   <!-- Toolbar -->
   <div class="flex flex-wrap items-center justify-between gap-2">
     {{if .LogMeta}}
-      <p class="text-xs text-sky-300/80 font-mono bg-sky-950/30 px-2 py-1 rounded-md border border-sky-800/30">{{.LogMeta}}</p>
+      <p class="text-xs text-primary/85 font-mono bg-primary/10 px-2 py-1 rounded-md border border-primary/25">{{.LogMeta}}</p>
     {{else}}
       <div></div>
     {{end}}
@@ -25,11 +24,11 @@
           Warn
         </button>
         <button type="button" data-filter="info"
-          class="log-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all text-muted-foreground hover:text-cyan-300 hover:bg-cyan-950/30">
+          class="log-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all text-muted-foreground hover:text-primary/90 hover:bg-primary/12">
           Info
         </button>
         <button type="button" data-filter="debug"
-          class="log-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all text-muted-foreground hover:text-violet-300 hover:bg-violet-950/30">
+          class="log-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium transition-all text-muted-foreground hover:text-orange-300 hover:bg-orange-950/30">
           Debug
         </button>
       </div>
@@ -70,4 +69,4 @@
       </div>
     </div>
   {{end}}
-{{end}}
+</div>

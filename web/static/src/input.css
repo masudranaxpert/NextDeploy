@@ -7,22 +7,28 @@
 }
 
 @layer base {
+  /*
+   * Theme tokens map to Tailwind default HSL palettes (see tailwindcss/theme):
+   * Stone (neutrals): 950→20 14% 4%, 900→24 10% 10%, 800→12 6% 15%, 500→25 5% 45%, 400→24 5% 64%, 50→60 9% 98%
+   * Orange (brand): 950→13 81% 15%, 600→21 90% 48%, 500→25 95% 53%, 400→27 96% 61%, 300→31 97% 73%
+   */
   :root {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 5.5%;
-    --card-foreground: 213 31% 91%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --primary: 263.4 70% 60%;
+    /* Dark UI: stone neutrals + orange accent (lifted canvas — easier on eyes than near-black) */
+    --background: 20 12% 11%;
+    --foreground: 60 9% 95%;
+    --card: 24 9% 14%;
+    --card-foreground: 60 9% 95%;
+    --muted: 20 8% 19%;
+    --muted-foreground: 24 5% 62%;
+    --border: 20 6% 24%;
+    --input: 20 6% 21%;
+    --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
-    --accent: 199 89% 48%;
+    --accent: 21 90% 48%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 263.4 70% 60%;
+    --ring: 25 95% 53%;
     --radius: 0.65rem;
     --success: 142 71% 45%;
     --warning: 38 92% 50%;
@@ -39,6 +45,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    background-image: radial-gradient(ellipse 100% 80% at 50% -30%, hsl(var(--primary) / 0.055), transparent 55%);
   }
 }
 
@@ -60,12 +67,24 @@
   /* ── Cards ── */
   .panel-card {
     @apply rounded-xl text-card-foreground;
-    background: linear-gradient(145deg, hsl(var(--card) / 0.95), hsl(var(--card) / 0.85));
-    border: 1px solid hsl(var(--border) / 0.8);
+    background: linear-gradient(155deg, hsl(var(--card) / 0.99), hsl(var(--card) / 0.88));
+    border: 1px solid hsl(var(--border) / 0.95);
     box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.12),
-      0 1px 2px rgb(0 0 0 / 0.08),
-      0 0 0 1px rgb(255 255 255 / 0.03) inset;
+      0 4px 28px rgb(0 0 0 / 0.28),
+      0 1px 2px rgb(0 0 0 / 0.12),
+      0 0 0 1px hsl(var(--primary) / 0.06) inset,
+      0 0 0 1px rgb(255 255 255 / 0.035) inset;
+  }
+
+  /* Inline list cards (domains, etc.): clearly above page + main column */
+  .surface-raised {
+    @apply rounded-xl text-card-foreground;
+    background: linear-gradient(160deg, hsl(var(--card) / 0.98), hsl(20 9% 12% / 0.94));
+    border: 1px solid hsl(var(--border) / 0.9);
+    box-shadow:
+      0 6px 32px -8px rgb(0 0 0 / 0.4),
+      0 0 0 1px hsl(var(--primary) / 0.1) inset,
+      0 1px 0 0 rgb(255 255 255 / 0.04) inset;
   }
 
   .stat-card {
@@ -137,7 +156,14 @@
     box-shadow: 0 2px 6px rgb(5 150 105 / 0.5);
   }
   .btn-restart {
-    @apply btn border border-sky-500/40 bg-sky-950/50 px-4 py-2 text-sky-200 hover:bg-sky-900/60 hover:border-sky-400/50;
+    @apply btn border px-4 py-2;
+    border-color: hsl(var(--primary) / 0.35);
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary) / 0.95);
+  }
+  .btn-restart:hover {
+    background-color: hsl(var(--primary) / 0.18);
+    border-color: hsl(var(--primary) / 0.5);
   }
   .btn-stop {
     @apply btn px-4 py-2 text-white shadow-sm;
@@ -147,13 +173,55 @@
   .btn-stop:hover {
     background: linear-gradient(135deg, #ef4444, #dc2626);
   }
+  .btn-stop:focus-visible {
+    @apply ring-red-500 ring-offset-background;
+  }
+  .btn-stop-sm {
+    @apply btn-stop gap-1.5 px-3 py-1.5 text-xs font-semibold;
+    min-height: 2rem;
+  }
+  /* Destructive actions (Delete, Remove, etc.) — full red, high contrast */
+  .btn-delete {
+    @apply btn px-4 py-2 font-semibold text-white shadow-sm;
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    box-shadow: 0 1px 3px rgb(220 38 38 / 0.45), 0 0 0 1px rgb(254 202 202 / 0.12) inset;
+  }
+  .btn-delete:hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 2px 8px rgb(220 38 38 / 0.55), 0 0 0 1px rgb(252 165 165 / 0.18) inset;
+  }
+  .btn-delete:focus-visible {
+    @apply ring-red-500 ring-offset-background;
+  }
+  .btn-delete-sm {
+    @apply btn-delete gap-1.5 px-3 py-1.5 text-xs;
+    min-height: 2rem;
+  }
+  .btn-delete-table {
+    @apply inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold leading-none text-white shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    box-shadow: 0 1px 3px rgb(220 38 38 / 0.45), 0 0 0 1px rgb(254 202 202 / 0.12) inset;
+  }
+  .btn-delete-table:hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 2px 8px rgb(220 38 38 / 0.55), 0 0 0 1px rgb(252 165 165 / 0.18) inset;
+  }
+  .btn-delete-icon {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.97];
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    box-shadow: 0 1px 2px rgb(220 38 38 / 0.4);
+  }
+  .btn-delete-icon:hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 2px 6px rgb(220 38 38 / 0.45);
+  }
   .btn-icon {
     @apply btn h-8 w-8 rounded-lg border border-border bg-muted/50 p-0 text-muted-foreground hover:bg-muted hover:text-foreground;
   }
 
   /* ── Form inputs ── */
   .input {
-    @apply flex h-10 w-full rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/50 transition-colors;
+    @apply flex h-10 w-full rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm text-foreground ring-offset-background file:mr-3 file:rounded-md file:border file:border-border/50 file:bg-muted/60 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/50 transition-colors hover:file:bg-muted/80;
   }
 
   /* ── Tables ── */
@@ -215,10 +283,10 @@
     @apply border-l-emerald-500 bg-emerald-950/25 text-emerald-100;
   }
   .log-lvl-info {
-    @apply border-l-cyan-500 bg-cyan-950/20 text-cyan-100;
+    @apply border-l-primary/70 bg-primary/10 text-primary/90;
   }
   .log-lvl-debug {
-    @apply border-l-violet-500/70 bg-violet-950/20 text-violet-200/90;
+    @apply border-l-orange-500/70 bg-orange-950/25 text-orange-200/90;
   }
   .log-lvl-default {
     @apply border-l-slate-600/40 text-slate-200/90;
@@ -235,8 +303,8 @@
   .log-badge-error { @apply bg-rose-600/90 text-white; }
   .log-badge-warn  { @apply bg-amber-500/90 text-black; }
   .log-badge-success { @apply bg-emerald-600/90 text-white; }
-  .log-badge-info  { @apply bg-cyan-600/80 text-white; }
-  .log-badge-debug { @apply bg-violet-600/70 text-white; }
+  .log-badge-info  { @apply bg-primary/75 text-primary-foreground; }
+  .log-badge-debug { @apply bg-orange-600/70 text-white; }
 
   /* ANSI color spans */
   .ansi-bold      { @apply font-bold; }
@@ -286,6 +354,11 @@
     overflow-y: auto;
   }
 
+  /* File preview modal: card surface vs darker code stage */
+  .modal-file-editor .modal-preview-stage {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  }
+
   /* ── Section header ── */
   .section-header {
     @apply flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between;
@@ -295,5 +368,43 @@
   }
   .page-subtitle {
     @apply mt-1 text-sm text-muted-foreground;
+  }
+
+  /* File explorer tree (page scrolls; no inner scroll pane) */
+  .fb-file-tree {
+    overscroll-behavior-y: auto;
+  }
+
+  /* Deploy history row: action pill, status, delete */
+  .deploy-history-action-pill {
+    @apply inline-flex items-center rounded-lg border border-orange-500/25 bg-orange-500/[0.08] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-orange-200/95 shadow-sm ring-1 ring-inset ring-white/[0.04];
+  }
+  .deploy-history-time {
+    @apply text-muted-foreground tabular-nums;
+  }
+  .deploy-history-status--ok {
+    @apply inline-flex items-center gap-1 rounded-full border border-emerald-400/35 bg-gradient-to-b from-emerald-500/20 to-emerald-600/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-100 shadow-sm ring-1 ring-inset ring-emerald-400/15;
+  }
+  .deploy-history-status--fail {
+    @apply inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-gradient-to-b from-rose-950/55 to-rose-950/25 px-2.5 py-0.5 text-[11px] font-semibold text-rose-50 shadow-sm ring-1 ring-inset ring-rose-400/25;
+  }
+  .deploy-history-btn-log {
+    @apply inline-flex h-8 items-center justify-center rounded-lg border border-border/50 bg-muted/25 px-3 text-xs font-medium text-foreground shadow-sm transition-all hover:border-primary/35 hover:bg-primary/10 hover:text-primary;
+  }
+  .deploy-history-btn-delete {
+    @apply btn-delete-sm;
+  }
+
+  /* Git browser: atom-file-icons (file-icons/atom port), vendor CSS + fonts */
+  .git-browser-icon-cell .git-browser-file-icon {
+    @apply inline-flex items-center justify-center leading-none;
+    min-width: 1rem;
+    min-height: 1rem;
+  }
+
+  /* ── File browser action buttons ── */
+  /* Always visible; transition kept for potential future use */
+  .fb-actions {
+    opacity: 1;
   }
 }

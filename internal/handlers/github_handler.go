@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -17,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"panel/internal/db"
 	"panel/internal/dockerx"
@@ -93,6 +96,12 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).SendString("app not found")
 	}
+	authMode := strings.TrimSpace(c.FormValue("auth_mode"))
+	switch authMode {
+	case "public", "github_app":
+	default:
+		authMode = "public"
+	}
 	repoURL := normalizeRepoURL(c.FormValue("repo_url"))
 	if repoURL == "" {
 		return c.Status(400).SendString("repo url required")
@@ -103,28 +112,71 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 		RepoURL:        repoURL,
 		RepoFullName:   repoFullNameFromURL(repoURL),
 		Branch:         normalizeBranch(c.FormValue("branch")),
-		AuthMode:       "public",
+		AuthMode:       authMode,
 		Token:          "",
 		AppGitID:       "",
 		InstallationID: "",
 		PrivateKeyPEM:  "",
 		AutoDeploy:     c.FormValue("auto_deploy") == "on",
 	}
-	old, err := p.DB.GetAppGitConfig(c.UserContext(), appID)
-	if err == nil && strings.TrimSpace(old.WebhookSecret) != "" {
+	if pid := strings.TrimSpace(c.FormValue("git_provider_id")); pid != "" {
+		if parsed, err := strconv.ParseInt(pid, 10, 64); err == nil && parsed > 0 {
+			cfg.GitProviderID = parsed
+		}
+	}
+	old, oldCfgErr := p.DB.GetAppGitConfig(c.UserContext(), appID)
+	if oldCfgErr == nil && strings.TrimSpace(old.WebhookSecret) != "" {
 		cfg.WebhookSecret = old.WebhookSecret
 	} else {
 		cfg.WebhookSecret = randomSecret()
 	}
+	if cfg.AuthMode == "github_app" && cfg.GitProviderID > 0 {
+		detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), cfg.GitProviderID)
+		if derr != nil {
+			p.setGitTabErrorCookie(c, appID, "Selected GitHub provider is not ready yet")
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+		}
+		cfg.Provider = "github"
+		cfg.AppGitID = detail.GitHubAppID
+		cfg.InstallationID = detail.InstallationID
+		cfg.PrivateKeyPEM = detail.PrivateKeyPEM
+		if strings.TrimSpace(detail.WebhookSecret) != "" {
+			cfg.WebhookSecret = detail.WebhookSecret
+		}
+	}
 	if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
-		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&error=%s", appID, url.QueryEscape(err.Error())))
+	// First-time Git setup: remove file-upload workspace so the clone is the single source of truth.
+	if oldCfgErr != nil {
+		if err := p.Store.ClearUploadedProjectForGitSource(appID); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	}
+	if cfg.AuthMode == "github_app" {
+		if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
+			p.setGitTabErrorCookie(c, appID, err.Error())
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+		}
 	}
 	// Mark app as git-sourced
 	_ = p.DB.SetAppSourceType(c.UserContext(), appID, "git")
-	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&saved=1", appID))
+
+	// If the repository URL changed, drop the old checkout so the next sync clones the new remote.
+	if oldCfgErr == nil && strings.TrimSpace(old.RepoURL) != "" &&
+		normalizeRepoURL(old.RepoURL) != normalizeRepoURL(cfg.RepoURL) {
+		_ = os.RemoveAll(p.appCheckoutPath(appID))
+	}
+
+	// Best practice: persist config then immediately materialize workspace (clone/fetch) so branch/URL changes apply.
+	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
+	defer cancel()
+	if _, err := p.syncGitAppSource(ctx, appID); err != nil {
+		p.setGitTabErrorCookie(c, appID, "Configuration saved, but repository sync failed: "+err.Error())
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+	}
+	p.setGitTabFlashCookie(c, appID, "saved_synced")
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
 
 func (p *Panel) GitConfigDelete(c *fiber.Ctx) error {
@@ -412,7 +464,8 @@ func (p *Panel) GitSync(c *fiber.Ctx) error {
 	if _, err := p.syncGitAppSource(ctx, appID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git&synced=1", appID))
+	p.setGitTabFlashCookie(c, appID, "synced")
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
 
 func verifyGitHubSignature(secret string, body []byte, got string) bool {
@@ -461,17 +514,317 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	}
 	go func() {
 		bg := context.Background()
-		if _, err := p.syncGitAppSource(bg, appID); err != nil {
+		gitOut, err := p.syncGitAppSource(bg, appID)
+		if err != nil {
 			_ = p.DB.InsertDeployLog(bg, appID, "Webhook sync", false, err.Error())
 			return
+		}
+		gitPreamble := strings.TrimSpace(gitOut)
+		if gitPreamble == "" {
+			gitPreamble = "Repository sync completed."
 		}
 		if err := p.syncAppCaddyOverride(c, appID); err != nil {
 			_ = p.DB.InsertDeployLog(bg, appID, "Webhook deploy", false, err.Error())
 			return
 		}
 		project := p.composeProjectName(app, appID)
-		_ = p.startComposeJob(appID, project, p.effectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp)
+		_ = p.startComposeJob(appID, project, p.effectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
 	}()
 	return c.SendStatus(fiber.StatusOK)
+}
+
+const (
+	maxGitRepoBlobJSON     = 512 << 10 // JSON text preview in UI
+	maxGitRepoBlobDownload = 32 << 20  // raw download limit
+)
+
+// decodeUTF16Bytes converts UTF-16 code units (no BOM) to a Go string.
+func decodeUTF16Bytes(b []byte, bigEndian bool) string {
+	if len(b) < 2 {
+		return ""
+	}
+	if len(b)%2 == 1 {
+		b = b[:len(b)-1]
+	}
+	n := len(b) / 2
+	u := make([]uint16, n)
+	for i := 0; i < n; i++ {
+		if bigEndian {
+			u[i] = uint16(b[2*i])<<8 | uint16(b[2*i+1])
+		} else {
+			u[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
+		}
+	}
+	return string(utf16.Decode(u))
+}
+
+func gitRepoBinaryMagic(b []byte) bool {
+	if len(b) < 4 {
+		return false
+	}
+	if bytes.HasPrefix(b, []byte("%PDF")) {
+		return true
+	}
+	if len(b) >= 8 && bytes.HasPrefix(b, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) {
+		return true
+	}
+	if len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF {
+		return true
+	}
+	if len(b) >= 6 && (bytes.HasPrefix(b, []byte("GIF87a")) || bytes.HasPrefix(b, []byte("GIF89a"))) {
+		return true
+	}
+	if bytes.HasPrefix(b, []byte("PK\x03\x04")) {
+		return true
+	}
+	if len(b) >= 12 && bytes.HasPrefix(b, []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70}) { // MP4
+		return true
+	}
+	return false
+}
+
+func gitRepoLikelyTextDespiteInvalidUTF8(b []byte) bool {
+	const maxSample = 256 * 1024
+	n := len(b)
+	if n > maxSample {
+		n = maxSample
+	}
+	if n == 0 {
+		return true
+	}
+	ok := 0
+	for i := 0; i < n; i++ {
+		c := b[i]
+		switch {
+		case c == 0x09 || c == 0x0A || c == 0x0D:
+			ok++
+		case c >= 0x20 && c <= 0x7E:
+			ok++
+		case c >= 0x80:
+			ok++ // Latin-1 / partial UTF-8; common in mis-saved text files
+		default:
+			// control chars other than tab/newline reduce score slightly
+		}
+	}
+	return float64(ok)/float64(n) >= 0.88
+}
+
+// gitRepoBlobPreviewText returns UTF-8 text for JSON preview, or binary=true for true binaries.
+// Handles UTF-16 (BOM), UTF-8 BOM, and invalid UTF-8 that still looks like text (e.g. Latin-1 requirements.txt).
+func gitRepoBlobPreviewText(b []byte) (text string, binary bool) {
+	if len(b) == 0 {
+		return "", false
+	}
+	// UTF-16 LE BOM
+	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+		if len(b) == 2 {
+			return "", false
+		}
+		return decodeUTF16Bytes(b[2:], false), false
+	}
+	// UTF-16 BE BOM
+	if len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF {
+		if len(b) == 2 {
+			return "", false
+		}
+		return decodeUTF16Bytes(b[2:], true), false
+	}
+	trim := b
+	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
+		trim = b[3:]
+	}
+	if gitRepoBinaryMagic(trim) {
+		return "", true
+	}
+	if bytes.IndexByte(trim, 0) >= 0 {
+		return "", true
+	}
+	if utf8.Valid(trim) {
+		return string(trim), false
+	}
+	if gitRepoLikelyTextDespiteInvalidUTF8(trim) {
+		return strings.ToValidUTF8(string(trim), "\uFFFD"), false
+	}
+	return "", true
+}
+
+func (p *Panel) gitRepoBrowserGate(c *fiber.Ctx, appID string) int {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return fiber.StatusNotFound
+	}
+	if !p.isGitApp(c.UserContext(), appID) {
+		return fiber.StatusBadRequest
+	}
+	if _, err := p.DB.GetAppGitConfig(c.UserContext(), appID); err != nil {
+		return fiber.StatusNotFound
+	}
+	if !gitx.RepoExists(p.appCheckoutPath(appID)) {
+		return fiber.StatusNotFound
+	}
+	return 0
+}
+
+// GitRepoTree returns directory listing JSON for the checked-out repository (read-only; .git hidden).
+func (p *Panel) GitRepoTree(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
+		msg := "not available"
+		if code == fiber.StatusNotFound {
+			msg = "repository not available; run Sync first"
+		}
+		return c.Status(code).JSON(fiber.Map{"error": msg})
+	}
+	rel := c.Query("path", "")
+	children, err := p.Store.ListGitRepoChildren(appID, rel)
+	if err != nil {
+		if errors.Is(err, os.ErrInvalid) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	type row struct {
+		Name    string `json:"name"`
+		RelPath string `json:"rel_path"`
+		IsDir   bool   `json:"is_dir"`
+		Size    int64  `json:"size"`
+	}
+	out := make([]row, 0, len(children))
+	for _, ch := range children {
+		out = append(out, row{Name: ch.Name, RelPath: ch.RelPath, IsDir: ch.IsDir, Size: ch.Size})
+	}
+	parent := p.Store.ParentRel(rel)
+	return c.JSON(fiber.Map{
+		"path":    rel,
+		"parent":  parent,
+		"entries": out,
+	})
+}
+
+// GitRepoBlob returns JSON with file text for the UI preview, or metadata for binary/oversized files.
+func (p *Panel) GitRepoBlob(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
+		return c.Status(code).JSON(fiber.Map{"error": "repository not available"})
+	}
+	rel := c.Query("path", "")
+	if strings.TrimSpace(rel) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
+	}
+	full, err := p.Store.SafeGitRepoFilePath(appID, rel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
+	}
+	st, err := os.Stat(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if st.IsDir() {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "not a file"})
+	}
+	name := filepath.Base(rel)
+	rawURL := fmt.Sprintf("/apps/%s/git/raw?path=%s", appID, url.QueryEscape(rel))
+	if st.Size() > maxGitRepoBlobJSON {
+		return c.JSON(fiber.Map{
+			"path":       rel,
+			"name":       name,
+			"size":       st.Size(),
+			"too_large":  true,
+			"max_bytes":  maxGitRepoBlobJSON,
+			"raw_url":    rawURL,
+			"download_url": rawURL + "&download=1",
+		})
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	preview, isBinary := gitRepoBlobPreviewText(b)
+	if isBinary {
+		return c.JSON(fiber.Map{
+			"path":         rel,
+			"name":         name,
+			"size":         st.Size(),
+			"binary":       true,
+			"raw_url":      rawURL,
+			"download_url": rawURL + "&download=1",
+		})
+	}
+	return c.JSON(fiber.Map{
+		"path":         rel,
+		"name":         name,
+		"size":         st.Size(),
+		"text":         preview,
+		"truncated":    false,
+		"binary":       false,
+		"raw_url":      rawURL,
+		"download_url": rawURL + "&download=1",
+	})
+}
+
+// GitRepoRaw serves a single file from the git checkout (inline or attachment).
+func (p *Panel) GitRepoRaw(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
+		return c.Status(code).SendString("repository not available")
+	}
+	rel := c.Query("path", "")
+	if strings.TrimSpace(rel) == "" {
+		return c.Status(fiber.StatusBadRequest).SendString("path required")
+	}
+	full, err := p.Store.SafeGitRepoFilePath(appID, rel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid path")
+	}
+	st, err := os.Stat(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c.Status(fiber.StatusNotFound).SendString("not found")
+		}
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+	if st.IsDir() {
+		return c.Status(fiber.StatusBadRequest).SendString("not a file")
+	}
+	download := c.Query("download") == "1"
+	maxSz := int64(maxGitRepoBlobJSON)
+	if download {
+		maxSz = maxGitRepoBlobDownload
+	}
+	if st.Size() > maxSz {
+		if !download {
+			return c.Status(fiber.StatusRequestEntityTooLarge).SendString("file too large for inline view; add ?download=1")
+		}
+		return c.Status(fiber.StatusRequestEntityTooLarge).SendString("file too large")
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+	defer f.Close()
+	buf, err := io.ReadAll(f)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+	head := buf
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	ct := workspaceFileContentType(full, head)
+	fn := safeContentDispositionFilename(rel)
+	if download {
+		c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fn))
+	} else {
+		c.Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fn))
+	}
+	c.Type(ct)
+	return c.Send(buf)
 }
 

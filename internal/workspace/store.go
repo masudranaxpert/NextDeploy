@@ -22,6 +22,9 @@ type Store struct {
 
 const ReservedDir = ".nextdeploy"
 
+// PanelComposeEnvFile is written under ReservedDir; passed to docker compose --env-file (does not touch project .env).
+const PanelComposeEnvFile = "panel.compose.env"
+
 func NewStore(root string) *Store {
 	return &Store{Root: root}
 }
@@ -56,6 +59,11 @@ func (s *Store) Path(id string) string {
 
 func (s *Store) ReservedPath(id string) string {
 	return filepath.Join(s.Path(id), ReservedDir)
+}
+
+// PanelComposeEnvPath is the absolute path to the panel-managed env file used by docker compose.
+func (s *Store) PanelComposeEnvPath(id string) string {
+	return filepath.Join(s.ReservedPath(id), PanelComposeEnvFile)
 }
 
 func (s *Store) List() ([]Meta, error) {
@@ -115,6 +123,29 @@ func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, err
 		return "", err
 	}
 	return full, nil
+}
+
+// ClearUploadedProjectForGitSource removes everything under the app workspace root except
+// .panel-meta so switching from file uploads to Git does not leave stale compose/files on disk.
+// Also removes .nextdeploy so the next clone uses a clean checkout directory.
+func (s *Store) ClearUploadedProjectForGitSource(wsID string) error {
+	base := s.Path(wsID)
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(base, 0750)
+		}
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == ".panel-meta" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(base, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) RemoveRel(wsID, rel string) error {
@@ -181,6 +212,41 @@ func (s *Store) SafeFilePath(wsID, rel string) (string, error) {
 		return "", os.ErrInvalid
 	}
 	if rp == "." {
+		return "", os.ErrInvalid
+	}
+	return cf, nil
+}
+
+// SafeGitRepoFilePath resolves rel under <workspace>/.nextdeploy/repo (the git checkout).
+// Access to .git and paths outside the checkout is denied.
+func (s *Store) SafeGitRepoFilePath(wsID, rel string) (string, error) {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	rel = strings.Trim(rel, "/")
+	base := filepath.Clean(filepath.Join(s.ReservedPath(wsID), "repo"))
+	if rel == "" {
+		return "", os.ErrInvalid
+	}
+	parts := strings.Split(rel, "/")
+	var safe []string
+	for _, p := range parts {
+		if p == "" || p == "." || p == ".." {
+			continue
+		}
+		if p == ".git" {
+			return "", os.ErrInvalid
+		}
+		safe = append(safe, p)
+	}
+	if len(safe) == 0 {
+		return "", os.ErrInvalid
+	}
+	full := filepath.Join(append([]string{base}, safe...)...)
+	cf := filepath.Clean(full)
+	rp, err := filepath.Rel(base, cf)
+	if err != nil || rp == ".." || strings.HasPrefix(rp, ".."+string(os.PathSeparator)) {
+		return "", os.ErrInvalid
+	}
+	if rp == ".git" || strings.HasPrefix(rp, ".git"+string(os.PathSeparator)) {
 		return "", os.ErrInvalid
 	}
 	return cf, nil

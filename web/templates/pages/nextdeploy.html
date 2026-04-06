@@ -1,3 +1,4 @@
+{{/* Installation-wide proxy, domain, and root stack. Layout: layouts/shell. */}}
 <div class="space-y-6">
   <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
     <div>
@@ -11,7 +12,7 @@
         <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-500/10 px-3 py-1 text-xs font-medium text-slate-400 ring-1 ring-slate-500/20">Caddy stopped</span>
       {{end}}
       {{if .CaddyUp}}
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-400 ring-1 ring-sky-500/20">Admin API reachable</span>
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-400 ring-1 ring-orange-500/20">Admin API reachable</span>
       {{else}}
         <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300 ring-1 ring-amber-500/20">Admin API check failed</span>
       {{end}}
@@ -65,17 +66,17 @@
         <div class="mb-4 flex flex-wrap gap-2">
           <form method="POST" action="/caddy/container">
             <input type="hidden" name="action" value="start">
-            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30 transition-all hover:bg-emerald-600/30 disabled:opacity-40" {{if .CaddyRunning}}disabled{{end}}>Start</button>
+            <button type="submit" class="btn-secondary min-h-9 gap-1.5 border-emerald-500/35 bg-emerald-950/20 px-3 py-2 text-xs font-medium text-emerald-200 hover:border-emerald-400/45 hover:bg-emerald-950/35 hover:text-emerald-100 disabled:opacity-40" {{if .CaddyRunning}}disabled{{end}}>Start</button>
           </form>
           <form method="POST" action="/caddy/container">
             <input type="hidden" name="action" value="restart">
-            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-sky-600/20 px-3 py-2 text-xs font-medium text-sky-300 ring-1 ring-sky-500/30 transition-all hover:bg-sky-600/30">Restart</button>
+            <button type="submit" class="btn-restart min-h-9 gap-1.5 px-3 py-2 text-xs">Restart</button>
           </form>
           <form method="POST" action="/caddy/container" onsubmit="return confirm('Stop the Caddy proxy container?')">
             <input type="hidden" name="action" value="stop">
-            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-rose-600/20 px-3 py-2 text-xs font-medium text-rose-300 ring-1 ring-rose-500/30 transition-all hover:bg-rose-600/30 disabled:opacity-40" {{if not .CaddyRunning}}disabled{{end}}>Stop</button>
+            <button type="submit" class="btn-stop-sm disabled:opacity-40" {{if not .CaddyRunning}}disabled{{end}}>Stop</button>
           </form>
-          <button type="button" onclick="loadCaddyLogs()" class="inline-flex items-center gap-1.5 rounded-lg bg-violet-600/20 px-3 py-2 text-xs font-medium text-violet-300 ring-1 ring-violet-500/30 transition-all hover:bg-violet-600/30">View Logs</button>
+          <button type="button" onclick="loadCaddyLogs()" class="btn-secondary min-h-9 gap-1.5 px-3 py-2 text-xs">View Logs</button>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
@@ -111,10 +112,10 @@
           <button type="button" data-caddy-filter="all" onclick="setCaddyFilter('all')" class="caddy-filter-btn rounded-md bg-primary/20 px-2.5 py-1 text-[11px] font-medium text-primary ring-1 ring-primary/30">All</button>
           <button type="button" data-caddy-filter="error" onclick="setCaddyFilter('error')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-rose-950/30 hover:text-rose-300">Error</button>
           <button type="button" data-caddy-filter="warn" onclick="setCaddyFilter('warn')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-amber-950/30 hover:text-amber-300">Warn</button>
-          <button type="button" data-caddy-filter="info" onclick="setCaddyFilter('info')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-cyan-950/30 hover:text-cyan-300">Info</button>
+          <button type="button" data-caddy-filter="info" onclick="setCaddyFilter('info')" class="caddy-filter-btn rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-orange-950/30 hover:text-orange-300">Info</button>
           <button type="button" id="caddy-ts-btn" onclick="toggleCaddyTs()" class="inline-flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground"><span>Show TS</span></button>
         </div>
-        <div id="caddy-log-viewport" class="log-viewport max-h-[min(36rem,70vh)] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[12px] leading-relaxed shadow-inner ring-1 ring-black/40 hide-timestamps">
+        <div id="caddy-log-viewport" class="log-viewport max-h-[min(36rem,70vh)] overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[12px] leading-relaxed shadow-inner ring-1 ring-black/40 hide-timestamps">
           <span class="text-[11px] text-muted-foreground/50">Click "View Logs" to load the latest Caddy output.</span>
         </div>
       </div>
@@ -123,7 +124,7 @@
     <div class="space-y-6">
       <div class="panel-card p-5">
         <div class="section-header mb-4"><span>Panel Labels Preview</span></div>
-        <pre class="max-h-80 overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .PanelLabelsYAML}}{{.PanelLabelsYAML}}{{else}}No panel domain configured yet.{{end}}</pre>
+        <pre class="max-h-80 overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .PanelLabelsYAML}}{{.PanelLabelsYAML}}{{else}}No panel domain configured yet.{{end}}</pre>
       </div>
 
       <div class="panel-card p-5">
@@ -131,13 +132,13 @@
           <span>Root Stack Compose</span>
           <span class="ml-auto text-[11px] text-muted-foreground">{{.RootComposePath}}</span>
         </div>
-        <pre class="max-h-[36rem] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}Root compose preview unavailable.{{end}}</pre>
+        <pre class="max-h-[36rem] overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}Root compose preview unavailable.{{end}}</pre>
       </div>
 
       {{if .LiveConfig}}
       <div class="panel-card p-5">
         <div class="section-header mb-4"><span>Live Running Config</span></div>
-        <pre class="max-h-80 overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.LiveConfig}}</pre>
+        <pre class="max-h-80 overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.LiveConfig}}</pre>
       </div>
       {{end}}
     </div>
@@ -180,13 +181,13 @@
         btn.classList.add('text-muted-foreground');
         if (btn.dataset.caddyFilter === 'error') btn.classList.add('hover:text-rose-300', 'hover:bg-rose-950/30');
         else if (btn.dataset.caddyFilter === 'warn') btn.classList.add('hover:text-amber-300', 'hover:bg-amber-950/30');
-        else if (btn.dataset.caddyFilter === 'info') btn.classList.add('hover:text-cyan-300', 'hover:bg-cyan-950/30');
+        else if (btn.dataset.caddyFilter === 'info') btn.classList.add('hover:text-orange-300', 'hover:bg-orange-950/30');
         else btn.classList.add('hover:text-foreground', 'hover:bg-muted/60');
         return;
       }
       if (level === 'error') btn.classList.add('bg-rose-500/20', 'text-rose-300', 'ring-1', 'ring-rose-500/30');
       else if (level === 'warn') btn.classList.add('bg-amber-500/20', 'text-amber-300', 'ring-1', 'ring-amber-500/30');
-      else if (level === 'info') btn.classList.add('bg-cyan-500/20', 'text-cyan-300', 'ring-1', 'ring-cyan-500/30');
+      else if (level === 'info') btn.classList.add('bg-orange-500/20', 'text-orange-300', 'ring-1', 'ring-orange-500/30');
       else btn.classList.add('bg-primary/20', 'text-primary', 'ring-1', 'ring-primary/30');
     });
     applyCaddyFilter(document.getElementById('caddy-log-viewport'), level);
@@ -200,9 +201,9 @@
     if (!vp || !btn || !label) return;
     vp.classList.toggle('hide-timestamps', !caddyShowTs);
     label.textContent = caddyShowTs ? 'Hide TS' : 'Show TS';
-    btn.classList.toggle('bg-sky-600/25', caddyShowTs);
-    btn.classList.toggle('text-sky-300', caddyShowTs);
-    btn.classList.toggle('ring-sky-500/35', caddyShowTs);
+    btn.classList.toggle('bg-primary/25', caddyShowTs);
+    btn.classList.toggle('text-primary', caddyShowTs);
+    btn.classList.toggle('ring-primary/35', caddyShowTs);
     btn.classList.toggle('bg-muted/40', !caddyShowTs);
     btn.classList.toggle('text-muted-foreground', !caddyShowTs);
     btn.classList.toggle('ring-border', !caddyShowTs);

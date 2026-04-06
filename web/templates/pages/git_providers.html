@@ -1,214 +1,247 @@
-<div class="mx-auto max-w-4xl space-y-6">
+{{/* Git provider (OAuth) configuration. Layout: layouts/shell. */}}
+<div class="mx-auto max-w-4xl space-y-8">
 
   <!-- Page header -->
   <div class="section-header">
-    <div class="flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-        <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+        <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/>
         </svg>
       </div>
-      <div>
+      <div class="min-w-0">
         <h1 class="page-title">Git Providers</h1>
-        <p class="page-subtitle">Manage global Git providers. GitHub App is the primary automated path, with GitLab still available for private repos.</p>
+        <p class="page-subtitle">Connect GitHub or GitLab once, then pick a provider from each app’s Git tab.</p>
       </div>
     </div>
-    <button type="button" class="btn-primary h-10 px-4 text-sm"
+    <button type="button" class="btn-primary h-10 shrink-0 px-4 text-sm"
             onclick="document.getElementById('add-provider-modal').classList.remove('hidden')">
-      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
       </svg>
-      Add Provider
+      Add provider
     </button>
   </div>
 
   <!-- Flash messages -->
+  <div class="space-y-3">
   {{if .Saved}}
-  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-    <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    Provider saved successfully.
+  <div class="flex items-start gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status">
+    <svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Provider saved successfully.</span>
   </div>
   {{end}}
   {{if .Deleted}}
-  <div class="flex items-center gap-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-300">
-    <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    Provider deleted.
+  <div class="flex items-start gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status">
+    <svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Provider removed.</span>
   </div>
   {{end}}
   {{if .Error}}
-  <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-    <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
-    {{.Error}}
+  <div class="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-950/25 px-4 py-3 text-sm text-rose-100" role="alert">
+    <svg class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+    <span>{{.Error}}</span>
   </div>
   {{end}}
+  </div>
 
   <!-- How it works -->
-  <div class="panel-card p-5">
-    <div class="flex items-start gap-4">
-      <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 ring-1 ring-violet-500/25">
-        <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+  <section class="panel-card p-6" aria-labelledby="git-how-heading">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 ring-1 ring-primary/20">
+        <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
       </div>
-      <div class="space-y-2 text-sm text-muted-foreground">
-        <p class="font-medium text-foreground">How Git providers work</p>
-        <ul class="space-y-1.5 text-xs leading-relaxed">
-          <li class="flex items-start gap-2"><span class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60"></span>Create a reusable provider once, then select it from each app Git tab.</li>
-          <li class="flex items-start gap-2"><span class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60"></span>GitHub App flow is the preferred path because NextDeploy can mint short-lived installation tokens and auto-create repo webhooks.</li>
-          <li class="flex items-start gap-2"><span class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60"></span>GitLab remains supported for private repo cloning, but webhook setup stays manual for now.</li>
-          <li class="flex items-start gap-2"><span class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60"></span>Legacy token fields remain available only for compatibility with older setups.</li>
+      <div class="min-w-0 space-y-3">
+        <h2 id="git-how-heading" class="text-base font-semibold tracking-tight text-foreground">How it works</h2>
+        <ul class="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span>Create a named provider here, then choose it from each app’s <strong class="font-medium text-foreground/90">Git</strong> tab.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitHub App</strong> is best: short-lived tokens and automatic repo webhooks.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-500" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitLab</strong> works for private clones; you still wire webhooks manually from Deploy.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true"></span><span>Legacy <strong class="font-medium text-foreground/90">access token</strong> fields stay for older setups only.</span></li>
         </ul>
       </div>
     </div>
-  </div>
+  </section>
 
-  <div class="grid gap-4 lg:grid-cols-2">
-    <div class="panel-card p-5">
+  <section aria-labelledby="git-hosts-heading">
+    <div class="mb-4">
+      <h2 id="git-hosts-heading" class="text-base font-semibold tracking-tight text-foreground">Connect your host</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Start with GitHub for automation, or use GitLab when you need it.</p>
+    </div>
+    <div class="grid gap-6 lg:grid-cols-2">
+    <div class="panel-card flex flex-col p-6">
       <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-500/15 ring-1 ring-slate-500/25">
-            <svg class="h-5 w-5 text-slate-200" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800/80 ring-1 ring-stone-600/40">
+            <svg class="h-5 w-5 text-stone-100" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
           </div>
-          <div>
-            <h2 class="text-sm font-semibold text-foreground">GitHub setup</h2>
-            <p class="mt-0.5 text-xs text-muted-foreground">Dokploy-style GitHub App setup. NextDeploy prefills the registration flow and stores the returned app credentials automatically.</p>
+          <div class="min-w-0">
+            <h3 class="text-sm font-semibold text-foreground">GitHub</h3>
+            <p class="mt-1 text-sm leading-snug text-muted-foreground">Prefilled App manifest, credentials stored when GitHub redirects back.</p>
           </div>
         </div>
-        <span class="inline-flex items-center rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-medium text-slate-300">Recommended</span>
+        <span class="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/25">Recommended</span>
       </div>
-      <div class="mt-4">
-        <form method="post" action="{{.GitHubManifestStart}}">
-          <button type="submit" class="w-full rounded-xl border border-border/50 bg-muted/20 p-4 text-left transition-all hover:border-primary/40 hover:bg-primary/5">
-            <p class="text-sm font-medium text-foreground">Create GitHub App</p>
-            <p class="mt-1 text-xs text-muted-foreground">Launch the prefilled GitHub App manifest flow with an automatic unique app name, then install it to your GitHub account.</p>
+      <div class="mt-5 flex flex-1 flex-col">
+        <form method="post" action="{{.GitHubManifestStart}}" class="mt-auto">
+          <button type="submit" class="btn-primary !inline-flex w-full min-h-[3.5rem] flex-col items-start justify-center gap-1 rounded-xl px-4 py-3.5 text-left shadow-md">
+            <span class="text-sm font-semibold">Create GitHub App</span>
+            <span class="text-xs font-normal text-primary-foreground/85">Opens GitHub with a unique app name — install it on your account to finish.</span>
           </button>
         </form>
       </div>
-      <div class="mt-4 rounded-xl border border-border/50 bg-muted/10 p-4 text-xs text-muted-foreground">
-        <p class="font-medium text-foreground/80">Suggested GitHub App permissions</p>
-        <p class="mt-1">Repository contents: read-only, metadata: read-only, administration: write, webhook event: push. Administration is required so NextDeploy can create or update the repository webhook automatically.</p>
+      <div class="mt-5 rounded-xl border border-border/60 bg-muted/15 p-4 text-sm leading-relaxed text-muted-foreground">
+        <p class="font-medium text-foreground">Suggested permissions</p>
+        <p class="mt-2">Repository contents <span class="text-foreground/80">read</span>, metadata <span class="text-foreground/80">read</span>, administration <span class="text-foreground/80">write</span> (needed to manage webhooks), webhook: <span class="text-foreground/80">push</span>.</p>
       </div>
     </div>
 
-    <div class="panel-card p-5">
+    <div class="panel-card flex flex-col p-6">
       <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/15 ring-1 ring-orange-500/25">
-            <svg class="h-5 w-5 text-orange-400" fill="currentColor" viewBox="0 0 24 24"><path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.82 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0118.6 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.51L23 13.45a.84.84 0 01-.35.94z"/></svg>
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-600/20 ring-1 ring-stone-500/30">
+            <svg class="h-5 w-5 text-orange-400" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.82 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0118.6 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.51L23 13.45a.84.84 0 01-.35.94z"/></svg>
           </div>
-          <div>
-            <h2 class="text-sm font-semibold text-foreground">GitLab setup</h2>
-            <p class="mt-0.5 text-xs text-muted-foreground">GitLab stays available for private repo access. Deep GitLab automation can come later.</p>
+          <div class="min-w-0">
+            <h3 class="text-sm font-semibold text-foreground">GitLab</h3>
+            <p class="mt-1 text-sm leading-snug text-muted-foreground">Private clone access via provider tokens; webhooks you configure yourself.</p>
           </div>
         </div>
-        <span class="inline-flex items-center rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300">Manual webhook</span>
+        <span class="inline-flex shrink-0 items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/80">Manual webhook</span>
       </div>
-      <div class="mt-4">
-        <a href="{{.GitLabAppCreateURL}}" target="_blank" rel="noreferrer noopener" class="rounded-xl border border-border/50 bg-muted/20 p-4 transition-all hover:border-orange-500/40 hover:bg-orange-500/5">
-          <p class="text-sm font-medium text-foreground">Create GitLab application</p>
-          <p class="mt-1 text-xs text-muted-foreground">Use this when you want broader GitLab integration later. Today, private clone access still works through the provider entry below.</p>
+      <div class="mt-5 flex flex-1 flex-col justify-end">
+        <a href="{{.GitLabAppCreateURL}}" target="_blank" rel="noreferrer noopener"
+           class="group flex w-full min-h-[3.5rem] flex-col justify-center gap-1 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 text-left transition-colors hover:border-primary/35 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+          <span class="flex items-center gap-2 text-sm font-semibold text-foreground">
+            Create GitLab application
+            <svg class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+          </span>
+          <span class="text-xs text-muted-foreground">Opens GitLab in a new tab. Add the provider below for clone auth.</span>
         </a>
       </div>
-      <div class="mt-4 rounded-xl border border-border/50 bg-muted/10 p-4 text-xs text-muted-foreground">
-        <p class="font-medium text-foreground/80">Current GitLab scope</p>
-        <p class="mt-1">Private repo cloning remains supported. Manual webhook setup is still expected, and the app-specific webhook URL will stay visible inside the Deploy tab.</p>
+      <div class="mt-5 rounded-xl border border-border/60 bg-muted/15 p-4 text-sm leading-relaxed text-muted-foreground">
+        <p class="font-medium text-foreground">What to expect</p>
+        <p class="mt-2">Deploy tab shows the webhook URL per app. Clone over HTTPS works once the GitLab provider is saved.</p>
       </div>
     </div>
-  </div>
+    </div>
+  </section>
 
   <!-- Providers list -->
-  {{if .Providers}}
-  <div class="space-y-3">
-    <h2 class="text-sm font-semibold text-foreground">Saved providers</h2>
+  <section class="space-y-4" aria-labelledby="saved-providers-heading">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 id="saved-providers-heading" class="text-base font-semibold tracking-tight text-foreground">Saved providers</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Tokens stay on the server; apps reference these by name.</p>
+      </div>
+    </div>
+
+    {{if .Providers}}
+    <ul class="space-y-3 list-none p-0 m-0" role="list">
     {{range .Providers}}
-    <div class="panel-card p-4" id="provider-{{.ID}}">
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg
-            {{if eq .Provider "github"}}bg-slate-500/15 ring-1 ring-slate-500/25
-            {{else if eq .Provider "gitlab"}}bg-orange-500/15 ring-1 ring-orange-500/25
+    <li class="surface-raised p-5" id="provider-{{.ID}}">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex min-w-0 items-start gap-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl
+            {{if eq .Provider "github"}}bg-stone-800/80 ring-1 ring-stone-600/40
+            {{else if eq .Provider "gitlab"}}bg-stone-600/20 ring-1 ring-stone-500/30
             {{else}}bg-primary/10 ring-1 ring-primary/20{{end}}">
             {{if eq .Provider "github"}}
-            <svg class="h-4 w-4 text-slate-300" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            <svg class="h-5 w-5 text-stone-100" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
             {{else if eq .Provider "gitlab"}}
-            <svg class="h-4 w-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24"><path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.82 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0118.6 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.51L23 13.45a.84.84 0 01-.35.94z"/></svg>
+            <svg class="h-5 w-5 text-orange-400" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.82 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0118.6 2a.43.43 0 01.58 0 .42.42 0 01.11.18l2.44 7.51L23 13.45a.84.84 0 01-.35.94z"/></svg>
             {{else}}
-            <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+            <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
             {{end}}
           </div>
           <div class="min-w-0">
-            <p class="truncate font-medium text-foreground">{{.Name}}</p>
-            <div class="mt-0.5 flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium
-                {{if eq .Provider "github"}}bg-slate-500/15 text-slate-300
-                {{else if eq .Provider "gitlab"}}bg-orange-500/15 text-orange-300
-                {{else}}bg-primary/10 text-primary{{end}}">
+            <p class="truncate text-sm font-semibold text-foreground">{{.Name}}</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize
+                {{if eq .Provider "github"}}bg-stone-500/15 text-stone-200 ring-1 ring-stone-500/20
+                {{else if eq .Provider "gitlab"}}bg-orange-500/12 text-orange-200 ring-1 ring-orange-500/20
+                {{else}}bg-primary/12 text-primary ring-1 ring-primary/20{{end}}">
                 {{.Provider}}
               </span>
-              {{if .Notes}}<span class="truncate text-xs text-muted-foreground/70">{{.Notes}}</span>{{end}}
+              {{if .Notes}}<span class="max-w-full truncate text-xs text-muted-foreground">{{.Notes}}</span>{{end}}
               {{if eq .Provider "github"}}
                 {{$gh := index $.GitHubDetails .ID}}
                 {{if $gh.GitHubAppID}}
-                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">Installed</span>
+                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-200 ring-1 ring-emerald-500/25">Installed</span>
                 {{else}}
-                <span class="inline-flex items-center rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-medium text-yellow-300">Action required</span>
+                <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-200 ring-1 ring-amber-500/25">Action required</span>
                 {{end}}
               {{end}}
             </div>
           </div>
         </div>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2 sm:justify-end">
           {{if eq .Provider "github"}}
             {{$gh := index $.GitHubDetails .ID}}
             {{if not $gh.InstallationID}}
-            <a href="/git/{{.ID}}/github/install" class="btn-ghost h-8 px-3 text-xs text-emerald-300 hover:bg-emerald-950/30">
+            <a href="/git/{{.ID}}/github/install" class="btn-secondary min-h-9 px-3 py-2 text-xs">
               Install app
             </a>
             {{else}}
-            <form method="post" action="/git/{{.ID}}/github/refresh-installation">
-              <button type="submit" class="btn-ghost h-8 px-3 text-xs text-emerald-300 hover:bg-emerald-950/30">
+            <form method="post" action="/git/{{.ID}}/github/refresh-installation" class="inline">
+              <button type="submit" class="btn-secondary min-h-9 px-3 py-2 text-xs">
                 Re-check
               </button>
             </form>
             {{end}}
           {{end}}
           <button type="button"
-                  class="btn-ghost h-8 px-3 text-xs"
+                  class="btn-secondary min-h-9 px-3 py-2 text-xs"
                   onclick="openEditProvider({{.ID}}, {{jsq .Name}}, {{jsq .Provider}}, {{jsq .Notes}})">
             Edit
           </button>
-          <form method="post" action="/git/{{.ID}}/delete"
+          <form method="post" action="/git/{{.ID}}/delete" class="inline"
                 onsubmit="return confirm('Delete provider {{.Name}}? Apps using this token will need to be reconfigured.');">
-            <button type="submit" class="btn-ghost h-8 px-3 text-xs text-rose-400 hover:bg-rose-950/40">Delete</button>
+            <button type="submit" class="btn-delete-sm">Delete</button>
           </form>
         </div>
       </div>
       {{if eq .Provider "github"}}
         {{$gh := index $.GitHubDetails .ID}}
-        <div class="mt-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
-          <p class="text-[10px] text-muted-foreground/60">GitHub App</p>
-          <p class="mt-0.5 text-xs text-muted-foreground">
+        <div class="mt-4 rounded-xl border border-border/50 bg-muted/15 px-4 py-3">
+          <p class="text-xs font-medium text-muted-foreground">GitHub App</p>
+          <p class="mt-1.5 text-sm text-muted-foreground">
             {{if $gh.GitHubAppID}}
-              App ID <span class="font-mono text-foreground">{{$gh.GitHubAppID}}</span>{{if $gh.AccountLogin}} • installed for <span class="font-medium text-foreground">{{$gh.AccountLogin}}</span>{{else}} • click <span class="font-medium text-foreground">Install app</span> to finish setup{{end}}
+              App ID <span class="font-mono text-foreground">{{$gh.GitHubAppID}}</span>{{if $gh.AccountLogin}} · installed for <span class="font-medium text-foreground">{{$gh.AccountLogin}}</span>{{else}} · use <span class="font-medium text-foreground">Install app</span> to finish{{end}}
             {{else}}
               Manifest flow not completed yet.
             {{end}}
           </p>
         </div>
       {{else}}
-      <div class="mt-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
-        <p class="text-[10px] text-muted-foreground/60">Credential</p>
-        <p class="mt-0.5 font-mono text-xs text-muted-foreground">••••••••••••••••<span class="text-muted-foreground/40"> (stored securely)</span></p>
+      <div class="mt-4 rounded-xl border border-border/50 bg-muted/15 px-4 py-3">
+        <p class="text-xs font-medium text-muted-foreground">Credential</p>
+        <p class="mt-1.5 font-mono text-sm text-muted-foreground">••••••••••••••••<span class="text-muted-foreground/50"> (stored securely)</span></p>
       </div>
       {{end}}
-      <p class="mt-2 text-[10px] text-muted-foreground/50">Added {{.CreatedAt.Format "Jan 2, 2006"}}</p>
+      <p class="mt-3 text-xs text-muted-foreground/70">Added {{.CreatedAt.Format "Jan 2, 2006"}}</p>
+    </li>
+    {{end}}
+    </ul>
+    {{else}}
+    <div class="panel-card flex flex-col items-center justify-center px-6 py-14 text-center">
+      <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40 ring-1 ring-border/60">
+        <svg class="h-7 w-7 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+      </div>
+      <h3 class="mt-4 text-sm font-semibold text-foreground">No providers yet</h3>
+      <p class="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Use <strong class="font-medium text-foreground/90">Add provider</strong> for tokens, or start with <strong class="font-medium text-foreground/90">Create GitHub App</strong> above.</p>
+      <button type="button" class="btn-primary mt-6 px-5 py-2.5 text-sm"
+              onclick="document.getElementById('add-provider-modal').classList.remove('hidden')">
+        Add provider
+      </button>
     </div>
     {{end}}
-  </div>
-  {{end}}
+  </section>
 
 </div>
 
 <!-- Add Provider Modal -->
-<div id="add-provider-modal" class="modal-overlay hidden">
+<div id="add-provider-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="add-provider-title">
   <div class="absolute inset-0" onclick="document.getElementById('add-provider-modal').classList.add('hidden')" aria-hidden="true"></div>
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="mb-5 flex items-start justify-between gap-3">
@@ -217,7 +250,7 @@
           <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         </div>
         <div>
-          <h2 class="text-base font-semibold text-foreground">Add Git provider</h2>
+          <h2 id="add-provider-title" class="text-base font-semibold text-foreground">Add Git provider</h2>
           <p class="text-xs text-muted-foreground">Save a named credential for cloning private repos</p>
         </div>
       </div>
@@ -258,16 +291,16 @@
 </div>
 
 <!-- Edit Provider Modal -->
-<div id="edit-provider-modal" class="modal-overlay hidden">
+<div id="edit-provider-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="edit-provider-title">
   <div class="absolute inset-0" onclick="document.getElementById('edit-provider-modal').classList.add('hidden')" aria-hidden="true"></div>
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="mb-5 flex items-start justify-between gap-3">
       <div class="flex items-center gap-3">
-        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/15 ring-1 ring-amber-500/25">
-          <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/25">
+          <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
         </div>
         <div>
-          <h2 class="text-base font-semibold text-foreground">Edit provider</h2>
+          <h2 id="edit-provider-title" class="text-base font-semibold text-foreground">Edit provider</h2>
           <p class="text-xs text-muted-foreground">Leave token blank to keep the existing one</p>
         </div>
       </div>

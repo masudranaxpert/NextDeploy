@@ -1,0 +1,8 @@
+    <div id="git-tab-root" data-app-id="{{.ID}}" class="space-y-5">
+      {{template "partials/git/git_tab_repo_panel" .}}
+      {{template "partials/git/git_tab_browser_panel" .}}
+    </div>
+    <link rel="stylesheet" href="/static/vendor/atom-file-icons/index.css">
+    <script type="module" src="/static/js/git-file-icons-setup.js"></script>
+    <script src="/static/js/file-browser.js" defer></script>
+    <script src="/static/js/git-tab.js" defer></script>

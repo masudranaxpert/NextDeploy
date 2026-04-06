@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"panel/internal/workspace"
 )
 
 var volNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -19,17 +21,9 @@ func ValidVolumeName(name string) bool {
 	return name != "" && volNameRe.MatchString(name)
 }
 
+// ParentRel delegates to workspace.ParentRel for consistency.
 func ParentRel(rel string) string {
-	rel = filepath.ToSlash(strings.TrimSpace(rel))
-	rel = strings.Trim(rel, "/")
-	if rel == "" {
-		return ""
-	}
-	i := strings.LastIndex(rel, "/")
-	if i < 0 {
-		return ""
-	}
-	return rel[:i]
+	return workspace.ParentRel(rel)
 }
 
 func List(ctx context.Context) ([]string, string) {

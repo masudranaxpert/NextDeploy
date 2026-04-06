@@ -1,0 +1,299 @@
+﻿    <div class="panel-card space-y-4 p-5">
+      <div>
+        <h2 class="text-base font-semibold text-foreground">Container logs</h2>
+        <p class="mt-0.5 text-sm text-muted-foreground">Choose a container and how many lines to tail. Colors are heuristic (errors, warnings, HTTP status, etc.).</p>
+      </div>
+      {{if not .HasCompose}}
+        <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+          <p class="text-sm text-amber-200">Upload <code class="rounded bg-muted px-1">docker-compose.yml</code> in Files and deploy from Overview first.</p>
+        </div>
+      {{else if not .ComposeRows}}
+        <p class="text-sm text-muted-foreground">No compose containers yet. Deploy from Overview, then open this tab again.</p>
+      {{else}}
+        <div id="log-controls" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end" data-app-id="{{.ID}}">
+          <div class="min-w-[240px] max-w-xl flex-1">
+            <label class="mb-1 block text-xs font-medium text-muted-foreground" for="log-pick">Container</label>
+            <select id="log-pick" name="container" class="input w-full"
+                    hx-get="/apps/{{.ID}}/partials/logs"
+                    hx-include="#log-controls"
+                    hx-trigger="change, load"
+                    hx-target="#log-view"
+                    hx-swap="innerHTML">
+              {{range .ComposeRows}}
+                <option value="{{.Name}}">{{.Name}} · {{.Service}} · {{.State}}</option>
+              {{end}}
+            </select>
+          </div>
+          <div class="w-full min-w-[10rem] sm:w-44">
+            <label class="mb-1 block text-xs font-medium text-muted-foreground" for="log-tail">Lines to tail</label>
+            <select id="log-tail" name="tail" class="input w-full"
+                    hx-get="/apps/{{.ID}}/partials/logs"
+                    hx-include="#log-controls"
+                    hx-trigger="change"
+                    hx-target="#log-view"
+                    hx-swap="innerHTML">
+              <option value="100">Last 100 lines</option>
+              <option value="300" selected>Last 300 lines</option>
+              <option value="500">Last 500 lines</option>
+              <option value="1000">Last 1000 lines</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2 sm:ml-auto">
+            <div id="log-live-status" class="inline-flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <span id="log-live-dot" class="inline-flex h-2 w-2 rounded-full bg-amber-400"></span>
+              <span id="log-live-label" class="font-medium">Loading history…</span>
+            </div>
+          </div>
+        </div>
+      {{end}}
+      <div id="log-view" class="mt-2 min-h-[6rem]" aria-live="polite">
+        {{if and .HasCompose .ComposeRows}}
+          <div class="flex items-center gap-2 text-xs text-muted-foreground">
+            <svg class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            Loading logs…
+          </div>
+        {{else}}
+          <p class="text-sm text-muted-foreground">Logs appear here when containers are available.</p>
+        {{end}}
+      </div>
+      <script>
+      (function() {
+        var controls = document.getElementById('log-controls');
+        var logView = document.getElementById('log-view');
+        var pick = document.getElementById('log-pick');
+        var tail = document.getElementById('log-tail');
+        var status = document.getElementById('log-live-status');
+        var label = document.getElementById('log-live-label');
+        if (!controls || !logView || !pick || !tail || !status || !label) return;
+
+        var state = window.__appLogStreamState || {
+          ws: null,
+          buffer: '',
+          reconnectTimer: 0,
+          container: '',
+          destroyed: false
+        };
+        window.__appLogStreamState = state;
+
+        function statusClasses(kind) {
+          if (kind === 'live') {
+            return {
+              wrap: 'inline-flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300',
+              dot: 'inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse'
+            };
+          }
+          if (kind === 'error') {
+            return {
+              wrap: 'inline-flex items-center gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-300',
+              dot: 'inline-flex h-2 w-2 rounded-full bg-rose-400'
+            };
+          }
+          if (kind === 'idle') {
+            return {
+              wrap: 'inline-flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground',
+              dot: 'inline-flex h-2 w-2 rounded-full bg-slate-500'
+            };
+          }
+          return {
+            wrap: 'inline-flex items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300',
+            dot: 'inline-flex h-2 w-2 rounded-full bg-amber-400'
+          };
+        }
+
+        function setLogStatus(kind, text) {
+          var dot = document.getElementById('log-live-dot');
+          var cfg = statusClasses(kind);
+          status.className = cfg.wrap;
+          if (dot) dot.className = cfg.dot;
+          label.textContent = text;
+        }
+
+        function getSelectedContainer() {
+          return (pick.value || '').trim();
+        }
+
+        function closeSocket() {
+          if (state.reconnectTimer) {
+            clearTimeout(state.reconnectTimer);
+            state.reconnectTimer = 0;
+          }
+          if (state.ws) {
+            var ws = state.ws;
+            state.ws = null;
+            try { ws.close(); } catch (e) {}
+          }
+        }
+
+        function escLogHtml(s) {
+          return String(s || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        }
+
+        function wrapTimestampHtml(escaped) {
+          var match = escaped.match(/^(\[\d{2}\/[A-Za-z]{3}\/\d{4}:\d{2}:\d{2}:\d{2}(?: [+\-]\d{4})?\]|\[\d{4}-\d{2}-\d{2}[T ][0-9:.+\-Z:]+\]|\d{4}-\d{2}-\d{2}[T ][0-9:.+\-Z:]+)/);
+          if (!match) return escaped;
+          return '<span class="log-ts">' + match[1] + '</span>' + escaped.slice(match[1].length);
+        }
+
+        function classifyLogLevel(line) {
+          var raw = String(line || '');
+          var low = raw.toLowerCase();
+          var m = raw.match(/\b([1-5]\d{2})\b/);
+          if (m) {
+            var code = parseInt(m[1], 10);
+            if (code >= 500) return 'error';
+            if (code >= 400) return 'warn';
+            if (code >= 200 && code < 400) return 'success';
+          }
+          if (/\b(fatal|panic)\b/i.test(raw)) return 'fatal';
+          if (/\b(error|err|exception|traceback|failed|failure)\b/i.test(raw)) return 'error';
+          if (/\b(warn|warning)\b/i.test(raw)) return 'warn';
+          if (/\b(debug|trace|verbose)\b/i.test(raw)) return 'debug';
+          if (/\b(info|notice)\b/i.test(raw)) return 'info';
+          if (/\b(ok|success|ready|started|listening)\b/i.test(raw)) return 'success';
+          return 'default';
+        }
+
+        function badgeHtml(level) {
+          if (level === 'fatal') return '<span class="log-badge log-badge-fatal">FATAL</span> ';
+          if (level === 'error') return '<span class="log-badge log-badge-error">ERROR</span> ';
+          if (level === 'warn') return '<span class="log-badge log-badge-warn">WARN</span> ';
+          if (level === 'success') return '<span class="log-badge log-badge-success">OK</span> ';
+          if (level === 'info') return '<span class="log-badge log-badge-info">INFO</span> ';
+          if (level === 'debug') return '<span class="log-badge log-badge-debug">DBG</span> ';
+          return '';
+        }
+
+        function elementMatchesFilter(el, filter) {
+          if (!el || !el.classList || filter === 'all') return true;
+          if (filter === 'error') return el.classList.contains('log-lvl-error') || el.classList.contains('log-lvl-fatal');
+          if (filter === 'warn') return el.classList.contains('log-lvl-warn');
+          if (filter === 'info') return el.classList.contains('log-lvl-info');
+          if (filter === 'debug') return el.classList.contains('log-lvl-debug');
+          return true;
+        }
+
+        function appendRenderedLine(viewport, wrap, line) {
+          if (!viewport || !wrap) return;
+          var empty = viewport.querySelector('.log-empty-state');
+          if (empty) empty.remove();
+
+          if (line === '') {
+            var spacer = document.createElement('div');
+            spacer.className = 'log-line-spacer';
+            spacer.style.display = (wrap.dataset.logFilter && wrap.dataset.logFilter !== 'all') ? 'none' : '';
+            viewport.appendChild(spacer);
+            return;
+          }
+
+          var level = classifyLogLevel(line);
+          var el = document.createElement('div');
+          el.className = 'log-line log-lvl-' + level;
+          el.innerHTML = badgeHtml(level) + wrapTimestampHtml(escLogHtml(line));
+          if (!elementMatchesFilter(el, wrap.dataset.logFilter || 'all')) {
+            el.style.display = 'none';
+          }
+          viewport.appendChild(el);
+        }
+
+        function flushBufferedLines(force) {
+          var wrap = logView.querySelector('.log-view-wrap');
+          var viewport = wrap ? wrap.querySelector('.log-viewport') : null;
+          if (!wrap || !viewport) return;
+          var nearBottom = (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight) < 80;
+          var combined = state.buffer;
+          if (!combined) return;
+          var parts = combined.split(/\r?\n/);
+          state.buffer = force ? '' : parts.pop();
+          parts.forEach(function(line) {
+            appendRenderedLine(viewport, wrap, line);
+          });
+          if (force && state.buffer) {
+            appendRenderedLine(viewport, wrap, state.buffer);
+            state.buffer = '';
+          }
+          if (nearBottom) {
+            viewport.scrollTop = viewport.scrollHeight;
+          }
+        }
+
+        function scheduleReconnect(container) {
+          if (state.destroyed || !container || container !== getSelectedContainer()) return;
+          if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = setTimeout(function() {
+            connectSocket();
+          }, 1500);
+        }
+
+        function connectSocket() {
+          var appId = controls.getAttribute('data-app-id');
+          var container = getSelectedContainer();
+          if (!appId || !container) {
+            setLogStatus('idle', 'Select a container');
+            return;
+          }
+
+          closeSocket();
+          state.buffer = '';
+          state.container = container;
+          setLogStatus('connecting', 'Connecting live stream…');
+
+          var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+          var url = proto + window.location.host + '/apps/' + encodeURIComponent(appId) + '/ws/logs?app=' + encodeURIComponent(appId) + '&container=' + encodeURIComponent(container);
+          var ws = new WebSocket(url);
+          state.ws = ws;
+
+          ws.addEventListener('open', function() {
+            if (state.ws !== ws) return;
+            setLogStatus('live', 'Live stream connected');
+          });
+
+          ws.addEventListener('message', function(event) {
+            if (state.ws !== ws) return;
+            var chunk = typeof event.data === 'string' ? event.data : '';
+            state.buffer += chunk;
+            flushBufferedLines(false);
+          });
+
+          ws.addEventListener('close', function() {
+            if (state.ws === ws) {
+              state.ws = null;
+              flushBufferedLines(true);
+              setLogStatus('connecting', 'Stream disconnected, retrying…');
+              scheduleReconnect(container);
+            }
+          });
+
+          ws.addEventListener('error', function() {
+            if (state.ws === ws) {
+              setLogStatus('error', 'Live stream error');
+            }
+          });
+        }
+
+        function reloadHistoryState() {
+          closeSocket();
+          state.buffer = '';
+          setLogStatus('connecting', 'Loading history…');
+        }
+
+        pick.addEventListener('change', reloadHistoryState);
+        tail.addEventListener('change', reloadHistoryState);
+
+        document.addEventListener('htmx:afterSwap', function(e) {
+          if (e.detail && e.detail.target && e.detail.target.id === 'log-view') {
+            state.buffer = '';
+            connectSocket();
+          }
+        });
+
+        window.addEventListener('beforeunload', function() {
+          state.destroyed = true;
+          closeSocket();
+        });
+      })();
+      </script>
+    </div>

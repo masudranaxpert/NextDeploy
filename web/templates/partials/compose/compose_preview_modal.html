@@ -1,4 +1,3 @@
-{{define "partials/compose_preview_modal"}}
 <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
   <div class="modal-box max-w-4xl w-full" onclick="event.stopPropagation()">
     <div class="mb-4 flex items-center justify-between gap-3">
@@ -13,10 +12,9 @@
         </svg>
       </button>
     </div>
-    <pre class="max-h-[70vh] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all {{if .ComposeError}}text-rose-300{{else}}text-sky-300/80{{end}}">{{.ComposePreview}}</pre>
+    <pre class="max-h-[70vh] overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all {{if .ComposeError}}text-rose-300{{else}}text-stone-300/85{{end}}">{{.ComposePreview}}</pre>
     <div class="mt-4 flex justify-end">
       <button type="button" class="btn text-xs" onclick="this.closest('.modal-overlay').remove()">Close</button>
     </div>
   </div>
 </div>
-{{end}}

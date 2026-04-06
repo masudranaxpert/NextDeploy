@@ -1,0 +1,109 @@
+{{/*
+  file-browser.js: Git branch = tree + inline Monaco (preview-monaco). Workspace branch = tree only;
+  data-file-preview-modal opens the file in a modal (no side preview column). Reuse the same partial
+  by switching .IsGitApp and optional data attributes on the root div.
+*/}}
+{{if .IsGitApp}}
+<div class="flex min-h-0 w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-0 lg:divide-x lg:divide-border/60"
+     data-panel-file-browser
+     data-tree-base="/apps/{{.ID}}/git/tree"
+     data-blob-base="/apps/{{.ID}}/git/blob"
+     data-refresh-button-id="git-browser-refresh"
+     data-empty-root="This repository root is empty.">
+  <div class="flex min-w-0 flex-col min-h-[200px] lg:w-[min(100%,440px)] lg:max-w-[440px] lg:shrink-0 lg:pr-5">
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Explorer</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" data-fb="collapse" class="rounded-md border border-border/50 bg-muted/15 px-2 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/35 hover:text-foreground min-h-[36px] sm:min-h-0">Collapse all</button>
+      </div>
+    </div>
+    <div data-fb="error" class="mb-2 hidden rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert"></div>
+    <div class="relative flex flex-col overflow-visible rounded-2xl border border-border/50 bg-muted/[0.06] shadow-sm ring-1 ring-border/35">
+      <div data-fb="loading" class="absolute inset-0 z-10 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[1px]">
+        <span class="inline-flex items-center gap-2">
+          <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+          Loading…
+        </span>
+      </div>
+      <ul data-fb="tree"
+          class="fb-file-tree m-0 list-none space-y-0.5 overflow-x-hidden p-2 sm:p-2.5"
+          data-app-id="{{.ID}}"
+          role="tree"
+          aria-label="Repository files"
+          tabindex="-1"></ul>
+    </div>
+  </div>
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col min-h-[min(42vh,360px)] lg:min-h-0 lg:pl-5">
+    <div class="mb-2 flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-border/40 pb-2">
+      <div data-fb="preview-title" class="min-w-0 flex-1 break-all font-mono text-xs font-medium text-foreground">Select a file</div>
+      <div data-fb="preview-actions" class="hidden shrink-0 items-center gap-2">
+        <a data-fb="preview-dl" href="#" class="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary shadow-sm hover:bg-primary/15 sm:min-h-0">Download</a>
+      </div>
+    </div>
+    <div data-fb="preview-meta" class="mb-2 min-h-[1rem] shrink-0 text-[11px] text-muted-foreground"></div>
+    <div data-fb="preview-stage" class="relative min-h-[min(38vh,320px)] flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/45 bg-[#05070c] shadow-inner ring-1 ring-border/40 lg:min-h-0">
+      <div data-fb="preview-empty" class="absolute inset-0 z-[1] flex items-center justify-center px-4 text-center text-xs text-muted-foreground">Select a file in the explorer tree</div>
+      <pre data-fb="preview-body" class="absolute inset-0 z-[2] hidden overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-foreground/90 sm:text-xs" tabindex="0"></pre>
+      <div data-fb="preview-monaco" class="absolute inset-0 z-[2] hidden min-h-0 w-full" aria-hidden="true"></div>
+    </div>
+  </div>
+</div>
+{{else}}
+<div class="flex min-h-0 w-full min-w-0 flex-col gap-4"
+     data-panel-file-browser
+     data-tree-base="/apps/{{.ID}}/files/tree"
+     data-blob-base="/apps/{{.ID}}/files/blob"
+     data-delete-url="/apps/{{.ID}}/files/delete"
+     data-file-preview-modal="1"
+     data-empty-root="No files in this project yet. Upload a ZIP or single files above.">
+  <div class="flex w-full min-w-0 flex-col gap-3 min-h-[200px] rounded-2xl border border-border/40 bg-gradient-to-b from-[hsl(220_16%_11%)]/95 to-[hsl(220_14%_9%)]/90 p-3 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.04)] ring-1 ring-black/20 sm:p-4">
+    <div data-fb="flash" class="hidden rounded-xl border px-3 py-2.5 text-xs border-border/45 bg-card/60 text-muted-foreground shadow-sm" role="status"></div>
+    <div data-fb="delete-toolbar" class="hidden flex-col gap-2 rounded-xl border border-rose-500/20 bg-gradient-to-r from-rose-950/25 to-transparent px-3 py-2.5 ring-1 ring-rose-500/10 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <p class="order-2 text-[11px] leading-snug text-muted-foreground sm:order-1 sm:min-w-0 sm:flex-1">Permanent delete for checked files and folders. This cannot be undone.</p>
+      <button type="button" data-fb="delete-selected" class="btn-delete order-1 h-9 shrink-0 justify-center gap-1.5 px-3 text-xs sm:order-2">
+        <svg class="h-3.5 w-3.5 opacity-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        Delete selected
+      </button>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/35 bg-[hsl(222_22%_8%)]/90 px-3 py-2.5 shadow-sm ring-1 ring-inset ring-white/[0.03]">
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/12 ring-1 ring-accent/25" aria-hidden="true">
+          <svg class="h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5V6a.75.75 0 01.75-.75h4.5A2.25 2.25 0 0110.5 7.5v9A2.25 2.25 0 018.25 18.75h-4.5a.75.75 0 01-.75-.75v-1.5M15 12h6m0 0l-2.25-2.25M21 12l-2.25 2.25"/></svg>
+        </span>
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-foreground/90">Explorer</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <button type="button" id="fb-bulk-select-toggle" class="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/10 hover:text-primary sm:min-h-0" title="Show checkboxes for bulk delete and ZIP">
+          <svg class="h-3.5 w-3.5 shrink-0 opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span data-fb-bulk-label>Bulk select</span>
+        </button>
+        <label id="fb-select-all-wrap" class="hidden cursor-pointer items-center gap-2 rounded-lg border border-border/40 bg-background/30 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border/60 hover:bg-background/50 hover:text-foreground">
+          <input type="checkbox" id="fb-select-all" class="rounded border-border text-primary focus:ring-primary/40">
+          Select all
+        </label>
+        <button type="button" id="fb-download-zip" class="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-foreground/90 shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary sm:min-h-0" title="Download selected (or all) as ZIP">
+          <svg class="h-3.5 w-3.5 shrink-0 opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+          Download ZIP
+        </button>
+        <button type="button" data-fb="reload" class="inline-flex min-h-[36px] items-center rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/30 hover:text-foreground sm:min-h-0">Refresh</button>
+        <button type="button" data-fb="collapse" class="inline-flex min-h-[36px] items-center rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/30 hover:text-foreground sm:min-h-0">Collapse all</button>
+      </div>
+    </div>
+    <div data-fb="error" class="hidden rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert"></div>
+    <div class="relative flex flex-col overflow-visible rounded-xl border border-slate-700/40 bg-[hsl(222_26%_6%)] shadow-inner ring-1 ring-black/30">
+      <div data-fb="loading" class="absolute inset-0 z-10 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[1px]">
+        <span class="inline-flex items-center gap-2">
+          <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+          Loading…
+        </span>
+      </div>
+      <ul data-fb="tree"
+          class="fb-file-tree m-0 list-none space-y-0.5 overflow-x-hidden p-2 sm:p-2.5"
+          data-app-id="{{.ID}}"
+          role="tree"
+          aria-label="Project files"
+          tabindex="-1"></ul>
+    </div>
+  </div>
+</div>
+{{end}}

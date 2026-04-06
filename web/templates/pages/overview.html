@@ -1,3 +1,4 @@
+{{/* Dashboard: system stats and panel status. Layout: layouts/shell. */}}
 <div class="mx-auto max-w-6xl space-y-6 sm:space-y-8">
 
   <!-- Page header -->
@@ -50,14 +51,14 @@
           <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{printf "%.1f" .Sys.DiskUsedGB}}<span class="text-sm font-normal text-muted-foreground"> GB</span></p>
           <p class="mt-0.5 text-[11px] text-muted-foreground">of {{printf "%.1f" .Sys.DiskTotalGB}} GB &middot; {{printf "%.0f" .Sys.DiskUsedPct}}%</p>
         </div>
-        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
-          <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 8a3 3 0 016 0v8a3 3 0 01-6 0V8zm8 0a3 3 0 016 0v8a3 3 0 01-6 0V8z"/>
           </svg>
         </div>
       </div>
       <div class="mt-3 progress-bar">
-        <div class="progress-fill bg-gradient-to-r from-violet-600 to-violet-400" style="width: {{printf "%.0f" .Sys.DiskUsedPct}}%"></div>
+        <div class="progress-fill bg-gradient-to-r from-orange-600 to-orange-400" style="width: {{printf "%.0f" .Sys.DiskUsedPct}}%"></div>
       </div>
     </div>
 
@@ -88,8 +89,8 @@
           <p class="mt-1.5 text-sm font-medium text-foreground leading-snug truncate">{{.Sys.HostNote}}</p>
           <p class="mt-0.5 text-[11px] text-muted-foreground">{{.Sys.GoVersion}}</p>
         </div>
-        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 ring-1 ring-cyan-500/20">
-          <svg class="h-4 w-4 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-stone-500/10 ring-1 ring-stone-500/20">
+          <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z"/>
           </svg>
         </div>
@@ -127,33 +128,33 @@
     </a>
 
     <!-- Containers -->
-    <a href="/containers" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-cyan-500/40 hover:bg-cyan-500/5">
-      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-500/10 ring-1 ring-cyan-500/20 group-hover:bg-cyan-500/15 transition-colors">
-        <svg class="h-5 w-5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+    <a href="/containers" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-stone-500/40 hover:bg-stone-500/5">
+      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-500/10 ring-1 ring-stone-500/20 group-hover:bg-stone-500/15 transition-colors">
+        <svg class="h-5 w-5 text-stone-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
         </svg>
       </div>
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-foreground group-hover:text-cyan-400 transition-colors">Containers</p>
+        <p class="text-sm font-semibold text-foreground group-hover:text-stone-300 transition-colors">Containers</p>
         <p class="text-xs text-muted-foreground mt-0.5">View &amp; manage running containers</p>
       </div>
-      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-cyan-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-stone-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
       </svg>
     </a>
 
     <!-- Images -->
-    <a href="/images" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-violet-500/40 hover:bg-violet-500/5">
-      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20 group-hover:bg-violet-500/15 transition-colors">
-        <svg class="h-5 w-5 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+    <a href="/images" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-orange-500/40 hover:bg-orange-500/5">
+      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20 group-hover:bg-orange-500/15 transition-colors">
+        <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"/>
         </svg>
       </div>
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-foreground group-hover:text-violet-400 transition-colors">Images</p>
+        <p class="text-sm font-semibold text-foreground group-hover:text-orange-400 transition-colors">Images</p>
         <p class="text-xs text-muted-foreground mt-0.5">Docker images on this engine</p>
       </div>
-      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-violet-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-orange-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
       </svg>
     </a>
@@ -175,17 +176,17 @@
     </a>
 
     <!-- Proxy -->
-    <a href="/nextdeploy" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-sky-500/40 hover:bg-sky-500/5">
-      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 ring-1 ring-sky-500/20 group-hover:bg-sky-500/15 transition-colors">
-        <svg class="h-5 w-5 text-sky-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+    <a href="/nextdeploy" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-orange-500/40 hover:bg-orange-500/5">
+      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20 group-hover:bg-orange-500/15 transition-colors">
+        <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/>
         </svg>
       </div>
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-foreground group-hover:text-sky-400 transition-colors">Proxy</p>
+        <p class="text-sm font-semibold text-foreground group-hover:text-orange-400 transition-colors">Proxy</p>
         <p class="text-xs text-muted-foreground mt-0.5">Caddy reverse proxy &amp; HTTPS</p>
       </div>
-      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-sky-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <svg class="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-orange-400/60 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
       </svg>
     </a>

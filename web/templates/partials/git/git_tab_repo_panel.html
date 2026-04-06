@@ -1,0 +1,143 @@
+      {{if not .GitError}}
+      {{if and .GitSaved .GitSynced}}
+        <div class="flex items-center gap-3 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-3 text-sm text-orange-300">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Git configuration saved and repository synced.</span>
+        </div>
+      {{else if .GitSynced}}
+        <div class="flex items-center gap-3 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-3 text-sm text-orange-300">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+          Repository synced successfully.
+        </div>
+      {{else if .GitSaved}}
+        <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Git configuration saved.
+        </div>
+      {{end}}
+      {{end}}
+      {{if .GitError}}
+        <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          {{.GitError}}
+        </div>
+      {{end}}
+
+      <div class="panel-card min-w-0 overflow-x-clip">
+        <div class="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+          <div class="flex min-w-0 items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/25 sm:h-9 sm:w-9">
+              <svg class="h-4 w-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            </div>
+            <div class="min-w-0">
+              <h2 class="text-sm font-semibold text-foreground">Repository</h2>
+              <p class="mt-0.5 text-xs text-muted-foreground">Bind this app to a global provider, then deploy from GitHub or GitLab.</p>
+            </div>
+          </div>
+          {{if .HasGitConfig}}
+          <form method="post" action="/apps/{{.ID}}/git/sync" class="w-full shrink-0 sm:w-auto">
+            <button type="submit" class="btn-secondary inline-flex h-9 w-full items-center justify-center gap-1.5 px-3 text-xs sm:w-auto">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+              Sync now
+            </button>
+          </form>
+          {{end}}
+        </div>
+
+        <form method="post" action="/apps/{{.ID}}/git" class="space-y-5 p-4 sm:p-5">
+          <input type="hidden" name="provider" id="git-provider-hidden" value="{{if .HasGitConfig}}{{.GitConfig.Provider}}{{else}}github{{end}}">
+
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Access mode</label>
+            <select class="input w-full" name="auth_mode" id="git-auth-mode-sel" onchange="updateGitAuthMode()">
+              <option value="public" {{if or (not .HasGitConfig) (eq .GitConfig.AuthMode "public")}}selected{{end}}>Public repo (no auth)</option>
+              <option value="github_app" {{if eq .GitConfig.AuthMode "github_app"}}selected{{end}}>GitHub App provider</option>
+            </select>
+          </div>
+
+          <div id="git-public-fields">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Repository URL <span class="text-rose-400">*</span></label>
+              <div class="relative">
+                <div class="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+                  <svg class="h-3.5 w-3.5 text-muted-foreground/50" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+                </div>
+                <input class="input w-full pl-8 font-mono text-xs" name="repo_url" id="git-repo-url-input" placeholder="https://github.com/owner/repo.git" value="{{.GitConfig.RepoURL}}">
+              </div>
+              <p class="mt-1 text-[11px] text-muted-foreground/60">Supports HTTPS URLs. SSH (`git@github.com:...`) is auto-converted to HTTPS.</p>
+            </div>
+
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Branch</label>
+              <input class="input w-full" id="git-branch-input" name="branch" placeholder="main" value="{{if .HasGitConfig}}{{.GitConfig.Branch}}{{else}}main{{end}}">
+            </div>
+          </div>
+
+          <div id="git-github-app-fields" class="hidden space-y-4">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Global provider <span class="text-rose-400">*</span></label>
+              <select class="input w-full" name="git_provider_id" id="git-provider-select" onchange="onGitHubProviderChange()">
+                <option value="0">Select a GitHub App provider</option>
+                {{range .GitProviders}}
+                <option value="{{.ID}}" data-provider="{{.Provider}}" {{if eq $.GitConfig.GitProviderID .ID}}selected{{end}}>{{.Name}} · {{.Provider}}</option>
+                {{end}}
+              </select>
+              <p class="mt-1 text-[11px] text-muted-foreground/60">Select a GitHub App provider from the `Git Providers` page.</p>
+            </div>
+
+            <div id="git-repo-branch-picker" class="hidden space-y-4 rounded-xl border border-border/50 bg-muted/10 p-4">
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <label class="block text-xs font-medium text-muted-foreground">Accessible repositories</label>
+                    <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitProviderRepos(true)">Refresh</button>
+                  </div>
+                  <select class="input w-full" id="git-repo-select" onchange="applyGitRepoSelection()">
+                    <option value="">Select repository</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <label class="block text-xs font-medium text-muted-foreground">Available branches</label>
+                    <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitProviderBranches(true)">Refresh</button>
+                  </div>
+                  <select class="input w-full" id="git-branch-select" onchange="applyGitBranchSelection()">
+                    <option value="">Select branch</option>
+                  </select>
+                </div>
+              </div>
+              <div id="git-picker-message" class="rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                Select a provider to load repositories.
+              </div>
+            </div>
+          </div>
+
+          <div id="git-auto-deploy-section" class="hidden">
+            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30">
+              <input type="checkbox" name="auto_deploy" class="mt-0.5 h-4 w-4 rounded accent-orange-500" {{if or (not .HasGitConfig) .GitConfig.AutoDeploy}}checked{{end}}>
+              <div>
+                <p class="text-sm font-medium text-foreground">Auto deploy on push</p>
+                <p class="mt-0.5 text-xs text-muted-foreground/70">NextDeploy will create or update the repository webhook automatically.</p>
+              </div>
+            </label>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <button type="submit" class="btn-primary w-full px-5 py-2.5 text-sm sm:w-auto">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+              Save configuration
+            </button>
+          </div>
+        </form>
+
+        {{if .HasGitConfig}}
+        <div class="border-t border-border/60 px-4 py-4 sm:px-5">
+          <form method="post" action="/apps/{{.ID}}/git/delete" onsubmit="return confirm('Remove Git configuration for this app? Webhook secret will be lost.');">
+            <button type="submit" class="btn-delete w-full justify-center gap-1.5 px-3 py-2 text-xs sm:w-auto">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.668 0 00-7.5 0"/></svg>
+              Remove config
+            </button>
+          </form>
+        </div>
+        {{end}}
+      </div>

@@ -1,4 +1,3 @@
-{{define "partials/file_preview_modal"}}
 <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
   <div class="modal-box max-w-5xl w-full" onclick="event.stopPropagation()">
     <div class="mb-4 flex items-center justify-between gap-3">
@@ -22,8 +21,7 @@
     {{else if .PreviewBinary}}
       <div class="rounded-xl border border-border/50 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">This file looks binary and cannot be safely previewed inline. Use download instead.</div>
     {{else}}
-      <pre class="max-h-[72vh] overflow-auto rounded-xl border border-slate-700/50 bg-[#060a10] p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all text-sky-300/80">{{.PreviewContent}}</pre>
+      <pre class="max-h-[72vh] overflow-auto rounded-xl border border-stone-700/50 bg-stone-950 p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all text-stone-300/90">{{.PreviewContent}}</pre>
     {{end}}
   </div>
 </div>
-{{end}}

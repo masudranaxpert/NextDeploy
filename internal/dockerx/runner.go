@@ -11,12 +11,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"panel/internal/runutil"
 )
 
-type Result struct {
-	OK     bool
-	Output string
-}
+// Result is an alias to the shared runutil.Result for backward compatibility.
+type Result = runutil.Result
 
 // ComposePsRow matches `docker compose ps --format json` line objects (Compose V2).
 type ComposePsRow struct {
@@ -26,26 +26,15 @@ type ComposePsRow struct {
 	Status  string `json:"Status"`
 }
 
-func run(ctx context.Context, dir string, args ...string) Result {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = dir
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	output := strings.TrimSpace(out.String())
-	if err != nil {
-		if output == "" {
-			output = err.Error()
-		}
-		return Result{OK: false, Output: output}
-	}
-	return Result{OK: true, Output: output}
+func run(ctx context.Context, dir string, args ...string) runutil.Result {
+	return runutil.Run(ctx, dir, nil, args...)
 }
 
 // runCompose runs docker compose with stdout+stderr copied to logW (if non-nil) as well as captured for Result.
-func runCompose(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, rest ...string) Result {
-	args := composeBin(projectDir, composeFiles, project, rest...)
+// envFiles are repeated --env-file paths. Later entries override earlier ones for the same key.
+// Callers should pass project .env first (if any) and panel.compose.env last so panel wins.
+func runCompose(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, rest ...string) Result {
+	args := composeBin(projectDir, composeFiles, project, envFiles, rest...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = projectDir
 	var buf bytes.Buffer
@@ -78,12 +67,19 @@ func composeFileArg(projectDir, composeFile string) string {
 
 // composeBin builds a docker compose argv. --project-directory makes host paths in volumes
 // (e.g. ./nginx.conf) resolve from project root on the daemon, not only from the compose file path.
-func composeBin(projectDir string, composeFiles []string, projectName string, rest ...string) []string {
+func composeBin(projectDir string, composeFiles []string, projectName string, envFiles []string, rest ...string) []string {
 	pd := filepath.Clean(projectDir)
 	a := []string{
 		"docker", "compose",
 		"--project-directory", pd,
 		"-p", projectName,
+	}
+	for _, ef := range envFiles {
+		ef = strings.TrimSpace(ef)
+		if ef == "" {
+			continue
+		}
+		a = append(a, "--env-file", ef)
 	}
 	for _, composeFile := range composeFiles {
 		if strings.TrimSpace(composeFile) == "" {
@@ -118,48 +114,48 @@ func fixLineEndings(projectDir string) {
 }
 
 // logW receives a live copy of stdout+stderr; nil disables streaming.
-func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
+func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "up", "-d", "--build")
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
-func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "down")
+func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down")
 }
 
 // ComposeDownVolumes runs compose down including volumes and orphan containers.
-func ComposeDownVolumes(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "down", "--volumes", "--remove-orphans")
+func ComposeDownVolumes(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down", "--volumes", "--remove-orphans")
 }
 
 // ComposeDownDeleteProject runs compose down with volumes, orphans, and removes all service images for this project (--rmi all).
-func ComposeDownDeleteProject(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "down", "--volumes", "--remove-orphans", "--rmi", "all")
+func ComposeDownDeleteProject(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down", "--volumes", "--remove-orphans", "--rmi", "all")
 }
 
-func ComposeRestart(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "restart")
+func ComposeRestart(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "restart")
 }
 
 // ComposePullUp pulls latest images then brings the stack up (redeploy without rebuild).
-func ComposePullUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer) Result {
+func ComposePullUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
-	pull := runCompose(ctx, projectDir, composeFiles, project, logW, "pull")
+	pull := runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "pull")
 	if !pull.OK {
 		return pull
 	}
-	return runCompose(ctx, projectDir, composeFiles, project, logW, "up", "-d", "--build")
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
-func ComposeLogs(ctx context.Context, projectDir string, composeFiles []string, project string, tail int) Result {
+func ComposeLogs(ctx context.Context, projectDir string, composeFiles []string, project string, tail int, envFiles []string) Result {
 	if tail <= 0 {
 		tail = 80
 	}
-	return run(ctx, projectDir, composeBin(projectDir, composeFiles, project, "logs", "--no-color", "--tail", fmt.Sprintf("%d", tail))...)
+	return run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "logs", "--no-color", "--tail", fmt.Sprintf("%d", tail))...)
 }
 
-func ComposePS(ctx context.Context, projectDir string, composeFiles []string, project string) ([]ComposePsRow, Result) {
-	r := run(ctx, projectDir, composeBin(projectDir, composeFiles, project, "ps", "-a", "--format", "json")...)
+func ComposePS(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string) ([]ComposePsRow, Result) {
+	r := run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "ps", "-a", "--format", "json")...)
 	if !r.OK {
 		return nil, r
 	}

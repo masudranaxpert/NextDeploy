@@ -1,0 +1,97 @@
+    <div class="panel-card space-y-4 p-5">
+      <div>
+        <h2 class="text-base font-semibold text-foreground">Terminal</h2>
+        <p class="mt-0.5 text-sm text-muted-foreground">Interactive TTY in the container over WebSocket (<code class="rounded bg-muted px-1">xterm.js</code> + Docker exec). Pick a container — connection starts automatically.</p>
+        <p class="mt-1 text-xs text-muted-foreground/70">Package manager depends on the image: <strong>Alpine</strong> → <code class="rounded bg-muted px-1">apk add …</code>; Debian/Ubuntu → <code class="rounded bg-muted px-1">apt</code>; Fedora/RHEL → <code class="rounded bg-muted px-1">dnf</code>/<code class="rounded bg-muted px-1">yum</code>. Alpine has no <code class="rounded bg-muted px-1">apt</code> — "apt: not found" there is normal. If the status shows "Connection closed" immediately, check panel logs for <code class="rounded bg-muted px-1">terminal exec</code> / <code class="rounded bg-muted px-1">terminal read docker</code>.</p>
+      </div>
+      {{if not .HasCompose}}
+        <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+          <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+          <p class="text-sm text-amber-200">Upload <code class="rounded bg-muted px-1">docker-compose.yml</code> and deploy from Overview first.</p>
+        </div>
+      {{else if not .ComposeRows}}
+        <p class="text-sm text-muted-foreground">No compose containers yet. Deploy the stack, then open this tab again.</p>
+      {{else}}
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="min-w-[280px] flex-1 max-w-xl">
+            <label class="mb-1 block text-xs font-medium text-muted-foreground" for="term-pick">Container</label>
+            <select id="term-pick" class="input w-full" aria-describedby="term-status">
+              {{range .ComposeRows}}
+                <option value="{{.Name}}">{{.Name}} · {{.Service}} · {{.State}}</option>
+              {{end}}
+            </select>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="term-status-dot" class="inline-block h-2 w-2 rounded-full bg-muted-foreground/40"></span>
+          <p id="term-status" class="text-xs text-muted-foreground" aria-live="polite"></p>
+        </div>
+        <div class="overflow-hidden rounded-xl border border-border bg-[#0a0a0a] shadow-inner">
+          <div class="flex items-center gap-2 border-b border-border/50 bg-muted/20 px-4 py-2">
+            <div class="flex gap-1.5">
+              <span class="h-3 w-3 rounded-full bg-red-500/60"></span>
+              <span class="h-3 w-3 rounded-full bg-amber-500/60"></span>
+              <span class="h-3 w-3 rounded-full bg-emerald-500/60"></span>
+            </div>
+            <span class="text-xs text-muted-foreground/60 font-mono">terminal</span>
+          </div>
+          <div id="xterm-host" class="h-[min(30rem,58vh)] w-full min-h-[200px] p-1" data-app-id="{{.ID}}"></div>
+        </div>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" crossorigin="anonymous">
+        <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js" crossorigin="anonymous"></script>
+        <script src="/static/js/terminal-component.js"></script>
+        <script>
+        (function () {
+          var pick = document.getElementById('term-pick');
+          var statusEl = document.getElementById('term-status');
+          var statusDot = document.getElementById('term-status-dot');
+          var host = document.getElementById('xterm-host');
+          var appId = host ? (host.getAttribute('data-app-id') || '').trim() : '';
+
+          function setStatus(t, state) {
+            statusEl.textContent = t || '';
+            if (state === 'connected') {
+              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]';
+            } else if (state === 'error') {
+              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-red-400';
+            } else if (state === 'connecting') {
+              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse';
+            } else {
+              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-muted-foreground/40';
+            }
+          }
+
+          function wsURL() {
+            if (!appId) return '';
+            var c = (pick.value || '').trim();
+            if (!c) return '';
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var q = 'app=' + encodeURIComponent(appId) + '&container=' + encodeURIComponent(c) + '&cols=80&rows=24';
+            return proto + '//' + location.host + '/apps/' + appId + '/ws/terminal?' + q;
+          }
+
+          window.containerTerm = new SharedTerminal('xterm-host', {
+            wsUrl: wsURL,
+            reconnect: false,
+            fontSize: 14,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            theme: {
+              background: '#0a0a0a',
+              foreground: '#e2e8f0',
+              cursor: '#a78bfa',
+              selectionBackground: '#4c1d95',
+            },
+            onStatus: setStatus,
+          });
+
+          SharedTerminal.setupResize(window.containerTerm);
+
+          pick.addEventListener('change', function () { window.containerTerm.connect(); });
+          window.addEventListener('pagehide', function () { window.containerTerm.disconnect(); });
+          window.addEventListener('beforeunload', function () { window.containerTerm.disconnect(); });
+          window.containerTerm.connect();
+        })();
+        </script>
+      {{end}}
+    </div>

@@ -1,0 +1,43 @@
+<div id="compose-file-card-root" class="rounded-xl border border-border/60 bg-muted/15 p-4 sm:p-5">
+  {{if .ComposePathSaved}}
+  <div class="mb-4 flex items-start gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-200 sm:items-center" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400/90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Compose path saved. Domain merge and Caddy routing were refreshed if applicable.</span>
+  </div>
+  {{end}}
+  <header class="mb-4 max-w-3xl">
+    <h3 class="text-sm font-semibold text-foreground">Compose file</h3>
+    <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Path relative to the project folder. Compose loads <code class="rounded bg-muted/80 px-1 py-0.5 font-mono text-[10px]">.env</code> from the Environment tab. Domain routing is merged automatically into a NextDeploy-generated compose file.</p>
+  </header>
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:gap-4">
+    <form class="flex min-w-0 flex-1 flex-col gap-3"
+          method="post"
+          action="/apps/{{.ID}}/compose-file"
+          hx-post="/apps/{{.ID}}/compose-file"
+          hx-target="#compose-file-card-root"
+          hx-swap="outerHTML">
+      <div class="min-w-0 flex-1">
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="compose-file-path">Compose file path</label>
+        <input id="compose-file-path" name="compose_file" type="text" class="input w-full font-mono text-xs" value="{{.ComposeFileSetting}}" placeholder="docker-compose.yml" autocomplete="off">
+        <p class="mt-1.5 text-[10px] leading-snug text-muted-foreground/70">Relative to project root. <code class="rounded bg-muted/60 px-1 py-0.5 font-mono">docker-compose.yml</code> and <code class="rounded bg-muted/60 px-1 py-0.5 font-mono">./docker-compose.yml</code> are equivalent.</p>
+      </div>
+      <div class="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <button type="submit" class="btn-secondary h-11 w-full shrink-0 px-4 text-sm sm:h-10 sm:w-auto min-h-[44px] sm:min-h-0">Save path</button>
+      </div>
+    </form>
+    <div class="flex shrink-0 flex-col justify-end gap-2 border-t border-border/50 pt-3 lg:w-44 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+      {{if .HasCompose}}
+      <button type="button"
+              class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-orange-500/45 bg-orange-500/15 px-4 text-sm font-medium text-orange-100 shadow-sm ring-1 ring-orange-400/25 transition-colors hover:bg-orange-500/25 hover:text-white hover:ring-orange-400/40 sm:h-10 min-h-[44px] sm:min-h-0"
+              hx-get="/apps/{{.ID}}/compose-preview"
+              hx-target="body"
+              hx-swap="beforeend">
+        <svg class="h-4 w-4 shrink-0 text-orange-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Preview
+      </button>
+      {{else}}
+      <span class="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-dashed border-border/50 px-3 text-center text-[11px] text-muted-foreground/60 sm:min-h-[40px]" title="Upload the compose file first">Preview — add compose in Files first</span>
+      {{end}}
+    </div>
+  </div>
+</div>

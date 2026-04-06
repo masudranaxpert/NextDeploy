@@ -1,0 +1,148 @@
+    <div class="space-y-4">
+      <!-- View toggle -->
+      <div class="flex items-center gap-1 rounded-xl border border-border/60 bg-muted/20 p-1 w-fit">
+        <button type="button" id="env-tab-raw"
+          class="env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all bg-card text-foreground shadow-sm"
+          onclick="setEnvView('raw')">
+          <svg class="inline h-3.5 w-3.5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+          Raw editor
+        </button>
+        <button type="button" id="env-tab-pretty"
+          class="env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-muted-foreground hover:text-foreground"
+          onclick="setEnvView('pretty')">
+          <svg class="inline h-3.5 w-3.5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/></svg>
+          Variables
+        </button>
+      </div>
+
+      <!-- Raw editor view -->
+      <div id="env-view-raw" class="panel-card space-y-4 p-5">
+        <h2 class="text-base font-semibold text-foreground">Environment variables</h2>
+        <form id="env-save-form" class="space-y-3" method="post" action="/apps/{{.ID}}/env">
+          <div
+            id="env-monaco-host"
+            class="hidden min-h-[min(22rem,55vh)] w-full overflow-hidden rounded-xl border border-border/60 bg-[#0a0d12] shadow-inner ring-1 ring-black/25"
+            role="textbox"
+            aria-label="Environment variables editor"
+            aria-multiline="true"></div>
+          <textarea id="env-raw-textarea" name="env" rows="18"
+            class="input min-h-[300px] w-full resize-y font-mono text-sm leading-relaxed"
+            placeholder="POSTGRES_PASSWORD=your-secure-password&#10;KEY=value">{{.EnvContent}}</textarea>
+          <div class="flex items-center justify-between">
+            <p class="text-xs text-muted-foreground">Changes take effect on next deploy</p>
+            <button type="submit" class="btn-primary px-5 py-2 text-sm">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Save environment
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Pretty variables view -->
+      <div id="env-view-pretty" class="hidden panel-card overflow-hidden">
+        <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-foreground">Environment variables</h2>
+            <p class="mt-0.5 text-xs text-muted-foreground">Read-only parsed view. Use Raw editor to make changes.</p>
+          </div>
+          <button type="button" onclick="setEnvView('raw')" class="btn-secondary h-8 px-3 text-xs">Edit</button>
+        </div>
+        <div id="env-pretty-list" class="divide-y divide-border/40">
+          <!-- Populated by JS -->
+        </div>
+        <div id="env-pretty-empty" class="hidden px-5 py-10 text-center">
+          <p class="text-sm text-muted-foreground">No variables defined yet.</p>
+          <button type="button" onclick="setEnvView('raw')" class="mt-2 text-xs text-primary hover:underline">Open editor</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      function parseEnv(raw) {
+        var lines = raw.split('\n');
+        var vars = [];
+        lines.forEach(function(line) {
+          var trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return;
+          var eq = trimmed.indexOf('=');
+          if (eq < 0) return;
+          var key = trimmed.slice(0, eq).trim();
+          var val = trimmed.slice(eq + 1).trim();
+          // Strip surrounding quotes
+          if ((val.startsWith('"') && val.endsWith('"')) ||
+              (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          vars.push({ key: key, val: val, sensitive: isSensitive(key) });
+        });
+        return vars;
+      }
+
+      function isSensitive(key) {
+        var lower = key.toLowerCase();
+        return lower.indexOf('password') >= 0 || lower.indexOf('secret') >= 0 ||
+               lower.indexOf('token') >= 0 || lower.indexOf('key') >= 0 ||
+               lower.indexOf('api') >= 0 || lower.indexOf('auth') >= 0;
+      }
+
+      function renderPretty() {
+        if (window.PanelEnvEditor && typeof PanelEnvEditor.syncToTextarea === 'function') {
+          PanelEnvEditor.syncToTextarea();
+        }
+        var raw = document.getElementById('env-raw-textarea');
+        if (!raw) return;
+        var vars = parseEnv(raw.value);
+        var list = document.getElementById('env-pretty-list');
+        var empty = document.getElementById('env-pretty-empty');
+        if (!vars.length) {
+          list.innerHTML = '';
+          list.classList.add('hidden');
+          empty.classList.remove('hidden');
+          return;
+        }
+        list.classList.remove('hidden');
+        empty.classList.add('hidden');
+        list.innerHTML = vars.map(function(v) {
+          var valHtml = v.sensitive
+            ? '<span class="font-mono text-sm text-muted-foreground/50 select-none" title="Sensitive — click to reveal" onclick="this.textContent=this.dataset.val;this.title=\'\'" data-val="' + escHtml(v.val) + '">••••••••</span>'
+            : '<span class="font-mono text-sm text-foreground/80 break-all">' + escHtml(v.val || '<em class=\'text-muted-foreground/40\'>empty</em>') + '</span>';
+          return '<div class="flex flex-col gap-0.5 px-5 py-3 sm:flex-row sm:items-center sm:gap-4">'
+            + '<span class="w-full shrink-0 font-mono text-sm font-semibold text-orange-300 sm:w-56 sm:truncate" title="' + escHtml(v.key) + '">' + escHtml(v.key) + '</span>'
+            + '<div class="min-w-0 flex-1">' + valHtml + '</div>'
+            + '</div>';
+        }).join('');
+      }
+
+      function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      window.setEnvView = function(view) {
+        var raw = document.getElementById('env-view-raw');
+        var pretty = document.getElementById('env-view-pretty');
+        var btnRaw = document.getElementById('env-tab-raw');
+        var btnPretty = document.getElementById('env-tab-pretty');
+        var activeClass = 'bg-card text-foreground shadow-sm';
+        var inactiveClass = 'text-muted-foreground hover:text-foreground';
+        if (view === 'raw') {
+          raw.classList.remove('hidden');
+          pretty.classList.add('hidden');
+          btnRaw.className = 'env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all ' + activeClass;
+          btnPretty.className = 'env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all ' + inactiveClass;
+          requestAnimationFrame(function () {
+            if (window.PanelEnvEditor && typeof PanelEnvEditor.layout === 'function') {
+              PanelEnvEditor.layout();
+            }
+          });
+        } else {
+          renderPretty();
+          raw.classList.add('hidden');
+          pretty.classList.remove('hidden');
+          btnRaw.className = 'env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all ' + inactiveClass;
+          btnPretty.className = 'env-view-btn rounded-lg px-3 py-1.5 text-xs font-medium transition-all ' + activeClass;
+        }
+      };
+    })();
+    </script>
+    <script src="/static/js/env-editor.js" defer></script>

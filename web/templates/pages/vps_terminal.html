@@ -1,3 +1,4 @@
+{{/* Standalone VPS terminal (panel container). Layout: layouts/shell. */}}
 <div class="mx-auto max-w-5xl space-y-5">
 
   <!-- Page header -->
@@ -25,9 +26,9 @@
   </div>
 
   <!-- Info banner -->
-  <div class="flex items-start gap-3 rounded-xl border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-xs text-sky-300/80">
-    <svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
-    <span>This terminal runs inside the <strong class="text-sky-200">panel container</strong>. Docker CLI is available — use <code class="rounded bg-sky-900/40 px-1">docker ps</code>, <code class="rounded bg-sky-900/40 px-1">docker exec</code>, etc. For app container shells, use the <strong class="text-sky-200">Terminal tab</strong> inside each app.</span>
+  <div class="flex items-start gap-3 rounded-xl border border-stone-500/25 bg-stone-500/10 px-4 py-3 text-xs text-stone-300/90">
+    <svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+    <span>This terminal runs inside the <strong class="text-orange-200">panel container</strong>. Docker CLI is available — use <code class="rounded bg-stone-800/80 px-1">docker ps</code>, <code class="rounded bg-stone-800/80 px-1">docker exec</code>, etc. For app container shells, use the <strong class="text-orange-200">Terminal tab</strong> inside each app.</span>
   </div>
 
   <!-- Terminal window -->
@@ -43,8 +44,8 @@
         <span class="font-mono text-xs text-muted-foreground/60">panel — /bin/sh</span>
       </div>
       <div class="flex items-center gap-2">
-        <button type="button" onclick="vtermClear()" class="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">Clear</button>
-        <button type="button" onclick="vtermDisconnect()" class="text-[10px] text-rose-400/60 hover:text-rose-400 transition-colors">Disconnect</button>
+        <button type="button" onclick="vterm.clear()" class="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">Clear</button>
+        <button type="button" onclick="vterm.disconnect()" class="text-[10px] text-rose-400/60 hover:text-rose-400 transition-colors">Disconnect</button>
       </div>
     </div>
     <div id="vterm-host" class="h-[min(36rem,70vh)] w-full min-h-[300px] p-1"></div>
@@ -55,141 +56,50 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js" crossorigin="anonymous"></script>
+<script src="/static/js/terminal-component.js"></script>
 <script>
 (function () {
-  var term = null;
-  var fit = null;
-  var ws = null;
-  var reconnectTimer = 0;
-  var autoReconnect = true;
-  var enc = new TextEncoder();
+  var vtermStatusDot = document.getElementById('vterm-status-dot');
+  var vtermStatusText = document.getElementById('vterm-status-text');
+  var vtermReconnectBtn = document.getElementById('vterm-reconnect-btn');
 
   function setStatus(text, state) {
-    var dot = document.getElementById('vterm-status-dot');
-    var txt = document.getElementById('vterm-status-text');
-    var btn = document.getElementById('vterm-reconnect-btn');
-    if (txt) txt.textContent = text || 'Disconnected';
-    if (dot) {
+    if (vtermStatusText) vtermStatusText.textContent = text || 'Disconnected';
+    if (vtermStatusDot) {
       if (state === 'connected') {
-        dot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]';
+        vtermStatusDot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]';
       } else if (state === 'connecting') {
-        dot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse';
+        vtermStatusDot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse';
       } else if (state === 'error') {
-        dot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-rose-400';
+        vtermStatusDot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-rose-400';
       } else {
-        dot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40';
+        vtermStatusDot.className = 'inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40';
       }
     }
-    if (btn) btn.textContent = (state === 'connected') ? 'Reconnect' : 'Connect';
+    if (vtermReconnectBtn) vtermReconnectBtn.textContent = (state === 'connected') ? 'Reconnect' : 'Connect';
   }
 
-  function ensureTerm() {
-    if (term) return;
-    var host = document.getElementById('vterm-host');
-    if (!host) return;
-    if (typeof Terminal === 'undefined') { setStatus('xterm.js failed to load', 'error'); return; }
-    term = new Terminal({
-      fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1.4,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e2e8f0',
-        cursor: '#7c3aed',
-        cursorAccent: '#0a0a0a',
-        selectionBackground: 'rgba(124,58,237,0.25)',
-        black: '#1e293b', red: '#f87171', green: '#4ade80', yellow: '#fbbf24',
-        blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#e2e8f0',
-        brightBlack: '#475569', brightRed: '#fca5a5', brightGreen: '#86efac',
-        brightYellow: '#fde68a', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
-        brightCyan: '#67e8f9', brightWhite: '#f8fafc',
-      },
-      cursorBlink: true,
-      allowTransparency: true,
-      scrollback: 5000,
-    });
-    if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
-      fit = new FitAddon.FitAddon();
-      term.loadAddon(fit);
-    }
-    term.open(host);
-    if (fit) { fit.fit(); }
-    term.onData(function(data) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(enc.encode(data));
-      }
-    });
-    window.addEventListener('resize', function() {
-      if (fit) { fit.fit(); sendResize(); }
-    });
-  }
+  window.vterm = new SharedTerminal('vterm-host', {
+    wsUrl: function () {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return proto + '//' + location.host + '/terminal/ws';
+    },
+    reconnect: true,
+    reconnectDelay: 1200,
+    fontSize: 13,
+    fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
+    scrollback: 5000,
+    onStatus: setStatus,
+  });
 
-  function sendResize() {
-    if (!ws || ws.readyState !== WebSocket.OPEN || !term) return;
-    try { ws.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows })); } catch (e) {}
-  }
+  SharedTerminal.setupResize(window.vterm);
 
-  window.vtermConnect = function() {
-    autoReconnect = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = 0;
-    }
-    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
-    ensureTerm();
-    if (!term) return;
-    setStatus('Connecting…', 'connecting');
-    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var cols = term ? term.cols : 80;
-    var rows = term ? term.rows : 24;
-    var url = proto + '//' + location.host + '/terminal/ws?cols=' + cols + '&rows=' + rows;
-    ws = new WebSocket(url);
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = function() {
-      setStatus('Connected', 'connected');
-      if (fit) { fit.fit(); }
-      sendResize();
-      term.focus();
-    };
-    ws.onmessage = function(e) {
-      if (!term) return;
-      if (e.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(e.data));
-      } else {
-        term.write(e.data);
-      }
-    };
-    ws.onerror = function() { setStatus('Connection error', 'error'); };
-    ws.onclose = function(e) {
-      ws = null;
-      if (!autoReconnect) {
-        setStatus('Disconnected', 'disconnected');
-        return;
-      }
-      setStatus('Reconnecting…', 'connecting');
-      reconnectTimer = setTimeout(function () {
-        if (autoReconnect) window.vtermConnect();
-      }, 1200);
-    };
-  };
+  window.vtermConnect = function () { window.vterm.connect(); };
+  window.vtermDisconnect = function () { window.vterm.disconnect(); };
+  window.vtermClear = function () { window.vterm.clear(); };
 
-  window.vtermDisconnect = function() {
-    autoReconnect = false;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = 0;
-    }
-    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
-    setStatus('Disconnected', 'disconnected');
-  };
-
-  window.vtermClear = function() {
-    if (term) term.clear();
-  };
-
-  // Auto-connect on load
-  document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(vtermConnect, 150);
+  document.addEventListener('DOMContentLoaded', function () {
+    setTimeout(function () { window.vterm.connect(); }, 150);
   });
 })();
 </script>

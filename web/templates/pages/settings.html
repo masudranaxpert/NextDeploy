@@ -1,3 +1,4 @@
+{{/* Panel maintenance and cleanup defaults. Layout: layouts/shell. */}}
 <div class="mx-auto max-w-5xl space-y-6">
   <div class="section-header">
     <div>
@@ -32,13 +33,18 @@
     </div>
 
     <form method="POST" action="/settings" class="space-y-4">
-      <label class="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 cursor-pointer">
-        <input type="checkbox" name="cleanup_enabled" class="mt-1 rounded border-border" {{if .CleanupEnabled}}checked{{end}}>
-        <div>
-          <p class="text-sm font-medium text-foreground">Enable scheduled auto-cleanup</p>
-          <p class="mt-0.5 text-xs text-muted-foreground">Runs automatically on the interval below. Default is enabled.</p>
+      <div class="flex flex-col gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+        <div class="min-w-0 flex-1">
+          <p id="cleanup-enabled-label" class="text-sm font-medium text-foreground">Enable scheduled auto-cleanup</p>
+          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Runs automatically on the interval below. Default is enabled.</p>
         </div>
-      </label>
+        <div class="flex shrink-0 items-center justify-end">
+          <label class="relative inline-flex cursor-pointer items-center" for="cleanup-enabled-toggle">
+            <input type="checkbox" id="cleanup-enabled-toggle" name="cleanup_enabled" value="on" class="peer sr-only" {{if .CleanupEnabled}}checked{{end}} aria-labelledby="cleanup-enabled-label">
+            <span aria-hidden="true" class="relative h-7 w-11 shrink-0 rounded-full bg-muted-foreground/25 shadow-inner transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-checked:bg-primary after:pointer-events-none after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-md after:transition-transform peer-checked:after:translate-x-5"></span>
+          </label>
+        </div>
+      </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="cleanup_interval">Cleanup interval</label>
         <select id="cleanup_interval" name="cleanup_interval" class="input w-full max-w-xs">

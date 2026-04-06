@@ -1,8 +1,6 @@
-{{define "partials/terminal_out"}}
 <div class="terminal-result mb-2">
   <div class="terminal-output-content text-slate-300">{{.ExecHTML}}</div>
   <div class="mt-1 text-[10px] font-mono {{if .ExecOK}}text-emerald-500{{else}}text-rose-500{{end}}">
     [{{if .ExecOK}}ok{{else}}error{{end}}]
   </div>
 </div>
-{{end}}

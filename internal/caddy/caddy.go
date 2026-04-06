@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +29,8 @@ const (
 	GeneratedCompose   = ".nextdeploy.generated.compose.yml"
 )
 
-func cleanQuotedValue(v string) string {
+// CleanQuotedValue strips surrounding quotes (single, double, backtick) from a string.
+func CleanQuotedValue(v string) string {
 	v = strings.TrimSpace(v)
 	for len(v) >= 2 {
 		first := v[0]
@@ -44,6 +46,10 @@ func cleanQuotedValue(v string) string {
 		break
 	}
 	return v
+}
+
+func cleanQuotedValue(v string) string {
+	return CleanQuotedValue(v)
 }
 
 // AdminStatus calls the Caddy admin /config/ endpoint to check if Caddy is up.
@@ -155,11 +161,9 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 		route.Root = root
 		out = append(out, route)
 	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j].Priority < out[j-1].Priority; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Priority < out[j].Priority
+	})
 	return out
 }
 
@@ -353,7 +357,7 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	}
 
 	labels[prefix] = strings.Join(sites, ", ")
-	if d.EnableHTTPS && shouldUseInternalTLS(domain) {
+	if d.EnableHTTPS && ShouldUseInternalTLS(domain) {
 		labels[prefix+".tls"] = "internal"
 	}
 
@@ -390,8 +394,9 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	labels[prefix+"."+p+"_reverse_proxy"] = "{{upstreams " + strconv.Itoa(port) + "}}"
 }
 
-func shouldUseInternalTLS(domain string) bool {
-	domain = strings.TrimSpace(strings.ToLower(cleanQuotedValue(domain)))
+// ShouldUseInternalTLS checks if a domain should use internal/self-signed TLS.
+func ShouldUseInternalTLS(domain string) bool {
+	domain = strings.TrimSpace(strings.ToLower(CleanQuotedValue(domain)))
 	if domain == "" {
 		return false
 	}
@@ -426,7 +431,7 @@ func LabelsToYAML(labels map[string]string) string {
 	for k := range labels {
 		keys = append(keys, k)
 	}
-	sortStrings(keys)
+	sort.Strings(keys)
 	for _, k := range keys {
 		v := labels[k]
 		if v == "" {
@@ -440,14 +445,6 @@ func LabelsToYAML(labels map[string]string) string {
 
 func escapeYAML(s string) string {
 	return strings.ReplaceAll(s, `"`, `\"`)
-}
-
-func sortStrings(ss []string) {
-	for i := 1; i < len(ss); i++ {
-		for j := i; j > 0 && ss[j] < ss[j-1]; j-- {
-			ss[j], ss[j-1] = ss[j-1], ss[j]
-		}
-	}
 }
 
 func sortedDomains(domains []db.AppDomain) []db.AppDomain {
@@ -646,7 +643,7 @@ func mergeEnv(service map[string]interface{}, added map[string]string) {
 	for k := range existing {
 		keys = append(keys, k)
 	}
-	sortStrings(keys)
+	sort.Strings(keys)
 	for _, k := range keys {
 		envList = append(envList, k+"="+existing[k])
 	}

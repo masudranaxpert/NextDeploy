@@ -133,6 +133,12 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 		// Remove git config when switching to files
 		_ = p.DB.DeleteAppGitConfig(c.UserContext(), id)
 	}
+	if newSource == "git" {
+		// Before flipping DB to git, clear uploaded workspace so stale files are not left behind.
+		if err := p.Store.ClearUploadedProjectForGitSource(id); err != nil {
+			return c.Redirect("/apps/" + id + "?tab=overview&switchError=clear")
+		}
+	}
 
 	if err := p.DB.SetAppSourceType(c.UserContext(), id, newSource); err != nil {
 		return c.Redirect("/apps/" + id + "?tab=overview&switchError=1")

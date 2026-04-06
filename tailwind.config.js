@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./web/templates/**/*.html"],
+  content: ["./web/templates/**/*.html", "./web/static/js/**/*.js"],
   safelist: [
     "log-lvl-fatal",
     "log-lvl-error",

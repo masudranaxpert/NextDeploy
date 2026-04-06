@@ -1,0 +1,173 @@
+﻿    {{if .SourceSwitchClearError}}
+    <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+      <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+      Could not clear uploaded files when switching to Git. Fix disk permissions or free space, then try again.
+    </div>
+    {{end}}
+    {{if .SourceSwitched}}
+    <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+      <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Source type updated successfully.
+    </div>
+    {{end}}
+    <!-- Source type indicator + switch -->
+    <div class="panel-card p-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+          {{if .IsGitApp}}
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/25">
+            <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-foreground">Git source</p>
+              <span class="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+                Active
+              </span>
+            </div>
+            {{if .HasGitConfig}}
+            <p class="mt-1 break-all font-mono text-[11px] leading-snug text-muted-foreground sm:text-xs sm:max-w-xl">{{.GitConfig.RepoURL}}</p>
+            {{else}}
+            <p class="mt-0.5 text-xs text-amber-400/80">Git source active — configure repo in the <a href="/apps/{{.ID}}?tab=git" class="underline underline-offset-2">Git tab</a></p>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-500/15 ring-1 ring-stone-500/25">
+            <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold text-foreground">Manual files</p>
+              <span class="inline-flex items-center gap-1 rounded-full bg-stone-500/15 px-2 py-0.5 text-[10px] font-medium text-stone-300 ring-1 ring-stone-500/25">
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-stone-400"></span>
+                Active
+              </span>
+            </div>
+            <p class="mt-0.5 text-xs text-muted-foreground">Upload files or ZIP to deploy. Switch to Git for repo-based deploys.</p>
+          </div>
+          {{end}}
+        </div>
+        <button type="button"
+                class="shrink-0 btn-ghost h-9 px-3 text-xs"
+                onclick="document.getElementById('switch-source-modal').classList.remove('hidden')">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5"/></svg>
+          Switch source
+        </button>
+      </div>
+    </div>
+
+    {{$allRunning := and (gt (len .ComposeRows) 0) (eq .RunningCount (len .ComposeRows))}}
+    <div class="panel-card space-y-5 p-5 {{if $allRunning}}ring-1 ring-emerald-500/20 border-emerald-500/20{{end}}">
+      <!-- Compose file config -->
+      {{template "partials/components/compose_file_card" .}}
+
+      <!-- Status badges -->
+      <div class="flex flex-wrap gap-2 text-xs">
+        {{if .HasCompose}}
+          <span class="badge badge-success">
+            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+            compose ready
+          </span>
+          {{if .ComposeFile}}<code class="rounded-lg bg-muted px-2.5 py-1 font-mono text-muted-foreground">{{.ComposeFile}}</code>{{end}}
+        {{else}}
+          <span class="badge badge-paused">
+            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+            add compose in Files
+          </span>
+        {{end}}
+        {{if .HasDockerfile}}
+          <span class="badge badge-success">
+            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+            Dockerfile
+          </span>
+        {{else}}
+          <span class="badge badge-stopped">no Dockerfile</span>
+        {{end}}
+        {{if gt (len .ComposeRows) 0}}
+          {{if eq .RunningCount (len .ComposeRows)}}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]"></span>
+              all running
+            </span>
+          {{else if gt .RunningCount 0}}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-300 ring-1 ring-amber-500/25">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+              {{.RunningCount}} / {{len .ComposeRows}} running
+            </span>
+          {{else if or (gt .ExitedCount 0) (gt .DeadCount 0)}}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-2.5 py-1 text-[11px] font-medium text-rose-300 ring-1 ring-rose-500/25">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+              failed / stopped
+            </span>
+          {{else}}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-500/15 px-2.5 py-1 text-[11px] font-medium text-slate-300 ring-1 ring-slate-500/25">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+              containers detected
+            </span>
+          {{end}}
+        {{end}}
+      </div>
+
+      <!-- Compose actions -->
+      <div>
+        <h3 class="mb-3 text-sm font-semibold text-foreground">Compose actions</h3>
+        {{if gt (len .ComposeRows) 0}}
+          {{if eq .RunningCount (len .ComposeRows)}}
+            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
+              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.5)] animate-pulse"></span>
+              <p class="text-sm font-medium text-emerald-300">All {{len .ComposeRows}} containers running — stack is healthy.</p>
+            </div>
+          {{else if gt .RunningCount 0}}
+            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
+              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400"></span>
+              <p class="text-sm text-amber-200">{{.RunningCount}} / {{len .ComposeRows}} containers running. One-off services (migrate, init) that exited with code 0 are counted as OK.</p>
+            </div>
+          {{else if or (gt .ExitedCount 0) (gt .DeadCount 0)}}
+            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">
+              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-rose-400"></span>
+              <p class="text-sm text-rose-200">Stack looks unhealthy. Review <strong>Deploy</strong> output and container logs.</p>
+            </div>
+          {{else}}
+            <div class="mb-3 rounded-xl border border-border/50 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+              Compose containers exist, but current runtime state is unclear.
+            </div>
+          {{end}}
+        {{end}}
+        <div class="flex flex-wrap gap-2">
+          <form method="post" action="/apps/{{.ID}}/compose/up">
+            <button type="submit" class="btn-deploy text-sm"
+                    {{if not .HasCompose}}disabled{{end}}
+                    {{if not .HasCompose}}title="Upload the compose file in Files first"{{end}}>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
+              Deploy
+            </button>
+          </form>
+          <form method="post" action="/apps/{{.ID}}/compose/redeploy">
+            <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 active:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    {{if not .HasCompose}}disabled{{end}}
+                    {{if not .HasCompose}}title="Upload the compose file in Files first"{{end}}>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+              Redeploy
+            </button>
+          </form>
+          <form method="post" action="/apps/{{.ID}}/compose/restart">
+            <button type="submit" class="btn-restart text-sm" {{if not .HasCompose}}disabled{{end}}>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+              Restart
+            </button>
+          </form>
+          <form method="post" action="/apps/{{.ID}}/compose/down">
+            <button type="submit" class="btn-stop text-sm" {{if not .HasCompose}}disabled{{end}}>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/></svg>
+              Stop
+            </button>
+          </form>
+        </div>
+        <p class="mt-3 text-xs leading-relaxed text-muted-foreground">
+          <strong class="font-medium text-foreground/80">Deploy</strong> = build + up.
+          <strong class="font-medium text-orange-400">Redeploy</strong> = pull latest images + up (no rebuild).
+          Runs in the background — watch output in <a class="font-medium text-primary hover:underline" href="/apps/{{.ID}}?tab=deployment">Deploy</a> tab.
+        </p>
+      </div>
+    </div>

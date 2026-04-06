@@ -16,7 +16,7 @@ type PTYExecSession struct {
 }
 
 // ExecPTY starts a new shell (or cmd) with a TTY inside the container and returns a bidirectional stream.
-// container may be a name or ID. Default command is /bin/sh when cmd is empty.
+// container may be a name or ID. Default command is /bin/sh -i when cmd is empty (inherits container env).
 func ExecPTY(ctx context.Context, container string, cmd []string, height, width uint) (*PTYExecSession, error) {
 	if height == 0 {
 		height = 24
@@ -25,7 +25,7 @@ func ExecPTY(ctx context.Context, container string, cmd []string, height, width 
 		width = 80
 	}
 	if len(cmd) == 0 {
-		cmd = []string{"/bin/sh"}
+		cmd = []string{"/bin/sh", "-i"}
 	}
 	cli, err := newAPIClient()
 	if err != nil {
@@ -81,4 +81,30 @@ func (s *PTYExecSession) Close() error {
 		return s.cli.Close()
 	}
 	return nil
+}
+
+// ExecPTYAutoShell tries common interactive shells until Docker accepts exec+attach.
+// Minimal images often only have /bin/sh; some need -i for a stable TTY session.
+func ExecPTYAutoShell(ctx context.Context, container string, height, width uint) (*PTYExecSession, error) {
+	candidates := [][]string{
+		{"/bin/sh", "-i"},
+		{"/bin/sh"},
+		{"/bin/bash", "-i"},
+		{"/bin/bash"},
+		{"sh", "-i"},
+		{"sh"},
+	}
+	var lastErr error
+	for _, cmd := range candidates {
+		s, err := ExecPTY(ctx, container, cmd, height, width)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return s, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no shell could be started in container")
+	}
+	return nil, lastErr
 }

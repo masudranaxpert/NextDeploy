@@ -25,8 +25,8 @@ type termClientMsg struct {
 	Rows uint   `json:"rows"`
 }
 
-// TerminalWSUpgrade must run before the websocket route so only WebSocket clients hit the handler.
-func (p *Panel) TerminalWSUpgrade(c *fiber.Ctx) error {
+// WSUpgrade is a reusable WebSocket upgrade guard for all WS routes.
+func (p *Panel) WSUpgrade(c *fiber.Ctx) error {
 	if fws.IsWebSocketUpgrade(c) {
 		return c.Next()
 	}
@@ -47,8 +47,15 @@ func parseDim(q string, def uint) uint {
 
 // TerminalWebSocket streams a Docker exec TTY to the browser (xterm.js).
 func (p *Panel) TerminalWebSocket(c *fws.Conn) {
-	appID := c.Params("id")
+	appID := strings.TrimSpace(c.Params("id"))
+	if appID == "" {
+		appID = strings.TrimSpace(c.Query("app"))
+	}
 	container := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")
+	if appID == "" {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("missing app id (route or ?app=)"))
+		return
+	}
 	if _, err := p.DB.GetApp(context.Background(), appID); err != nil {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
@@ -61,7 +68,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	rows := parseDim(c.Query("rows"), 24)
 
 	ctx := context.Background()
-	sess, err := dockerapi.ExecPTY(ctx, container, nil, rows, cols)
+	sess, err := dockerapi.ExecPTYAutoShell(ctx, container, rows, cols)
 	if err != nil {
 		log.Printf("terminal exec: %v", err)
 		_ = c.WriteMessage(websocket.TextMessage, []byte("could not start shell: "+err.Error()))
@@ -87,6 +94,8 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 			if err != nil {
 				if err != io.EOF {
 					log.Printf("terminal read docker: %v", err)
+				} else {
+					_ = c.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m[session ended — shell exited or stream closed]\x1b[0m\r\n"))
 				}
 				_ = c.Close()
 				return
@@ -124,14 +133,6 @@ func (p *Panel) VPSTerminalPage(c *fiber.Ctx) error {
 		"Nav":   "terminal",
 		"Title": "Server Terminal",
 	}), "layouts/shell")
-}
-
-// VPSTerminalWSUpgrade upgrades HTTP to WebSocket for the VPS terminal.
-func (p *Panel) VPSTerminalWSUpgrade(c *fiber.Ctx) error {
-	if fws.IsWebSocketUpgrade(c) {
-		return c.Next()
-	}
-	return fiber.ErrUpgradeRequired
 }
 
 // VPSTerminalWebSocket streams a local shell (/bin/sh) to the browser.

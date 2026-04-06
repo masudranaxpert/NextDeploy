@@ -1,0 +1,35 @@
+      {{if and .HasGitConfig .IsGitApp}}
+      <div class="panel-card min-w-0 overflow-x-hidden">
+        <div class="border-b border-border/60 px-4 py-3 sm:px-5 sm:py-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-start gap-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/25">
+                <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <h2 class="text-sm font-semibold text-foreground">Checkout file browser</h2>
+                <p class="text-xs text-muted-foreground">Read-only snapshot on this server after the last sync or deploy. The <code class="rounded bg-muted/50 px-1 py-0.5 font-mono text-[10px]">.git</code> directory is hidden.</p>
+              </div>
+            </div>
+            {{if .GitRepoReady}}
+            <button type="button" id="git-browser-refresh" class="btn-secondary h-10 w-full shrink-0 px-3 text-xs sm:h-9 sm:w-auto">Refresh tree</button>
+            {{end}}
+          </div>
+        </div>
+        <div class="p-4 sm:p-5">
+          {{if not .GitRepoReady}}
+          <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <svg class="h-5 w-5 shrink-0 text-amber-400/90" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+            <div>
+              <p class="font-medium text-amber-100/95">No checkout yet</p>
+              <p class="mt-1 text-xs text-amber-200/80">Run <strong>Sync now</strong> (or deploy from Git) once so the panel can clone the repository into the workspace. Then you can browse files here.</p>
+            </div>
+          </div>
+          {{else}}
+          {{template "partials/components/file_browser_workspace" .}}
+          {{end}}
+        </div>
+      </div>
+      {{end}}
