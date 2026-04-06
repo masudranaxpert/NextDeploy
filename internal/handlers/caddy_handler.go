@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/db"
@@ -52,6 +54,26 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
 	return os.WriteFile(overridePath, content, 0640)
+}
+
+// syncAndApplyBackground writes the Caddy override then runs `docker compose up -d`
+// in a background goroutine so domain add/edit/delete handlers return immediately.
+func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
+	if err := p.syncAppCaddyOverride(c, appID); err != nil {
+		return err
+	}
+	app, err := p.DB.GetApp(c.UserContext(), appID)
+	if err != nil {
+		return err
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		project := p.activeComposeProjectName(ctx, app, appID)
+		dir := p.appSourcePath(ctx, appID)
+		_ = dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID))
+	}()
+	return nil
 }
 
 // ── Caddy global page ─────────────────────────────────────────────────────────
@@ -149,7 +171,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if _, err := p.DB.CreateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -162,7 +184,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.DB.DeleteAppDomain(c.UserContext(), did); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -203,7 +225,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
