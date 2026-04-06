@@ -1,14 +1,11 @@
 package handlers
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 
 	"panel/internal/dockerapi"
 	"panel/internal/sysinfo"
@@ -137,22 +134,21 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	if !volumex.ValidVolumeName(name) {
 		return c.Status(400).SendString("invalid volume")
 	}
-	ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Minute)
-	defer cancel()
-	r, err := volumex.OpenTarStream(ctx, name)
+	// Use background context — the defer cancel() in a normal handler fires
+	// before SetBodyStreamWriter's callback runs (the callback executes after
+	// the handler returns), which would kill the docker process mid-stream.
+	r, err := volumex.OpenTarStream(context.Background(), name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	defer r.Close()
 
 	safe := strings.ReplaceAll(name, `"`, "")
-	c.Set("Content-Type", "application/x-tar")
+	c.Set("Content-Type", "application/gzip")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-backup.tar.gz"`, safe))
-	// Stream directly into the response writer to avoid buffering the whole archive in memory.
-	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		_, _ = io.Copy(w, r)
-		_ = w.Flush()
-	})
+	// SetBodyStream(-1) tells fasthttp to stream from r without a Content-Length,
+	// using chunked transfer encoding. This avoids buffering large archives in memory.
+	// The -1 content-size means "unknown length — stream until EOF".
+	c.Context().Response.SetBodyStream(r, -1)
 	return nil
 }
 

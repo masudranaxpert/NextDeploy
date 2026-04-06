@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
@@ -148,32 +149,35 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 	return list, ""
 }
 
-// pipeReadCloser wraps a StdoutPipe so that Close() also waits for the
-// underlying command to exit, preventing zombie processes.
-type pipeReadCloser struct {
-	io.ReadCloser
-	cmd *exec.Cmd
-}
-
-func (p *pipeReadCloser) Close() error {
-	err := p.ReadCloser.Close()
-	_ = p.cmd.Wait()
-	return err
-}
-
 func OpenTarStream(ctx context.Context, vol string) (io.ReadCloser, error) {
 	if !ValidVolumeName(vol) {
 		return nil, errors.New("invalid volume")
 	}
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/b:ro", "alpine:3.20", "tar", "czf", "-", "-C", "/b", ".")
-	r, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
+
+	// Use an io.Pipe so the goroutine writes into one end while the caller
+	// reads from the other. This avoids the StdoutPipe + Wait deadlock.
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		_ = pw.Close()
+		return pr, err
 	}
-	return &pipeReadCloser{ReadCloser: r, cmd: cmd}, nil
+
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			_ = pw.CloseWithError(fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(stderrBuf.String())))
+		} else {
+			_ = pw.Close()
+		}
+	}()
+
+	return pr, nil
 }
 
 func RestoreTarGz(ctx context.Context, vol string, in io.Reader) string {
