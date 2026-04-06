@@ -98,7 +98,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	}
 	authMode := strings.TrimSpace(c.FormValue("auth_mode"))
 	switch authMode {
-	case "public", "github_app":
+	case "public", "github_app", "gitlab_token":
 	default:
 		authMode = "public"
 	}
@@ -106,9 +106,14 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	if repoURL == "" {
 		return c.Status(400).SendString("repo url required")
 	}
+	// Determine base provider name from auth mode.
+	providerName := "github"
+	if authMode == "gitlab_token" {
+		providerName = "gitlab"
+	}
 	cfg := db.AppGitConfig{
 		AppID:          appID,
-		Provider:       "github",
+		Provider:       providerName,
 		RepoURL:        repoURL,
 		RepoFullName:   repoFullNameFromURL(repoURL),
 		Branch:         normalizeBranch(c.FormValue("branch")),
@@ -143,6 +148,14 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 		if strings.TrimSpace(detail.WebhookSecret) != "" {
 			cfg.WebhookSecret = detail.WebhookSecret
 		}
+	}
+	if cfg.AuthMode == "gitlab_token" && cfg.GitProviderID > 0 {
+		glProvider, gerr := p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
+		if gerr != nil || strings.TrimSpace(glProvider.Token) == "" {
+			p.setGitTabErrorCookie(c, appID, "Selected GitLab provider has no token — reconnect from Git Providers page")
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+		}
+		cfg.Provider = "gitlab"
 	}
 	if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -250,6 +263,17 @@ func (p *Panel) resolveGitAuthToken(ctx context.Context, cfg db.AppGitConfig) (s
 			}
 		}
 		return gitx.MintGitHubInstallationToken(ctx, cfg.AppGitID, cfg.InstallationID, cfg.PrivateKeyPEM)
+	}
+	if cfg.AuthMode == "gitlab_token" && cfg.GitProviderID > 0 {
+		provider, err := p.DB.GetGitProvider(ctx, cfg.GitProviderID)
+		if err != nil {
+			return "", fmt.Errorf("GitLab provider not found: %w", err)
+		}
+		token := strings.TrimSpace(provider.Token)
+		if token == "" {
+			return "", fmt.Errorf("GitLab provider has no token — reconnect from Git Providers page")
+		}
+		return token, nil
 	}
 	if cfg.GitProviderID > 0 && strings.TrimSpace(cfg.Token) == "" {
 		provider, err := p.DB.GetGitProvider(ctx, cfg.GitProviderID)
@@ -382,8 +406,11 @@ func (p *Panel) AppGitProviderRepos(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
 	}
+	if provider.Provider == "gitlab" {
+		return p.AppGitLabProviderRepos(c)
+	}
 	if provider.Provider != "github" {
-		return c.Status(400).JSON(fiber.Map{"error": "repository picker is only available for GitHub App providers"})
+		return c.Status(400).JSON(fiber.Map{"error": "repository picker is only available for GitHub App or GitLab providers"})
 	}
 	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
 	if err != nil {
@@ -419,17 +446,20 @@ func (p *Panel) AppGitProviderBranches(c *fiber.Ctx) error {
 	if err != nil || pid <= 0 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
 	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	if provider.Provider == "gitlab" {
+		return p.AppGitLabProviderBranches(c)
+	}
 	repoFullName := strings.TrimSpace(c.Query("repo"))
 	parts := strings.SplitN(repoFullName, "/", 2)
 	if len(parts) != 2 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid repo"})
 	}
-	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
-	if err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
-	}
 	if provider.Provider != "github" {
-		return c.Status(400).JSON(fiber.Map{"error": "branch picker is only available for GitHub App providers"})
+		return c.Status(400).JSON(fiber.Map{"error": "branch picker is only available for GitHub App or GitLab providers"})
 	}
 	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
 	if err != nil {

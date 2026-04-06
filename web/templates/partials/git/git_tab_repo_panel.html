@@ -44,17 +44,20 @@
           {{end}}
         </div>
 
-        <form method="post" action="/apps/{{.ID}}/git" class="space-y-5 p-4 sm:p-5">
+        <form method="post" action="/apps/{{.ID}}/git" class="space-y-5 p-4 sm:p-5" id="git-config-form" onsubmit="syncGitLabProviderID()">
           <input type="hidden" name="provider" id="git-provider-hidden" value="{{if .HasGitConfig}}{{.GitConfig.Provider}}{{else}}github{{end}}">
+          <input type="hidden" name="git_provider_id" id="git-provider-id-hidden" value="{{if .HasGitConfig}}{{.GitConfig.GitProviderID}}{{else}}0{{end}}">
 
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Access mode</label>
             <select class="input w-full" name="auth_mode" id="git-auth-mode-sel" onchange="updateGitAuthMode()">
-              <option value="public" {{if or (not .HasGitConfig) (eq .GitConfig.AuthMode "public")}}selected{{end}}>Public repo (no auth)</option>
-              <option value="github_app" {{if eq .GitConfig.AuthMode "github_app"}}selected{{end}}>GitHub App provider</option>
+              <option value="public"      {{if or (not .HasGitConfig) (eq .GitConfig.AuthMode "public")}}selected{{end}}>Public repo (no auth)</option>
+              <option value="github_app"  {{if eq .GitConfig.AuthMode "github_app"}}selected{{end}}>GitHub App provider</option>
+              <option value="gitlab_token"{{if eq .GitConfig.AuthMode "gitlab_token"}}selected{{end}}>GitLab provider (OAuth token)</option>
             </select>
           </div>
 
+          {{/* ── Public / manual URL ── */}}
           <div id="git-public-fields">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Repository URL <span class="text-rose-400">*</span></label>
@@ -66,23 +69,25 @@
               </div>
               <p class="mt-1 text-[11px] text-muted-foreground/60">Supports HTTPS URLs. SSH (`git@github.com:...`) is auto-converted to HTTPS.</p>
             </div>
-
-            <div>
+            <div class="mt-4">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Branch</label>
               <input class="input w-full" id="git-branch-input" name="branch" placeholder="main" value="{{if .HasGitConfig}}{{.GitConfig.Branch}}{{else}}main{{end}}">
             </div>
           </div>
 
+          {{/* ── GitHub App provider ── */}}
           <div id="git-github-app-fields" class="hidden space-y-4">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Global provider <span class="text-rose-400">*</span></label>
-              <select class="input w-full" name="git_provider_id" id="git-provider-select" onchange="onGitHubProviderChange()">
+              <select class="input w-full" id="git-provider-select" onchange="onGitProviderChange()">
                 <option value="0">Select a GitHub App provider</option>
                 {{range .GitProviders}}
-                <option value="{{.ID}}" data-provider="{{.Provider}}" {{if eq $.GitConfig.GitProviderID .ID}}selected{{end}}>{{.Name}} · {{.Provider}}</option>
+                {{if eq .Provider "github"}}
+                <option value="{{.ID}}" data-provider="{{.Provider}}" {{if and (eq $.GitConfig.AuthMode "github_app") (eq $.GitConfig.GitProviderID .ID)}}selected{{end}}>{{.Name}}</option>
+                {{end}}
                 {{end}}
               </select>
-              <p class="mt-1 text-[11px] text-muted-foreground/60">Select a GitHub App provider from the `Git Providers` page.</p>
+              <p class="mt-1 text-[11px] text-muted-foreground/60">Select a GitHub App provider from the <a href="/git" class="text-primary hover:underline">Git Providers</a> page.</p>
             </div>
 
             <div id="git-repo-branch-picker" class="hidden space-y-4 rounded-xl border border-border/50 bg-muted/10 p-4">
@@ -107,6 +112,48 @@
                 </div>
               </div>
               <div id="git-picker-message" class="rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                Select a provider to load repositories.
+              </div>
+            </div>
+          </div>
+
+          {{/* ── GitLab token provider ── */}}
+          <div id="git-gitlab-token-fields" class="hidden space-y-4">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">GitLab provider <span class="text-rose-400">*</span></label>
+              <select class="input w-full" id="git-gitlab-provider-select" onchange="onGitLabProviderChange()">
+                <option value="0">Select a GitLab provider</option>
+                {{range .GitProviders}}
+                {{if eq .Provider "gitlab"}}
+                <option value="{{.ID}}" data-provider="gitlab" {{if and (eq $.GitConfig.AuthMode "gitlab_token") (eq $.GitConfig.GitProviderID .ID)}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+                {{end}}
+              </select>
+              <p class="mt-1 text-[11px] text-muted-foreground/60">Select a GitLab OAuth provider from the <a href="/git" class="text-primary hover:underline">Git Providers</a> page.</p>
+            </div>
+
+            <div id="git-gitlab-repo-branch-picker" class="hidden space-y-4 rounded-xl border border-orange-500/15 bg-orange-500/5 p-4">
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <label class="block text-xs font-medium text-muted-foreground">Accessible repositories</label>
+                    <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitLabRepos(true)">Refresh</button>
+                  </div>
+                  <select class="input w-full" id="git-gitlab-repo-select" onchange="applyGitLabRepoSelection()">
+                    <option value="">Select repository</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <label class="block text-xs font-medium text-muted-foreground">Available branches</label>
+                    <button type="button" class="text-[11px] text-primary hover:underline" onclick="loadGitLabBranches(true)">Refresh</button>
+                  </div>
+                  <select class="input w-full" id="git-gitlab-branch-select" onchange="applyGitLabBranchSelection()">
+                    <option value="">Select branch</option>
+                  </select>
+                </div>
+              </div>
+              <div id="git-gitlab-picker-message" class="rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                 Select a provider to load repositories.
               </div>
             </div>

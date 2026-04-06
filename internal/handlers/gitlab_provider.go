@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,31 @@ func (p *Panel) gitlabCallbackURL(c *fiber.Ctx) string {
 	return strings.TrimRight(p.panelBaseURL(c), "/") + "/git/gitlab/callback"
 }
 
+// with any existing provider names stored in the database.
+func (p *Panel) uniqueGitLabProviderName(ctx context.Context, base string) string {
+	if base == "" {
+		base = "GitLab"
+	}
+	providers, err := p.DB.ListGitProviders(ctx)
+	if err != nil {
+		return base
+	}
+	taken := make(map[string]bool, len(providers))
+	for _, gp := range providers {
+		taken[strings.ToLower(strings.TrimSpace(gp.Name))] = true
+	}
+	if !taken[strings.ToLower(base)] {
+		return base
+	}
+	for i := 2; i <= 99; i++ {
+		candidate := fmt.Sprintf("%s %d", base, i)
+		if !taken[strings.ToLower(candidate)] {
+			return candidate
+		}
+	}
+	return fmt.Sprintf("%s-%s", base, randomState()[:6])
+}
+
 // GitLabOAuthStart initiates the GitLab OAuth Authorization Code flow.
 // POST /git/gitlab/start  — form fields: client_id, client_secret, name (optional)
 func (p *Panel) GitLabOAuthStart(c *fiber.Ctx) error {
@@ -27,7 +53,7 @@ func (p *Panel) GitLabOAuthStart(c *fiber.Ctx) error {
 	clientSecret := strings.TrimSpace(c.FormValue("client_secret"))
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
-		name = "GitLab"
+		name = p.uniqueGitLabProviderName(c.UserContext(), "GitLab")
 	}
 	if clientID == "" || clientSecret == "" {
 		return c.Redirect("/git?error=Application+ID+and+Secret+are+required")
@@ -110,6 +136,133 @@ func (p *Panel) GitLabOAuthCallback(c *fiber.Ctx) error {
 	}
 
 	return c.Redirect("/git?saved=1")
+}
+
+// ── GitLab API helpers ────────────────────────────────────────────────────────
+
+type gitlabProject struct {
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	FullName          string `json:"name_with_namespace"`
+	PathWithNamespace string `json:"path_with_namespace"`
+	HTTPURLToRepo     string `json:"http_url_to_repo"`
+	DefaultBranch     string `json:"default_branch"`
+	Visibility        string `json:"visibility"`
+}
+
+type gitlabBranch struct {
+	Name string `json:"name"`
+}
+
+func gitlabAPIRequest(ctx context.Context, method, endpoint, token string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return data, resp.StatusCode, nil
+}
+
+// AppGitLabProviderRepos returns repositories accessible via the GitLab token provider.
+func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
+	if err != nil || pid <= 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
+	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	token := strings.TrimSpace(provider.Token)
+	if token == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "provider has no OAuth token — reconnect from Git Providers page"})
+	}
+	// Fetch member projects (repos the token owner has access to), sorted by recent activity.
+	endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at&sort=desc"
+	body, status, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if status >= 300 {
+		return c.Status(status).JSON(fiber.Map{"error": "GitLab API error: " + strings.TrimSpace(string(body))})
+	}
+	var projects []gitlabProject
+	if err := json.Unmarshal(body, &projects); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to parse GitLab response"})
+	}
+	// Normalise to the same shape the frontend expects for GitHub repos.
+	type repoRow struct {
+		ID            int64  `json:"id"`
+		Name          string `json:"name"`
+		FullName      string `json:"full_name"`
+		CloneURL      string `json:"clone_url"`
+		HTTPURLToRepo string `json:"http_url_to_repo"`
+		DefaultBranch string `json:"default_branch"`
+	}
+	rows := make([]repoRow, 0, len(projects))
+	for _, pr := range projects {
+		db := pr.DefaultBranch
+		if db == "" {
+			db = "main"
+		}
+		rows = append(rows, repoRow{
+			ID:            pr.ID,
+			Name:          pr.Name,
+			FullName:      pr.PathWithNamespace,
+			CloneURL:      pr.HTTPURLToRepo,
+			HTTPURLToRepo: pr.HTTPURLToRepo,
+			DefaultBranch: db,
+		})
+	}
+	return c.JSON(fiber.Map{"repos": rows})
+}
+
+// AppGitLabProviderBranches returns branches for a GitLab repo.
+func (p *Panel) AppGitLabProviderBranches(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
+	if err != nil || pid <= 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
+	}
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	token := strings.TrimSpace(provider.Token)
+	if token == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "provider has no OAuth token"})
+	}
+	repoPath := url.PathEscape(strings.TrimSpace(c.Query("repo")))
+	if repoPath == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "repo required"})
+	}
+	endpoint := fmt.Sprintf("%s/api/v4/projects/%s/repository/branches?per_page=100", gitlabAPIBase, repoPath)
+	body, status, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if status >= 300 {
+		return c.Status(status).JSON(fiber.Map{"error": "GitLab API error: " + strings.TrimSpace(string(body))})
+	}
+	var branches []gitlabBranch
+	if err := json.Unmarshal(body, &branches); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to parse branches"})
+	}
+	return c.JSON(fiber.Map{"branches": branches})
 }
 
 type gitlabTokenResponse struct {
