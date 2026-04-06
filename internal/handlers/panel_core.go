@@ -153,27 +153,27 @@ func (p *Panel) activeComposeProjectName(ctx context.Context, app db.App, id str
 	return names[0]
 }
 
-func (p *Panel) composeFilePath(app db.App, id string) string {
+func (p *Panel) composeFilePath(ctx context.Context, app db.App, id string) string {
 	rel := workspace.NormalizeComposeRel(app.ComposeFile)
 	parts := strings.Split(rel, "/")
 	base := p.Store.Path(id)
-	if cfg, err := p.DB.GetAppGitConfig(context.Background(), id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
+	if cfg, err := p.DB.GetAppGitConfig(ctx, id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
 		base = filepath.Join(p.Store.ReservedPath(id), "repo")
 	}
 	return filepath.Join(append([]string{base}, parts...)...)
 }
 
-func (p *Panel) composeOverridePath(id string) string {
+func (p *Panel) composeOverridePath(ctx context.Context, id string) string {
 	base := p.Store.Path(id)
-	if cfg, err := p.DB.GetAppGitConfig(context.Background(), id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
+	if cfg, err := p.DB.GetAppGitConfig(ctx, id); err == nil && strings.TrimSpace(cfg.RepoURL) != "" {
 		base = filepath.Join(p.Store.ReservedPath(id), "repo")
 	}
 	return filepath.Join(base, caddy.GeneratedCompose)
 }
 
 func (p *Panel) effectiveComposePaths(ctx context.Context, app db.App, id string) []string {
-	basePath := p.composeFilePath(app, id)
-	overridePath := p.composeOverridePath(id)
+	basePath := p.composeFilePath(ctx, app, id)
+	overridePath := p.composeOverridePath(ctx, id)
 	if st, err := os.Stat(overridePath); err == nil && !st.IsDir() {
 		return []string{overridePath}
 	}

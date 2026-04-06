@@ -301,7 +301,10 @@ func classify(line string) LogLevel {
 	if strings.Contains(low, "fatal") || strings.Contains(low, "panic") {
 		return LvFatal
 	}
+	// Shell/OCI failures often start with "exec "; require a following space-boundary
+	// so substrings inside words (e.g. "executing") are not matched.
 	if strings.HasPrefix(low, "exec ") ||
+		strings.Contains(low, " exec ") ||
 		strings.Contains(low, "no such file or directory") ||
 		strings.Contains(low, "error") ||
 		strings.Contains(low, "err:") ||

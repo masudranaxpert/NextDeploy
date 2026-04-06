@@ -111,7 +111,7 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		return c.Status(404).SendString("app not found")
 	}
 	dir := p.appSourcePath(c.UserContext(), id)
-	cp := p.composeFilePath(app, id)
+	cp := p.composeFilePath(c.UserContext(), app, id)
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
 	var cleanupErrs []string

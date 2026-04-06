@@ -112,18 +112,17 @@ func (s *Store) DeleteApp(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("invalid id")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE app_id = ?`, id); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_git_configs WHERE app_id = ?`, id); err != nil {
+	defer func() { _ = tx.Rollback() }()
+	// deploy_logs has no FK to apps; other app_id tables use ON DELETE CASCADE.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM deploy_logs WHERE app_id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_domains WHERE app_id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM deploy_logs WHERE app_id = ?`, id); err != nil {
-		return err
-	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, id)
-	return err
+	return tx.Commit()
 }

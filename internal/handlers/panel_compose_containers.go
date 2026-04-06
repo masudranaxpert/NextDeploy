@@ -24,8 +24,8 @@ func (p *Panel) ComposeFileView(c *fiber.Ctx) error {
 		c.Type("text/plain; charset=utf-8")
 		return c.Status(500).SendString(err.Error())
 	}
-	cp := p.composeFilePath(app, id)
-	overridePath := p.composeOverridePath(id)
+	cp := p.composeFilePath(c.UserContext(), app, id)
+	overridePath := p.composeOverridePath(c.UserContext(), id)
 	b, err := os.ReadFile(overridePath)
 	if err != nil {
 		b, err = os.ReadFile(cp)
@@ -56,8 +56,8 @@ func (p *Panel) ComposeFileModal(c *fiber.Ctx) error {
 			"ComposeError":   true,
 		})
 	}
-	cp := p.composeFilePath(app, id)
-	overridePath := p.composeOverridePath(id)
+	cp := p.composeFilePath(c.UserContext(), app, id)
+	overridePath := p.composeOverridePath(c.UserContext(), id)
 	b, err := os.ReadFile(overridePath)
 	if err != nil {
 		b, err = os.ReadFile(cp)
@@ -90,7 +90,7 @@ func (p *Panel) renderComposeTable(c *fiber.Ctx, id string) error {
 		return c.Status(404).SendString("not found")
 	}
 	dir := p.appSourcePath(c.UserContext(), id)
-	cp := p.composeFilePath(app, id)
+	cp := p.composeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
 		return c.Render("partials/compose/compose_table", fiber.Map{
 			"ID":           id,

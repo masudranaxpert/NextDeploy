@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"regexp"
@@ -42,8 +43,8 @@ func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		return err
 	}
 	templateDomains, _ := p.DB.ListTemplateAppDomains(ctx, appID)
-	overridePath := p.composeOverridePath(appID)
-	basePath := p.composeFilePath(app, appID)
+	overridePath := p.composeOverridePath(ctx, appID)
+	basePath := p.composeFilePath(ctx, app, appID)
 	base, err := os.ReadFile(basePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -120,7 +121,9 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		_ = p.applyComposeConfigSmart(ctx, app, appID)
+		if err := p.applyComposeConfigSmart(ctx, app, appID); err != nil {
+			log.Printf("compose apply app=%s: %v", appID, err)
+		}
 	}()
 	return nil
 }
@@ -139,7 +142,9 @@ func (p *Panel) syncAndApplyCaddyOverrideCtx(ctx context.Context, app db.App) er
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		_ = p.applyComposeConfigSmart(bgCtx, app, app.ID)
+		if err := p.applyComposeConfigSmart(bgCtx, app, app.ID); err != nil {
+			log.Printf("compose apply app=%s: %v", app.ID, err)
+		}
 	}()
 	return nil
 }
@@ -426,7 +431,7 @@ func (p *Panel) loadComposeServices(c *fiber.Ctx, appID string) []string {
 	if err != nil {
 		return nil
 	}
-	cfPath := p.composeFilePath(app, appID)
+	cfPath := p.composeFilePath(c.UserContext(), app, appID)
 	data, err := os.ReadFile(cfPath)
 	if err != nil {
 		return nil
