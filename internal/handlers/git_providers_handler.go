@@ -29,8 +29,9 @@ func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
 		"Deleted":              c.Query("deleted") == "1",
 		"Error":                c.Query("error"),
 		"GitHubAppCreateURL":   "https://github.com/settings/apps/new",
-		"GitLabAppCreateURL":   "https://gitlab.com/-/profile/applications",
+		"GitLabAppCreateURL":   "https://gitlab.com/-/user_settings/applications",
 		"GitHubManifestStart":  "/git/github/start",
+		"GitLabCallbackURL":    p.gitlabCallbackURL(c),
 	}), "layouts/shell")
 }
 
