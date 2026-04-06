@@ -1,0 +1,25 @@
+{{define "partials/php_panel/page"}}
+  {{template "partials/php_panel/header" .}}
+  {{template "php_panel/tab_nav" .}}
+
+  {{if .Flash}}
+  <div class="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{{.Flash}}</div>
+  {{end}}
+  {{if .Error}}
+  <div class="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{{.Error}}</div>
+  {{end}}
+
+  {{if eq .Tab "sites"}}
+    {{template "partials/php_panel/sites" .}}
+  {{else if eq .Tab "domains"}}
+    {{template "partials/php_panel/domains" .}}
+  {{else if eq .Tab "databases"}}
+    {{template "partials/php_panel/databases" .}}
+  {{else if eq .Tab "settings"}}
+    {{template "partials/php_panel/settings" .}}
+  {{else if eq .Tab "files"}}
+    {{template "partials/php_panel/files" .}}
+  {{else}}
+    {{template "partials/php_panel/overview" .}}
+  {{end}}
+{{end}}

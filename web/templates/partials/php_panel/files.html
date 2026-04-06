@@ -1,0 +1,64 @@
+{{define "partials/php_panel/files"}}
+<div class="space-y-6">
+  <div class="section-header">
+    <div>
+      <h2 class="text-base font-semibold text-foreground">Site file browser</h2>
+      <p class="page-subtitle">This browser is locked to the selected owner's site folder tree. Full app root access is hidden here.</p>
+    </div>
+  </div>
+
+  {{if .Sites}}
+  <div class="panel-card p-5">
+    <form method="get" action="{{.RouteBase}}" class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <input type="hidden" name="tab" value="files">
+      <div class="w-full max-w-sm">
+        <label class="mb-1.5 block text-sm font-medium text-foreground">Site</label>
+        <select class="input w-full" name="site" onchange="this.form.submit()">
+          {{range .Sites}}
+          <option value="{{.Slug}}" {{if and $.BrowserSite (eq $.BrowserSite.Site.Slug .Slug)}}selected{{end}}>{{.Name}} · sites/{{.Slug}}/public_html</option>
+          {{end}}
+        </select>
+      </div>
+      {{if .BrowserSite}}
+      <div class="rounded-xl border border-border/60 bg-muted/15 px-4 py-3 text-xs text-muted-foreground">
+        Root path:
+        <code class="font-mono text-foreground">sites/{{.BrowserSite.Site.Slug}}/public_html</code>
+      </div>
+      {{end}}
+    </form>
+  </div>
+
+  {{if .BrowserSite}}
+  <div class="panel-card min-w-0 overflow-hidden p-0 ring-1 ring-border/30">
+    <div class="border-b border-border/50 bg-gradient-to-r from-muted/[0.14] via-muted/[0.08] to-transparent px-4 py-4 sm:px-5 sm:py-4">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/25">
+              <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
+            </span>
+            <h2 class="text-base font-semibold tracking-tight text-foreground">{{.BrowserSite.Site.Name}} files</h2>
+          </div>
+          <p class="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">Browse the live public web root, upload files, edit text files inline, and keep all actions locked to this site's public folder only.</p>
+        </div>
+      </div>
+    </div>
+    <div class="min-h-0 overflow-x-hidden bg-[hsl(40_4%_8%)]/80 p-3 sm:p-4 md:p-5">
+      {{template "partials/components/file_browser_workspace" (dict
+        "ID" .App.ID
+        "BrowserBasePath" .BrowserSite.BasePath
+        "UploadFileTarget" (printf "/apps/%s/upload" .App.ID)
+        "DownloadZipTarget" (printf "/apps/%s/files/download-zip" .App.ID)
+        "UploadMaxMB" .UploadMaxMB
+        "EmptyRootMessage" "This site folder is empty."
+      )}}
+    </div>
+  </div>
+  {{else}}
+  <div class="panel-card px-5 py-12 text-center text-sm text-muted-foreground">Select a valid site to open its file browser.</div>
+  {{end}}
+  {{else}}
+  <div class="panel-card px-5 py-12 text-center text-sm text-muted-foreground">Create a site first, then its file browser will appear here.</div>
+  {{end}}
+</div>
+{{end}}

@@ -1,0 +1,81 @@
+<div class="mx-auto max-w-6xl space-y-6">
+  <div class="section-header">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+        <svg class="h-5 w-5 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5h7.5A2.25 2.25 0 0113.5 6.75v12.75H6A2.25 2.25 0 013.75 17.25V4.5zm6.75 15h7.5A2.25 2.25 0 0020.25 17.25V10.5A2.25 2.25 0 0018 8.25h-4.5M10.5 19.5V6.75"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title">Templates</h1>
+        <p class="page-subtitle">Launch opinionated stacks with dedicated management tabs</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
+    <section class="panel-card p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="inline-flex items-center gap-2 rounded-full bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-300 ring-1 ring-violet-500/20">
+            PHP Hosting
+          </div>
+          <h2 class="mt-4 text-xl font-semibold text-foreground">PHP Panel</h2>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Folder-based multi-site PHP hosting with shared MySQL, phpMyAdmin, and per-site PHP 7.4 / 8.1 / 8.2 / 8.3 routing through the main Caddy proxy.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-right">
+          <p class="text-[11px] uppercase tracking-widest text-violet-300/80">Routing</p>
+          <p class="mt-1 text-sm font-semibold text-violet-100">Main Caddy only</p>
+        </div>
+      </div>
+
+      <div class="mt-6 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl border border-border/60 bg-muted/15 p-4">
+          <p class="text-sm font-semibold text-foreground">Included services</p>
+          <p class="mt-2 text-xs leading-6 text-muted-foreground">`php_fpm_74`, `php_fpm_81`, `php_fpm_82`, `php_fpm_83`, `php_mysql`, `php_pma`</p>
+        </div>
+        <div class="rounded-xl border border-border/60 bg-muted/15 p-4">
+          <p class="text-sm font-semibold text-foreground">Management model</p>
+          <p class="mt-2 text-xs leading-6 text-muted-foreground">Templates menu launches one structured panel, then `Sites`, `Domains`, `Databases`, and `Settings` tabs manage everything.</p>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-wrap gap-3">
+        {{if .HasPHPApp}}
+        <a href="/php-panel/{{.PHPApp.ID}}" class="btn-primary h-10 px-5 text-sm">
+          Open PHP Panel
+        </a>
+        <a href="/apps/{{.PHPApp.ID}}" class="btn-secondary h-10 px-4 text-sm">
+          Open Raw App
+        </a>
+        {{else}}
+        <form method="post" action="/templates/php-panel/launch">
+          <button type="submit" class="btn-primary h-10 px-5 text-sm">
+            Launch PHP Panel
+          </button>
+        </form>
+        {{end}}
+      </div>
+    </section>
+
+    <aside class="panel-card p-6">
+      <h3 class="text-sm font-semibold text-foreground">What happens when you launch</h3>
+      <div class="mt-4 space-y-3 text-sm text-muted-foreground">
+        <div class="rounded-xl border border-border/60 bg-muted/10 p-4">
+          <p class="font-medium text-foreground">1. Create template app</p>
+          <p class="mt-1 text-xs leading-5">A workspace is seeded with a PHP compose stack and default site folder.</p>
+        </div>
+        <div class="rounded-xl border border-border/60 bg-muted/10 p-4">
+          <p class="font-medium text-foreground">2. Add sites and choose PHP version</p>
+          <p class="mt-1 text-xs leading-5">Each site maps to one FPM service based on the selected PHP version.</p>
+        </div>
+        <div class="rounded-xl border border-border/60 bg-muted/10 p-4">
+          <p class="font-medium text-foreground">3. Add domains</p>
+          <p class="mt-1 text-xs leading-5">The panel rewrites generated compose labels so the main Caddy proxy auto-detects new routing.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>

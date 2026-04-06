@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,9 +14,10 @@ import (
 )
 
 const (
-	sessionCookie  = "nd_session"
-	sessionTTL     = 30 * 24 * time.Hour
-	contextUserKey = "auth_user"
+	sessionCookie          = "nd_session"
+	phpPanelOwnerCookie    = "nd_php_panel_owner"
+	sessionTTL             = 30 * 24 * time.Hour
+	contextUserKey         = "auth_user"
 )
 
 // hashPassword hashes a plaintext password using bcrypt.
@@ -76,6 +78,62 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 	c.Locals(contextUserKey, user)
+	if user.Role == db.RoleAdmin {
+		// Set PHP Panel nav link for admin sidebar
+		if phpApp, ok := p.currentPHPPanelApp(ctx); ok {
+			c.Locals("PHPPanelNavAppID", phpApp.ID)
+			c.Locals("PHPPanelNavName", phpApp.Name)
+		}
+		// Check if admin has an active impersonation session for a user's PHP Panel view
+		ownerToken := strings.TrimSpace(c.Cookies(phpPanelOwnerCookie))
+		if ownerToken != "" {
+			imp, err := p.DB.GetPHPPanelImpersonation(ctx, ownerToken)
+			if err == nil && time.Now().Before(imp.ExpiresAt) {
+				owner, ownerErr := p.DB.GetUserByID(ctx, imp.UserID)
+				if ownerErr == nil && owner.ID != user.ID {
+					// Valid impersonation: show scoped view as that user
+					c.Locals("php_panel_owner", owner)
+					c.Locals("ScopedPHPPanelOnly", true)
+				}
+			} else {
+				// Expired or invalid — clear cookie silently
+				_ = p.DB.DeletePHPPanelImpersonation(ctx, ownerToken)
+				c.Cookie(&fiber.Cookie{Name: phpPanelOwnerCookie, Value: "", MaxAge: -1, HTTPOnly: true, SameSite: "Lax", Path: "/"})
+			}
+		}
+		// If scoped impersonation view is active, redirect non-PHP-Panel routes back to PHP Panel
+		if scopedOnly, _ := c.Locals("ScopedPHPPanelOnly").(bool); scopedOnly {
+			if !p.allowPHPPanelScopedAppRoute(ctx, path) {
+				if app, ok := p.currentPHPPanelApp(ctx); ok {
+					return c.Redirect("/php-panel/" + app.ID)
+				}
+			}
+		}
+	}
+	if user.Role == db.RoleUser {
+		if app, ok := p.currentPHPPanelApp(ctx); ok {
+			c.Locals("PHPPanelNavAppID", app.ID)
+			c.Locals("PHPPanelNavName", app.Name)
+		}
+		if !p.DB.PHPPanelEnabledForUser(ctx, user.ID) {
+			if path != "/php-panel-blocked" && path != "/logout" {
+				return c.Redirect("/php-panel-blocked")
+			}
+			return c.Next()
+		}
+		app, hasApp := p.currentPHPPanelApp(ctx)
+		if !hasApp {
+			if path != "/php-panel-blocked" && path != "/logout" {
+				return c.Redirect("/php-panel-blocked")
+			}
+			return c.Next()
+		}
+		_ = app
+		if p.allowPHPPanelScopedAppRoute(ctx, path) {
+			return c.Next()
+		}
+		return c.Redirect("/php-panel/" + app.ID)
+	}
 	return c.Next()
 }
 
@@ -129,6 +187,7 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Redirect("/setup?error=Username+already+taken")
 	}
+	_ = p.DB.EnsurePHPPanelAccount(ctx, userID, true, 3, 3)
 
 	// Auto-login after setup
 	return p.createSessionAndRedirect(c, userID, "/overview")
@@ -160,7 +219,16 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
-		return c.Redirect("/login?error=Invalid+username+or+password&next=" + next)
+		return c.Redirect("/login?error=Invalid+username+or+password&next=" + url.QueryEscape(next))
+	}
+	if user.Role == db.RoleUser {
+		if !p.DB.PHPPanelEnabledForUser(ctx, user.ID) {
+			next = "/php-panel-blocked"
+		} else if app, ok := p.currentPHPPanelApp(ctx); ok {
+			next = "/php-panel/" + app.ID
+		} else {
+			next = "/php-panel-blocked"
+		}
 	}
 
 	return p.createSessionAndRedirect(c, user.ID, next)

@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
+	"panel/internal/phppanel"
 	"panel/internal/runutil"
 
 	"github.com/gofiber/fiber/v2"
@@ -22,6 +25,9 @@ const (
 	settingCleanupLastLog  = "cleanup_last_log"
 	settingPanelDomain     = "panel_domain"
 	settingPanelEnableWWW  = "panel_enable_www"
+	settingUploadMaxMB     = "upload_max_mb"
+	defaultUploadMaxMB     = 250
+	maxUploadMaxMB         = 2048
 )
 
 type intervalOption struct {
@@ -54,6 +60,25 @@ func parseCleanupInterval(v string) time.Duration {
 		return time.Hour
 	}
 	return d
+}
+
+func normalizeUploadMaxMB(v string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		return defaultUploadMaxMB
+	}
+	if n > maxUploadMaxMB {
+		return maxUploadMaxMB
+	}
+	return n
+}
+
+func (p *Panel) uploadMaxMB(ctx context.Context) int {
+	return normalizeUploadMaxMB(p.DB.GetSetting(ctx, settingUploadMaxMB))
+}
+
+func (p *Panel) uploadMaxBytes(ctx context.Context) int64 {
+	return int64(p.uploadMaxMB(ctx)) * 1024 * 1024
 }
 
 func settingBool(v string, def bool) bool {
@@ -103,6 +128,8 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 		"CleanupIntervals": cleanupIntervalOptions(),
 		"CleanupLastRun":   cfg[settingCleanupLastRun],
 		"CleanupLastLog":   cfg[settingCleanupLastLog],
+		"UploadMaxMB":      normalizeUploadMaxMB(cfg[settingUploadMaxMB]),
+		"UploadMaxMBMax":   maxUploadMaxMB,
 	}), "layouts/shell")
 }
 
@@ -110,10 +137,14 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	enabled := c.FormValue(settingCleanupEnabled) == "on"
 	interval := normalizeCleanupInterval(c.FormValue(settingCleanupInterval))
+	uploadMaxMB := normalizeUploadMaxMB(c.FormValue(settingUploadMaxMB))
 	if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.DB.SetSetting(ctx, settingCleanupInterval, interval); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.DB.SetSetting(ctx, settingUploadMaxMB, strconv.Itoa(uploadMaxMB)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if p.DB.GetSetting(ctx, settingCleanupLastRun) == "" {
@@ -164,6 +195,28 @@ func (p *Panel) runScheduledCleanupForce() {
 func (p *Panel) StartBackgroundJobs() {
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
+	go p.migratePHPPanelComposeFiles()
+}
+
+// migratePHPPanelComposeFiles updates any existing PHP Panel compose.yml files
+// that still use legacy FPM images or obsolete command overrides to serversideup/php
+// FPM alpine images (extensions pre-installed; listen suitable for Caddy on Docker network).
+func (p *Panel) migratePHPPanelComposeFiles() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return
+	}
+	for _, app := range apps {
+		if app.TemplateID != phppanel.TemplateID {
+			continue
+		}
+		workspaceRoot := p.Store.Path(app.ID)
+		if err := phppanel.MigrateCompose(workspaceRoot); err != nil {
+			log.Printf("php panel compose migrate %s: %v", app.ID, err)
+		}
+	}
 }
 
 func (p *Panel) sessionPruneLoop() {

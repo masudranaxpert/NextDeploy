@@ -40,13 +40,14 @@
     </div>
     <div class="divide-y divide-border/50">
       {{range .Users}}
-      <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-center gap-3">
+      <div class="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+        <!-- User info -->
+        <div class="flex items-start gap-3 min-w-0">
           <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20 text-xs font-bold text-orange-300 uppercase">
             {{initials .Username}}
           </div>
-          <div>
-            <div class="flex items-center gap-2">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-1.5">
               <span class="text-sm font-semibold text-foreground">{{.Username}}</span>
               {{if eq .Role "admin"}}
                 <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-500/25">admin</span>
@@ -57,43 +58,101 @@
                 <span class="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-primary/25">you</span>
               {{end}}
             </div>
-            <p class="text-xs text-muted-foreground">Created {{.CreatedAt.Format "Jan 02, 2006"}}</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">Created {{.CreatedAt.Format "Jan 02, 2006"}}</p>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              {{if .PHPPanelEnabled}}
+              <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">PHP Panel enabled</span>
+              {{else}}
+              <span class="inline-flex items-center rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300 ring-1 ring-rose-500/25">PHP Panel disabled</span>
+              {{end}}
+              <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{.SiteUsage}} / {{.SiteLimit}} sites</span>
+              <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{.DatabaseUsage}} / {{.DatabaseLimit}} databases</span>
+            </div>
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <!-- Change role (admin only, not self) -->
-          {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
-          <form method="post" action="/users/{{.ID}}/role" class="inline-flex items-center gap-1.5">
-            <select name="role" class="input h-8 py-0 text-xs pr-7">
-              <option value="user" {{if eq .Role "user"}}selected{{end}}>user</option>
-              <option value="admin" {{if eq .Role "admin"}}selected{{end}}>admin</option>
-            </select>
-            <button type="submit" class="btn-secondary h-8 px-2.5 text-xs">Set</button>
+
+        <!-- Actions -->
+        <div class="flex flex-col gap-2 sm:items-end">
+          {{if $.HasPHPPanel}}
+          <!-- PHP Panel settings row -->
+          <form method="post" action="/users/{{.ID}}/php-panel/settings" class="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2.5">
+            <!-- Toggle switch -->
+            <label class="relative inline-flex cursor-pointer items-center gap-2 text-xs text-foreground select-none">
+              {{if eq .Role "admin"}}
+              <input type="hidden" name="php_panel_enabled" value="on">
+              <button type="button" role="switch" aria-checked="true" disabled
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-emerald-500/60 opacity-60 cursor-not-allowed">
+                <span class="inline-block h-3.5 w-3.5 translate-x-4 rounded-full bg-white shadow transition-transform"></span>
+              </button>
+              {{else}}
+              <input type="checkbox" name="php_panel_enabled" id="php-toggle-{{.ID}}" class="sr-only peer" {{if .PHPPanelEnabled}}checked{{end}}
+                onchange="this.form.querySelector('[data-toggle-knob]').classList.toggle('translate-x-4', this.checked); this.form.querySelector('[data-toggle-track]').classList.toggle('bg-emerald-500', this.checked); this.form.querySelector('[data-toggle-track]').classList.toggle('bg-muted', !this.checked);">
+              <button type="button" role="switch" data-toggle-track
+                onclick="document.getElementById('php-toggle-{{.ID}}').click()"
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors {{if .PHPPanelEnabled}}bg-emerald-500{{else}}bg-muted{{end}}">
+                <span data-toggle-knob class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform {{if .PHPPanelEnabled}}translate-x-4{{else}}translate-x-0.5{{end}}"></span>
+              </button>
+              {{end}}
+              <span class="text-muted-foreground">PHP Panel</span>
+            </label>
+            <div class="flex items-center gap-1.5">
+              <input type="number" min="1" max="100" name="site_limit" value="{{.SiteLimit}}" class="input h-7 w-16 py-0 text-xs" title="Site limit (max sites)">
+              <span class="text-[10px] text-muted-foreground">sites</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <input type="number" min="1" max="100" name="database_limit" value="{{.DatabaseLimit}}" class="input h-7 w-16 py-0 text-xs" title="Database limit (max databases)">
+              <span class="text-[10px] text-muted-foreground">dbs</span>
+            </div>
+            <button type="submit" class="btn-secondary h-7 px-2.5 text-[11px]">Save</button>
           </form>
+          <!-- Open PHP Panel as user -->
+          <div class="flex flex-wrap gap-2">
+            {{if ne .ID $.CurrentUser.ID}}
+            <form method="post" action="/users/{{.ID}}/php-panel/open" class="inline" target="_blank">
+              <button type="submit" class="btn-secondary h-8 px-3 text-xs">
+                <svg class="mr-1 h-3.5 w-3.5 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>
+                </svg>
+                Open as user
+              </button>
+            </form>
+            {{end}}
+          </div>
           {{end}}
 
-          <!-- Change password modal trigger -->
-          <button type="button"
-            class="btn-secondary h-8 px-3 text-xs"
-            onclick="document.getElementById('pw-modal-{{.ID}}').classList.remove('hidden')">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
-            </svg>
-            Password
-          </button>
+          <!-- Role + Password + Delete row -->
+          <div class="flex flex-wrap items-center gap-2">
+            {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
+            <form method="post" action="/users/{{.ID}}/role" class="inline-flex items-center gap-1.5">
+              <select name="role" class="input h-8 py-0 text-xs pr-7">
+                <option value="user" {{if eq .Role "user"}}selected{{end}}>user</option>
+                <option value="admin" {{if eq .Role "admin"}}selected{{end}}>admin</option>
+              </select>
+              <button type="submit" class="btn-secondary h-8 px-2.5 text-xs">Set role</button>
+            </form>
+            {{end}}
 
-          <!-- Delete (admin only, not self) -->
-          {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
-          <form method="post" action="/users/{{.ID}}/delete" class="inline"
-                onsubmit="return confirm('Delete user {{.Username}}?');">
-            <button type="submit" class="btn-delete-sm gap-1.5">
+            <button type="button"
+              class="btn-secondary h-8 px-3 text-xs"
+              onclick="document.getElementById('pw-modal-{{.ID}}').classList.remove('hidden')">
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
               </svg>
-              Delete
+              Password
             </button>
-          </form>
-          {{end}}
+
+            {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
+            <form method="post" action="/users/{{.ID}}/delete" class="inline"
+                  onsubmit="return confirm('Delete user {{.Username}}?');">
+              <button type="submit" class="btn-delete-sm gap-1.5">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+                Delete
+              </button>
+            </form>
+            {{end}}
+          </div>
         </div>
       </div>
 
@@ -145,6 +204,21 @@
           <option value="user">user</option>
           <option value="admin">admin</option>
         </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted-foreground">PHP Panel</label>
+        <label class="flex h-10 items-center gap-2 rounded-xl border border-border/60 bg-muted/15 px-3 text-xs text-foreground">
+          <input type="checkbox" name="php_panel_enabled" class="rounded">
+          <span>Enable on create</span>
+        </label>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted-foreground">Site limit</label>
+        <input type="number" name="site_limit" class="input w-full" value="3" min="1" max="100">
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted-foreground">Database limit</label>
+        <input type="number" name="database_limit" class="input w-full" value="3" min="1" max="100">
       </div>
       <div class="flex items-end">
         <button type="submit" class="btn-primary h-10 w-full text-sm">

@@ -124,20 +124,20 @@ func AdminConfigPost(ctx context.Context, adminAPI, jsonConfig string) error {
 // GenerateLabels builds the Docker labels map for a single site preview.
 func GenerateLabels(d db.AppDomain) map[string]string {
 	labels := map[string]string{}
-	appendSiteLabels(labels, "caddy", d)
+	appendSiteLabels(labels, "caddy", d, db.TemplateAppDomain{})
 	return labels
 }
 
 // GenerateServiceLabels builds the merged labels for all domains of one service.
-func GenerateServiceLabels(domains []db.AppDomain) map[string]string {
+func GenerateServiceLabels(domains []db.AppDomain, templateDomains map[int64]db.TemplateAppDomain) map[string]string {
 	out := map[string]string{}
 	domains = sortedDomains(domains)
 	if len(domains) == 1 {
-		appendSiteLabels(out, "caddy", domains[0])
+		appendSiteLabels(out, "caddy", domains[0], templateDomains[domains[0].ID])
 		return out
 	}
 	for i, d := range domains {
-		appendSiteLabels(out, "caddy_"+strconv.Itoa(i), d)
+		appendSiteLabels(out, "caddy_"+strconv.Itoa(i), d, templateDomains[d.ID])
 	}
 	return out
 }
@@ -169,7 +169,11 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 
 // GenerateMergedCompose returns a valid merged compose YAML where named volumes
 // are normalized and selected services are attached to the shared NextDeploy network.
-func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain) ([]byte, error) {
+func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, templateDomains ...db.TemplateAppDomain) ([]byte, error) {
+	templateMap := map[int64]db.TemplateAppDomain{}
+	for _, item := range templateDomains {
+		templateMap[item.AppDomainID] = item
+	}
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -215,8 +219,11 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 			if !ok {
 				return nil, fmt.Errorf("service %q has invalid compose structure", service)
 			}
+			removeLabels(svc, func(key string) bool {
+				return strings.HasPrefix(key, "caddy")
+			})
 			attachNetwork(svc, PanelNetworkKey)
-			mergeLabels(svc, GenerateServiceLabels(serviceDomains))
+			mergeLabels(svc, GenerateServiceLabels(serviceDomains, templateMap))
 			services[service] = svc
 		}
 	}
@@ -337,7 +344,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableWWW bool, e
 	return out, nil
 }
 
-func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
+func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain, templateDomain db.TemplateAppDomain) {
 	domain := cleanQuotedValue(d.Domain)
 	if domain == "" {
 		return
@@ -359,6 +366,19 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	labels[prefix] = strings.Join(sites, ", ")
 	if d.EnableHTTPS && ShouldUseInternalTLS(domain) {
 		labels[prefix+".tls"] = "internal"
+	}
+
+	if strings.TrimSpace(templateDomain.RootPath) != "" && strings.TrimSpace(templateDomain.PHPVersion) != "" {
+		labels[prefix+".root"] = "* " + strings.TrimSpace(templateDomain.RootPath)
+		labels[prefix+".encode"] = "gzip zstd"
+		labels[prefix+".file_server"] = ""
+		labels[prefix+".php_fastcgi"] = "{{upstreams " + strconv.Itoa(func() int {
+			if d.Port > 0 {
+				return d.Port
+			}
+			return 9000
+		}()) + "}}"
+		return
 	}
 
 	priority := 1

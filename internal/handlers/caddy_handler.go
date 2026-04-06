@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/db"
@@ -27,14 +29,19 @@ func sanitizeDomainRecord(d *db.AppDomain) {
 }
 
 func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
-	app, err := p.DB.GetApp(c.UserContext(), appID)
+	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
+}
+
+func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return err
 	}
-	domains, err := p.DB.ListAppDomains(c.UserContext(), appID)
+	domains, err := p.DB.ListAppDomains(ctx, appID)
 	if err != nil {
 		return err
 	}
+	templateDomains, _ := p.DB.ListTemplateAppDomains(ctx, appID)
 	overridePath := p.composeOverridePath(appID)
 	basePath := p.composeFilePath(app, appID)
 	base, err := os.ReadFile(basePath)
@@ -47,11 +54,86 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 		}
 		return err
 	}
-	content, err := caddy.GenerateMergedCompose(base, p.composeProjectName(app, appID), domains)
+	content, err := caddy.GenerateMergedCompose(base, p.composeProjectName(app, appID), domains, templateDomains...)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
 	return os.WriteFile(overridePath, content, 0640)
+}
+
+// applyComposeConfig runs `docker compose up -d` for all services.
+func (p *Panel) applyComposeConfig(ctx context.Context, app db.App, appID string) error {
+	project := p.activeComposeProjectName(ctx, app, appID)
+	dir := p.appSourcePath(ctx, appID)
+	res := dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID))
+	if !res.OK {
+		return fmt.Errorf("compose apply failed: %s", strings.TrimSpace(res.Output))
+	}
+	return nil
+}
+
+// applyComposeConfigSmart for PHP Panel only re-applies currently running services
+// so stopped FPM versions are not accidentally started on domain/version changes.
+// Non-PHP-Panel apps fall back to applyComposeConfig (all services).
+func (p *Panel) applyComposeConfigSmart(ctx context.Context, app db.App, appID string) error {
+	if app.TemplateID != "php_panel" {
+		return p.applyComposeConfig(ctx, app, appID)
+	}
+	project := p.activeComposeProjectName(ctx, app, appID)
+	dir := p.appSourcePath(ctx, appID)
+	composePaths := p.effectiveComposePaths(ctx, app, appID)
+	envFiles := p.composeEnvFiles(ctx, appID)
+
+	rows, res := dockerx.ComposePS(ctx, dir, composePaths, project, envFiles)
+	if !res.OK {
+		return p.applyComposeConfig(ctx, app, appID)
+	}
+	var running []string
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if strings.EqualFold(strings.TrimSpace(row.State), "running") && !seen[row.Service] {
+			seen[row.Service] = true
+			running = append(running, row.Service)
+		}
+	}
+	if len(running) == 0 {
+		// Nothing running — just write the override, don't start anything.
+		return nil
+	}
+	result := dockerx.ComposeUpServices(ctx, dir, composePaths, project, nil, envFiles, running...)
+	if !result.OK {
+		return fmt.Errorf("compose apply (running only) failed: %s", strings.TrimSpace(result.Output))
+	}
+	return nil
+}
+
+func (p *Panel) syncAndApplyCaddyOverride(c *fiber.Ctx, appID string) error {
+	if err := p.syncAppCaddyOverride(c, appID); err != nil {
+		return err
+	}
+	app, err := p.DB.GetApp(c.UserContext(), appID)
+	if err != nil {
+		return err
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		_ = p.applyComposeConfigSmart(ctx, app, appID)
+	}()
+	return nil
+}
+
+// syncAndApplyCaddyOverrideCtx is a context-based variant used from goroutines (no fiber.Ctx).
+func (p *Panel) syncAndApplyCaddyOverrideCtx(ctx context.Context, app db.App) error {
+	if err := p.syncAppCaddyOverrideCtx(ctx, app.ID); err != nil {
+		return err
+	}
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		_ = p.applyComposeConfigSmart(bgCtx, app, app.ID)
+	}()
+	return nil
 }
 
 // ── Caddy global page ─────────────────────────────────────────────────────────
@@ -149,7 +231,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if _, err := p.DB.CreateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -162,7 +244,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.DB.DeleteAppDomain(c.UserContext(), did); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -203,7 +285,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
@@ -231,6 +313,19 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 	d, err := p.DB.GetAppDomain(c.UserContext(), did)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "domain not found"})
+	}
+	if user, ok := currentUser(c); ok && user.Role == db.RoleUser {
+		app, err := p.DB.GetApp(c.UserContext(), d.AppID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "domain not found"})
+		}
+		if app.TemplateID == "php_panel" {
+			owner := phpPanelOwnerUser(c)
+			ownerRec, err := p.DB.GetPHPPanelDomainOwnerByDomainID(c.UserContext(), did)
+			if err != nil || ownerRec.UserID != owner.ID {
+				return c.Status(404).JSON(fiber.Map{"error": "domain not found"})
+			}
+		}
 	}
 	sanitizeDomainRecord(&d)
 	domain := strings.TrimSpace(d.Domain)

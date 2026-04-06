@@ -1,0 +1,6 @@
+{
+  "id": "php_panel",
+  "name": "PHP Panel",
+  "description": "Folder-based PHP hosting with shared MySQL, phpMyAdmin, and per-site PHP version routing through the main Caddy proxy.",
+  "versions": ["7.4", "8.1", "8.2", "8.3"]
+}

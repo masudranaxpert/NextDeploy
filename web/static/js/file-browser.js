@@ -16,13 +16,20 @@
     return container.querySelector('[data-fb="' + role + '"]');
   }
 
-  function mount(container) {
+    function mount(container) {
     if (!container || container.getAttribute('data-fb-mounted') === '1') return;
     container.setAttribute('data-fb-mounted', '1');
 
     var treeBase = (container.getAttribute('data-tree-base') || '').replace(/\/$/, '');
     var blobBase = (container.getAttribute('data-blob-base') || '').replace(/\/$/, '');
     var deleteUrl = (container.getAttribute('data-delete-url') || '').trim();
+    var uploadUrl = (container.getAttribute('data-upload-url') || '').trim();
+    var downloadZipUrl = (container.getAttribute('data-download-zip-url') || '').trim();
+    var createZipUrl = (container.getAttribute('data-create-zip-url') || '').trim();
+    var extractZipUrl = (container.getAttribute('data-extract-zip-url') || '').trim();
+    var fileDownloadBase = (container.getAttribute('data-file-download-base') || '').trim();
+    var browserBase = (container.getAttribute('data-browser-base') || '').replace(/^\/+|\/+$/g, '');
+    var uploadMaxMB = Number(container.getAttribute('data-upload-max-mb') || '250') || 250;
     var emptyRootMsg = container.getAttribute('data-empty-root') || 'This folder is empty.';
     var refreshBtnId = (container.getAttribute('data-refresh-button-id') || '').trim();
     var deleteEnabled = !!deleteUrl;
@@ -47,6 +54,19 @@
     };
     var selectedFileRow = null;
     var selectedRelPath = '';
+    var currentDirPath = '';
+    var pendingUploadFiles = [];
+
+    function withBaseParam(url) {
+      if (!browserBase) return url;
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'base=' + encodeURIComponent(browserBase);
+    }
+
+    function currentUploadTarget() {
+      if (!browserBase) return currentDirPath || '';
+      if (!currentDirPath) return browserBase;
+      return browserBase + '/' + currentDirPath;
+    }
 
     function formatBytes(n) {
       n = Number(n) || 0;
@@ -82,6 +102,45 @@
           ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
           : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200');
       el.className = base + (msg ? '' : ' hidden');
+    }
+    function updateDropPathLabel() {
+      var el = q(container, 'drop-path');
+      if (!el) return;
+      var target = currentUploadTarget() || '(root)';
+      el.innerHTML = 'Upload target: <code class="font-mono">' + escapeHtml(target) + '</code>';
+    }
+    function setPendingUploads(files) {
+      pendingUploadFiles = Array.prototype.slice.call(files || []);
+      renderPendingUploads();
+    }
+    function renderPendingUploads() {
+      var wrap = q(container, 'pending-wrap');
+      var title = q(container, 'pending-title');
+      var list = q(container, 'pending-list');
+      if (!wrap || !title || !list) return;
+      list.innerHTML = '';
+      if (!pendingUploadFiles.length) {
+        wrap.classList.add('hidden');
+        title.textContent = 'No files selected';
+        return;
+      }
+      wrap.classList.remove('hidden');
+      title.textContent = pendingUploadFiles.length + ' file(s) selected';
+      pendingUploadFiles.forEach(function (file) {
+        var chip = document.createElement('span');
+        chip.className = 'inline-flex max-w-full items-center gap-2 rounded-lg border border-border/40 bg-muted/25 px-2.5 py-1 text-[11px] text-foreground';
+        chip.innerHTML =
+          '<span class="truncate max-w-[220px]">' + escapeHtml(file.webkitRelativePath || file.name || 'file') + '</span>' +
+          '<span class="font-mono text-muted-foreground">' + formatBytes(file.size) + '</span>';
+        list.appendChild(chip);
+      });
+    }
+    function checkedPaths() {
+      var paths = [];
+      container.querySelectorAll('input[data-fb-delete-cb]:checked').forEach(function (cb) {
+        if (cb.value) paths.push(cb.value);
+      });
+      return paths;
     }
     function setPreviewActions(show, url) {
       var act = q(container, 'preview-actions');
@@ -470,30 +529,33 @@
       }
 
       // Action buttons for non-git (modal) mode
-      if (filePreviewModal && !e.is_dir) {
+      if (filePreviewModal) {
         var actions = document.createElement('span');
         actions.className = 'fb-actions flex shrink-0 items-center gap-0.5';
         actions.style.zIndex = '10';
         actions.style.position = 'relative';
         actions.addEventListener('click', function (ev) { ev.stopPropagation(); });
 
-        // View/Edit button
-        var viewBtn = document.createElement('button');
-        viewBtn.type = 'button';
-        viewBtn.className = 'p-1 rounded text-muted-foreground hover:text-primary transition-colors';
-        viewBtn.title = 'View / Edit file';
-        viewBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>';
-        viewBtn.addEventListener('click', function (ev) { ev.stopPropagation(); openFileModal(e.rel_path, e.size); });
-        actions.appendChild(viewBtn);
+        if (!e.is_dir) {
+          // View/Edit button
+          var viewBtn = document.createElement('button');
+          viewBtn.type = 'button';
+          viewBtn.className = 'p-1 rounded text-muted-foreground hover:text-primary transition-colors';
+          viewBtn.title = 'View / Edit file';
+          viewBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>';
+          viewBtn.addEventListener('click', function (ev) { ev.stopPropagation(); openFileModal(e.rel_path, e.size); });
+          actions.appendChild(viewBtn);
 
-        // Download single file button
-        var dlBtn = document.createElement('a');
-        dlBtn.className = 'p-1 rounded text-muted-foreground hover:text-accent transition-colors';
-        dlBtn.title = 'Download file';
-        dlBtn.href = '/apps/' + appId + '/file?path=' + encodeURIComponent(e.rel_path) + '&download=1';
-        dlBtn.setAttribute('download', e.name || 'file');
-        dlBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>';
-        actions.appendChild(dlBtn);
+          // Download single file button
+          var dlBtn = document.createElement('a');
+          dlBtn.className = 'p-1 rounded text-muted-foreground hover:text-accent transition-colors';
+          dlBtn.title = 'Download file';
+          var singleDownload = (fileDownloadBase || ('/apps/' + appId + '/file')) + '?path=' + encodeURIComponent(e.rel_path) + '&download=1';
+          dlBtn.href = withBaseParam(singleDownload);
+          dlBtn.setAttribute('download', e.name || 'file');
+          dlBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>';
+          actions.appendChild(dlBtn);
+        }
 
         // Delete button
         if (deleteEnabled) {
@@ -504,11 +566,13 @@
           delBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
           delBtn.addEventListener('click', function (ev) {
             ev.stopPropagation();
-            if (confirm('Delete "' + e.rel_path + '"? This cannot be undone.')) {
+            var label = e.is_dir ? 'folder' : 'file';
+            if (confirm('Delete ' + label + ' "' + e.name + '"? This cannot be undone.')) {
               var fd = new FormData();
               fd.append('path', '');
               fd.append('paths', e.rel_path);
-              fetch(deleteUrl + (deleteUrl.indexOf('?') >= 0 ? '&' : '?') + 'format=json', { method: 'POST', body: fd })
+              var delUrl = withBaseParam(deleteUrl) + (withBaseParam(deleteUrl).indexOf('?') >= 0 ? '&' : '?') + 'format=json';
+              fetch(delUrl, { method: 'POST', body: fd })
                 .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
                 .then(function (x) {
                   if (x.ok && x.j.ok) { loadRoot(); }
@@ -551,10 +615,10 @@
       return li;
     }
     function treeUrl(dirPath) {
-      return treeBase + '?path=' + encodeURIComponent(dirPath || '');
+      return withBaseParam(treeBase + '?path=' + encodeURIComponent(dirPath || ''));
     }
     function blobUrl(relPath) {
-      return blobBase + '?path=' + encodeURIComponent(relPath);
+      return withBaseParam(blobBase + '?path=' + encodeURIComponent(relPath));
     }
     function toggleFolder(li) {
       var childUl = li.querySelector(':scope > ul.git-browser-children');
@@ -588,6 +652,8 @@
             showTreeError(x.j.error || 'Could not load folder');
             return;
           }
+          currentDirPath = x.j.path || '';
+          updateDropPathLabel();
           var entries = x.j.entries || [];
           childUl.innerHTML = '';
           if (!entries.length) {
@@ -614,6 +680,8 @@
       showTreeError('');
       treeRoot.innerHTML = '';
       clearPreview();
+      currentDirPath = '';
+      updateDropPathLabel();
       setLoading(true);
       fetch(treeUrl(''))
         .then(function (r) {
@@ -626,6 +694,8 @@
             showTreeError(x.j.error || 'Could not load directory');
             return;
           }
+          currentDirPath = x.j.path || '';
+          updateDropPathLabel();
           var entries = x.j.entries || [];
           if (!entries.length) {
             var emptyLi = document.createElement('li');
@@ -704,7 +774,7 @@
     // openFileModal: file view + inline edit + save
     function openFileModal(relPath, size) {
       var title = relPath.split('/').pop() || relPath;
-      var saveUrl = '/apps/' + appId + '/files/save?path=' + encodeURIComponent(relPath);
+      var saveUrl = withBaseParam('/apps/' + appId + '/files/save?path=' + encodeURIComponent(relPath));
 
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
@@ -917,11 +987,12 @@
     if (downloaZipBtn) {
       downloaZipBtn.addEventListener('click', function () {
         var boxes = container.querySelectorAll('input[data-fb-delete-cb]:checked');
-        var zipUrl = '/apps/' + appId + '/files/download-zip';
+        var zipUrl = downloadZipUrl || ('/apps/' + appId + '/files/download-zip');
+        zipUrl = withBaseParam(zipUrl);
         if (boxes.length > 0) {
           var paths = [];
           boxes.forEach(function (b) { paths.push(b.value); });
-          zipUrl += '?paths=' + paths.map(encodeURIComponent).join(',');
+          zipUrl += (zipUrl.indexOf('?') >= 0 ? '&' : '?') + 'paths=' + paths.map(encodeURIComponent).join(',');
         }
         var a = document.createElement('a');
         a.href = zipUrl;
@@ -929,6 +1000,75 @@
         document.body.appendChild(a);
         a.click();
         a.remove();
+      });
+    }
+
+    var createZipBtn = q(container, 'create-zip');
+    if (createZipBtn && createZipUrl) {
+      createZipBtn.addEventListener('click', function () {
+        var paths = checkedPaths();
+        if (!paths.length) {
+          setFlash('Select files or folders to ZIP first.', true);
+          return;
+        }
+        var zipName = global.prompt('ZIP file name', 'archive.zip');
+        if (!zipName) return;
+        var fd = new FormData();
+        fd.append('path', currentDirPath || '');
+        fd.append('zip_name', zipName);
+        paths.forEach(function (p) { fd.append('paths', p); });
+        fetch(withBaseParam(createZipUrl), { method: 'POST', body: fd })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (x) {
+            if (!x.ok || !x.j.ok) {
+              setFlash((x.j && x.j.message) || 'ZIP creation failed.', true);
+              return;
+            }
+            setFlash(x.j.message || 'ZIP created.', false);
+            loadRoot();
+          })
+          .catch(function () {
+            setFlash('Network error while creating ZIP.', true);
+          });
+      });
+    }
+
+    var extractZipBtn = q(container, 'extract-zip');
+    if (extractZipBtn && extractZipUrl) {
+      extractZipBtn.addEventListener('click', function () {
+        var paths = checkedPaths().filter(function (p) { return /\.zip$/i.test(p); });
+        if (!paths.length) {
+          setFlash('Select one or more .zip files first.', true);
+          return;
+        }
+        var pending = paths.length;
+        var failed = false;
+        paths.forEach(function (zipPath) {
+          var fd = new FormData();
+          fd.append('path', currentDirPath || '');
+          fd.append('zip_path', zipPath);
+          fetch(withBaseParam(extractZipUrl), { method: 'POST', body: fd })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (x) {
+              if (!x.ok || !x.j.ok) {
+                failed = true;
+                setFlash((x.j && x.j.message) || ('Failed to extract ' + zipPath), true);
+              }
+            })
+            .catch(function () {
+              failed = true;
+              setFlash('Network error while extracting ZIP.', true);
+            })
+            .finally(function () {
+              pending -= 1;
+              if (pending === 0 && !failed) {
+                setFlash('ZIP extracted.', false);
+                loadRoot();
+              } else if (pending === 0) {
+                loadRoot();
+              }
+            });
+        });
       });
     }
 
@@ -953,7 +1093,7 @@
         boxes.forEach(function (b) {
           fd.append('paths', b.value);
         });
-        fetch(deleteUrl + (deleteUrl.indexOf('?') >= 0 ? '&' : '?') + 'format=json', {
+        fetch(withBaseParam(deleteUrl + (deleteUrl.indexOf('?') >= 0 ? '&' : '?') + 'format=json'), {
           method: 'POST',
           body: fd
         })
@@ -981,10 +1121,148 @@
       });
     }
 
+    function uploadFiles(files) {
+      if (!uploadUrl) { setFlash('Upload URL not configured.', true); return; }
+      if (!files || !files.length) { setFlash('No files to upload.', true); return; }
+      var overLimit = [];
+      Array.prototype.forEach.call(files, function (file) {
+        if ((Number(file.size) || 0) > uploadMaxMB * 1024 * 1024) {
+          overLimit.push(file.name || 'file');
+        }
+      });
+      if (overLimit.length) {
+        setFlash('These files exceed the ' + uploadMaxMB + ' MB limit: ' + overLimit.join(', '), true);
+        return;
+      }
+      var fd = new FormData();
+      fd.append('path', currentDirPath || '');
+      Array.prototype.forEach.call(files, function (file) {
+        var relName = (file.webkitRelativePath || file.name || '').replace(/^\/+/, '');
+        fd.append('file', file, relName);
+      });
+      var finalUrl = withBaseParam(uploadUrl);
+      setFlash('Uploading…', false);
+      setLoading(true);
+      fetch(finalUrl, {
+        method: 'POST',
+        body: fd
+      })
+        .then(function (r) {
+          var ct = r.headers.get('Content-Type') || '';
+          if (ct.indexOf('application/json') >= 0) {
+            return r.json().then(function (j) {
+              return { ok: r.ok, j: j };
+            });
+          }
+          return r.text().then(function (t) {
+            if (!r.ok) throw new Error(t || 'Upload failed (' + r.status + ')');
+            return { ok: true, j: { ok: true, message: 'Upload complete.' } };
+          });
+        })
+        .then(function (x) {
+          if (!x.ok || (x.j && !x.j.ok)) {
+            setFlash((x.j && x.j.message) || 'Upload failed.', true);
+            return;
+          }
+          setFlash((x.j && x.j.message) || 'Upload complete.', false);
+          setPendingUploads([]);
+          if (picker) picker.value = '';
+          loadRoot();
+        })
+        .catch(function (err) {
+          setFlash(err && err.message ? err.message : 'Upload failed.', true);
+        })
+        .finally(function () {
+          setLoading(false);
+        });
+    }
+
+    var picker = q(container, 'picker');
+    if (picker && uploadUrl) {
+      // Reset on the parent label's mousedown (fires before the dialog opens)
+      // so that selecting the same file again always fires 'change'.
+      var pickerLabel = picker.closest('label');
+      if (pickerLabel) {
+        pickerLabel.addEventListener('mousedown', function () {
+          picker.value = '';
+        });
+        pickerLabel.addEventListener('touchstart', function () {
+          picker.value = '';
+        }, { passive: true });
+      } else {
+        picker.addEventListener('mousedown', function () {
+          picker.value = '';
+        });
+      }
+      picker.addEventListener('change', function () {
+        if (picker.files && picker.files.length) {
+          setPendingUploads(picker.files);
+          setFlash(picker.files.length + ' file(s) ready. Click Upload now to send them.', false);
+        }
+      });
+    }
+
+    var clearSelectedBtn = q(container, 'clear-selected');
+    if (clearSelectedBtn) {
+      clearSelectedBtn.addEventListener('click', function () {
+        setPendingUploads([]);
+        if (picker) picker.value = '';
+        setFlash('Selected upload queue cleared.', false);
+      });
+    }
+
+    var uploadSelectedBtn = q(container, 'upload-selected');
+    if (uploadSelectedBtn && uploadUrl) {
+      uploadSelectedBtn.addEventListener('click', function () {
+        if (pendingUploadFiles && pendingUploadFiles.length) {
+          uploadFiles(pendingUploadFiles);
+          if (picker) picker.value = '';
+          return;
+        }
+        setFlash('Choose one or more files first.', true);
+      });
+    }
+
+    var dropzone = q(container, 'dropzone');
+    if (dropzone && uploadUrl) {
+      ['dragenter', 'dragover'].forEach(function (name) {
+        dropzone.addEventListener(name, function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+          dropzone.classList.add('border-primary/50', 'bg-primary/8');
+        });
+      });
+      ['dragleave', 'dragend', 'drop'].forEach(function (name) {
+        dropzone.addEventListener(name, function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (name === 'dragleave' && dropzone.contains(ev.relatedTarget)) return;
+          dropzone.classList.remove('border-primary/50', 'bg-primary/8');
+        });
+      });
+      dropzone.addEventListener('drop', function (ev) {
+        var files = ev.dataTransfer && ev.dataTransfer.files;
+        if (files && files.length) {
+          setPendingUploads(files);
+          if (picker) picker.value = '';
+          setFlash(files.length + ' file(s) dropped. Click Upload now to send them.', false);
+        }
+      });
+    }
+
     loadRoot();
   }
 
   function boot() {
+    ['dragenter', 'dragover', 'drop'].forEach(function (name) {
+      document.addEventListener(name, function (ev) {
+        var inDropzone = ev.target && ev.target.closest && ev.target.closest('[data-fb="dropzone"]');
+        if (!inDropzone) {
+          ev.preventDefault();
+        }
+      });
+    });
     document.querySelectorAll('[data-panel-file-browser]').forEach(mount);
   }
 

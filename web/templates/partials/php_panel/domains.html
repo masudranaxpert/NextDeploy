@@ -1,0 +1,190 @@
+{{define "partials/php_panel/domains"}}
+<div class="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+  <section class="panel-card p-6">
+    <h2 class="text-base font-semibold text-foreground">Add domain</h2>
+    <p class="mt-1 text-sm text-muted-foreground">Choose a site. The panel resolves the matching FPM service from that site's PHP version.</p>
+    <form method="post" action="{{.RouteBase}}/domains/create" class="mt-5 space-y-4">
+      <div>
+        <label class="mb-1.5 block text-sm font-medium text-foreground">Domain</label>
+        <input class="input w-full font-mono" name="domain" placeholder="example.com" required autocomplete="off">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-sm font-medium text-foreground">Site</label>
+        <select class="input w-full" name="site_slug" required>
+          <option value="">Select site</option>
+          {{range .Sites}}
+          <option value="{{.Slug}}">{{.Name}} · PHP {{.PHPVersion}}</option>
+          {{end}}
+        </select>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/15 px-3 py-3 text-sm text-foreground">
+          <input type="checkbox" name="enable_https" class="rounded">
+          Enable HTTPS
+        </label>
+        <label class="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/15 px-3 py-3 text-sm text-foreground">
+          <input type="checkbox" name="enable_www" class="rounded">
+          Include www
+        </label>
+      </div>
+      <button type="submit" class="btn-primary h-10 px-5 text-sm">Save Domain</button>
+    </form>
+
+    <div class="mt-8 border-t border-border/50 pt-6">
+      <h3 class="text-sm font-semibold text-foreground">phpMyAdmin domain</h3>
+      <p class="mt-1 text-sm text-muted-foreground">Point a domain directly to the shared <code class="font-mono">php_pma</code> service so you can open phpMyAdmin from your own hostname.</p>
+      <form method="post" action="{{.RouteBase}}/domains/phpmyadmin" class="mt-5 space-y-4">
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground">phpMyAdmin domain</label>
+          <input class="input w-full font-mono" name="domain" placeholder="db.example.com" required autocomplete="off">
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/15 px-3 py-3 text-sm text-foreground">
+            <input type="checkbox" name="enable_https" class="rounded">
+            Enable HTTPS
+          </label>
+          <label class="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/15 px-3 py-3 text-sm text-foreground">
+            <input type="checkbox" name="enable_www" class="rounded">
+            Include www
+          </label>
+        </div>
+        <button type="submit" class="btn-secondary h-10 px-5 text-sm">Save phpMyAdmin Domain</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h2 class="text-base font-semibold text-foreground">Saved domains</h2>
+    </div>
+    {{if .Domains}}
+    <div class="divide-y divide-border/40">
+      {{range .Domains}}
+      {{$meta := index $.TemplateDomains .ID}}
+      <div class="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="font-mono text-sm font-semibold text-foreground">{{.Domain}}</p>
+            {{if .EnableHTTPS}}
+            <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">HTTPS</span>
+            {{else}}
+            <span class="inline-flex items-center rounded-full bg-stone-500/15 px-2 py-0.5 text-[10px] font-medium text-stone-400 ring-1 ring-stone-500/25">HTTP</span>
+            {{end}}
+            {{if .EnableWWW}}
+            <span class="inline-flex items-center rounded-full bg-stone-500/15 px-2 py-0.5 text-[10px] font-medium text-stone-400 ring-1 ring-stone-500/25">www</span>
+            {{end}}
+            {{if eq .Service "php_pma"}}
+            <span class="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-sky-500/25">phpMyAdmin</span>
+            {{else}}
+            <span class="inline-flex items-center rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">{{$meta.SiteSlug}}</span>
+            <span class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-violet-500/25">PHP {{$meta.PHPVersion}}</span>
+            {{end}}
+            <span id="dns-badge-{{.ID}}" class="hidden"></span>
+          </div>
+          {{if eq .Service "php_pma"}}
+          <p class="mt-1 text-xs text-muted-foreground">Main Caddy -> <code class="font-mono">php_pma</code> on port {{.Port}} -> shared phpMyAdmin UI</p>
+          {{else}}
+          <p class="mt-1 text-xs text-muted-foreground">Main Caddy -> <code class="font-mono">{{.Service}}</code> on port {{.Port}} -> root <code class="font-mono">{{$meta.RootPath}}</code></p>
+          {{end}}
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn-secondary h-9 px-3 text-xs" onclick="phpPanelValidateDNS({{.ID}}, '{{$.App.ID}}')">Check DNS</button>
+          <a class="btn-secondary h-9 px-3 text-xs" href="{{if .EnableHTTPS}}https://{{else}}http://{{end}}{{.Domain}}" target="_blank" rel="noreferrer">Open</a>
+          <form method="post" action="{{$.RouteBase}}/domains/delete?domain_id={{.ID}}" onsubmit="return confirm('Remove domain {{.Domain}}?')">
+            <button type="submit" class="btn-delete-sm">Remove</button>
+          </form>
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="px-5 py-12 text-center text-sm text-muted-foreground">No owned domains yet. Add one to update the main proxy automatically.</div>
+    {{end}}
+  </section>
+</div>
+
+<div id="php-panel-dns-modal" class="modal-overlay hidden">
+  <div class="absolute inset-0 bg-black/50" onclick="document.getElementById('php-panel-dns-modal').classList.add('hidden')"></div>
+  <div class="modal-box max-w-xl">
+    <div class="mb-4 flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">DNS status</h3>
+        <p class="mt-1 text-xs text-muted-foreground">Check whether the domain already resolves and whether it sits behind Cloudflare.</p>
+      </div>
+      <button type="button" class="btn-icon" onclick="document.getElementById('php-panel-dns-modal').classList.add('hidden')" aria-label="Close">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="php-panel-dns-modal-body"></div>
+  </div>
+</div>
+
+<script>
+function phpPanelEscHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function phpPanelRenderDNSError(data) {
+  return '<div class="space-y-3">' +
+    '<div class="flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-3">' +
+      '<svg class="h-4 w-4 shrink-0 mt-0.5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>' +
+      '<div><p class="text-xs font-medium text-rose-300">DNS lookup failed</p><p class="mt-0.5 text-[11px] text-rose-400/70 break-all">' + phpPanelEscHtml(data.error || 'Unknown error') + '</p></div>' +
+    '</div>' +
+    '<p class="text-[11px] text-muted-foreground/60">Make sure the domain A record points to your server IP and DNS has propagated.</p>' +
+  '</div>';
+}
+
+function phpPanelRenderDNSSuccess(data) {
+  var tlsHtml = data.internalTLS
+    ? '<div class="flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2.5">' +
+        '<div><p class="text-xs font-medium text-orange-300">Development domain detected</p><p class="mt-0.5 text-[11px] text-orange-400/70">This suffix uses internal TLS instead of public ACME certificates.</p></div>' +
+      '</div>'
+    : '';
+  var cfHtml = data.cloudflare
+    ? '<div class="flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2.5"><p class="text-xs text-orange-300">Behind Cloudflare. Caddy will usually rely on HTTP challenge unless DNS challenge is configured.</p></div>'
+    : '<div class="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5"><p class="text-xs text-emerald-300">Direct DNS detected. Caddy can issue certificates with HTTP challenge.</p></div>';
+  var ipsHtml = (data.ips || []).map(function(ip) {
+    return '<code class="rounded bg-muted/40 px-1.5 py-0.5 text-[11px] text-foreground font-mono">' + phpPanelEscHtml(ip) + '</code>';
+  }).join(' ');
+  return '<div class="space-y-3">' +
+    '<div class="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">' +
+      '<span class="text-xs text-muted-foreground">Domain</span>' +
+      '<code class="text-xs font-mono text-foreground">' + phpPanelEscHtml(data.domain) + '</code>' +
+    '</div>' +
+    '<div class="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">' +
+      '<p class="mb-1.5 text-[11px] text-muted-foreground">Resolved IPs</p>' +
+      '<div class="flex flex-wrap gap-1.5">' + ipsHtml + '</div>' +
+    '</div>' +
+    tlsHtml +
+    cfHtml +
+  '</div>';
+}
+
+function phpPanelValidateDNS(domainId, appId) {
+  var modal = document.getElementById('php-panel-dns-modal');
+  var body = document.getElementById('php-panel-dns-modal-body');
+  var badge = document.getElementById('dns-badge-' + domainId);
+  body.innerHTML = '<div class="flex items-center gap-2 text-sm text-muted-foreground"><svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg> Checking DNS…</div>';
+  modal.classList.remove('hidden');
+  fetch('/apps/' + appId + '/domains/' + domainId + '/dns-check')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data.ok) {
+        body.innerHTML = phpPanelRenderDNSError(data);
+        if (badge) badge.className = 'hidden';
+        return;
+      }
+      body.innerHTML = phpPanelRenderDNSSuccess(data);
+      if (badge) {
+        badge.className = '';
+        badge.innerHTML = data.cloudflare
+          ? '<span class="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">Behind Cloudflare</span>'
+          : '<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">DNS OK</span>';
+      }
+    })
+    .catch(function(e){
+      body.innerHTML = '<p class="text-sm text-rose-400">Error: ' + phpPanelEscHtml(e.message) + '</p>';
+    });
+}
+</script>
+{{end}}

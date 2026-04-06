@@ -1,0 +1,31 @@
+{{define "partials/php_panel/header"}}
+{{if .ScopedPHPPanelOnly}}
+<div class="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
+  <div class="flex items-center gap-2 text-xs text-amber-300">
+    <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+    </svg>
+    Viewing as <span class="font-semibold text-amber-200 ml-1">{{if .OwnerUser}}{{.OwnerUser.Username}}{{end}}</span> — impersonation mode
+  </div>
+  <form method="post" action="/php-panel/exit-impersonation">
+    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-500/25">
+      Exit
+    </button>
+  </form>
+</div>
+{{end}}
+<div class="section-header">
+  <div>
+    <h1 class="page-title">{{.App.Name}}</h1>
+    <p class="page-subtitle">Template-managed PHP hosting with shared MySQL, phpMyAdmin, and the main Caddy proxy.</p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    {{if .PHPMyAdminURL}}
+    <a href="{{.PHPMyAdminURL}}" target="_blank" rel="noreferrer" class="btn-primary h-10 px-4 text-sm">Open phpMyAdmin</a>
+    {{end}}
+    {{if and .CurrentUser (eq .CurrentUser.Role "admin") (not .ScopedPHPPanelOnly)}}
+    <a href="/apps/{{.App.ID}}" class="btn-secondary h-10 px-4 text-sm">Open App Workspace</a>
+    {{end}}
+  </div>
+</div>
+{{end}}

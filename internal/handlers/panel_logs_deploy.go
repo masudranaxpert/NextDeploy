@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -159,6 +161,9 @@ func (p *Panel) UploadZip(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(400).SendString("missing archive field (zip)")
 	}
+	if fh.Size > p.uploadMaxBytes(c.UserContext()) {
+		return c.Status(fiber.StatusRequestEntityTooLarge).SendString(fmt.Sprintf("upload exceeds %d MB limit", p.uploadMaxMB(c.UserContext())))
+	}
 	src, err := fh.Open()
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -204,22 +209,85 @@ func (p *Panel) UploadZip(c *fiber.Ctx) error {
 func (p *Panel) UploadFile(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("app not found")
+		return jsonOrText(c, 404, "app not found")
 	}
 	if p.isGitApp(c.UserContext(), id) {
-		return c.Status(400).SendString("file upload is disabled for git-backed apps")
+		return jsonOrText(c, 400, "file upload is disabled for git-backed apps")
 	}
-	file, err := c.FormFile("file")
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
 	if err != nil {
-		return c.Status(400).SendString("missing file")
+		return jsonOrText(c, 400, "invalid base path")
 	}
-	src, err := file.Open()
+	if err := p.enforcePHPPanelScopedBase(c, id, baseRel); err != nil {
+		return jsonOrText(c, 403, "base path not allowed: "+err.Error())
+	}
+	targetRel, err := joinWorkspaceScope(baseRel, c.FormValue("path"))
 	if err != nil {
-		return c.Status(500).SendString(err.Error())
+		return jsonOrText(c, 400, "invalid path")
 	}
-	defer src.Close()
-	if _, err := p.Store.SaveUploadedFile(id, file.Filename, src); err != nil {
-		return c.Status(400).SendString("invalid path")
+	form, err := c.MultipartForm()
+	if err != nil {
+		return jsonOrText(c, 400, "missing file")
 	}
-	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
+	files := form.File["file"]
+	if len(files) == 0 {
+		return jsonOrText(c, 400, "no files provided")
+	}
+	limit := p.uploadMaxBytes(c.UserContext())
+	for _, file := range files {
+		if file.Size > limit {
+			return jsonOrText(c, fiber.StatusRequestEntityTooLarge,
+				fmt.Sprintf("file '%s' exceeds %d MB limit", file.Filename, p.uploadMaxMB(c.UserContext())))
+		}
+	}
+	var saved []string
+	for _, file := range files {
+		src, err := file.Open()
+		if err != nil {
+			return jsonOrText(c, 500, err.Error())
+		}
+		destRel := file.Filename
+		if targetRel != "" {
+			destRel = strings.Trim(targetRel+"/"+strings.TrimLeft(strings.ReplaceAll(file.Filename, "\\", "/"), "/"), "/")
+		}
+		if _, err := p.Store.SaveUploadedFile(id, destRel, src); err != nil {
+			_ = src.Close()
+			return jsonOrText(c, 400, "could not save '"+file.Filename+"': "+err.Error())
+		}
+		_ = src.Close()
+		p.ensurePHPPanelPublicReadable(id, filepath.ToSlash(destRel), false)
+		saved = append(saved, file.Filename)
+	}
+	// Return JSON if the caller was the JS file browser (fetch), plain redirect otherwise.
+	if isJSONRequest(c) {
+		return c.JSON(fiber.Map{"ok": true, "message": fmt.Sprintf("Uploaded %d file(s).", len(saved))})
+	}
+	redirectURL := fmt.Sprintf("/apps/%s?tab=files", id)
+	if baseRel != "" {
+		redirectURL += "&base=" + url.QueryEscape(baseRel)
+	}
+	return c.Redirect(redirectURL)
+}
+
+// jsonOrText sends a JSON error if the request wants JSON, otherwise plain text.
+func jsonOrText(c *fiber.Ctx, status int, msg string) error {
+	if isJSONRequest(c) {
+		return c.Status(status).JSON(fiber.Map{"ok": false, "message": msg})
+	}
+	return c.Status(status).SendString(msg)
+}
+
+// isJSONRequest returns true when the caller expects JSON (fetch XHR from the file browser).
+func isJSONRequest(c *fiber.Ctx) bool {
+	accept := c.Get("Accept")
+	ct := c.Get("Content-Type")
+	// fetch() with FormData does NOT set Accept:application/json by default,
+	// but we can check if it is NOT a normal browser form submit (no full-page referer match).
+	// Simplest reliable signal: fetch sets "Accept: */*" and does NOT send a full HTML Accept header.
+	if strings.Contains(accept, "text/html") {
+		return false
+	}
+	_ = ct
+	// Treat anything that is NOT a classic browser form navigation as JSON.
+	return true
 }

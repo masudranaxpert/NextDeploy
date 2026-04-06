@@ -1,0 +1,326 @@
+{{define "partials/php_panel/databases"}}
+{{if .MySQLError}}
+<div class="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{{.MySQLError}}</div>
+{{end}}
+
+<div x-data="{
+  createDbUserOpen: false,
+  allSelected: false,
+  toggleAll(form) {
+    const boxes = form.querySelectorAll('input[name=privileges]');
+    boxes.forEach(b => b.checked = !this.allSelected);
+    this.allSelected = !this.allSelected;
+  }
+}">
+
+<!-- Top row: connection info + create actions -->
+<div class="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+  <!-- Left: connection details -->
+  <section class="panel-card p-5 space-y-3">
+    <h2 class="text-sm font-semibold text-foreground">Connection details</h2>
+    <div class="rounded-xl border border-border/60 bg-muted/15 p-4 flex items-center justify-between gap-3">
+      <div>
+        <p class="text-[10px] uppercase tracking-widest text-muted-foreground/70">DB Host (from PHP)</p>
+        <p class="mt-0.5 font-mono text-sm font-bold text-foreground">php_mysql</p>
+      </div>
+      <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">always</span>
+    </div>
+    <div class="rounded-xl border border-border/60 bg-muted/15 p-4 flex items-center justify-between gap-3">
+      <div>
+        <p class="text-[10px] uppercase tracking-widest text-muted-foreground/70">Port</p>
+        <p class="mt-0.5 font-mono text-sm font-bold text-foreground">{{.DBPort}}</p>
+      </div>
+    </div>
+    <div class="rounded-xl border border-border/60 bg-muted/15 p-4">
+      <p class="text-[10px] uppercase tracking-widest text-muted-foreground/70">Your quota</p>
+      <p class="mt-1 text-sm text-foreground">
+        <span class="font-semibold text-foreground">{{.OwnerSummary.DatabaseCount}}</span>
+        <span class="text-muted-foreground"> / {{.OwnerSummary.Account.DatabaseLimit}} databases used</span>
+      </p>
+    </div>
+    <div class="rounded-xl border border-border/60 bg-muted/15 p-4">
+      <p class="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-2">PHP snippet</p>
+      <pre class="overflow-auto rounded-lg bg-stone-950 p-3 text-[11px] leading-relaxed text-stone-300"><code>$pdo = new PDO(
+  'mysql:host=php_mysql;port=3306;dbname=your_db',
+  'your_user',
+  'your_pass'
+);</code></pre>
+    </div>
+  </section>
+
+  <!-- Right: create DB + create user -->
+  <div class="space-y-5">
+    <section class="panel-card p-5">
+      <h2 class="text-sm font-semibold text-foreground">Create database</h2>
+      <form method="post" action="{{.RouteBase}}/databases/create" class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div class="flex-1">
+          <label class="mb-1 block text-xs font-medium text-muted-foreground">Database name</label>
+          <input class="input w-full font-mono" name="database" placeholder="client_portal" required autocomplete="off">
+        </div>
+        <button type="submit" class="btn-primary h-10 px-5 text-sm shrink-0">
+          <svg class="mr-1.5 h-4 w-4 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Create DB
+        </button>
+      </form>
+    </section>
+
+    <section class="panel-card p-5">
+      <h2 class="text-sm font-semibold text-foreground">Database users</h2>
+      <p class="mt-1 text-xs text-muted-foreground">Credentials are saved encrypted and used for phpMyAdmin auto-login.</p>
+      <div class="mt-3">
+        <button type="button" class="btn-secondary h-10 px-5 text-sm" @click="createDbUserOpen = true">
+          <svg class="mr-1.5 h-4 w-4 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z"/>
+          </svg>
+          Add Database User
+        </button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Create DB User Modal -->
+<div x-show="createDbUserOpen" x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center p-4"
+     @keydown.escape.window="createDbUserOpen = false">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="createDbUserOpen = false"></div>
+  <div class="relative z-10 w-full max-w-2xl rounded-2xl border border-border/60 bg-card shadow-2xl max-h-[90vh] overflow-y-auto" @click.stop>
+    <!-- Modal header -->
+    <div class="sticky top-0 flex items-start justify-between gap-3 border-b border-border/50 bg-card px-6 py-4 rounded-t-2xl">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">Add database user</h3>
+        <p class="mt-0.5 text-xs text-muted-foreground">cPanel-style user creation. Password saved encrypted for phpMyAdmin auto-login.</p>
+      </div>
+      <button type="button" class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors shrink-0" @click="createDbUserOpen = false" aria-label="Close">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <form id="create-db-user-form" method="post" action="{{.RouteBase}}/databases/users/create" class="p-6 space-y-5">
+      <!-- Username + Password -->
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
+          <input class="input w-full font-mono" name="username" placeholder="client_user" required autocomplete="off">
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password</label>
+          <input class="input w-full" type="password" name="password" placeholder="Strong password" required autocomplete="new-password">
+          <p class="mt-1 text-[11px] text-muted-foreground">Saved encrypted — enables phpMyAdmin auto-login.</p>
+        </div>
+      </div>
+
+      <!-- Host + Grant DB -->
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">MySQL account host</label>
+          <input class="input w-full font-mono" name="host" placeholder="%" value="%" required autocomplete="off">
+          <p class="mt-1 text-[11px] text-muted-foreground">Use <code class="font-mono text-foreground">%</code> to allow connections from any host (recommended), or enter a specific IP.</p>
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Grant to database <span class="font-normal text-muted-foreground/70">(optional)</span></label>
+          <select class="input w-full" name="database">
+            <option value="">No grant — create user only</option>
+            {{range .DatabasesList}}
+            <option value="{{.Name}}">{{.Name}}</option>
+            {{end}}
+          </select>
+          <p class="mt-1 text-[11px] text-muted-foreground">You can grant more databases after creating the user.</p>
+        </div>
+      </div>
+
+      <!-- Privileges with Select All -->
+      <div>
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <label class="text-xs font-medium text-muted-foreground">
+            Privileges
+            <span class="font-normal text-muted-foreground/70 ml-1">(unchecked = ALL PRIVILEGES)</span>
+          </label>
+          <button type="button"
+            @click="toggleAll($el.closest('form'))"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/40 transition-colors">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span x-text="allSelected ? 'Deselect all' : 'Select all'">Select all</span>
+          </button>
+        </div>
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {{range .DBPrivilegeOptions}}
+          <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-muted/15 px-3 py-2.5 text-xs text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors has-[:checked]:border-primary/40 has-[:checked]:bg-primary/10">
+            <input type="checkbox" name="privileges" value="{{.}}" class="rounded accent-primary">
+            <span class="font-mono">{{.}}</span>
+          </label>
+          {{end}}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex justify-end gap-2 border-t border-border/50 pt-4">
+        <button type="button" class="btn-secondary px-4 py-2 text-sm" @click="createDbUserOpen = false">Cancel</button>
+        <button type="submit" class="btn-primary px-5 py-2 text-sm">Create User</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+</div><!-- end x-data -->
+
+<!-- Databases + Users list -->
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <!-- Databases list -->
+  <section class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Databases</h2>
+        <p class="text-[11px] text-muted-foreground">Shared <code class="font-mono">php_mysql</code> schemas</p>
+      </div>
+      {{if .DatabasesList}}
+      <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{len .DatabasesList}}</span>
+      {{end}}
+    </div>
+    {{if .DatabasesList}}
+    <div class="divide-y divide-border/40">
+      {{range .DatabasesList}}
+      <div class="flex items-center justify-between gap-3 px-5 py-3.5 group hover:bg-muted/10 transition-colors">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 ring-1 ring-sky-500/20">
+            <svg class="h-4 w-4 text-sky-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="font-mono text-sm font-semibold text-foreground truncate">{{.Name}}</p>
+            <p class="text-[11px] text-muted-foreground">MySQL schema</p>
+          </div>
+        </div>
+        <form method="post" action="{{$.RouteBase}}/databases/delete"
+              onsubmit="return confirm('Drop database {{.Name}}? All data will be permanently deleted.')">
+          <input type="hidden" name="database" value="{{.Name}}">
+          <button type="submit" class="btn-delete-sm opacity-0 group-hover:opacity-100 transition-opacity">Drop</button>
+        </form>
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="flex flex-col items-center justify-center px-5 py-12 text-center">
+      <svg class="h-8 w-8 text-muted-foreground/30" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375"/>
+      </svg>
+      <p class="mt-3 text-sm text-muted-foreground">No databases yet.</p>
+      <p class="mt-1 text-xs text-muted-foreground/60">Create your first database above.</p>
+    </div>
+    {{end}}
+  </section>
+
+  <!-- DB Users list -->
+  <section class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Database users</h2>
+        <p class="text-[11px] text-muted-foreground">MySQL accounts owned by you</p>
+      </div>
+      {{if .DatabaseUsers}}
+      <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60">{{len .DatabaseUsers}}</span>
+      {{end}}
+    </div>
+    {{if .DatabaseUsers}}
+    <div class="divide-y divide-border/40" x-data="{}">
+      {{range .DatabaseUsers}}
+      <div class="px-5 py-4 space-y-4">
+        <!-- User header -->
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
+              <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="font-mono text-sm font-semibold text-foreground">{{.User}}</p>
+                <span class="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-mono font-medium text-sky-300 ring-1 ring-sky-500/25">@{{.Host}}</span>
+                {{if .Credential}}
+                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">
+                  <svg class="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clip-rule="evenodd"/></svg>
+                  PMA login ready
+                </span>
+                {{end}}
+              </div>
+              {{if .Grants}}
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                {{range .Grants}}
+                <span class="inline-flex items-center rounded-lg bg-muted/40 px-2 py-1 text-[10px] font-medium text-foreground ring-1 ring-border/60">
+                  <span class="font-mono text-sky-300">{{.Database}}</span>
+                  <span class="mx-1 text-muted-foreground/50">·</span>
+                  <span class="text-muted-foreground">{{.Privileges}}</span>
+                </span>
+                {{end}}
+              </div>
+              {{end}}
+            </div>
+          </div>
+          <form method="post" action="{{$.RouteBase}}/databases/users/delete"
+                onsubmit="return confirm('Delete MySQL user {{.User}}@{{.Host}}? This cannot be undone.')">
+            <input type="hidden" name="user_key" value="{{.Key}}">
+            <button type="submit" class="btn-delete-sm">Delete</button>
+          </form>
+        </div>
+
+        <!-- Grant another DB — collapsible -->
+        <details class="group">
+          <summary class="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors select-none">
+            <svg class="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+            </svg>
+            Grant another database
+          </summary>
+          <form method="post" action="{{$.RouteBase}}/databases/grant" class="mt-3 space-y-3 pl-5">
+            <input type="hidden" name="user_key" value="{{.Key}}">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted-foreground">Database</label>
+                <select class="input w-full" name="database" required>
+                  <option value="">Select database</option>
+                  {{range $.DatabasesList}}
+                  <option value="{{.Name}}">{{.Name}}</option>
+                  {{end}}
+                </select>
+              </div>
+              <div x-data="{ grantAll: false }">
+                <div class="mb-1 flex items-center justify-between">
+                  <label class="text-xs font-medium text-muted-foreground">Privileges</label>
+                  <button type="button" @click="grantAll = !grantAll; $el.closest('[x-data]').querySelectorAll('input[name=privileges]').forEach(b => b.checked = grantAll)"
+                    class="text-[10px] text-primary hover:underline">
+                    <span x-text="grantAll ? 'Deselect all' : 'Select all'">Select all</span>
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                  {{range $.DBPrivilegeOptions}}
+                  <label class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/60 bg-muted/15 px-2.5 py-2 text-[11px] text-foreground hover:bg-muted/30 transition-colors">
+                    <input type="checkbox" name="privileges" value="{{.}}" class="rounded accent-primary">
+                    <span class="font-mono">{{.}}</span>
+                  </label>
+                  {{end}}
+                </div>
+              </div>
+            </div>
+            <button type="submit" class="btn-secondary h-8 px-4 text-xs">Grant Access</button>
+          </form>
+        </details>
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="flex flex-col items-center justify-center px-5 py-12 text-center">
+      <svg class="h-8 w-8 text-muted-foreground/30" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+      </svg>
+      <p class="mt-3 text-sm text-muted-foreground">No database users yet.</p>
+      <p class="mt-1 text-xs text-muted-foreground/60">Add a user above to enable phpMyAdmin login.</p>
+    </div>
+    {{end}}
+  </section>
+</div>
+{{end}}

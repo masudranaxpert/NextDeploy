@@ -125,6 +125,9 @@
                       {{initials .Name}}
                     </div>
                     <span>{{.Name}}</span>
+                    {{if eq .TemplateID "php_panel"}}
+                      <span class="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-violet-500/25">PHP Panel</span>
+                    {{end}}
                     {{if eq .State "running"}}
                       <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">running</span>
                     {{else if eq .State "degraded"}}

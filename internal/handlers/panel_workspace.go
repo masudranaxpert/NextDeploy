@@ -54,13 +54,21 @@ func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 		return c.Status(400).SendString("files delete is disabled for git-backed apps")
 	}
 	wantJSON := strings.EqualFold(c.Query("format"), "json")
-	returnPath := c.FormValue("path")
-	var paths []string
-	c.Request().PostArgs().VisitAll(func(key, val []byte) {
-		if string(key) == "paths" {
-			paths = append(paths, string(val))
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		if wantJSON {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid base path"})
 		}
-	})
+		return c.Status(400).SendString("invalid base path")
+	}
+	if err := p.enforcePHPPanelScopedBase(c, id, baseRel); err != nil {
+		if wantJSON {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "message": "base path not allowed"})
+		}
+		return c.Status(403).SendString("base path not allowed")
+	}
+	returnPath := c.FormValue("path")
+	paths := formValues(c, "paths")
 	if len(paths) == 0 {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Select at least one file or folder."})
@@ -69,7 +77,12 @@ func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 	}
 	var errs []string
 	for _, pth := range paths {
-		if err := p.Store.RemoveRel(id, pth); err != nil {
+		fullPath, err := joinWorkspaceScope(baseRel, pth)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: invalid path", pth))
+			continue
+		}
+		if err := p.Store.RemoveRel(id, fullPath); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", pth, err))
 		}
 	}
@@ -132,8 +145,19 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	if p.isGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file view is disabled for git-backed apps")
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(400).SendString("invalid base path")
+	}
+	if err := p.enforcePHPPanelScopedBase(c, id, baseRel); err != nil {
+		return c.Status(403).SendString("base path not allowed")
+	}
 	rel := c.Query("path", "")
-	full, err := p.Store.SafeFilePath(id, rel)
+	fullRel, err := joinWorkspaceScope(baseRel, rel)
+	if err != nil {
+		return c.Status(400).SendString("invalid path")
+	}
+	full, err := p.Store.SafeFilePath(id, fullRel)
 	if err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
@@ -192,8 +216,25 @@ func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
 			"PreviewError": "Files preview is disabled for git-backed apps. Use the Git tab and redeploy from repository source.",
 		})
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(400).Render(tmplPartialFilePreviewModal, fiber.Map{
+			"PreviewError": "invalid base path",
+		})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, id, baseRel); err != nil {
+		return c.Status(403).Render(tmplPartialFilePreviewModal, fiber.Map{
+			"PreviewError": "base path not allowed",
+		})
+	}
 	rel := c.Query("path", "")
-	full, err := p.Store.SafeFilePath(id, rel)
+	fullRel, err := joinWorkspaceScope(baseRel, rel)
+	if err != nil {
+		return c.Status(400).Render(tmplPartialFilePreviewModal, fiber.Map{
+			"PreviewError": "invalid path",
+		})
+	}
+	full, err := p.Store.SafeFilePath(id, fullRel)
 	if err != nil {
 		return c.Status(400).Render(tmplPartialFilePreviewModal, fiber.Map{
 			"PreviewError": "invalid path",

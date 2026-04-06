@@ -137,6 +137,64 @@ func ComposeRestart(ctx context.Context, projectDir string, composeFiles []strin
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "restart")
 }
 
+func ComposeUpServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	fixLineEndings(projectDir)
+	args := []string{"up", "-d"}
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service != "" {
+			args = append(args, service)
+		}
+	}
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
+}
+
+func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	fixLineEndings(projectDir)
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d")
+}
+
+func ComposePullUpServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	fixLineEndings(projectDir)
+	pullArgs := []string{"pull"}
+	upArgs := []string{"up", "-d", "--build"}
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service == "" {
+			continue
+		}
+		pullArgs = append(pullArgs, service)
+		upArgs = append(upArgs, service)
+	}
+	pull := runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, pullArgs...)
+	if !pull.OK {
+		return pull
+	}
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, upArgs...)
+}
+
+func ComposeStopServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	args := []string{"stop"}
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service != "" {
+			args = append(args, service)
+		}
+	}
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
+}
+
+func ComposeRestartServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	args := []string{"restart"}
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service != "" {
+			args = append(args, service)
+		}
+	}
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
+}
+
 // ComposePullUp pulls latest images then brings the stack up (redeploy without rebuild).
 func ComposePullUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
@@ -251,6 +309,46 @@ func DockerExec(ctx context.Context, container, shellCmd string) Result {
 		}
 	}
 	return r
+}
+
+func ComposeExecService(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service, shellCmd string) Result {
+	service = strings.TrimSpace(service)
+	shellCmd = strings.TrimSpace(shellCmd)
+	if service == "" {
+		return Result{OK: false, Output: "no service selected"}
+	}
+	if shellCmd == "" {
+		return Result{OK: false, Output: "empty command"}
+	}
+	args := composeBin(projectDir, composeFiles, project, envFiles, "exec", "-T", service, "sh", "-lc", shellCmd)
+	return run(ctx, projectDir, args...)
+}
+
+func ComposeExecServiceInput(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service, shellCmd, stdin string) Result {
+	service = strings.TrimSpace(service)
+	shellCmd = strings.TrimSpace(shellCmd)
+	if service == "" {
+		return Result{OK: false, Output: "no service selected"}
+	}
+	if shellCmd == "" {
+		return Result{OK: false, Output: "empty command"}
+	}
+	args := composeBin(projectDir, composeFiles, project, envFiles, "exec", "-T", service, "sh", "-lc", shellCmd)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = projectDir
+	cmd.Stdin = strings.NewReader(stdin)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	output := strings.TrimSpace(buf.String())
+	if err != nil {
+		if output == "" {
+			output = err.Error()
+		}
+		return Result{OK: false, Output: output}
+	}
+	return Result{OK: true, Output: output}
 }
 
 func Build(ctx context.Context, projectDir, dockerfile string) Result {

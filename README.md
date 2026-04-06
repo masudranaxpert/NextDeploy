@@ -6,8 +6,39 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go)](https://go.dev)
+[![Branch: php-panel](https://img.shields.io/badge/branch-php--panel-orange?style=flat-square)](https://github.com/masudranaxpert/NextDeploy/tree/php-panel)
 
 A lightweight Docker deployment panel built with Go and Caddy. Deploy Docker Compose stacks, manage domains with automatic HTTPS, and monitor your containers — all from a clean web UI.
+
+---
+
+> ### ⚠️ Experimental — PHP Panel Template (`php-panel` branch)
+>
+> The `php-panel` branch introduces an **experimental one-click PHP hosting template** on top of NextDeploy.
+> It is under active development and **not yet merged into `main`**.
+>
+> ![PHP Panel](image/php.png)
+>
+> **What it adds:**
+> - One-click PHP hosting stack — PHP-FPM (7.4 / 8.1 / 8.2 / 8.3), MySQL 8, phpMyAdmin via Docker Compose
+> - Folder-based multi-site hosting (`sites/<slug>/public_html`) per user
+> - Caddy label auto-sync — domain add/update/delete triggers a background compose apply (only running services)
+> - Per-site PHP version selection (dropdown shows only running FPM versions)
+> - Panel-managed MySQL databases & users with cPanel-style privilege grants
+> - phpMyAdmin one-click auto-login via encrypted stored credentials (1-hour session)
+> - Scoped file browser — drag-and-drop upload, ZIP/Unzip, inline editor, per-site root only
+> - Per-user site & database limits, admin impersonation, role-based access
+> - DNS status check (Cloudflare detection, development domain detection)
+>
+> **To try it:**
+> ```bash
+> git checkout php-panel
+> docker compose up -d --build panel
+> ```
+>
+> **Status:** Experimental — APIs and database schema may change without notice.
+
+---
 
 > **GitHub:** [github.com/masudranaxpert/NextDeploy](https://github.com/masudranaxpert/NextDeploy)
 > **Docker Hub:** [hub.docker.com/r/masudranaxpert/nextdeploy](https://hub.docker.com/r/masudranaxpert/nextdeploy)

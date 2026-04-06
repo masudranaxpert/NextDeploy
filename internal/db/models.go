@@ -26,6 +26,7 @@ type App struct {
 	Name        string
 	CreatedAt   time.Time
 	ComposeFile string
+	TemplateID  string
 }
 
 type AppGitConfig struct {
@@ -89,6 +90,80 @@ type AppDomain struct {
 	MediaPath      string
 	RouteRulesJSON string
 	CreatedAt      time.Time
+}
+
+type PHPPanelSite struct {
+	ID         int64
+	AppID      string
+	UserID     int64
+	Name       string
+	Slug       string
+	PHPVersion string
+	CreatedAt  time.Time
+}
+
+type TemplateAppDomain struct {
+	ID          int64
+	AppDomainID int64
+	AppID       string
+	TemplateID  string
+	SiteSlug    string
+	RootPath    string
+	PHPVersion  string
+	CreatedAt   time.Time
+}
+
+type PHPPanelAccount struct {
+	UserID         int64
+	Enabled        bool
+	SiteLimit      int
+	DatabaseLimit  int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type PHPPanelDomainOwner struct {
+	ID          int64
+	AppDomainID int64
+	AppID       string
+	UserID       int64
+	CreatedAt   time.Time
+}
+
+type PHPPanelDatabase struct {
+	ID           int64
+	AppID        string
+	UserID       int64
+	DatabaseName string
+	CreatedAt    time.Time
+}
+
+type PHPPanelDBUser struct {
+	ID                int64
+	AppID             string
+	UserID            int64
+	Username          string
+	Host              string
+	PasswordEncrypted string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type PHPPanelDBGrant struct {
+	ID            int64
+	DBUserID       int64
+	DatabaseName   string
+	PrivilegesJSON string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type PHPPanelImpersonation struct {
+	Token       string
+	AdminUserID int64
+	UserID      int64
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
 }
 
 type AppDomainRoute struct {

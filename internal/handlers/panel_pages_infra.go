@@ -17,11 +17,24 @@ import (
 
 
 func (p *Panel) Overview(c *fiber.Ctx) error {
+	if user, ok := currentUser(c); ok && user.Role == "user" {
+		if app, hasApp := p.currentPHPPanelApp(c.UserContext()); hasApp && p.DB.PHPPanelEnabledForUser(c.UserContext(), user.ID) {
+			return c.Redirect("/php-panel/" + app.ID)
+		}
+		return c.Redirect("/php-panel-blocked")
+	}
 	si := sysinfo.Collect(c.UserContext())
 	return c.Render("pages/overview", withUser(c, fiber.Map{
 		"Nav":   "overview",
 		"Title": "Overview",
 		"Sys":   si,
+	}), "layouts/shell")
+}
+
+func (p *Panel) PHPPanelBlockedPage(c *fiber.Ctx) error {
+	return c.Render("pages/php_panel_blocked", withUser(c, fiber.Map{
+		"Nav":   "templates",
+		"Title": "PHP Panel access required",
 	}), "layouts/shell")
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"panel/internal/db"
 	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +20,50 @@ import (
 const maxWorkspaceBlobJSON = 512 << 10 // inline JSON preview (aligned with git blob UI)
 
 var errWorkspaceZipTooLarge = errors.New("workspace zip exceeds size limit")
+
+func formValues(c *fiber.Ctx, key string) []string {
+	var values []string
+	if form, err := c.MultipartForm(); err == nil && form != nil {
+		for _, raw := range form.Value[key] {
+			raw = strings.TrimSpace(raw)
+			if raw != "" {
+				values = append(values, raw)
+			}
+		}
+		if len(values) > 0 {
+			return values
+		}
+	}
+	c.Request().PostArgs().VisitAll(func(k, v []byte) {
+		if string(k) != key {
+			return
+		}
+		raw := strings.TrimSpace(string(v))
+		if raw != "" {
+			values = append(values, raw)
+		}
+	})
+	return values
+}
+
+func (p *Panel) enforcePHPPanelScopedBase(c *fiber.Ctx, appID, baseRel string) error {
+	user, ok := currentUser(c)
+	if !ok || user.Role != db.RoleUser {
+		return nil
+	}
+	app, err := p.DB.GetApp(c.UserContext(), appID)
+	if err != nil {
+		return err
+	}
+	if app.TemplateID != "php_panel" {
+		return fiber.ErrForbidden
+	}
+	owner := phpPanelOwnerUser(c)
+	if err := p.ensurePHPPanelOwnedBase(c.UserContext(), appID, owner.ID, baseRel); err != nil {
+		return fiber.ErrForbidden
+	}
+	return nil
+}
 
 func (p *Panel) workspaceFilesGate(c *fiber.Ctx, appID string) int {
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
@@ -43,8 +88,19 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 		}
 		return c.Status(code).JSON(fiber.Map{"error": msg})
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid base path"})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "base path not allowed"})
+	}
 	rel := c.Query("path", "")
-	children, err := p.Store.ListChildren(appID, rel)
+	scopedRel, err := joinWorkspaceScope(baseRel, rel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
+	}
+	children, err := p.Store.ListChildren(appID, scopedRel)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
@@ -59,9 +115,9 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 	}
 	out := make([]row, 0, len(children))
 	for _, ch := range children {
-		out = append(out, row{Name: ch.Name, RelPath: ch.RelPath, IsDir: ch.IsDir, Size: ch.Size})
+		out = append(out, row{Name: ch.Name, RelPath: trimWorkspaceScope(ch.RelPath, baseRel), IsDir: ch.IsDir, Size: ch.Size})
 	}
-	parent := p.Store.ParentRel(rel)
+	parent := trimWorkspaceScope(p.Store.ParentRel(scopedRel), baseRel)
 	return c.JSON(fiber.Map{
 		"path":    rel,
 		"parent":  parent,
@@ -75,11 +131,22 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"error": "not available"})
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid base path"})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "base path not allowed"})
+	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
-	full, err := p.Store.SafeFilePath(appID, rel)
+	fullRel, err := joinWorkspaceScope(baseRel, rel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
+	}
+	full, err := p.Store.SafeFilePath(appID, fullRel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
 	}
@@ -96,6 +163,9 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	name := filepath.Base(rel)
 	q := url.QueryEscape(rel)
 	rawURL := fmt.Sprintf("/apps/%s/file?path=%s", appID, q)
+	if baseRel != "" {
+		rawURL += "&base=" + url.QueryEscape(baseRel)
+	}
 	downloadURL := rawURL + "&download=1"
 	if st.Size() > int64(maxWorkspaceBlobJSON) {
 		return c.JSON(fiber.Map{
@@ -150,6 +220,13 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "save not allowed"})
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid base path"})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "message": "base path not allowed"})
+	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "path required"})
@@ -158,16 +235,22 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid JSON body"})
 	}
-	full, err := p.Store.SafeFilePath(appID, rel)
+	fullRel, err := joinWorkspaceScope(baseRel, rel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
+	}
+	full, err := p.Store.SafeFilePath(appID, fullRel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
+	p.ensurePHPPanelPublicReadable(appID, filepath.ToSlash(filepath.Dir(fullRel)), true)
 	if err := os.WriteFile(full, []byte(body.Content), 0640); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
+	p.ensurePHPPanelPublicReadable(appID, filepath.ToSlash(fullRel), false)
 	return c.JSON(fiber.Map{"ok": true})
 }
 
@@ -182,7 +265,20 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 		}
 		return c.Status(400).SendString("download zip is only for non-git apps")
 	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid base path")
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).SendString("base path not allowed")
+	}
 	base := filepath.Clean(p.Store.Path(appID))
+	if baseRel != "" {
+		base, err = p.Store.SafeFilePath(appID, baseRel)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).SendString("invalid base path")
+		}
+	}
 	c.Set("Content-Type", "application/zip")
 	c.Set("Content-Disposition", `attachment; filename="workspace.zip"`)
 
@@ -244,7 +340,11 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(400).SendString("invalid paths parameter")
 		}
-		full, err := p.Store.SafeFilePath(appID, rel)
+		fullRel, err := joinWorkspaceScope(baseRel, rel)
+		if err != nil {
+			return c.Status(400).SendString("invalid path")
+		}
+		full, err := p.Store.SafeFilePath(appID, fullRel)
 		if err != nil {
 			return c.Status(400).SendString("invalid path")
 		}
@@ -308,4 +408,214 @@ func zipAddFile(zw *zip.Writer, absPath, nameInZip string, budget int64) (writte
 	}
 	n, err := io.Copy(w, f)
 	return n, err
+}
+
+func (p *Panel) WorkspaceFilesCreateZip(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
+		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "zip not available"})
+	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid base path"})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "message": "base path not allowed"})
+	}
+	zipName := strings.TrimSpace(c.FormValue("zip_name"))
+	if zipName == "" {
+		zipName = "archive.zip"
+	}
+	if !strings.HasSuffix(strings.ToLower(zipName), ".zip") {
+		zipName += ".zip"
+	}
+	targetRel, err := joinWorkspaceScope(baseRel, c.FormValue("path"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid target path"})
+	}
+	paths := formValues(c, "paths")
+	if len(paths) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "select at least one file or folder"})
+	}
+	zipRel := strings.Trim(zipName, "/")
+	if targetRel != "" {
+		zipRel = strings.Trim(targetRel+"/"+zipRel, "/")
+	}
+	zipAbs, err := p.Store.SafeFilePath(appID, zipRel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid zip name"})
+	}
+	if err := os.MkdirAll(filepath.Dir(zipAbs), 0750); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	out, err := os.OpenFile(zipAbs, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	defer out.Close()
+	zw := zip.NewWriter(out)
+	var written int64
+	for _, rel := range paths {
+		fullRel, err := joinWorkspaceScope(baseRel, rel)
+		if err != nil {
+			_ = zw.Close()
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid selected path"})
+		}
+		full, err := p.Store.SafeFilePath(appID, fullRel)
+		if err != nil {
+			_ = zw.Close()
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid selected path"})
+		}
+		st, err := os.Stat(full)
+		if err != nil {
+			_ = zw.Close()
+			return c.Status(404).JSON(fiber.Map{"ok": false, "message": "path not found"})
+		}
+		arcName := filepath.ToSlash(strings.Trim(rel, "/"))
+		if st.IsDir() {
+			err = filepath.WalkDir(full, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					return nil
+				}
+				sub, err := filepath.Rel(full, path)
+				if err != nil {
+					return err
+				}
+				sub = filepath.ToSlash(sub)
+				nameInZip := sub
+				if arcName != "" {
+					nameInZip = arcName + "/" + sub
+				}
+				n, err := zipAddFile(zw, path, nameInZip, maxWorkspaceZipBytes-written)
+				written += n
+				return err
+			})
+		} else {
+			var n int64
+			n, err = zipAddFile(zw, full, arcName, maxWorkspaceZipBytes-written)
+			written += n
+		}
+		if err != nil {
+			_ = zw.Close()
+			if errors.Is(err, errWorkspaceZipTooLarge) {
+				return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": "zip size limit exceeded"})
+			}
+			return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	return c.JSON(fiber.Map{"ok": true, "message": "ZIP created.", "path": trimWorkspaceScope(zipRel, baseRel)})
+}
+
+func (p *Panel) WorkspaceFilesExtractZip(c *fiber.Ctx) error {
+	appID := c.Params("id")
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
+		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "unzip not available"})
+	}
+	baseRel, err := normalizeWorkspaceScopeRel(c.Query("base", ""))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid base path"})
+	}
+	if err := p.enforcePHPPanelScopedBase(c, appID, baseRel); err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "message": "base path not allowed"})
+	}
+	zipPath := strings.TrimSpace(c.FormValue("zip_path"))
+	if zipPath == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "zip file required"})
+	}
+	targetRel, err := joinWorkspaceScope(baseRel, c.FormValue("path"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid target path"})
+	}
+	fullRel, err := joinWorkspaceScope(baseRel, zipPath)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid zip path"})
+	}
+	zipAbs, err := p.Store.SafeFilePath(appID, fullRel)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid zip path"})
+	}
+	st, err := os.Stat(zipAbs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "message": "zip not found"})
+		}
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	if st.IsDir() {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "zip path points to a folder"})
+	}
+	if !strings.HasSuffix(strings.ToLower(st.Name()), ".zip") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "only .zip files can be extracted"})
+	}
+	destBase := p.Store.Path(appID)
+	if targetRel != "" {
+		destBase, err = p.Store.SafeFilePath(appID, targetRel)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid target path"})
+		}
+	}
+	if err := os.MkdirAll(destBase, 0750); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	p.ensurePHPPanelPublicReadable(appID, filepath.ToSlash(targetRel), true)
+	f, err := os.Open(zipAbs)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	defer f.Close()
+	zr, err := zip.NewReader(f, st.Size())
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid zip file"})
+	}
+	cleanBase := filepath.Clean(destBase)
+	for _, item := range zr.File {
+		itemPath := filepath.Clean(item.Name)
+		if itemPath == "." || strings.HasPrefix(itemPath, "..") {
+			continue
+		}
+		dest := filepath.Join(destBase, itemPath)
+		relToBase, err := filepath.Rel(cleanBase, filepath.Clean(dest))
+		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "zip contains invalid paths"})
+		}
+		if item.FileInfo().IsDir() {
+			if err := os.MkdirAll(dest, 0750); err != nil {
+				return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+			}
+			relDest, relErr := filepath.Rel(p.Store.Path(appID), dest)
+			if relErr == nil {
+				p.ensurePHPPanelPublicReadable(appID, filepath.ToSlash(relDest), true)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+		}
+		rc, err := item.Open()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+		if err != nil {
+			_ = rc.Close()
+			return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+		}
+		_, copyErr := io.Copy(out, rc)
+		_ = out.Close()
+		_ = rc.Close()
+		if copyErr != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "message": copyErr.Error()})
+		}
+		relDest, relErr := filepath.Rel(p.Store.Path(appID), dest)
+		if relErr == nil {
+			p.ensurePHPPanelPublicReadable(appID, filepath.ToSlash(relDest), false)
+		}
+	}
+	return c.JSON(fiber.Map{"ok": true, "message": "ZIP extracted."})
 }

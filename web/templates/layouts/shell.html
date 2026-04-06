@@ -371,7 +371,24 @@
 {{define "partials/shell_nav"}}
 <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
   <p class="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Navigation</p>
-
+  {{if or (and .CurrentUser (eq .CurrentUser.Role "user")) .ScopedPHPPanelOnly}}
+  {{if .PHPPanelNavAppID}}
+  <a href="/php-panel/{{.PHPPanelNavAppID}}" @click="$dispatch('nav-close')" class="sidebar-link {{if or (eq .Nav "templates") (eq .Nav "php-panel")}}sidebar-link-active{{end}}">
+    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
+    </svg>
+    PHP Panel
+  </a>
+  {{else}}
+  <a href="/php-panel-blocked" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "templates"}}sidebar-link-active{{end}}">
+    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.007v.008H12v-.008z"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M10.34 3.94L1.82 18a1.5 1.5 0 001.28 2.25h17.8A1.5 1.5 0 0022.18 18L13.66 3.94a1.5 1.5 0 00-2.56 0z"/>
+    </svg>
+    PHP Panel
+  </a>
+  {{end}}
+  {{else}}
   <a href="/overview" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "overview"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
@@ -392,6 +409,21 @@
     </svg>
     Apps
   </a>
+
+  <a href="/templates" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "templates"}}sidebar-link-active{{end}}">
+    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5h7.5A2.25 2.25 0 0113.5 6.75v12.75H6A2.25 2.25 0 013.75 17.25V4.5zm6.75 15h7.5A2.25 2.25 0 0020.25 17.25V10.5A2.25 2.25 0 0018 8.25h-4.5M10.5 19.5V6.75"/>
+    </svg>
+    Templates
+  </a>
+  {{if .PHPPanelNavAppID}}
+  <a href="/php-panel/{{.PHPPanelNavAppID}}" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "templates"}}sidebar-link-active{{end}}">
+    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
+    </svg>
+    {{if .PHPPanelNavName}}{{.PHPPanelNavName}}{{else}}PHP Panel{{end}}
+  </a>
+  {{end}}
 
   <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Docker</p>
 
@@ -455,6 +487,7 @@
     </svg>
     Users
   </a>
+  {{end}}
   {{end}}
 </nav>
 {{end}}

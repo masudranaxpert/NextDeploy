@@ -1,0 +1,12 @@
+{{define "php_panel/tab_nav"}}
+<div class="flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/40 p-2">
+  <a href="{{.RouteBase}}" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "overview"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Overview</a>
+  <a href="{{.RouteBase}}?tab=sites" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "sites"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Sites</a>
+  <a href="{{.RouteBase}}?tab=files" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "files"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Files</a>
+  <a href="{{.RouteBase}}?tab=domains" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "domains"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Domains</a>
+  <a href="{{.RouteBase}}?tab=databases" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "databases"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Databases</a>
+  {{if and .CurrentUser (eq .CurrentUser.Role "admin") (not .ScopedPHPPanelOnly)}}
+  <a href="{{.RouteBase}}?tab=settings" class="inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium transition {{if eq .Tab "settings"}}bg-primary/15 text-primary ring-1 ring-primary/25{{else}}text-muted-foreground hover:bg-muted/40 hover:text-foreground{{end}}">Settings</a>
+  {{end}}
+</div>
+{{end}}

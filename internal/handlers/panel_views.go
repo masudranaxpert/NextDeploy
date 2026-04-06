@@ -23,4 +23,6 @@ const (
 	tmplPartialAppShowSwitchSource = "partials/app_show/switch_source_bundle"
 
 	tmplPartialComposeFileCard = "partials/components/compose_file_card"
+
+	tmplPageTemplates = "pages/templates"
 )

@@ -1,0 +1,70 @@
+{{define "partials/php_panel/overview"}}
+<div class="grid gap-4 sm:grid-cols-3">
+  <div class="panel-card p-5">
+    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Sites</p>
+    <p class="mt-2 text-3xl font-bold text-foreground">{{.OwnerSummary.SiteCount}}</p>
+    <p class="mt-1 text-xs text-muted-foreground">{{.OwnerSummary.SiteCount}} / {{.OwnerSummary.Account.SiteLimit}} owned site slots used</p>
+    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+    <p class="mt-2 text-[11px] text-muted-foreground">Total sites in panel: <span class="font-semibold text-foreground">{{.OwnerSummary.TotalSites}}</span></p>
+    {{end}}
+  </div>
+  <div class="panel-card p-5">
+    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Domains</p>
+    <p class="mt-2 text-3xl font-bold text-foreground">{{.OwnerSummary.DomainCount}}</p>
+    <p class="mt-1 text-xs text-muted-foreground">Only domains owned by this panel user are shown here</p>
+  </div>
+  <div class="panel-card p-5">
+    <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Databases</p>
+    <p class="mt-2 text-3xl font-bold text-foreground">{{.OwnerSummary.DatabaseCount}}</p>
+    <p class="mt-1 text-xs text-muted-foreground">{{.OwnerSummary.DatabaseCount}} / {{.OwnerSummary.Account.DatabaseLimit}} owned database slots used</p>
+    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+    <p class="mt-2 text-[11px] text-muted-foreground">Total databases in MySQL: <span class="font-semibold text-foreground">{{.OwnerSummary.TotalDatabases}}</span></p>
+    {{end}}
+  </div>
+</div>
+
+<div class="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+  <section class="panel-card p-6">
+    <h2 class="text-base font-semibold text-foreground">How this stack works</h2>
+    <div class="mt-4 space-y-3 text-sm text-muted-foreground">
+      <p>Main `caddy-docker-proxy` stays global. When you bind a domain to your site, the panel rewrites generated compose labels for the matching PHP-FPM service.</p>
+      <p>Your sites, domains, databases, and DB users stay owner-scoped in this view, while all sites still share the same `php_mysql` and `php_pma` services underneath.</p>
+    </div>
+    <pre class="mt-4 overflow-auto rounded-xl border border-stone-700/60 bg-stone-950 p-4 text-[12px] leading-relaxed text-stone-300"><code>site1.com -> php_fpm_74:9000
+site2.com -> php_fpm_81:9000
+site3.com -> php_fpm_82:9000
+
+DB host: php_mysql:3306</code></pre>
+  </section>
+
+  <aside class="panel-card p-6">
+    <h2 class="text-base font-semibold text-foreground">Quick links</h2>
+    <div class="mt-4 grid gap-3">
+      <a href="{{.RouteBase}}?tab=sites" class="group rounded-xl border border-border/60 bg-muted/10 p-4 transition-all hover:border-violet-500/30 hover:bg-violet-500/5">
+        <p class="text-sm font-semibold text-foreground group-hover:text-violet-300">Manage sites</p>
+        <p class="mt-1 text-xs text-muted-foreground">Create folders and assign PHP versions</p>
+      </a>
+      <a href="{{.RouteBase}}?tab=files" class="group rounded-xl border border-border/60 bg-muted/10 p-4 transition-all hover:border-sky-500/30 hover:bg-sky-500/5">
+        <p class="text-sm font-semibold text-foreground group-hover:text-sky-300">Browse site files</p>
+        <p class="mt-1 text-xs text-muted-foreground">Open the reusable file browser in a site-scoped root</p>
+      </a>
+      <a href="{{.RouteBase}}?tab=domains" class="group rounded-xl border border-border/60 bg-muted/10 p-4 transition-all hover:border-orange-500/30 hover:bg-orange-500/5">
+        <p class="text-sm font-semibold text-foreground group-hover:text-orange-300">Bind domains</p>
+        <p class="mt-1 text-xs text-muted-foreground">Auto-update proxy labels through the main Caddy stack</p>
+      </a>
+      {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+      <a href="{{.RouteBase}}?tab=settings" class="group rounded-xl border border-border/60 bg-muted/10 p-4 transition-all hover:border-sky-500/30 hover:bg-sky-500/5">
+        <p class="text-sm font-semibold text-foreground group-hover:text-sky-300">Service controls</p>
+        <p class="mt-1 text-xs text-muted-foreground">Start, stop, or restart each PHP version service</p>
+      </a>
+      {{end}}
+      {{if .PHPMyAdminURL}}
+      <a href="{{.PHPMyAdminURL}}" target="_blank" rel="noreferrer" class="group rounded-xl border border-border/60 bg-muted/10 p-4 transition-all hover:border-emerald-500/30 hover:bg-emerald-500/5">
+        <p class="text-sm font-semibold text-foreground group-hover:text-emerald-300">Open phpMyAdmin</p>
+        <p class="mt-1 text-xs text-muted-foreground">Open phpMyAdmin for the domains and credentials assigned to this owner</p>
+      </a>
+      {{end}}
+    </div>
+  </aside>
+</div>
+{{end}}

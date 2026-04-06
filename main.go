@@ -133,10 +133,13 @@ func main() {
 
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)
+	app.Use(p.TemplateNavContextMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
 	})
+	app.Get("/php-panel-blocked", p.PHPPanelBlockedPage)
+	app.Post("/php-panel/exit-impersonation", p.ExitPHPPanelImpersonation)
 	app.Get("/overview", p.Overview)
 	app.Get("/monitor", p.MonitorPage)
 	app.Get("/partials/monitor", p.MonitorPartial)
@@ -162,6 +165,22 @@ func main() {
 	app.Post("/settings", p.SettingsSave)
 	app.Get("/apps", p.AppsPage)
 	app.Post("/apps", p.CreateApp)
+	app.Get("/templates", p.TemplatesPage)
+	app.Post("/templates/php-panel/launch", p.TemplatesLaunchPHPPanel)
+	app.Get("/php-panel/:id", p.PHPPanelPage)
+	app.Get("/php-panel/:id/phpmyadmin/open", p.PHPPanelOpenPHPMyAdmin)
+	app.Post("/php-panel/:id/sites/create", p.PHPPanelCreateSite)
+	app.Post("/php-panel/:id/sites/version", p.PHPPanelUpdateSiteVersion)
+	app.Post("/php-panel/:id/sites/delete", p.PHPPanelDeleteSite)
+	app.Post("/php-panel/:id/domains/create", p.PHPPanelDomainCreate)
+	app.Post("/php-panel/:id/domains/phpmyadmin", p.PHPPanelPMADomainCreate)
+	app.Post("/php-panel/:id/domains/delete", p.PHPPanelDomainDelete)
+	app.Post("/php-panel/:id/databases/create", p.PHPPanelDatabaseCreate)
+	app.Post("/php-panel/:id/databases/delete", p.PHPPanelDatabaseDelete)
+	app.Post("/php-panel/:id/databases/users/create", p.PHPPanelDatabaseUserCreate)
+	app.Post("/php-panel/:id/databases/users/delete", p.PHPPanelDatabaseUserDelete)
+	app.Post("/php-panel/:id/databases/grant", p.PHPPanelDatabaseGrant)
+	app.Post("/php-panel/:id/service", p.PHPPanelServiceAction)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.
 	app.Get("/apps/:id/upload-zip", func(c *fiber.Ctx) error {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", c.Params("id")))
@@ -177,6 +196,8 @@ func main() {
 	app.Get("/apps/:id/files/blob", p.WorkspaceFilesBlob)
 	app.Post("/apps/:id/files/save", p.WorkspaceFileSave)
 	app.Get("/apps/:id/files/download-zip", p.WorkspaceFilesDownloadZip)
+	app.Post("/apps/:id/files/extract-zip", p.WorkspaceFilesExtractZip)
+	app.Post("/apps/:id/files/create-zip", p.WorkspaceFilesCreateZip)
 	app.Get("/apps/:id/git/tree", p.GitRepoTree)
 	app.Get("/apps/:id/git/blob", p.GitRepoBlob)
 	app.Get("/apps/:id/git/raw", p.GitRepoRaw)
@@ -249,6 +270,8 @@ func main() {
 	app.Post("/users/:id/delete", p.UserDelete)
 	app.Post("/users/:id/password", p.UserChangePassword)
 	app.Post("/users/:id/role", p.UserChangeRole)
+	app.Post("/users/:id/php-panel/settings", p.UserPHPPanelSettings)
+	app.Post("/users/:id/php-panel/open", p.UserPHPPanelOpen)
 
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {

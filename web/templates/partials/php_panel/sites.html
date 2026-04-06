@@ -1,0 +1,100 @@
+{{define "partials/php_panel/sites"}}
+<div x-data="{ createOpen: false }" class="space-y-6">
+  <div class="section-header">
+    <div>
+      <h2 class="text-base font-semibold text-foreground">Manage site folders and assign PHP versions</h2>
+      <p class="page-subtitle">Each site stays isolated inside its own `sites/&lt;slug&gt;` folder tree. You are using {{.OwnerSummary.SiteCount}} / {{.OwnerSummary.Account.SiteLimit}} owned site slots.</p>
+    </div>
+    <button type="button" class="btn-primary h-10 px-4 text-sm" @click="createOpen = true">New Site</button>
+  </div>
+
+  <div x-show="createOpen" x-cloak class="modal-overlay" @keydown.escape.window="createOpen = false">
+    <div class="absolute inset-0" @click="createOpen = false"></div>
+    <div class="modal-box" @click.stop>
+      <div class="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-foreground">Create PHP site</h2>
+          <p class="mt-1 text-xs text-muted-foreground">A folder will be created under `sites/&lt;slug&gt;/public_html`.</p>
+        </div>
+        <button type="button" class="btn-icon" @click="createOpen = false" aria-label="Close">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form method="post" action="{{.RouteBase}}/sites/create" class="space-y-4">
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground">Site name</label>
+          <input class="input w-full" name="name" placeholder="client-portal" required autocomplete="off">
+        </div>
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-foreground">PHP version</label>
+          <select class="input w-full" name="php_version" {{if not .RunningPHPVersionOptions}}disabled{{end}}>
+            {{if .RunningPHPVersionOptions}}
+            {{range .RunningPHPVersionOptions}}
+            <option value="{{.Version}}" {{if eq .Version "8.3"}}selected{{end}}>{{.Label}}</option>
+            {{end}}
+            {{else}}
+            <option value="">Start a PHP version from Settings first</option>
+            {{end}}
+          </select>
+          {{if not .RunningPHPVersionOptions}}
+          <p class="mt-1 text-xs text-amber-300">No PHP version service is running right now. Start one from the Settings tab first.</p>
+          {{end}}
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" class="btn-secondary px-4 py-2 text-sm" @click="createOpen = false">Cancel</button>
+          <button type="submit" class="btn-primary px-5 py-2 text-sm">Create Site</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {{$root := .}}
+  {{if .Sites}}
+  <div class="panel-card overflow-hidden">
+    <div class="divide-y divide-border/40">
+      {{range .Sites}}
+      {{$site := .}}
+      <div class="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="text-sm font-semibold text-foreground">{{.Name}}</p>
+            <span class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-violet-500/25">PHP {{.PHPVersion}}</span>
+            {{if eq .PHPVersion "7.4"}}
+            <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-500/25">EOL</span>
+            {{end}}
+          </div>
+          <p class="mt-1 font-mono text-xs text-muted-foreground">sites/{{.Slug}}/public_html</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <form method="post" action="{{$root.RouteBase}}/sites/version" class="flex items-center gap-2" onsubmit="this.querySelector('[type=submit]').disabled=true;this.querySelector('[type=submit]').textContent='Saving…'">
+            <input type="hidden" name="slug" value="{{.Slug}}">
+            <select class="input h-9 w-28 text-xs" name="php_version">
+              {{range $opt := $root.RunningPHPVersionOptions}}
+              <option value="{{$opt.Version}}" {{if eq $site.PHPVersion $opt.Version}}selected{{end}}>{{$opt.Label}}</option>
+              {{end}}
+            </select>
+            <button type="submit" class="btn-secondary h-9 px-3 text-xs">Save</button>
+          </form>
+          <a href="{{$root.RouteBase}}?tab=files&site={{.Slug}}" class="btn-secondary h-9 px-3 text-xs">Files</a>
+          <form method="post" action="{{$root.RouteBase}}/sites/delete" onsubmit="return confirm('Delete site {{.Name}} and its folders?')">
+            <input type="hidden" name="slug" value="{{.Slug}}">
+            <button type="submit" class="btn-delete-sm">Delete</button>
+          </form>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{else}}
+  <div class="panel-card flex flex-col items-center justify-center py-20 text-center">
+    <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 ring-1 ring-violet-500/20">
+      <svg class="h-8 w-8 text-violet-400/60" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3"/>
+      </svg>
+    </div>
+    <p class="mt-4 text-base font-semibold text-foreground">No sites yet</p>
+    <p class="mt-1 text-sm text-muted-foreground">Create a site to assign a PHP version and start serving files.</p>
+  </div>
+  {{end}}
+</div>
+{{end}}

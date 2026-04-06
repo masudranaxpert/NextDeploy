@@ -17,6 +17,11 @@ import (
 
 
 func (p *Panel) ComposeUp(c *fiber.Ctx) error {
+	id := c.Params("id")
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err == nil && strings.TrimSpace(app.TemplateID) == "php_panel" {
+		return p.enqueueComposePHPPanel(c, "Deploy")
+	}
 	return p.enqueueCompose(c, "Deploy", dockerx.ComposeUp)
 }
 
@@ -29,7 +34,64 @@ func (p *Panel) ComposeRestart(c *fiber.Ctx) error {
 }
 
 func (p *Panel) ComposeRedeploy(c *fiber.Ctx) error {
+	id := c.Params("id")
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err == nil && strings.TrimSpace(app.TemplateID) == "php_panel" {
+		return p.enqueueComposePHPPanel(c, "Redeploy (pull + up)")
+	}
 	return p.enqueueCompose(c, "Redeploy (pull + up)", dockerx.ComposePullUp)
+}
+
+func (p *Panel) enqueueComposePHPPanel(c *fiber.Ctx, action string) error {
+	id := c.Params("id")
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err != nil {
+		return c.Status(404).SendString("app not found")
+	}
+	cp := p.composeFilePath(app, id)
+	if _, err := os.Stat(cp); err != nil {
+		msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
+		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+	}
+	if err := p.syncAppCaddyOverride(c, id); err != nil {
+		msg := "[error]\n" + err.Error()
+		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+	}
+	project := p.composeProjectName(app, id)
+	rows, _ := dockerx.ComposePS(c.UserContext(), p.appSourcePath(c.UserContext(), id), p.effectiveComposePaths(c.UserContext(), app, id), project, p.composeEnvFiles(c.UserContext(), id))
+	services := make([]string, 0, len(rows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !strings.EqualFold(strings.TrimSpace(row.State), "running") {
+			continue
+		}
+		service := strings.TrimSpace(row.Service)
+		if service == "" || seen[service] {
+			continue
+		}
+		seen[service] = true
+		services = append(services, service)
+	}
+	if len(services) == 0 {
+		services = []string{"php_fpm_83", "php_mysql"}
+	}
+	var fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result
+	switch action {
+	case "Redeploy (pull + up)":
+		fn = func(ctx context.Context, dir string, composePaths []string, project string, logW io.Writer, envFiles []string) dockerx.Result {
+			return dockerx.ComposePullUpServices(ctx, dir, composePaths, project, logW, envFiles, services...)
+		}
+	default:
+		fn = func(ctx context.Context, dir string, composePaths []string, project string, logW io.Writer, envFiles []string) dockerx.Result {
+			return dockerx.ComposeUpServices(ctx, dir, composePaths, project, logW, envFiles, services...)
+		}
+	}
+	if err := p.startComposeJob(id, project, p.effectiveComposePaths(c.UserContext(), app, id), action, fn, ""); err != nil {
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment&busy=1", id))
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
 func (p *Panel) GlobalImageRemove(c *fiber.Ctx) error {

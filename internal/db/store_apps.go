@@ -24,6 +24,11 @@ func (s *Store) CreateApp(ctx context.Context, id, name string) error {
 	return err
 }
 
+func (s *Store) SetAppTemplate(ctx context.Context, id, templateID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET template_id = ? WHERE id = ?`, strings.TrimSpace(templateID), id)
+	return err
+}
+
 func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 	name = strings.TrimSpace(strings.ToLower(name))
 	if name == "" {
@@ -41,7 +46,7 @@ func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,'') FROM apps ORDER BY datetime(created_at) DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(template_id,'') FROM apps ORDER BY datetime(created_at) DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +55,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	for rows.Next() {
 		var a App
 		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.TemplateID); err != nil {
 			return nil, err
 		}
 		t, err := time.Parse(time.RFC3339, created)
@@ -66,7 +71,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	var a App
 	var created string
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,'') FROM apps WHERE id = ?`, id).Scan(&a.ID, &a.Name, &created, &a.ComposeFile)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(template_id,'') FROM apps WHERE id = ?`, id).Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.TemplateID)
 	if err != nil {
 		return App{}, err
 	}

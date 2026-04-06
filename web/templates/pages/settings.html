@@ -53,6 +53,18 @@
           {{end}}
         </select>
       </div>
+      <div class="rounded-xl border border-border/60 bg-muted/20 p-4">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-foreground">Upload size limit</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Applies to workspace file uploads and drag-drop uploads. Default is 250 MB.</p>
+          </div>
+          <div class="w-full max-w-xs">
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="upload_max_mb">Maximum size (MB)</label>
+            <input id="upload_max_mb" name="upload_max_mb" type="number" min="10" max="{{.UploadMaxMBMax}}" step="10" class="input w-full" value="{{.UploadMaxMB}}">
+          </div>
+        </div>
+      </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
           <p class="text-xs font-medium text-muted-foreground">Last run</p>

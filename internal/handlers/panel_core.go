@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -58,6 +59,18 @@ type Panel struct {
 func withUser(c *fiber.Ctx, m fiber.Map) fiber.Map {
 	if u, ok := c.Locals(contextUserKey).(db.User); ok {
 		m["CurrentUser"] = u
+	}
+	if v := c.Locals("PHPPanelNavAppID"); v != nil {
+		m["PHPPanelNavAppID"] = v
+	}
+	if v := c.Locals("PHPPanelNavName"); v != nil {
+		m["PHPPanelNavName"] = v
+	}
+	if v := c.Locals("ScopedPHPPanelOnly"); v != nil {
+		m["ScopedPHPPanelOnly"] = v
+	}
+	if v := c.Locals("php_panel_owner"); v != nil {
+		m["PHPPanelOwnerContext"] = v
 	}
 	return m
 }
@@ -173,6 +186,10 @@ func (p *Panel) syncPanelEnvFileToDisk(appID string) error {
 	if err != nil {
 		return err
 	}
+	if app, err := p.DB.GetApp(context.Background(), appID); err == nil && app.TemplateID == "php_panel" {
+		workspaceRoot := fmt.Sprintf("/data/workspaces/%s", strings.TrimSpace(appID))
+		content = ensureComposeEnvLine(content, "APP_WORKSPACE_ROOT", workspaceRoot)
+	}
 	dir := p.Store.ReservedPath(appID)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
@@ -182,6 +199,20 @@ func (p *Panel) syncPanelEnvFileToDisk(appID string) error {
 		return nil
 	}
 	return os.WriteFile(pth, []byte(content), 0600)
+}
+
+func ensureComposeEnvLine(content, key, value string) string {
+	prefix := key + "="
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	for _, line := range strings.Split(normalized, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return normalized
+		}
+	}
+	if normalized != "" && !strings.HasSuffix(normalized, "\n") {
+		normalized += "\n"
+	}
+	return normalized + prefix + value + "\n"
 }
 
 // composeEnvFiles returns --env-file paths for docker compose.
@@ -249,4 +280,96 @@ func countComposeOkRunning(rows []dockerx.ComposePsRow) int {
 		}
 	}
 	return n
+}
+
+func panelEnvValue(content, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.TrimSpace(parts[0]) == key {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
+}
+
+func (p *Panel) currentPHPPanelApp(ctx context.Context) (db.App, bool) {
+	app, err := p.DB.GetTemplateAppByTemplateID(ctx, "php_panel")
+	if err != nil {
+		return db.App{}, false
+	}
+	return app, true
+}
+
+func (p *Panel) userPHPPanelState(ctx context.Context, user db.User) (enabled bool, app db.App, hasApp bool) {
+	if user.Role == db.RoleAdmin {
+		app, hasApp = p.currentPHPPanelApp(ctx)
+		return hasApp, app, hasApp
+	}
+	if !p.DB.PHPPanelEnabledForUser(ctx, user.ID) {
+		return false, db.App{}, false
+	}
+	app, hasApp = p.currentPHPPanelApp(ctx)
+	return hasApp, app, hasApp
+}
+
+func (p *Panel) allowPHPPanelScopedAppRoute(ctx context.Context, path string) bool {
+	app, hasApp := p.currentPHPPanelApp(ctx)
+	if !hasApp {
+		return false
+	}
+	allowedPrefixes := []string{
+		"/php-panel/" + app.ID,
+		"/php-panel/" + app.ID + "/",
+		"/apps/" + app.ID + "/files",
+		"/apps/" + app.ID + "/file",
+		"/apps/" + app.ID + "/file-preview",
+		"/apps/" + app.ID + "/upload",
+		"/apps/" + app.ID + "/domains/",
+	}
+	allowedExact := map[string]bool{
+		"/php-panel/" + app.ID:      true,
+		"/php-panel-blocked":        true,
+		"/php-panel/exit-impersonation": true,
+		"/logout":                   true,
+		"/overview":                 true,
+	}
+	if allowedExact[path] {
+		return true
+	}
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Panel) ensurePHPPanelOwnedBase(ctx context.Context, appID string, ownerID int64, baseRel string) error {
+	baseRel = strings.Trim(strings.TrimSpace(filepath.ToSlash(baseRel)), "/")
+	if baseRel == "" {
+		return fmt.Errorf("base path required")
+	}
+	sites, err := p.DB.ListPHPPanelSitesByOwner(ctx, appID, ownerID)
+	if err != nil {
+		return err
+	}
+	for _, site := range sites {
+		want := phpPanelSiteBasePath(site.Slug)
+		if baseRel == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("base path not allowed")
 }
