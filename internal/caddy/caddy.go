@@ -162,7 +162,13 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 		out = append(out, route)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].Priority < out[j].Priority
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Root < out[j].Root
 	})
 	return out
 }
@@ -361,17 +367,19 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 		labels[prefix+".tls"] = "internal"
 	}
 
-	priority := 1
+	// caddy-docker-proxy orders site directives by numeric prefix (1_, 2_, ...).
+	// Use sequential indices here — not user-defined route.Priority — so labels stay
+	// valid and unique regardless of priority gaps or duplicate priority values.
+	block := 1
 	routes := normalizedRoutes(d)
 	for idx, route := range routes {
-		p := strconv.Itoa(route.Priority)
-		labels[prefix+"."+p+"_handle_path_"+strconv.Itoa(idx)] = route.Path
-		labels[prefix+"."+p+"_handle_path_"+strconv.Itoa(idx)+".file_server"] = ""
-		labels[prefix+"."+p+"_handle_path_"+strconv.Itoa(idx)+".root"] = "* " + strings.TrimSpace(route.Root)
-		if route.Priority >= priority {
-			priority = route.Priority + 1
-		}
+		base := fmt.Sprintf("%s.%d_handle_path_%d", prefix, block, idx)
+		labels[base] = route.Path
+		labels[base+".file_server"] = ""
+		labels[base+".root"] = "* " + strings.TrimSpace(route.Root)
+		block++
 	}
+	priority := block
 	if len(routes) == 0 && d.ServeStatic && strings.TrimSpace(d.StaticPath) != "" {
 		p := strconv.Itoa(priority)
 		labels[prefix+"."+p+"_handle_path_0"] = "/static/*"

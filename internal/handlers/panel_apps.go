@@ -145,7 +145,7 @@ func (p *Panel) SaveAppCompose(c *fiber.Ctx) error {
 }
 
 func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved bool) error {
-	composePath := p.composeFilePath(app, id)
+	composePath := p.composeFilePath(c.UserContext(), app, id)
 	composeDisplay := workspace.NormalizeComposeRel(app.ComposeFile)
 	hasComp := false
 	if st, err := os.Stat(composePath); err == nil && !st.IsDir() {

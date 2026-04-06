@@ -106,7 +106,7 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 			gitSyncPreamble = "Repository sync completed."
 		}
 	}
-	cp := p.composeFilePath(app, id)
+	cp := p.composeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
 		msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
 		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)

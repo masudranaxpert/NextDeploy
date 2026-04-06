@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"regexp"
@@ -37,8 +38,9 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 	if err != nil {
 		return err
 	}
-	overridePath := p.composeOverridePath(appID)
-	basePath := p.composeFilePath(app, appID)
+	ctx := c.UserContext()
+	overridePath := p.composeOverridePath(ctx, appID)
+	basePath := p.composeFilePath(ctx, app, appID)
 	base, err := os.ReadFile(basePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -71,7 +73,9 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 		defer cancel()
 		project := p.activeComposeProjectName(ctx, app, appID)
 		dir := p.appSourcePath(ctx, appID)
-		_ = dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID))
+		if res := dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID)); !res.OK {
+			log.Printf("compose apply app=%s project=%s: %s", appID, project, strings.TrimSpace(res.Output))
+		}
 	}()
 	return nil
 }
@@ -345,7 +349,7 @@ func (p *Panel) loadComposeServices(c *fiber.Ctx, appID string) []string {
 	if err != nil {
 		return nil
 	}
-	cfPath := p.composeFilePath(app, appID)
+	cfPath := p.composeFilePath(c.UserContext(), app, appID)
 	data, err := os.ReadFile(cfPath)
 	if err != nil {
 		return nil

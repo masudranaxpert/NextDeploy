@@ -48,7 +48,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	sourcePath := p.appSourcePath(c.UserContext(), id)
 	hasDF, _ := p.Store.HasDockerArtifacts(sourcePath)
 
-	composePath := p.composeFilePath(app, id)
+	composePath := p.composeFilePath(c.UserContext(), app, id)
 	composeDisplay := workspace.NormalizeComposeRel(app.ComposeFile)
 	var composeName string
 	hasComp := false
