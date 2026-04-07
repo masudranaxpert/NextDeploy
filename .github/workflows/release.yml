@@ -3,8 +3,8 @@ name: Release
 # Trigger:
 #   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags + :latest
 #   - push/PR to main or php-panel → CI build check (no image push)
-#   - push to main → docker-main.yml (on branch main) pushes :latest, :main, :main-<sha>
-#   - Docker image for php-panel branch: workflow lives only on branch php-panel (docker-php-panel.yml)
+#   - On branch main: docker-main.yml pushes :latest, :main, :main-<sha>
+#   - On branch php-panel: docker-php-panel.yml pushes :php-panel, :php-panel-<sha> + rolling pre-release
 on:
   push:
     tags:

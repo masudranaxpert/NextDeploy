@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  NextDeploy — Install script (branch main only)
-#  Docker image :latest; compose file from branch main.
+#  NextDeploy — Install script (branch php-panel only — PHP Panel line)
+#  Docker image :php-panel; compose file from branch php-panel.
 #
 #  Usage:
-#    curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
+#    curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/php-panel/install.sh | sudo bash
 #    sudo bash install.sh [--domain panel.example.com] [--email admin@example.com]
+#
+#  Stable line without PHP Panel: use install.sh from branch main.
 # =============================================================================
 set -euo pipefail
 
@@ -21,9 +23,9 @@ RESET='\033[0m'
 # ── Config defaults ───────────────────────────────────────────────────────────
 INSTALL_DIR="/opt/nextdeploy"
 DATA_DIR="/data"
-COMPOSE_URL="https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml"
-# Panel image tag (must match docker-main.yml / release.yml policy for main)
-PANEL_IMAGE_TAG="latest"
+COMPOSE_URL="https://raw.githubusercontent.com/masudranaxpert/NextDeploy/php-panel/docker-compose.yml"
+# Panel image tag (must match docker-php-panel.yml on this branch)
+PANEL_IMAGE_TAG="php-panel"
 PANEL_DOMAIN=""
 CADDY_EMAIL=""
 MIN_DOCKER_VERSION="24"
@@ -44,7 +46,7 @@ banner() {
   echo "  ██║ ╚████║███████╗██╔╝ ██╗   ██║   ██████╔╝███████╗██║     ███████╗╚██████╔╝   ██║   "
   echo "  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ╚═╝   "
   echo -e "${RESET}"
-  echo -e "  ${BOLD}Self-hosted Docker deployment panel${RESET}"
+  echo -e "  ${BOLD}Self-hosted Docker deployment panel${RESET} — ${BOLD}PHP Panel${RESET}"
   echo -e "  ${CYAN}https://github.com/masudranaxpert/NextDeploy${RESET}"
   echo ""
 }
@@ -180,7 +182,7 @@ download_compose() {
   success "docker-compose.yml downloaded to $INSTALL_DIR"
 }
 
-# Ensure compose panel image uses :latest (matches docker-main.yml / release tags on main).
+# Ensure compose panel image uses :php-panel (matches docker-php-panel.yml on this branch).
 patch_nextdeploy_image_in_compose() {
   local tag="$1"
   local f="$INSTALL_DIR/docker-compose.yml"
@@ -208,7 +210,7 @@ create_systemd_service() {
   info "Creating systemd service for auto-start..."
   cat > /etc/systemd/system/nextdeploy.service <<EOF
 [Unit]
-Description=NextDeploy Panel
+Description=NextDeploy Panel (PHP Panel)
 Requires=docker.service
 After=docker.service network-online.target
 StartLimitIntervalSec=0
@@ -237,12 +239,12 @@ create_update_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR}"
-echo "[NextDeploy] Pulling images (tag: ${PANEL_IMAGE_TAG})..."
+echo "[NextDeploy PHP Panel] Pulling images (tag: ${PANEL_IMAGE_TAG})..."
 cd "\$INSTALL_DIR"
 docker compose pull
 docker compose up -d --remove-orphans
 docker image prune -f
-echo "[NextDeploy] Update complete!"
+echo "[NextDeploy PHP Panel] Update complete!"
 EOF
   chmod +x /usr/local/bin/nextdeploy-update
   success "Update script created: nextdeploy-update"
@@ -286,7 +288,7 @@ print_summary() {
   ip=$(get_server_ip)
   echo ""
   echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${BOLD}${GREEN}  NextDeploy installed successfully${RESET}"
+  echo -e "${BOLD}${GREEN}  NextDeploy (PHP Panel) installed successfully${RESET}"
   echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo ""
   echo -e "  ${BOLD}Panel URL:${RESET}      http://${ip}:8080"
