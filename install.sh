@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  NextDeploy — Install Script
-#  Usage: curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
-#         or: sudo bash install.sh [--domain panel.example.com] [--email admin@example.com]
+#  NextDeploy — Install script (branch main only)
+#  Docker image :latest; compose file from branch main.
+#
+#  Usage:
+#    curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
+#    sudo bash install.sh [--domain panel.example.com] [--email admin@example.com]
 # =============================================================================
 set -euo pipefail
 
@@ -19,7 +22,8 @@ RESET='\033[0m'
 INSTALL_DIR="/opt/nextdeploy"
 DATA_DIR="/data"
 COMPOSE_URL="https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml"
-IMAGE="masudranaxpert/nextdeploy:latest"
+# Panel image tag (must match docker-main.yml / release.yml policy for main)
+PANEL_IMAGE_TAG="latest"
 PANEL_DOMAIN=""
 CADDY_EMAIL=""
 MIN_DOCKER_VERSION="24"
@@ -172,7 +176,18 @@ download_compose() {
     info "Patched DATA_DIR to $DATA_DIR in docker-compose.yml"
   fi
 
+  patch_nextdeploy_image_in_compose "$PANEL_IMAGE_TAG"
   success "docker-compose.yml downloaded to $INSTALL_DIR"
+}
+
+# Ensure compose panel image uses :latest (matches docker-main.yml / release tags on main).
+patch_nextdeploy_image_in_compose() {
+  local tag="$1"
+  local f="$INSTALL_DIR/docker-compose.yml"
+  [[ -f "$f" ]] || return 0
+  if grep -q 'masudranaxpert/nextdeploy' "$f" 2>/dev/null; then
+    sed -i "s|masudranaxpert/nextdeploy:[a-zA-Z0-9._-]*|masudranaxpert/nextdeploy:${tag}|g" "$f"
+  fi
 }
 
 pull_images() {
@@ -222,7 +237,7 @@ create_update_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR}"
-echo "[NextDeploy] Pulling latest images..."
+echo "[NextDeploy] Pulling images (tag: ${PANEL_IMAGE_TAG})..."
 cd "\$INSTALL_DIR"
 docker compose pull
 docker compose up -d --remove-orphans
