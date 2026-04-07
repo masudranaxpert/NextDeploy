@@ -126,8 +126,21 @@ func settingBool(v string, def bool) bool {
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
+// panelStackComposeContainerPath is the bind-mount path inside the panel container (docker-compose.yml).
+const panelStackComposeContainerPath = "/stack/docker-compose.yml"
+
 func (p *Panel) nextDeployComposePath() string {
 	if custom := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_FILE")); custom != "" {
+		if _, err := os.Stat(custom); err == nil {
+			return custom
+		}
+		// Legacy/broken installs sometimes set PANEL_STACK_COMPOSE_FILE to /docker-compose.yml or a missing path
+		// while the real file is bind-mounted at /stack/docker-compose.yml.
+		if custom != panelStackComposeContainerPath {
+			if _, err := os.Stat(panelStackComposeContainerPath); err == nil {
+				return panelStackComposeContainerPath
+			}
+		}
 		return custom
 	}
 	wd, err := os.Getwd()

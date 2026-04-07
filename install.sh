@@ -237,6 +237,22 @@ create_update_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR}"
+DATA_DIR="${DATA_DIR}"
+COMPOSE_URL="${COMPOSE_URL}"
+echo "[NextDeploy] Refreshing docker-compose.yml from repository..."
+if command -v curl &>/dev/null; then
+  curl -fsSL "\$COMPOSE_URL" -o "\$INSTALL_DIR/docker-compose.yml.tmp" && mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
+elif command -v wget &>/dev/null; then
+  wget -qO "\$INSTALL_DIR/docker-compose.yml.tmp" "\$COMPOSE_URL" && mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
+else
+  echo "[NextDeploy] WARN: curl/wget missing — keeping existing docker-compose.yml"
+fi
+if [[ "\$DATA_DIR" != "/data" ]] && [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
+  sed -i "s|/data|\${DATA_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
+fi
+if grep -q 'masudranaxpert/nextdeploy' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null; then
+  sed -i "s|masudranaxpert/nextdeploy:[a-zA-Z0-9._-]*|masudranaxpert/nextdeploy:${PANEL_IMAGE_TAG}|g" "\$INSTALL_DIR/docker-compose.yml"
+fi
 echo "[NextDeploy] Pulling images (tag: ${PANEL_IMAGE_TAG})..."
 cd "\$INSTALL_DIR"
 docker compose pull

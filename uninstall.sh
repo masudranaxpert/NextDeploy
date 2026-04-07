@@ -2,6 +2,7 @@
 # =============================================================================
 #  NextDeploy — Uninstall Script
 #  Usage: sudo bash uninstall.sh [--keep-data] [--force]
+#  From URL (force, no prompt): curl -fsSL URL | sudo bash -s -- --force
 # =============================================================================
 set -euo pipefail
 
