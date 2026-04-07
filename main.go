@@ -128,7 +128,7 @@ func main() {
 	app.Post("/setup", p.SetupPost)
 	app.Get("/login", p.LoginPage)
 	app.Post("/login", p.LoginPost)
-	app.Get("/logout", p.Logout)
+	app.Post("/logout", p.Logout)
 	app.Post("/webhooks/github/:id", p.GitHubWebhook)
 
 	// All other routes require authentication
@@ -219,6 +219,10 @@ func main() {
 	app.Post("/apps/:id/deploy-logs/clear", p.ClearDeployLogs)
 	app.Get("/apps/:id/deploy-logs/:logId", p.DeployLogGet)
 	app.Post("/apps/:id/deploy-logs/:logId/delete", p.DeployLogDelete)
+	// DELETE is POST-only; GET from the address bar redirects (avoids blank / confused responses).
+	app.Get("/apps/:id/delete", func(c *fiber.Ctx) error {
+		return c.Redirect("/apps", fiber.StatusFound)
+	})
 	// Register after all /apps/:id/... subpaths so :id is not swallowed by a shorter route.
 	app.Get("/apps/:id", p.AppShow)
 	app.Post("/apps/:id/upload-zip", p.UploadZip)

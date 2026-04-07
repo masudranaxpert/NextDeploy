@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ func (p *Panel) ComposeFileView(c *fiber.Ctx) error {
 	id := c.Params("id")
 	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	if err := p.syncAppCaddyOverride(c, id); err != nil {
 		c.Type("text/plain; charset=utf-8")
@@ -48,7 +49,7 @@ func (p *Panel) ComposeFileModal(c *fiber.Ctx) error {
 	id := c.Params("id")
 	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	if err := p.syncAppCaddyOverride(c, id); err != nil {
 		return c.Status(500).Render("partials/compose/compose_preview_modal", fiber.Map{
@@ -159,7 +160,7 @@ func (p *Panel) ContainerRemoveSelectedOp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 5*time.Minute)
 	defer cancel()
 	for _, name := range names {
-		if !p.containerBelongsToApp(id, name) {
+		if !p.containerBelongsToApp(c.UserContext(), id, name) {
 			continue
 		}
 		_ = dockerx.ContainerRemove(ctx, name)
@@ -182,17 +183,31 @@ func logTailLines(q string) int {
 	}
 }
 
-func (p *Panel) containerBelongsToApp(appID, containerName string) bool {
+func (p *Panel) containerBelongsToApp(ctx context.Context, appID, containerName string) bool {
 	containerName = strings.TrimSpace(containerName)
 	if containerName == "" {
 		return false
 	}
-	app, err := p.DB.GetApp(context.Background(), appID)
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return strings.Contains(containerName, appID)
 	}
-	for _, project := range p.legacyProjectNames(app, appID) {
-		if strings.Contains(containerName, project) {
+	candidates := p.composeProjectCandidates(ctx, app, appID)
+	for _, project := range candidates {
+		if project != "" && strings.Contains(containerName, project) {
+			return true
+		}
+	}
+	proj, workDir, ierr := dockerx.ContainerComposeLabels(ctx, containerName)
+	if ierr != nil {
+		return false
+	}
+	appRoot := filepath.Clean(p.appSourcePath(ctx, appID))
+	if composeWorkspaceDirContainedInApp(appRoot, workDir) {
+		return true
+	}
+	for _, c := range candidates {
+		if proj != "" && proj == c {
 			return true
 		}
 	}
@@ -212,7 +227,7 @@ func (p *Panel) AppLogPartial(c *fiber.Ctx) error {
 			"LogMeta": "",
 		})
 	}
-	if !p.containerBelongsToApp(id, name) {
+	if !p.containerBelongsToApp(c.UserContext(), id, name) {
 		return c.Render(tmplPartialLogView, fiber.Map{
 			"LogHTML": logview.FormatDockerLog("That container does not belong to this app."),
 			"LogMeta": "",

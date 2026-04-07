@@ -8,20 +8,32 @@ COPY web ./web
 RUN npm run build:css
 
 # Go binary — no local Go install required on your PC
-FROM golang:1.22-alpine AS build
+FROM golang:1.24-alpine AS build
 WORKDIR /src
+
+# Copy dependency files first for better layer caching
 COPY go.mod go.sum* ./
-# Download known deps first for layer caching (best-effort; new deps resolved below)
-RUN GOPROXY=https://proxy.golang.org,direct go mod download -x 2>/dev/null || true
+
+# Download dependencies (cached unless go.mod/go.sum changes)
+RUN GOPROXY=https://proxy.golang.org,direct go mod download -x
+
+# Copy source code (this layer rebuilds when code changes)
 COPY . .
+
+# Copy compiled CSS from assets stage
 COPY --from=assets /app/web/static/css/app.css ./web/static/css/app.css
-# tidy after full source copy so new imports (e.g. golang.org/x/crypto) are resolved
-RUN GOPROXY=https://proxy.golang.org,direct go mod tidy
+
+# Build the binary
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /panel .
 
+# Final runtime image with Docker CLI
 FROM docker:27-cli
+
+# Copy the compiled binary
 COPY --from=build /panel /usr/local/bin/panel
+
 ENV DATA_DIR=/data
 ENV WORKSPACES_ROOT=/data/workspaces
 EXPOSE 8080
+
 ENTRYPOINT ["/usr/local/bin/panel"]

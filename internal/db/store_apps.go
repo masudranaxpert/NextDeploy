@@ -108,6 +108,45 @@ func (s *Store) UpdatePanelEnv(ctx context.Context, appID, content string) error
 	return err
 }
 
+// AppComposeHint carries batched DB fields for docker compose paths and env (apps list optimization).
+type AppComposeHint struct {
+	SourceType string
+	RepoURL    string
+	PanelEnv   string
+}
+
+// BatchAppComposeHints loads source_type, panel_env, and git repo_url for many apps in one query.
+func (s *Store) BatchAppComposeHints(ctx context.Context, ids []string) (map[string]AppComposeHint, error) {
+	out := make(map[string]AppComposeHint, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	ph := strings.Repeat("?,", len(ids))
+	ph = strings.TrimSuffix(ph, ",")
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	q := `SELECT a.id, COALESCE(a.source_type,''), COALESCE(a.panel_env,''), COALESCE(g.repo_url,'') ` +
+		`FROM apps a LEFT JOIN app_git_configs g ON g.app_id = a.id WHERE a.id IN (` + ph + `)`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, st, env, repo string
+		if err := rows.Scan(&id, &st, &env, &repo); err != nil {
+			return nil, err
+		}
+		if st == "" {
+			st = "files"
+		}
+		out[id] = AppComposeHint{SourceType: st, RepoURL: repo, PanelEnv: env}
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteApp(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("invalid id")

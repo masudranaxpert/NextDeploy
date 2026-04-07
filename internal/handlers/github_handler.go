@@ -94,7 +94,7 @@ func repoFullNameFromURL(raw string) string {
 func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	authMode := strings.TrimSpace(c.FormValue("auth_mode"))
 	switch authMode {
@@ -195,7 +195,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 func (p *Panel) GitConfigDelete(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	if err := p.DB.DeleteAppGitConfig(c.UserContext(), appID); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -487,7 +487,7 @@ func (p *Panel) AppGitProviderBranches(c *fiber.Ctx) error {
 func (p *Panel) GitSync(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
@@ -553,11 +553,16 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		if gitPreamble == "" {
 			gitPreamble = "Repository sync completed."
 		}
-		if err := p.syncAppCaddyOverride(c, appID); err != nil {
+		if err := p.syncAppCaddyOverrideCtx(bg, appID); err != nil {
 			_ = p.DB.InsertDeployLog(bg, appID, "Webhook deploy", false, err.Error())
 			return
 		}
-		project := p.composeProjectName(app, appID)
+		projCtx, projCancel := context.WithTimeout(bg, 90*time.Second)
+		project := p.activeComposeProjectName(projCtx, app, appID)
+		projCancel()
+		stopCtx, stopCancel := context.WithTimeout(bg, 5*time.Minute)
+		p.stopOtherComposeStacks(stopCtx, app, appID, project)
+		stopCancel()
 		_ = p.startComposeJob(appID, project, p.effectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
 	}()
 	return c.SendStatus(fiber.StatusOK)

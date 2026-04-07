@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 var panelTempPatterns = []string{
 	"vol-backup-*.tar.gz",
 	"panel-upload-*.zip",
+	".nextdeploy-atomic-*",
 }
 
 // ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
@@ -276,10 +278,17 @@ func (p *Panel) runScheduledCleanupForce() {
 }
 
 func (p *Panel) StartBackgroundJobs() {
+	go p.prePullAlpineImage()
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
 	go p.migratePHPPanelComposeFiles()
 	go p.cleanOrphanTempFiles()
+}
+
+func (p *Panel) prePullAlpineImage() {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "docker", "pull", "alpine:3.20")
+	_ = cmd.Run()
 }
 
 // migratePHPPanelComposeFiles updates any existing PHP Panel compose.yml files
@@ -318,8 +327,8 @@ func (p *Panel) sessionPruneLoop() {
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 	for {
-		_ = p.DB.PruneExpiredSessions(context.Background())
 		<-ticker.C
+		_ = p.DB.PruneExpiredSessions(context.Background())
 	}
 }
 

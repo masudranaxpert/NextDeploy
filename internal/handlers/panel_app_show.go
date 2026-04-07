@@ -19,15 +19,29 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// appShowTabNeedsCompose is true when the tab template reads ComposeRows / container state from the initial handler.
+func appShowTabNeedsCompose(tab string) bool {
+	switch tab {
+	case "overview", "terminal", "containers":
+		return true
+	default:
+		return false
+	}
+}
 
 func (p *Panel) AppShow(c *fiber.Ctx) error {
 	id := c.Params("id")
-	app, err := p.DB.GetApp(c.UserContext(), id)
+	htmxTabPartial := strings.EqualFold(c.Get("HX-Request"), "true") && c.Query("partial") == "tab"
+
+	reqCtx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
+	defer cancel()
+
+	app, err := p.DB.GetApp(reqCtx, id)
 	if err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	tab := c.Query("tab", "overview")
-	isGitApp := p.isGitApp(c.UserContext(), id)
+	isGitApp, gitCfg, hasGitCfg := p.appGitMetadata(reqCtx, id)
 	switch tab {
 	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git":
 	default:
@@ -38,17 +52,20 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	}
 	rel := c.Query("path", "")
 	var children []workspace.FileEntry
-	if !isGitApp {
+	if !isGitApp && (tab == "files" || !htmxTabPartial) {
 		children, err = p.Store.ListChildren(id, rel)
 		if err != nil {
 			children = nil
 		}
 	}
 	parent := p.Store.ParentRel(rel)
-	sourcePath := p.appSourcePath(c.UserContext(), id)
-	hasDF, _ := p.Store.HasDockerArtifacts(sourcePath)
+	sourcePath := p.composeWorkspaceRoot(reqCtx, id)
+	hasDF := false
+	if tab == "overview" || tab == "files" || !htmxTabPartial {
+		hasDF, _ = p.Store.HasDockerArtifacts(sourcePath)
+	}
 
-	composePath := p.composeFilePath(c.UserContext(), app, id)
+	composePath := p.composeFilePath(reqCtx, app, id)
 	composeDisplay := workspace.NormalizeComposeRel(app.ComposeFile)
 	var composeName string
 	hasComp := false
@@ -59,15 +76,15 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 
 	storagePath := filepath.ToSlash(sourcePath)
 
-	envContent := p.panelEnvForUI(c.UserContext(), id, sourcePath)
+	envContent := ""
+	if tab == "environment" {
+		envContent = p.panelEnvForUI(reqCtx, id, sourcePath)
+	}
 
 	var composeRows []dockerx.ComposePsRow
 	var composePsMsg string
-	if hasComp {
-		ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
-		project := p.activeComposeProjectName(ctx, app, id)
-		rows, pr := dockerx.ComposePS(ctx, sourcePath, p.effectiveComposePaths(c.UserContext(), app, id), project, p.composeEnvFiles(ctx, id))
-		cancel()
+	if hasComp && appShowTabNeedsCompose(tab) {
+		_, rows, pr := p.composeProjectAndPS(reqCtx, app, id)
 		if pr.OK {
 			composeRows = rows
 		} else {
@@ -75,38 +92,68 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		}
 	}
 
-	deployLogs, _ := p.DB.ListDeployLogs(c.UserContext(), id, 5)
-	appVols, appVolErr := volumex.ListForApp(c.UserContext(), id)
-	deployBusy := c.Query("busy") == "1"
-	liveOut, liveAct, liveRun := p.deploySnapshot(id)
-
-	// Domains tab data
-	appDomains, _ := p.DB.ListAppDomains(c.UserContext(), id)
-	for i := range appDomains {
-		sanitizeDomainRecord(&appDomains[i])
-	}
-	domainServices := p.loadComposeServices(c, id)
-	gitCfg, hasGitCfg := p.appGitConfig(c.UserContext(), id)
-	panelDomain := p.DB.GetSetting(c.UserContext(), settingPanelDomain)
-	gitProviders, _ := p.DB.ListGitProviders(c.UserContext())
-	gitHubProviderDetails, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
+	var deployLogs []db.DeployLog
+	var appVols []string
+	var appVolErr string
+	deployBusy := false
+	var liveOut, liveAct string
+	var liveRun bool
+	var appDomains []db.AppDomain
+	var domainServices []string
+	var gitProviders []db.GitProvider
 	gitHubProviderMap := map[int64]db.GitHubProviderDetail{}
-	for _, detail := range gitHubProviderDetails {
-		gitHubProviderMap[detail.ProviderID] = detail
+
+	if tab == "deployment" {
+		deployLogs, _ = p.DB.ListDeployLogs(reqCtx, id, 5)
+		deployBusy = c.Query("busy") == "1"
+		liveOut, liveAct, liveRun = p.deploySnapshot(id)
 	}
+	if tab == "volumes" {
+		volProjects := p.composeProjectCandidates(reqCtx, app, id)
+		if hasComp {
+			if active, _, pr := p.composeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
+				volProjects = dedupeStringsPreserveOrder(append([]string{active}, volProjects...))
+			}
+		}
+		appVols, appVolErr = volumex.ListForApp(reqCtx, id, volProjects)
+	}
+	if tab == "domains" {
+		appDomains, _ = p.DB.ListAppDomains(reqCtx, id)
+		for i := range appDomains {
+			sanitizeDomainRecord(&appDomains[i])
+		}
+		domainServices = p.loadComposeServices(reqCtx, id)
+	}
+
+	panelDomain := ""
+	if tab == "git" || tab == "deployment" {
+		panelDomain = p.DB.GetSetting(reqCtx, settingPanelDomain)
+	}
+	if tab == "git" {
+		gitProviders, _ = p.DB.ListGitProviders(reqCtx)
+		gitHubDetails, _ := p.DB.ListGitHubProviderDetails(reqCtx)
+		for _, detail := range gitHubDetails {
+			gitHubProviderMap[detail.ProviderID] = detail
+		}
+	}
+
 	appWebhookURL := ""
-	if hasGitCfg {
+	if hasGitCfg && tab == "deployment" {
 		appWebhookURL = p.appWebhookURL(c, id)
 	}
 	gitRepoReady := false
-	if isGitApp && hasGitCfg {
+	if tab == "git" && isGitApp && hasGitCfg {
 		gitRepoReady = gitx.RepoExists(filepath.Join(p.Store.ReservedPath(id), "repo"))
 	}
 	gitSource := "files"
 	if isGitApp {
 		gitSource = "git"
 	}
-	gitSaved, gitSynced, gitErrFlash := p.consumeGitTabFlash(c, id)
+	var gitSaved, gitSynced bool
+	var gitErrFlash string
+	if tab == "git" {
+		gitSaved, gitSynced, gitErrFlash = p.consumeGitTabFlash(c, id)
+	}
 
 	m := fiber.Map{
 		"Nav":                    "apps",
@@ -172,10 +219,16 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	if err := eng.Render(&switchBuf, tmplPartialAppShowSwitchSource, m); err != nil {
 		return c.Status(500).SendString("failed to render switch modal: " + err.Error())
 	}
+	if htmxTabPartial {
+		c.Type("html")
+		return c.Send(tabBuf.Bytes())
+	}
 	var page strings.Builder
 	page.WriteString(`<div class="mx-auto max-w-6xl min-w-0 w-full space-y-5 sm:space-y-6">`)
 	page.Write(headerBuf.Bytes())
+	page.WriteString(`<div id="app-tab-panel" class="min-w-0">`)
 	page.Write(tabBuf.Bytes())
+	page.WriteString(`</div>`)
 	page.WriteString(`</div>`)
 	page.Write(switchBuf.Bytes())
 	m["AppPageHTML"] = template.HTML(page.String())

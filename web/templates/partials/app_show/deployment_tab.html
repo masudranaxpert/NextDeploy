@@ -62,7 +62,7 @@
       });
     }
     </script>
-    <div class="panel-card space-y-5 p-5">
+    <div class="panel-card space-y-5 p-5{{if and .IsGitApp .HasGitConfig}} mt-6{{end}}">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 class="text-base font-semibold text-foreground">Deployment</h2>

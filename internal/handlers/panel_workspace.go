@@ -140,7 +140,7 @@ func safeContentDispositionFilename(rel string) string {
 func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	if p.isGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file view is disabled for git-backed apps")
@@ -209,7 +209,7 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	if p.isGitApp(c.UserContext(), id) {
 		return c.Status(400).Render(tmplPartialFilePreviewModal, fiber.Map{

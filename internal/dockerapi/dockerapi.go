@@ -16,6 +16,8 @@ import (
 	"github.com/docker/docker/client"
 )
 
+const composeProjectLabel = "com.docker.compose.project"
+
 func newAPIClient() (*client.Client, error) {
 	ver := strings.TrimSpace(os.Getenv("DOCKER_API_VERSION"))
 	opts := []client.Opt{
@@ -312,13 +314,86 @@ func formatPorts(ports []types.Port) string {
 	return b.String()
 }
 
-// RemoveAppImages removes images whose repo tags reference projectID (compose-built names like <id>-service).
+func canonicalImageIDHex(id string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	id = strings.TrimPrefix(id, "sha256:")
+	return id
+}
+
+func imageIDsMatch(a, b string) bool {
+	a, b = canonicalImageIDHex(a), canonicalImageIDHex(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	if len(a) >= 12 && len(b) >= 12 && (strings.HasPrefix(a, b[:12]) || strings.HasPrefix(b, a[:12])) {
+		return true
+	}
+	return false
+}
+
+// removeContainersUsingImage force-removes any container (running or stopped) that uses the given image ID.
+func removeContainersUsingImage(ctx context.Context, cli *client.Client, imageID string) []string {
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var errs []string
+	for _, c := range list {
+		if !imageIDsMatch(c.ImageID, imageID) {
+			continue
+		}
+		name := containerName(c)
+		if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
+			errs = append(errs, name+": "+err.Error())
+		}
+	}
+	return errs
+}
+
+// imageRepoBase returns the repository name without tag (last path segment only).
+func imageRepoBase(repo string) string {
+	repo = strings.TrimSpace(repo)
+	if i := strings.LastIndex(repo, ":"); i > 0 {
+		repo = repo[:i]
+	}
+	if i := strings.LastIndex(repo, "/"); i >= 0 {
+		repo = repo[i+1:]
+	}
+	return repo
+}
+
+// imageTagLooksOwnedByComposeProject matches compose-built local names without substring false positives:
+// project "a" must not match image "a-longer-name:1".
+func imageTagLooksOwnedByComposeProject(tag, projectID string) bool {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return false
+	}
+	alt := strings.ReplaceAll(projectID, "-", "_")
+	repo := imageRepoBase(tag)
+	if repo == "" {
+		return false
+	}
+	if repo == projectID || repo == alt {
+		return true
+	}
+	// Safe prefixes: project_service, project-service (only when next rune is _ so "proj_extra" differs from "proj-extra")
+	if strings.HasPrefix(repo, projectID+"_") || strings.HasPrefix(repo, alt+"_") {
+		return true
+	}
+	return false
+}
+
+// RemoveAppImages removes images whose repo tags clearly belong to this compose project.
+// Avoids strings.Contains(projectID) which matches longer project names and unrelated images.
 func RemoveAppImages(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return nil
 	}
-	alt := strings.ReplaceAll(projectID, "-", "_")
 	cli, err := newAPIClient()
 	if err != nil {
 		return []string{err.Error()}
@@ -336,7 +411,7 @@ func RemoveAppImages(ctx context.Context, projectID string) []string {
 			if t == "" {
 				continue
 			}
-			if strings.Contains(t, projectID) || strings.Contains(t, alt) {
+			if imageTagLooksOwnedByComposeProject(t, projectID) {
 				match = true
 				break
 			}
@@ -348,6 +423,9 @@ func RemoveAppImages(ctx context.Context, projectID string) []string {
 			continue
 		}
 		seen[im.ID] = struct{}{}
+		if ce := removeContainersUsingImage(ctx, cli, im.ID); len(ce) > 0 {
+			errs = append(errs, ce...)
+		}
 		if _, err := cli.ImageRemove(ctx, im.ID, types.ImageRemoveOptions{Force: true, PruneChildren: true}); err != nil {
 			short := im.ID
 			if len(short) > 12 {
@@ -359,7 +437,36 @@ func RemoveAppImages(ctx context.Context, projectID string) []string {
 	return errs
 }
 
-// RemoveAppContainers force-removes any container whose name contains projectID (orphans after failed compose).
+// RemoveContainersByComposeProject force-removes containers with com.docker.compose.project=<projectID>.
+// Custom container_name stacks often need this because name-based removal does not see the project string.
+func RemoveContainersByComposeProject(ctx context.Context, projectID string) []string {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil
+	}
+	cli, err := newAPIClient()
+	if err != nil {
+		return []string{err.Error()}
+	}
+	defer cli.Close()
+	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+projectID))
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true, Filters: fl})
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var errs []string
+	for _, c := range list {
+		name := containerName(c)
+		if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
+			errs = append(errs, name+": "+err.Error())
+		}
+	}
+	return errs
+}
+
+// RemoveAppContainers removes containers that belong to projectID.
+// Never uses strings.Contains on the container name: a project "ma-masud" must not match
+// "ma-masud-now-..." (another app's compose project) or unrelated names like the panel container.
 func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -377,11 +484,27 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	var errs []string
 	for _, c := range list {
 		name := containerName(c)
-		if !strings.Contains(name, projectID) {
+		insp, err := cli.ContainerInspect(ctx, c.ID)
+		if err != nil {
 			continue
 		}
-		if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
-			errs = append(errs, name+": "+err.Error())
+		lbl := strings.TrimSpace(insp.Config.Labels[composeProjectLabel])
+		if lbl == projectID {
+			if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
+				errs = append(errs, name+": "+err.Error())
+			}
+			continue
+		}
+		if lbl != "" {
+			continue
+		}
+		// Unlabeled orphan: only safe patterns (underscore form). Hyphen form "proj-svc-1" is
+		// ambiguous when another project is "proj-extra" (prefix + hyphen).
+		n := strings.TrimPrefix(name, "/")
+		if n == projectID || strings.HasPrefix(n, projectID+"_") {
+			if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
+				errs = append(errs, name+": "+err.Error())
+			}
 		}
 	}
 	return errs
@@ -398,7 +521,7 @@ func RemoveAppNetworks(ctx context.Context, projectID string) []string {
 		return []string{err.Error()}
 	}
 	defer cli.Close()
-	fl := filters.NewArgs(filters.Arg("label", "com.docker.compose.project="+projectID))
+	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+projectID))
 	nets, err := cli.NetworkList(ctx, types.NetworkListOptions{Filters: fl})
 	if err != nil {
 		return []string{err.Error()}

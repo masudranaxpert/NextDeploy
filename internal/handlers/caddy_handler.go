@@ -33,6 +33,8 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
 }
 
+// syncAppCaddyOverrideCtx writes the merged Caddy compose file using the active Docker Compose project name
+// (legacy slug vs slug_idsuffix) so volume/container_name prefixes match a running stack.
 func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
@@ -55,11 +57,14 @@ func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		}
 		return err
 	}
-	content, err := caddy.GenerateMergedCompose(base, p.composeProjectName(app, appID), domains, templateDomains...)
+	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	project := p.activeComposeProjectName(projCtx, app, appID)
+	cancel()
+	content, err := caddy.GenerateMergedCompose(base, project, domains, templateDomains...)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
-	return os.WriteFile(overridePath, content, 0640)
+	return atomicWriteFile(overridePath, content, 0640)
 }
 
 // applyComposeConfig runs `docker compose up -d` for all services.
@@ -109,7 +114,7 @@ func (p *Panel) applyComposeConfigSmart(ctx context.Context, app db.App, appID s
 }
 
 // syncAndApplyBackground writes the Caddy override then runs compose (smart for
-// PHP Panel, full for others) in a background goroutine so handlers return immediately.
+// PHP Panel, full apply for others) in a background goroutine so handlers return immediately.
 func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 	if err := p.syncAppCaddyOverride(c, appID); err != nil {
 		return err
@@ -121,15 +126,27 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if err := p.applyComposeConfigSmart(ctx, app, appID); err != nil {
-			log.Printf("compose apply app=%s: %v", appID, err)
+		project := p.activeComposeProjectName(ctx, app, appID)
+		p.stopOtherComposeStacks(ctx, app, appID, project)
+		var applyErr error
+		if app.TemplateID == "php_panel" {
+			applyErr = p.applyComposeConfigSmart(ctx, app, appID)
+		} else {
+			dir := p.appSourcePath(ctx, appID)
+			res := dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID))
+			if !res.OK {
+				applyErr = fmt.Errorf("compose apply failed: %s", strings.TrimSpace(res.Output))
+			}
+		}
+		if applyErr != nil {
+			log.Printf("compose apply app=%s project=%s: %v", appID, project, applyErr)
 		}
 	}()
 	return nil
 }
 
 // syncAndApplyCaddyOverride is kept for callers that need a synchronous override write
-// followed by a background smart compose apply (e.g. PHP Panel internal handlers).
+// followed by a background compose apply (smart for PHP Panel, full for others).
 func (p *Panel) syncAndApplyCaddyOverride(c *fiber.Ctx, appID string) error {
 	return p.syncAndApplyBackground(c, appID)
 }
@@ -142,8 +159,20 @@ func (p *Panel) syncAndApplyCaddyOverrideCtx(ctx context.Context, app db.App) er
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if err := p.applyComposeConfigSmart(bgCtx, app, app.ID); err != nil {
-			log.Printf("compose apply app=%s: %v", app.ID, err)
+		project := p.activeComposeProjectName(bgCtx, app, app.ID)
+		p.stopOtherComposeStacks(bgCtx, app, app.ID, project)
+		var applyErr error
+		if app.TemplateID == "php_panel" {
+			applyErr = p.applyComposeConfigSmart(bgCtx, app, app.ID)
+		} else {
+			dir := p.appSourcePath(bgCtx, app.ID)
+			res := dockerx.ComposeApply(bgCtx, dir, p.effectiveComposePaths(bgCtx, app, app.ID), project, nil, p.composeEnvFiles(bgCtx, app.ID))
+			if !res.OK {
+				applyErr = fmt.Errorf("compose apply failed: %s", strings.TrimSpace(res.Output))
+			}
+		}
+		if applyErr != nil {
+			log.Printf("compose apply app=%s project=%s: %v", app.ID, project, applyErr)
 		}
 	}()
 	return nil
@@ -203,7 +232,7 @@ func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
 	for i := range domains {
 		sanitizeDomainRecord(&domains[i])
 	}
-	services := p.loadComposeServices(c, id)
+	services := p.loadComposeServices(c.UserContext(), id)
 	return c.Render("partials/domain/domain_tab", fiber.Map{
 		"ID":       id,
 		"Domains":  domains,
@@ -426,12 +455,12 @@ func splitLogLines(s string) []string {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // loadComposeServices parses the compose file to get service names.
-func (p *Panel) loadComposeServices(c *fiber.Ctx, appID string) []string {
-	app, err := p.DB.GetApp(c.UserContext(), appID)
+func (p *Panel) loadComposeServices(ctx context.Context, appID string) []string {
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return nil
 	}
-	cfPath := p.composeFilePath(c.UserContext(), app, appID)
+	cfPath := p.composeFilePath(ctx, app, appID)
 	data, err := os.ReadFile(cfPath)
 	if err != nil {
 		return nil

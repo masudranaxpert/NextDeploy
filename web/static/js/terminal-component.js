@@ -72,8 +72,12 @@
       allowTransparency: true,
       scrollback: o.scrollback != null ? o.scrollback : 5000,
     });
-    if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
-      this.fit = new FitAddon.FitAddon();
+    var FitCtor = null;
+    if (typeof FitAddon !== 'undefined') {
+      FitCtor = FitAddon.FitAddon || FitAddon.default || FitAddon;
+    }
+    if (typeof FitCtor === 'function') {
+      this.fit = new FitCtor();
       this.term.loadAddon(this.fit);
     }
     this.term.open(host);

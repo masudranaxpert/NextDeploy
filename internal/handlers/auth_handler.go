@@ -40,15 +40,32 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// AuthMiddleware enforces authentication on all routes.
-// If no users exist yet, it redirects to /setup.
-// If the session is invalid/missing, it redirects to /login.
+func validateRedirectPath(next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return "/overview"
+	}
+	if strings.Contains(next, "://") || strings.HasPrefix(next, "//") {
+		return "/overview"
+	}
+	if !strings.HasPrefix(next, "/") {
+		return "/overview"
+	}
+	if len(next) > 1 && (next[1] <= ' ' || next[1] == 0x7F) {
+		return "/overview"
+	}
+	if strings.Contains(next, "\\") || strings.Contains(next, "@") {
+		return "/overview"
+	}
+	return next
+}
+
 func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	path := c.Path()
 
 	// Always allow static assets and auth routes
 	if strings.HasPrefix(path, "/static/") ||
-		path == "/login" || path == "/logout" || path == "/setup" {
+		path == "/login" || path == "/setup" {
 		return c.Next()
 	}
 
@@ -207,19 +224,18 @@ func (p *Panel) LoginPage(c *fiber.Ctx) error {
 	}, "layouts/auth")
 }
 
-// LoginPost handles login form submission.
 func (p *Panel) LoginPost(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	username := strings.TrimSpace(c.FormValue("username"))
 	password := c.FormValue("password")
-	next := strings.TrimSpace(c.FormValue("next"))
-	if next == "" || !strings.HasPrefix(next, "/") {
-		next = "/overview"
-	}
+	next := validateRedirectPath(c.FormValue("next"))
 
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
-		return c.Redirect("/login?error=Invalid+username+or+password&next=" + url.QueryEscape(next))
+		q := url.Values{}
+		q.Set("error", "Invalid username or password")
+		q.Set("next", next)
+		return c.Redirect("/login?" + q.Encode())
 	}
 	if user.Role == db.RoleUser {
 		if !p.DB.PHPPanelEnabledForUser(ctx, user.ID) {

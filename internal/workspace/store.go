@@ -6,15 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
-
-type Meta struct {
-	ID        string
-	Name      string
-	CreatedAt time.Time
-}
 
 type Store struct {
 	Root string
@@ -33,26 +25,6 @@ func (s *Store) ensureRoot() error {
 	return os.MkdirAll(s.Root, 0750)
 }
 
-func (s *Store) Create(name string) (Meta, error) {
-	if err := s.ensureRoot(); err != nil {
-		return Meta{}, err
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "workspace"
-	}
-	id := uuid.NewString()
-	dir := filepath.Join(s.Root, id)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return Meta{}, err
-	}
-	meta := Meta{ID: id, Name: name, CreatedAt: time.Now().UTC()}
-	if err := os.WriteFile(filepath.Join(dir, ".panel-meta"), []byte(name+"\n"), 0600); err != nil {
-		return Meta{}, err
-	}
-	return meta, nil
-}
-
 func (s *Store) Path(id string) string {
 	return filepath.Join(s.Root, id)
 }
@@ -64,33 +36,6 @@ func (s *Store) ReservedPath(id string) string {
 // PanelComposeEnvPath is the absolute path to the panel-managed env file used by docker compose.
 func (s *Store) PanelComposeEnvPath(id string) string {
 	return filepath.Join(s.ReservedPath(id), PanelComposeEnvFile)
-}
-
-func (s *Store) List() ([]Meta, error) {
-	if err := s.ensureRoot(); err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(s.Root)
-	if err != nil {
-		return nil, err
-	}
-	var out []Meta
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		id := e.Name()
-		st, err := e.Info()
-		if err != nil {
-			continue
-		}
-		name := id
-		if b, err := os.ReadFile(filepath.Join(s.Root, id, ".panel-meta")); err == nil {
-			name = strings.TrimSpace(string(b))
-		}
-		out = append(out, Meta{ID: id, Name: name, CreatedAt: st.ModTime()})
-	}
-	return out, nil
 }
 
 func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, error) {
@@ -260,39 +205,6 @@ type FileEntry struct {
 	IsDir   bool
 }
 
-func (s *Store) ListFiles(wsID string) ([]FileEntry, error) {
-	base := s.Path(wsID)
-	var list []FileEntry
-	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if strings.HasPrefix(rel, ".panel-meta") {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		list = append(list, FileEntry{
-			Name:    filepath.Base(rel),
-			RelPath: filepath.ToSlash(rel),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			IsDir:   d.IsDir(),
-		})
-		return nil
-	})
-	return list, err
-}
-
 func (s *Store) HasDockerArtifacts(wsID string) (hasDockerfile, hasCompose bool) {
 	base := s.Path(wsID)
 	for _, n := range []string{"Dockerfile", "dockerfile"} {
@@ -310,13 +222,17 @@ func (s *Store) HasDockerArtifacts(wsID string) (hasDockerfile, hasCompose bool)
 	return hasDockerfile, hasCompose
 }
 
-func (s *Store) ComposeFilePath(wsID string) string {
-	base := s.Path(wsID)
-	for _, n := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
-		p := filepath.Join(base, n)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return p
-		}
+// DotEnvPath returns the path to the project .env under the compose workspace root.
+func (s *Store) DotEnvPath(baseDir string) string {
+	return filepath.Join(filepath.Clean(baseDir), ".env")
+}
+
+// ReadDotEnv reads project .env from baseDir when the file exists.
+func (s *Store) ReadDotEnv(baseDir string) (string, error) {
+	p := s.DotEnvPath(baseDir)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(base, "docker-compose.yml")
+	return string(b), nil
 }

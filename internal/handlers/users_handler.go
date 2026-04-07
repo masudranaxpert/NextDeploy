@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,21 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// countAdminUsers returns how many users have the admin role.
+func countAdminUsers(ctx context.Context, dbStore *db.Store) (int, error) {
+	users, err := dbStore.ListUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, u := range users {
+		if u.Role == db.RoleAdmin {
+			n++
+		}
+	}
+	return n, nil
+}
 
 type userPageRow struct {
 	db.User
@@ -132,17 +149,17 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		return c.Redirect("/users?error=Cannot+delete+your+own+account")
 	}
 
-	// Prevent deleting the last admin
-	users, _ := p.DB.ListUsers(c.UserContext())
-	adminCount := 0
-	for _, u := range users {
-		if u.Role == db.RoleAdmin {
-			adminCount++
-		}
-	}
-	target, err := p.DB.GetUserByID(c.UserContext(), id)
+	ctx := c.UserContext()
+	adminCount, err := countAdminUsers(ctx, p.DB)
 	if err != nil {
-		return c.Redirect("/users?error=User+not+found")
+		return c.Status(500).SendString(err.Error())
+	}
+	target, err := p.DB.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.Redirect("/users?error=User+not+found")
+		}
+		return c.Status(500).SendString(err.Error())
 	}
 	if target.Role == db.RoleAdmin && adminCount <= 1 {
 		return c.Redirect("/users?error=Cannot+delete+the+last+admin")
@@ -194,7 +211,7 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := p.DB.DeleteUser(c.UserContext(), id); err != nil {
+	if err := p.DB.DeleteUser(ctx, id); err != nil {
 		return c.Redirect("/users?error=Delete+failed")
 	}
 	return c.Redirect("/users?flash=User+deleted")
@@ -255,22 +272,26 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 		return c.Redirect("/users?error=Invalid+role")
 	}
 
-	// Prevent demoting the last admin
-	if role == db.RoleUser {
-		users, _ := p.DB.ListUsers(c.UserContext())
-		adminCount := 0
-		for _, u := range users {
-			if u.Role == db.RoleAdmin {
-				adminCount++
-			}
+	ctx := c.UserContext()
+	target, err := p.DB.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.Redirect("/users?error=User+not+found")
 		}
-		target, _ := p.DB.GetUserByID(c.UserContext(), id)
-		if target.Role == db.RoleAdmin && adminCount <= 1 {
+		return c.Status(500).SendString(err.Error())
+	}
+
+	if role == db.RoleUser && target.Role == db.RoleAdmin {
+		adminCount, err := countAdminUsers(ctx, p.DB)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		if adminCount <= 1 {
 			return c.Redirect("/users?error=Cannot+demote+the+last+admin")
 		}
 	}
 
-	if err := p.DB.UpdateUserRole(c.UserContext(), id, role); err != nil {
+	if err := p.DB.UpdateUserRole(ctx, id, role); err != nil {
 		return c.Redirect("/users?error=Update+failed")
 	}
 	account, err := p.DB.GetPHPPanelAccount(c.UserContext(), id)
