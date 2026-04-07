@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
 	"panel/internal/runutil"
@@ -127,191 +126,6 @@ func settingBool(v string, def bool) bool {
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
-// panelStackComposeContainerPath is the bind-mount path inside the panel container (docker-compose.yml).
-const panelStackComposeContainerPath = "/stack/docker-compose.yml"
-
-func isRegularComposeFile(path string) bool {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return fi.Mode().IsRegular()
-}
-
-func rootStackComposeFileOrError(path string) error {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if fi.IsDir() {
-		return fmt.Errorf("%s is a directory, not a file: on the host, the bind-mount source for this path must be the docker-compose.yml file — if the host has a folder named docker-compose.yml, remove it and put the real YAML file there (Docker sometimes creates an empty directory when the source was missing)", path)
-	}
-	if !fi.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", path)
-	}
-	return nil
-}
-
-// composeHelperPruneAfterRun removes the helper CLI image after apply to save disk (next pull on following save).
-// Set PANEL_COMPOSE_HELPER_PRUNE_IMAGE=false to keep the image cached (default: true).
-func composeHelperPruneAfterRun() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("PANEL_COMPOSE_HELPER_PRUNE_IMAGE")))
-	switch v {
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
-}
-
-func (p *Panel) nextDeployComposePath() string {
-	if custom := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_FILE")); custom != "" {
-		if isRegularComposeFile(custom) {
-			return custom
-		}
-		// Legacy/broken installs sometimes set PANEL_STACK_COMPOSE_FILE to /docker-compose.yml or a missing path
-		// while the real file is bind-mounted at /stack/docker-compose.yml.
-		if custom != panelStackComposeContainerPath {
-			if isRegularComposeFile(panelStackComposeContainerPath) {
-				return panelStackComposeContainerPath
-			}
-		}
-		return custom
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "docker-compose.yml"
-	}
-	local := filepath.Join(wd, "docker-compose.yml")
-	if isRegularComposeFile(local) {
-		return local
-	}
-	for d := wd; ; {
-		parent := filepath.Dir(d)
-		if parent == d {
-			break
-		}
-		d = parent
-		candidate := filepath.Join(d, "docker-compose.yml")
-		if isRegularComposeFile(candidate) {
-			return candidate
-		}
-	}
-	return local
-}
-
-func (p *Panel) syncRootStackCompose(ctx context.Context) error {
-	path := p.nextDeployComposePath()
-	if err := rootStackComposeFileOrError(path); err != nil {
-		return err
-	}
-	base, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	panelDomain := p.DB.GetSetting(ctx, settingPanelDomain)
-	enableWWW := settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false)
-	email := p.DB.GetCaddyConfig(ctx, "email")
-	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
-	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableWWW, email, caddyImage)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, merged, 0640)
-}
-
-// rootStackComposeProjectName is the docker compose -p project name for the root NextDeploy stack.
-func rootStackComposeProjectName(projectDir string) string {
-	if v := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_PROJECT")); v != "" {
-		return v
-	}
-	base := filepath.Base(filepath.Clean(projectDir))
-	if strings.EqualFold(base, "stack") {
-		// Panel mounts host compose at /stack/docker-compose.yml; host dir is usually .../nextdeploy
-		return "nextdeploy"
-	}
-	return base
-}
-
-// shouldUseComposeHelperContainer is true when the panel process runs inside Docker with compose at /stack/...
-// Applying compose from inside the same "panel" container can kill that process mid-command and leave the stack broken.
-func shouldUseComposeHelperContainer(composeFile string) bool {
-	cf := filepath.ToSlash(filepath.Clean(composeFile))
-	return cf == "/stack/docker-compose.yml" || strings.HasSuffix(cf, "/stack/docker-compose.yml")
-}
-
-// runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
-// is not the client process that triggers its own recreate.
-func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, projectName string) error {
-	hostInstallDir = filepath.Clean(hostInstallDir)
-	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
-	if img == "" {
-		img = "docker:cli"
-	}
-	name := fmt.Sprintf("nextdeploy-compose-apply-%d", time.Now().UnixNano())
-	// No -d: wait for the helper to exit so we capture success/failure and compose logs on stderr.
-	args := []string{
-		"run", "--rm", "--name", name,
-		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", hostInstallDir + ":/work",
-		"-w", "/work",
-		img,
-		"compose", "--project-directory", "/work", "-p", projectName,
-		"-f", "docker-compose.yml",
-		"up", "-d", "panel",
-	}
-	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
-	text := strings.TrimSpace(string(out))
-	if composeHelperPruneAfterRun() {
-		pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 90*time.Second)
-		rmiOut, rmiErr := exec.CommandContext(pruneCtx, "docker", "rmi", img).CombinedOutput()
-		pruneCancel()
-		if rmiErr != nil {
-			log.Printf("root stack compose helper: docker rmi %s (optional): %v %s", img, rmiErr, strings.TrimSpace(string(rmiOut)))
-		} else {
-			log.Printf("root stack compose helper: removed image %s to free disk (set PANEL_COMPOSE_HELPER_PRUNE_IMAGE=false to keep)", img)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, text)
-	}
-	if text != "" {
-		log.Printf("root stack compose helper: %s", text)
-	}
-	return nil
-}
-
-// applyRootStackPanelBackground runs `docker compose up -d panel` so Caddy picks up new labels (caddy-docker-proxy).
-func (p *Panel) applyRootStackPanelBackground(composeFile string) {
-	composeFile = filepath.Clean(composeFile)
-	projectDir := filepath.Dir(composeFile)
-	project := rootStackComposeProjectName(projectDir)
-	hostDir := strings.TrimSpace(os.Getenv("PANEL_HOST_INSTALL_DIR"))
-	if hostDir == "" {
-		hostDir = "/opt/nextdeploy"
-		if shouldUseComposeHelperContainer(composeFile) {
-			log.Printf("root stack compose helper: PANEL_HOST_INSTALL_DIR unset, using default %s (set in compose for custom --dir installs)", hostDir)
-		}
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if shouldUseComposeHelperContainer(composeFile) {
-			if err := runRootStackComposeViaHelperContainer(ctx, hostDir, project); err != nil {
-				log.Printf("root stack compose helper: %v", err)
-			}
-			return
-		}
-		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, "panel"); !res.OK {
-			log.Printf("root stack compose apply panel service: %s", strings.TrimSpace(res.Output))
-		}
-	}()
-}
-
-func (p *Panel) SyncRootStackComposeOnStart() error {
-	return p.syncRootStackCompose(context.Background())
-}
-
 func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	cfg, _ := p.DB.GetAllSettings(c.UserContext())
 	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
@@ -375,10 +189,9 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	if err := p.DB.SetSetting(ctx, settingPanelEnableWWW, boolString(enableWWW)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncRootStackCompose(ctx); err != nil {
+	if err := p.syncRootStackCompose(ctx, true); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	p.applyRootStackPanelBackground(p.nextDeployComposePath())
 	return c.Redirect("/nextdeploy")
 }
 
@@ -422,11 +235,39 @@ func (p *Panel) prePullAlpineImage() {
 // run (e.g. after a panel crash mid-download). Runs once at startup.
 func (p *Panel) cleanOrphanTempFiles() {
 	removed, freed := CleanPanelTempFiles()
+	r2, f2 := cleanStaleRootApplyComposeFiles()
+	removed += r2
+	freed += f2
 	if removed > 0 {
 		msg := fmt.Sprintf("[startup] Removed %d orphaned temp file(s), freed %s.", removed, formatBytes(freed))
 		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_log", msg)
 	}
+}
+
+// cleanStaleRootApplyComposeFiles removes old panel-domain apply compose files left under DATA_DIR after a crash.
+func cleanStaleRootApplyComposeFiles() (removed int, freed int64) {
+	dd := panelDataDir()
+	matches, err := filepath.Glob(filepath.Join(dd, ".nextdeploy-root-apply-*.yml"))
+	if err != nil {
+		return 0, 0
+	}
+	now := time.Now()
+	for _, m := range matches {
+		st, err := os.Stat(m)
+		if err != nil {
+			continue
+		}
+		if now.Sub(st.ModTime()) < time.Hour {
+			continue
+		}
+		sz := st.Size()
+		if err := os.Remove(m); err == nil {
+			removed++
+			freed += sz
+		}
+	}
+	return
 }
 
 func (p *Panel) sessionPruneLoop() {

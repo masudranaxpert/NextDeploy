@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"panel/internal/caddy"
@@ -17,27 +16,25 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	panelSite := nextDeployPanelDomain(cfg)
 	labels := caddy.GenerateLabels(panelSite)
 	labelYAML := caddy.LabelsToYAML(labels)
-	composePath := p.nextDeployComposePath()
+	composePath := "database (root_stack_compose_base + merge)"
 	composePreview := ""
 	composeReadErr := ""
 	composePreviewNote := ""
-	if err := rootStackComposeFileOrError(composePath); err != nil {
-		composeReadErr = err.Error()
-	}
-	var base []byte
-	var readErr error
-	if composeReadErr == "" {
-		base, readErr = os.ReadFile(composePath)
-	}
-	if readErr != nil {
-		composeReadErr = readErr.Error()
-	} else if composeReadErr == "" {
-		merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
-		if mergeErr == nil {
-			composePreview = string(merged)
+	mergedSaved := strings.TrimSpace(p.DB.GetSetting(ctx, settingRootStackComposeMerged))
+	if mergedSaved != "" {
+		composePreview = mergedSaved
+	} else {
+		base, err := p.loadRootStackComposeBase(ctx)
+		if err != nil {
+			composeReadErr = err.Error()
 		} else {
-			composePreview = string(base)
-			composePreviewNote = fmt.Sprintf("Effective stack preview could not be generated: %v", mergeErr)
+			merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
+			if mergeErr == nil {
+				composePreview = string(merged)
+			} else {
+				composePreview = string(base)
+				composePreviewNote = fmt.Sprintf("Effective stack preview could not be generated: %v", mergeErr)
+			}
 		}
 	}
 	caddyCfg, _ := p.DB.GetAllCaddyConfig(ctx)
@@ -59,22 +56,22 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		}
 	}
 	return c.Render("pages/nextdeploy", withUser(c, fiber.Map{
-		"Nav":             "nextdeploy",
-		"Title":           "NextDeploy",
-		"AdminAPI":        adminAPI,
-		"CaddyUp":         up,
-		"StatusMsg":       statusMsg,
-		"LiveConfig":      liveConfig,
-		"CaddyRunning":    caddyRunning,
-		"Email":           strings.TrimSpace(caddyCfg["email"]),
-		"CaddyImage":      strings.TrimSpace(caddyCfg["caddy_image"]),
-		"CaddyNetwork":    caddy.CaddyNetwork,
-		"PanelDomain":     panelSite.Domain,
-		"PanelEnableWWW":  panelSite.EnableWWW,
-		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
-		"RootComposePath":        composePath,
-		"RootCompose":            composePreview,
-		"RootComposeReadErr":     composeReadErr,
-		"RootComposePreviewNote": composePreviewNote,
+		"Nav":                      "nextdeploy",
+		"Title":                    "NextDeploy",
+		"AdminAPI":                 adminAPI,
+		"CaddyUp":                  up,
+		"StatusMsg":                statusMsg,
+		"LiveConfig":               liveConfig,
+		"CaddyRunning":             caddyRunning,
+		"Email":                    strings.TrimSpace(caddyCfg["email"]),
+		"CaddyImage":               strings.TrimSpace(caddyCfg["caddy_image"]),
+		"CaddyNetwork":             caddy.CaddyNetwork,
+		"PanelDomain":              panelSite.Domain,
+		"PanelEnableWWW":           panelSite.EnableWWW,
+		"PanelLabelsYAML":          strings.TrimSpace(labelYAML),
+		"RootComposePath":          composePath,
+		"RootCompose":              composePreview,
+		"RootComposeReadErr":       composeReadErr,
+		"RootComposePreviewNote":   composePreviewNote,
 	}), "layouts/shell")
 }

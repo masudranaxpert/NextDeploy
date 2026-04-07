@@ -193,6 +193,7 @@ patch_panel_stack_paths_in_compose() {
   local base
   base=$(basename "$INSTALL_DIR")
   sed -i "s|PANEL_HOST_INSTALL_DIR:.*|PANEL_HOST_INSTALL_DIR: ${INSTALL_DIR}|g" "$f"
+  sed -i "s|PANEL_HOST_DATA_DIR:.*|PANEL_HOST_DATA_DIR: ${DATA_DIR}|g" "$f"
   sed -i "s|PANEL_STACK_COMPOSE_PROJECT:.*|PANEL_STACK_COMPOSE_PROJECT: ${base}|g" "$f"
   info "Patched panel stack paths for install dir (project=$base)"
 }
@@ -281,6 +282,7 @@ fi
 if [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
   INSTALL_BASENAME=\$(basename "\$INSTALL_DIR")
   sed -i "s|PANEL_HOST_INSTALL_DIR:.*|PANEL_HOST_INSTALL_DIR: \${INSTALL_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
+  sed -i "s|PANEL_HOST_DATA_DIR:.*|PANEL_HOST_DATA_DIR: \${DATA_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
   sed -i "s|PANEL_STACK_COMPOSE_PROJECT:.*|PANEL_STACK_COMPOSE_PROJECT: \${INSTALL_BASENAME}|g" "\$INSTALL_DIR/docker-compose.yml"
 fi
 if grep -q 'masudranaxpert/nextdeploy' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null; then

@@ -108,7 +108,7 @@ func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
 			return c.Status(500).SendString(err.Error())
 		}
 	}
-	if err := p.syncRootStackCompose(ctx); err != nil {
+	if err := p.syncRootStackCompose(ctx, false); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect("/nextdeploy")
