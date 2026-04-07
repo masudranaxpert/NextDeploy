@@ -27,7 +27,7 @@ services:
 
   panel:
     # Use a released image from Docker Hub, or build locally with: docker compose up -d --build
-    image: masudranaxpert/nextdeploy:latest
+    image: masudranaxpert/nextdeploy:php-panel
     build: .
     container_name: panel
     ports:

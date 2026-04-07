@@ -16,6 +16,9 @@
 
 </div>
 
+> **GitHub:** [github.com/masudranaxpert/NextDeploy](https://github.com/masudranaxpert/NextDeploy)  
+> **Docker Hub:** [hub.docker.com/r/masudranaxpert/nextdeploy](https://hub.docker.com/r/masudranaxpert/nextdeploy)
+
 ---
 
 ## Install (recommended)
@@ -86,23 +89,27 @@ sudo bash uninstall.sh --force          # destructive, no prompt
 
 ## Manual quick start (Docker Compose only)
 
+**Pre-built image for this branch** (PHP Panel stack included):
+
+```bash
+docker pull masudranaxpert/nextdeploy:php-panel
+```
+
 ```bash
 mkdir -p /data
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml \
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/php-panel/docker-compose.yml \
   | docker compose -f - up -d
 ```
 
-Or from a clone:
+Or from a clone on `php-panel`:
 
 ```bash
-git clone https://github.com/masudranaxpert/NextDeploy.git
+git clone -b php-panel https://github.com/masudranaxpert/NextDeploy.git
 cd NextDeploy
 docker compose up -d
 ```
 
-```bash
-docker pull masudranaxpert/nextdeploy:latest
-```
+Open `http://localhost:8080` — first visit creates the admin account.
 
 ---
 
@@ -130,37 +137,50 @@ docker pull masudranaxpert/nextdeploy:latest
 ## Requirements
 
 - **Linux** host (install script target); **Docker** 24+ and **Compose V2**
-- Ports **80**, **443**, **8080** available (8080 for the panel UI by default)
+- Ports **80**, **443**, and **8080** (panel UI) available
 
 ---
 
 ## Configuration
 
-Persistent state lives under the host **`/data`** bind mount (or your `--data-dir`): SQLite at `/data/panel.db`, workspaces under `/data/workspaces`.
+Persistent state uses the host **`/data`** bind mount (or your `--data-dir`): SQLite at `/data/panel.db`, workspaces under `/data/workspaces`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATA_DIR` | `/data` | Panel data root inside the container |
 | `WORKSPACES_ROOT` | `/data/workspaces` | App file storage |
 | `LISTEN_ADDR` | `:8080` | Panel HTTP listen |
-| `PANEL_DEV` | `false` | Reload templates each request (dev only) |
+| `PANEL_DEV` | `false` | Reload templates on every request (dev only) |
 
 ---
 
 ## Caddy proxy
 
-The panel generates Caddy labels and writes them into **`.nextdeploy.generated.compose.yml`**. No hand-written Caddyfile for app routing. For local-style names (`.localhost`, `.test`, …) the panel can use **internal TLS** when HTTPS is enabled on a domain.
+The panel writes Caddy labels into **`.nextdeploy.generated.compose.yml`**. Add domains from the **Domains** tab — no hand-written Caddyfile for app routing. For local-style names (`.test`, `.localhost`, etc.) the panel can use **internal TLS** when HTTPS is enabled.
 
 ---
 
-## Releases
+## Releases & Docker images
 
-Tag push triggers CI: multi-arch image to Docker Hub, GitHub Release, tag housekeeping.
+| Channel | Docker Hub tag | When it updates |
+|---------|----------------|-----------------|
+| **main** | `latest`, `v1.2.3`, … | Version tag push on `main` |
+| **php-panel** | `php-panel`, `php-panel-<sha>` | Every push to `php-panel` (see workflow) |
+
+`main` line releases: push a tag such as `v1.0.0` on `main`.
 
 ```bash
+git checkout main
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+GitHub Actions will:
+
+1. Build a multi-arch Docker image (`linux/amd64` + `linux/arm64`)
+2. Push it to Docker Hub with version tags (`v1.0.0`, `latest`)
+3. Create a GitHub Release with auto-generated changelog
+4. Clean up old Docker Hub tags (keeps the 5 most recent)
 
 ---
 
