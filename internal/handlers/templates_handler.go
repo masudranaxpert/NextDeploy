@@ -993,7 +993,7 @@ func (p *Panel) phpPanelComposeRows(ctx context.Context, app db.App) ([]dockerx.
 	project := p.activeComposeProjectName(ctx, app, app.ID)
 	rows, res := dockerx.ComposePS(ctx, p.appSourcePath(ctx, app.ID), p.effectiveComposePaths(ctx, app, app.ID), project, p.composeEnvFiles(ctx, app.ID))
 	if !res.OK {
-		return nil, fmt.Errorf(res.Output)
+		return nil, fmt.Errorf("compose ps: %s", strings.TrimSpace(res.Output))
 	}
 	return rows, nil
 }

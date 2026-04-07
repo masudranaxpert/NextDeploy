@@ -35,34 +35,6 @@ func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
 	}), "layouts/shell")
 }
 
-// GitProviderCreate creates a new global Git provider credential.
-func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
-	name := strings.TrimSpace(c.FormValue("name"))
-	provider := strings.TrimSpace(c.FormValue("provider"))
-	token := strings.TrimSpace(c.FormValue("token"))
-	notes := strings.TrimSpace(c.FormValue("notes"))
-
-	if name == "" {
-		return c.Redirect("/git?error=Name+is+required")
-	}
-	if provider == "" {
-		provider = "github"
-	}
-	switch provider {
-	case "github", "gitlab":
-	default:
-		provider = "github"
-	}
-
-	if _, err := p.DB.CreateGitProvider(c.UserContext(), name, provider, token, notes); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return c.Redirect("/git?error=A+provider+with+that+name+already+exists")
-		}
-		return c.Redirect("/git?error=" + err.Error())
-	}
-	return c.Redirect("/git?saved=1")
-}
-
 // GitProviderUpdate updates an existing global Git provider credential.
 func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	idStr := c.Params("pid")

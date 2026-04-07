@@ -253,9 +253,8 @@ func main() {
 	app.Get("/caddy/logs", p.CaddyLogs)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
 
-	// Git providers (global credentials)
+	// Git providers (GitHub App + GitLab OAuth only — no manual token POST)
 	app.Get("/git", p.GitProvidersPage)
-	app.Post("/git", p.GitProviderCreate)
 	app.Post("/git/github/start", p.GitHubAppManifestStart)
 	app.Get("/git/github/callback", p.GitHubAppManifestCallback)
 	app.Get("/git/github/setup", p.GitHubAppSetup)

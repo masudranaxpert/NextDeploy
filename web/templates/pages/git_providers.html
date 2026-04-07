@@ -11,16 +11,9 @@
       </div>
       <div class="min-w-0">
         <h1 class="page-title">Git Providers</h1>
-        <p class="page-subtitle">Connect GitHub or GitLab once, then pick a provider from each app’s Git tab.</p>
+        <p class="page-subtitle">Use <strong class="font-medium text-foreground/90">GitHub App</strong> or <strong class="font-medium text-foreground/90">GitLab OAuth</strong> below — then choose the saved connection from each app’s Git tab.</p>
       </div>
     </div>
-    <button type="button" class="section-header-btn btn-primary px-4 text-sm"
-            onclick="document.getElementById('add-provider-modal').classList.remove('hidden')">
-      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-      </svg>
-      Add provider
-    </button>
   </div>
 
   <!-- Flash messages -->
@@ -54,10 +47,9 @@
       <div class="min-w-0 space-y-3">
         <h2 id="git-how-heading" class="text-base font-semibold tracking-tight text-foreground">How it works</h2>
         <ul class="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span>Create a named provider here, then choose it from each app’s <strong class="font-medium text-foreground/90">Git</strong> tab.</span></li>
-          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitHub App</strong> is best: short-lived tokens and automatic repo webhooks.</span></li>
-          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-500" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitLab</strong> works for private clones; you still wire webhooks manually from Deploy.</span></li>
-          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true"></span><span>Legacy <strong class="font-medium text-foreground/90">access token</strong> fields stay for older setups only.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitHub</strong> and <strong class="font-medium text-foreground/90">GitLab</strong> are set up separately on this page — each flow creates its own saved connection.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitHub App</strong>: short-lived tokens and automatic repo webhooks.</span></li>
+          <li class="flex gap-3"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-500" aria-hidden="true"></span><span><strong class="font-medium text-foreground/90">GitLab OAuth</strong>: browser authorize; good for private clones — add webhooks from Deploy when needed.</span></li>
         </ul>
       </div>
     </div>
@@ -149,8 +141,8 @@
   <section class="space-y-4" aria-labelledby="saved-providers-heading">
     <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h2 id="saved-providers-heading" class="text-base font-semibold tracking-tight text-foreground">Saved providers</h2>
-        <p class="mt-1 text-sm text-muted-foreground">Tokens stay on the server; apps reference these by name.</p>
+        <h2 id="saved-providers-heading" class="text-base font-semibold tracking-tight text-foreground">Saved connections</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Connections created via GitHub App or GitLab OAuth; credentials stay on the server.</p>
       </div>
     </div>
 
@@ -246,66 +238,12 @@
       <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40 ring-1 ring-border/60">
         <svg class="h-7 w-7 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
       </div>
-      <h3 class="mt-4 text-sm font-semibold text-foreground">No providers yet</h3>
-      <p class="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Use <strong class="font-medium text-foreground/90">Add provider</strong> for tokens, or start with <strong class="font-medium text-foreground/90">Create GitHub App</strong> above.</p>
-      <button type="button" class="btn-primary mt-6 px-5 py-2.5 text-sm"
-              onclick="document.getElementById('add-provider-modal').classList.remove('hidden')">
-        Add provider
-      </button>
+      <h3 class="mt-4 text-sm font-semibold text-foreground">No connections yet</h3>
+      <p class="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Set up <strong class="font-medium text-foreground/90">Create GitHub App</strong> or <strong class="font-medium text-foreground/90">GitLab OAuth</strong> in the section above.</p>
     </div>
     {{end}}
   </section>
 
-</div>
-
-<!-- Add Provider Modal -->
-<div id="add-provider-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="add-provider-title">
-  <div class="absolute inset-0" onclick="document.getElementById('add-provider-modal').classList.add('hidden')" aria-hidden="true"></div>
-  <div class="modal-box" onclick="event.stopPropagation()">
-    <div class="mb-5 flex items-start justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/25">
-          <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        </div>
-        <div>
-          <h2 id="add-provider-title" class="text-base font-semibold text-foreground">Add Git provider</h2>
-          <p class="text-xs text-muted-foreground">Save a named credential for cloning private repos</p>
-        </div>
-      </div>
-      <button type="button" class="btn-icon" onclick="document.getElementById('add-provider-modal').classList.add('hidden')">
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-      </button>
-    </div>
-    <form method="post" action="/git" class="space-y-4">
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Name <span class="text-rose-400">*</span></label>
-        <input class="input w-full" name="name" placeholder="My GitHub Token" required autocomplete="off">
-        <p class="mt-1 text-xs text-muted-foreground">A friendly name to identify this credential</p>
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Provider</label>
-        <select class="input w-full" name="provider" id="add-provider-type">
-          <option value="github">GitHub</option>
-          <option value="gitlab">GitLab</option>
-        </select>
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Access token</label>
-        <input class="input w-full font-mono text-xs" type="password" name="token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="new-password">
-        <div id="add-token-hint" class="mt-1.5 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground/70">
-          <strong class="text-foreground/70">GitHub App first:</strong> Use the GitHub App setup above when possible. This token field remains only for compatibility and migrations.
-        </div>
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Notes <span class="text-muted-foreground/50">(optional)</span></label>
-        <input class="input w-full" name="notes" placeholder="e.g. Read-only for org repos">
-      </div>
-      <div class="flex justify-end gap-3 pt-1">
-        <button type="button" class="btn-ghost px-4 py-2 text-sm" onclick="document.getElementById('add-provider-modal').classList.add('hidden')">Cancel</button>
-        <button type="submit" class="btn-primary px-5 py-2 text-sm">Save provider</button>
-      </div>
-    </form>
-  </div>
 </div>
 
 <!-- Edit Provider Modal -->
@@ -419,14 +357,6 @@ function openEditProvider(id, name, provider, notes) {
   }
   document.getElementById('edit-provider-modal').classList.remove('hidden');
 }
-
-document.getElementById('add-provider-type').addEventListener('change', function() {
-  var hints = {
-    github: '<strong class="text-foreground/70">GitHub App first:</strong> Use the GitHub App setup above when possible. This token field remains only for compatibility and migrations.',
-    gitlab: '<strong class="text-foreground/70">GitLab:</strong> Use OAuth connect above for best results. This manual token field is for Personal Access Tokens only.'
-  };
-  document.getElementById('add-token-hint').innerHTML = hints[this.value] || hints.github;
-});
 
 function copyGLCallback() {
   var url = document.getElementById('gl-callback-url').textContent.trim();
