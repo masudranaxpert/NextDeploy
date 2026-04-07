@@ -1,12 +1,16 @@
-# Build and push the PHP Panel branch image to Docker Hub.
-# Tags: :php-panel (rolling) and :php-panel-<full-sha> (immutable pointer).
-# Does not push :latest — that stays reserved for version tags on main (release.yml).
-name: Docker (php-panel)
+# Build and push the main-line panel image on every push to main.
+# Tags (fixed policy):
+#   :latest   — default install / production rolling image for main branch
+#   :main     — explicit main-line pointer (same digest as :latest on branch pushes)
+#   :main-<full-sha> — immutable pointer for this commit
+#
+# Versioned semver images (v1.2.3, etc.) and :latest on tag push remain in release.yml.
+name: Docker (main)
 
 on:
   push:
     branches:
-      - php-panel
+      - main
   workflow_dispatch:
 
 permissions:
@@ -18,7 +22,7 @@ env:
 
 jobs:
   build-push:
-    name: Build & push php-panel image
+    name: Build & push main image (latest + main)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,13 +47,14 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:php-panel
-            ${{ env.IMAGE_NAME }}:php-panel-${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:main
+            ${{ env.IMAGE_NAME }}:main-${{ github.sha }}
           labels: |
-            org.opencontainers.image.title=NextDeploy (PHP Panel)
-            org.opencontainers.image.description=NextDeploy panel with PHP Panel template (php-panel branch)
+            org.opencontainers.image.title=NextDeploy
+            org.opencontainers.image.description=NextDeploy panel (main branch — rolling latest)
             org.opencontainers.image.url=https://github.com/masudranaxpert/NextDeploy
-            org.opencontainers.image.source=https://github.com/masudranaxpert/NextDeploy/tree/php-panel
+            org.opencontainers.image.source=https://github.com/masudranaxpert/NextDeploy/tree/main
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha

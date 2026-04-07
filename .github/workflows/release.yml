@@ -1,9 +1,10 @@
 name: Release
 
 # Trigger:
-#   - push a tag like v1.0.0  → builds image, creates release (main line only)
+#   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags + :latest
 #   - push/PR to main or php-panel → CI build check (no image push)
-#   - push to php-panel → see docker-php-panel.yml for :php-panel image
+#   - push to main → docker-main.yml (on branch main) pushes :latest, :main, :main-<sha>
+#   - Docker image for php-panel branch: workflow lives only on branch php-panel (docker-php-panel.yml)
 on:
   push:
     tags:
@@ -173,6 +174,8 @@ jobs:
             echo "**Docker image**"
             echo '```bash'
             echo "docker pull ${IMAGE}:${TAG}"
+            echo "docker pull ${IMAGE}:latest"
+            echo "docker pull ${IMAGE}:main"
             echo '```'
           } > /tmp/release_notes.md
 
