@@ -177,7 +177,19 @@ download_compose() {
   fi
 
   patch_nextdeploy_image_in_compose "$PANEL_IMAGE_TAG"
+  patch_panel_stack_paths_in_compose
   success "docker-compose.yml downloaded to $INSTALL_DIR"
+}
+
+# Align PANEL_HOST_INSTALL_DIR and PANEL_STACK_COMPOSE_PROJECT with INSTALL_DIR (custom --dir).
+patch_panel_stack_paths_in_compose() {
+  local f="$INSTALL_DIR/docker-compose.yml"
+  [[ -f "$f" ]] || return 0
+  local base
+  base=$(basename "$INSTALL_DIR")
+  sed -i "s|PANEL_HOST_INSTALL_DIR:.*|PANEL_HOST_INSTALL_DIR: ${INSTALL_DIR}|g" "$f"
+  sed -i "s|PANEL_STACK_COMPOSE_PROJECT:.*|PANEL_STACK_COMPOSE_PROJECT: ${base}|g" "$f"
+  info "Patched panel stack paths for install dir (project=$base)"
 }
 
 # Ensure compose panel image uses :latest (matches docker-main.yml / release tags on main).
@@ -200,6 +212,7 @@ pull_images() {
 start_services() {
   info "Starting NextDeploy services..."
   cd "$INSTALL_DIR"
+  # Images were pulled; omit --build so production uses registry tags (not a local Dockerfile build).
   docker compose up -d
   success "Services started"
 }
@@ -249,6 +262,11 @@ else
 fi
 if [[ "\$DATA_DIR" != "/data" ]] && [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
   sed -i "s|/data|\${DATA_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
+fi
+if [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
+  INSTALL_BASENAME=\$(basename "\$INSTALL_DIR")
+  sed -i "s|PANEL_HOST_INSTALL_DIR:.*|PANEL_HOST_INSTALL_DIR: \${INSTALL_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
+  sed -i "s|PANEL_STACK_COMPOSE_PROJECT:.*|PANEL_STACK_COMPOSE_PROJECT: \${INSTALL_BASENAME}|g" "\$INSTALL_DIR/docker-compose.yml"
 fi
 if grep -q 'masudranaxpert/nextdeploy' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null; then
   sed -i "s|masudranaxpert/nextdeploy:[a-zA-Z0-9._-]*|masudranaxpert/nextdeploy:${PANEL_IMAGE_TAG}|g" "\$INSTALL_DIR/docker-compose.yml"

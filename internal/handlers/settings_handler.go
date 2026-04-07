@@ -212,8 +212,9 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, 
 		img = "docker:cli"
 	}
 	name := fmt.Sprintf("nextdeploy-compose-apply-%d", time.Now().UnixNano())
+	// No -d: wait for the helper to exit so we capture success/failure and compose logs on stderr.
 	args := []string{
-		"run", "--rm", "-d", "--name", name,
+		"run", "--rm", "--name", name,
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
 		"-v", hostInstallDir + ":/work",
 		"-w", "/work",
@@ -223,8 +224,12 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, 
 		"up", "-d", "panel",
 	}
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	text := strings.TrimSpace(string(out))
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("%w: %s", err, text)
+	}
+	if text != "" {
+		log.Printf("root stack compose helper: %s", text)
 	}
 	return nil
 }
@@ -237,6 +242,9 @@ func (p *Panel) applyRootStackPanelBackground(composeFile string) {
 	hostDir := strings.TrimSpace(os.Getenv("PANEL_HOST_INSTALL_DIR"))
 	if hostDir == "" {
 		hostDir = "/opt/nextdeploy"
+		if shouldUseComposeHelperContainer(composeFile) {
+			log.Printf("root stack compose helper: PANEL_HOST_INSTALL_DIR unset, using default %s (set in compose for custom --dir installs)", hostDir)
+		}
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
