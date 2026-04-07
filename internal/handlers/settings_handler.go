@@ -130,7 +130,26 @@ func (p *Panel) nextDeployComposePath() string {
 	if custom := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_FILE")); custom != "" {
 		return custom
 	}
-	return filepath.Join(".", "docker-compose.yml")
+	wd, err := os.Getwd()
+	if err != nil {
+		return "docker-compose.yml"
+	}
+	local := filepath.Join(wd, "docker-compose.yml")
+	if _, err := os.Stat(local); err == nil {
+		return local
+	}
+	for d := wd; ; {
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+		candidate := filepath.Join(d, "docker-compose.yml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return local
 }
 
 func (p *Panel) syncRootStackCompose(ctx context.Context) error {

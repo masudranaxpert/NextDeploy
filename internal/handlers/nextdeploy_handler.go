@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -18,10 +19,18 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	labelYAML := caddy.LabelsToYAML(labels)
 	composePath := p.nextDeployComposePath()
 	composePreview := ""
-	if base, err := os.ReadFile(composePath); err == nil {
-		merged, err := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
-		if err == nil {
+	composeReadErr := ""
+	composePreviewNote := ""
+	base, readErr := os.ReadFile(composePath)
+	if readErr != nil {
+		composeReadErr = readErr.Error()
+	} else {
+		merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
+		if mergeErr == nil {
 			composePreview = string(merged)
+		} else {
+			composePreview = string(base)
+			composePreviewNote = fmt.Sprintf("Effective stack preview could not be generated: %v", mergeErr)
 		}
 	}
 	caddyCfg, _ := p.DB.GetAllCaddyConfig(ctx)
@@ -56,7 +65,9 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"PanelDomain":     panelSite.Domain,
 		"PanelEnableWWW":  panelSite.EnableWWW,
 		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
-		"RootComposePath": composePath,
-		"RootCompose":     composePreview,
+		"RootComposePath":        composePath,
+		"RootCompose":            composePreview,
+		"RootComposeReadErr":     composeReadErr,
+		"RootComposePreviewNote": composePreviewNote,
 	}), "layouts/shell")
 }
