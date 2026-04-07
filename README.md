@@ -61,8 +61,29 @@ After install, open **`http://<server-ip>:8080`** and create the first admin use
 
 ## Uninstall
 
+Interactive (you must type `yes` to confirm):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash
+```
+
+**Non-interactive / force** (no confirmation prompt): arguments after `curl … | bash` are **not** passed to the script unless you use **`bash -s --`**. The `--` ends bash options; everything after it is passed to `uninstall.sh`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash -s -- --force
+```
+
+Same idea with `--keep-data`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash -s -- --force --keep-data
+```
+
+If you already saved the script on disk:
+
+```bash
+sudo bash uninstall.sh --keep-data
+sudo bash uninstall.sh --force
 ```
 
 | Option | Description |
@@ -70,11 +91,6 @@ curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/unin
 | `--keep-data` | Keeps the data directory (workspaces, SQLite DB, uploads) |
 | `--force` / `-f` | Skip the interactive `yes` confirmation |
 | `--dir`, `--data-dir` | Must match your install if non-default |
-
-```bash
-sudo bash uninstall.sh --keep-data    # remove stack, keep /data
-sudo bash uninstall.sh --force          # destructive, no prompt
-```
 
 ---
 
