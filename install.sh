@@ -162,6 +162,11 @@ create_directories() {
 
 download_compose() {
   info "Downloading docker-compose.yml..."
+  # Single-file bind ./docker-compose.yml:... can leave a directory with this name if the file was missing; fix before writing.
+  if [[ -d "$INSTALL_DIR/docker-compose.yml" ]]; then
+    warn "Removing mistaken directory $INSTALL_DIR/docker-compose.yml (Docker bind-mount artifact)"
+    rm -rf "$INSTALL_DIR/docker-compose.yml"
+  fi
   if command -v curl &>/dev/null; then
     curl -fsSL "$COMPOSE_URL" -o "$INSTALL_DIR/docker-compose.yml"
   elif command -v wget &>/dev/null; then
@@ -254,9 +259,19 @@ DATA_DIR="${DATA_DIR}"
 COMPOSE_URL="${COMPOSE_URL}"
 echo "[NextDeploy] Refreshing docker-compose.yml from repository..."
 if command -v curl &>/dev/null; then
-  curl -fsSL "\$COMPOSE_URL" -o "\$INSTALL_DIR/docker-compose.yml.tmp" && mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
+  curl -fsSL "\$COMPOSE_URL" -o "\$INSTALL_DIR/docker-compose.yml.tmp"
+  if [[ -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
+    echo "[NextDeploy] Removing invalid docker-compose.yml directory..."
+    rm -rf "\$INSTALL_DIR/docker-compose.yml"
+  fi
+  mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
 elif command -v wget &>/dev/null; then
-  wget -qO "\$INSTALL_DIR/docker-compose.yml.tmp" "\$COMPOSE_URL" && mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
+  wget -qO "\$INSTALL_DIR/docker-compose.yml.tmp" "\$COMPOSE_URL"
+  if [[ -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
+    echo "[NextDeploy] Removing invalid docker-compose.yml directory..."
+    rm -rf "\$INSTALL_DIR/docker-compose.yml"
+  fi
+  mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
 else
   echo "[NextDeploy] WARN: curl/wget missing — keeping existing docker-compose.yml"
 fi
