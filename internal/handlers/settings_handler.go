@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -182,6 +183,32 @@ func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 	return os.WriteFile(path, merged, 0640)
 }
 
+// rootStackComposeProjectName is the docker compose -p project name for the root NextDeploy stack.
+func rootStackComposeProjectName(projectDir string) string {
+	if v := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_PROJECT")); v != "" {
+		return v
+	}
+	base := filepath.Base(filepath.Clean(projectDir))
+	if strings.EqualFold(base, "stack") {
+		// Panel mounts host compose at /stack/docker-compose.yml; host dir is usually .../nextdeploy
+		return "nextdeploy"
+	}
+	return base
+}
+
+// applyRootStackPanelBackground runs `docker compose up -d panel` so Caddy picks up new labels (caddy-docker-proxy).
+func (p *Panel) applyRootStackPanelBackground(composeFile string) {
+	projectDir := filepath.Dir(filepath.Clean(composeFile))
+	project := rootStackComposeProjectName(projectDir)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, "panel"); !res.OK {
+			log.Printf("root stack compose apply panel service: %s", strings.TrimSpace(res.Output))
+		}
+	}()
+}
+
 func (p *Panel) SyncRootStackComposeOnStart() error {
 	return p.syncRootStackCompose(context.Background())
 }
@@ -252,6 +279,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	if err := p.syncRootStackCompose(ctx); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	p.applyRootStackPanelBackground(p.nextDeployComposePath())
 	return c.Redirect("/nextdeploy")
 }
 
