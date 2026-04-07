@@ -130,15 +130,49 @@ func settingBool(v string, def bool) bool {
 // panelStackComposeContainerPath is the bind-mount path inside the panel container (docker-compose.yml).
 const panelStackComposeContainerPath = "/stack/docker-compose.yml"
 
+func isRegularComposeFile(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return fi.Mode().IsRegular()
+}
+
+func rootStackComposeFileOrError(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("%s is a directory, not a file: on the host, the bind-mount source for this path must be the docker-compose.yml file — if the host has a folder named docker-compose.yml, remove it and put the real YAML file there (Docker sometimes creates an empty directory when the source was missing)", path)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	return nil
+}
+
+// composeHelperPruneAfterRun removes the helper CLI image after apply to save disk (next pull on following save).
+// Set PANEL_COMPOSE_HELPER_PRUNE_IMAGE=false to keep the image cached (default: true).
+func composeHelperPruneAfterRun() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("PANEL_COMPOSE_HELPER_PRUNE_IMAGE")))
+	switch v {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
 func (p *Panel) nextDeployComposePath() string {
 	if custom := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_FILE")); custom != "" {
-		if _, err := os.Stat(custom); err == nil {
+		if isRegularComposeFile(custom) {
 			return custom
 		}
 		// Legacy/broken installs sometimes set PANEL_STACK_COMPOSE_FILE to /docker-compose.yml or a missing path
 		// while the real file is bind-mounted at /stack/docker-compose.yml.
 		if custom != panelStackComposeContainerPath {
-			if _, err := os.Stat(panelStackComposeContainerPath); err == nil {
+			if isRegularComposeFile(panelStackComposeContainerPath) {
 				return panelStackComposeContainerPath
 			}
 		}
@@ -149,7 +183,7 @@ func (p *Panel) nextDeployComposePath() string {
 		return "docker-compose.yml"
 	}
 	local := filepath.Join(wd, "docker-compose.yml")
-	if _, err := os.Stat(local); err == nil {
+	if isRegularComposeFile(local) {
 		return local
 	}
 	for d := wd; ; {
@@ -159,7 +193,7 @@ func (p *Panel) nextDeployComposePath() string {
 		}
 		d = parent
 		candidate := filepath.Join(d, "docker-compose.yml")
-		if _, err := os.Stat(candidate); err == nil {
+		if isRegularComposeFile(candidate) {
 			return candidate
 		}
 	}
@@ -168,6 +202,9 @@ func (p *Panel) nextDeployComposePath() string {
 
 func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 	path := p.nextDeployComposePath()
+	if err := rootStackComposeFileOrError(path); err != nil {
+		return err
+	}
 	base, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -225,6 +262,16 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, 
 	}
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	text := strings.TrimSpace(string(out))
+	if composeHelperPruneAfterRun() {
+		pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		rmiOut, rmiErr := exec.CommandContext(pruneCtx, "docker", "rmi", img).CombinedOutput()
+		pruneCancel()
+		if rmiErr != nil {
+			log.Printf("root stack compose helper: docker rmi %s (optional): %v %s", img, rmiErr, strings.TrimSpace(string(rmiOut)))
+		} else {
+			log.Printf("root stack compose helper: removed image %s to free disk (set PANEL_COMPOSE_HELPER_PRUNE_IMAGE=false to keep)", img)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, text)
 	}

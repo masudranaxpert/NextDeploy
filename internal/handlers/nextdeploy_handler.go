@@ -21,10 +21,17 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	composePreview := ""
 	composeReadErr := ""
 	composePreviewNote := ""
-	base, readErr := os.ReadFile(composePath)
+	if err := rootStackComposeFileOrError(composePath); err != nil {
+		composeReadErr = err.Error()
+	}
+	var base []byte
+	var readErr error
+	if composeReadErr == "" {
+		base, readErr = os.ReadFile(composePath)
+	}
 	if readErr != nil {
 		composeReadErr = readErr.Error()
-	} else {
+	} else if composeReadErr == "" {
 		merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
 		if mergeErr == nil {
 			composePreview = string(merged)
