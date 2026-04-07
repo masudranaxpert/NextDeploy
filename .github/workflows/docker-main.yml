@@ -59,3 +59,52 @@ jobs:
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Rolling tags (:latest, :main) stay; old immutable :main-<sha> tags accumulate — prune extras.
+  cleanup-old-sha-tags:
+    name: Prune old main-<sha> Docker Hub tags
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep 10 newest main-<full-sha>, delete older
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          IMAGE: nextdeploy
+          KEEP: "10"
+          TAG_REGEX: '^main-[0-9a-f]{40}$'
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -s -X POST \
+            "https://hub.docker.com/v2/users/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKER_USERNAME}\",\"password\":\"${DOCKER_TOKEN}\"}" \
+            | jq -r '.token')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::warning::Docker Hub login failed — skip tag prune."
+            exit 0
+          fi
+          LIST=$(mktemp)
+          URL="https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags?page_size=100&ordering=last_updated"
+          while [ -n "$URL" ]; do
+            RESP=$(curl -sS -H "Authorization: Bearer ${TOKEN}" "$URL")
+            echo "$RESP" | jq -r '.results[].name' >> "$LIST"
+            URL=$(echo "$RESP" | jq -r 'if .next == null then empty else .next end')
+          done
+          SHA_TAGS=$(grep -E "${TAG_REGEX}" "$LIST" || true)
+          rm -f "$LIST"
+          TO_DELETE=$(echo "$SHA_TAGS" | tail -n +$((KEEP + 1)) || true)
+          if [ -z "$TO_DELETE" ]; then
+            echo "No old main-<sha> tags to delete (≤${KEEP} kept)."
+            exit 0
+          fi
+          echo "Deleting old main-<sha> tags:"
+          echo "$TO_DELETE"
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+              "https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags/${TAG}/" \
+              -H "Authorization: Bearer ${TOKEN}")
+            echo "  $TAG → HTTP $HTTP"
+          done <<< "$TO_DELETE"
+          echo "Prune complete."
