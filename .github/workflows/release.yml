@@ -1,17 +1,20 @@
 name: Release
 
 # Trigger:
-#   - push a tag like v1.0.0  → builds image, creates release
-#   - push/PR to main         → CI build check only (no image push)
+#   - push a tag like v1.0.0  → builds image, creates release (main line only)
+#   - push/PR to main or php-panel → CI build check (no image push)
+#   - push to php-panel → see docker-php-panel.yml for :php-panel image
 on:
   push:
     tags:
       - "v*.*.*"
     branches:
       - main
+      - php-panel
   pull_request:
     branches:
       - main
+      - php-panel
 
 env:
   REGISTRY: docker.io
@@ -23,6 +26,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Build, push & release
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write   # needed to create GitHub Release
@@ -61,11 +65,10 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       # ── Build & push image ────────────────────────────────────────────────────
-      # Tags pushed:
-      #   masudranaxpert/nextdeploy:v1.2.3   ← exact version
-      #   masudranaxpert/nextdeploy:1.2       ← minor alias
-      #   masudranaxpert/nextdeploy:1         ← major alias
-      #   masudranaxpert/nextdeploy:latest    ← always latest
+      # Tags pushed (DOCKER_USERNAME from secrets):
+      #   <user>/nextdeploy:v1.2.3   ← git tag
+      #   <user>/nextdeploy:1.2.3    ← semver without v prefix
+      #   <user>/nextdeploy:latest   ← rolling stable for main releases
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v6
