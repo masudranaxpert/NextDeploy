@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 	"panel/internal/dockerapi"
@@ -56,11 +57,13 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("missing app id (route or ?app=)"))
 		return
 	}
-	if _, err := p.DB.GetApp(context.Background(), appID); err != nil {
+	chkCtx, chkCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer chkCancel()
+	if _, err := p.DB.GetApp(chkCtx, appID); err != nil {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
-	if container == "" || !p.containerBelongsToApp(appID, container) {
+	if container == "" || !p.containerBelongsToApp(chkCtx, appID, container) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("invalid container for this app"))
 		return
 	}

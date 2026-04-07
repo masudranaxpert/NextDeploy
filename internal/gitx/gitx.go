@@ -29,7 +29,10 @@ func SafeRepoURL(raw string) string {
 		return raw
 	}
 	u.User = nil
-	return u.String()
+	s := u.String()
+	s = strings.ReplaceAll(s, "x-access-token:", "x-access-token:***")
+	s = strings.ReplaceAll(s, "oauth2:", "oauth2:***")
+	return s
 }
 
 func AuthenticatedRepoURL(rawURL, authMode, token string) string {
@@ -51,6 +54,7 @@ func AuthenticatedRepoURL(rawURL, authMode, token string) string {
 }
 
 func Clone(ctx context.Context, destDir, repoURL, branch, authMode, token string) Result {
+	safeURL := SafeRepoURL(repoURL)
 	repoURL = AuthenticatedRepoURL(repoURL, authMode, token)
 	if strings.TrimSpace(branch) == "" {
 		branch = "main"
@@ -59,8 +63,12 @@ func Clone(ctx context.Context, destDir, repoURL, branch, authMode, token string
 	if err := os.MkdirAll(parent, 0o750); err != nil {
 		return Result{OK: false, Output: err.Error()}
 	}
-	return run(ctx, parent, []string{"GIT_TERMINAL_PROMPT=0"},
+	res := run(ctx, parent, []string{"GIT_TERMINAL_PROMPT=0"},
 		"git", "clone", "--depth", "1", "--branch", branch, repoURL, filepath.Base(destDir))
+	if !res.OK && repoURL != safeURL {
+		res.Output = strings.ReplaceAll(res.Output, repoURL, safeURL)
+	}
+	return res
 }
 
 func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
@@ -69,20 +77,31 @@ func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
 	}
 	env := []string{"GIT_TERMINAL_PROMPT=0"}
 	remote := run(ctx, repoDir, nil, "git", "remote", "get-url", "origin")
+	var authURL, safeURL string
 	if remote.OK {
-		authURL := AuthenticatedRepoURL(strings.TrimSpace(remote.Output), authMode, token)
+		authURL = AuthenticatedRepoURL(strings.TrimSpace(remote.Output), authMode, token)
+		safeURL = SafeRepoURL(authURL)
 		_ = run(ctx, repoDir, nil, "git", "remote", "set-url", "origin", authURL)
 	}
 	fetch := run(ctx, repoDir, env, "git", "fetch", "--depth", "1", "origin", branch)
 	if !fetch.OK {
+		if authURL != "" && authURL != safeURL {
+			fetch.Output = strings.ReplaceAll(fetch.Output, authURL, safeURL)
+		}
 		return fetch
 	}
 	checkout := run(ctx, repoDir, env, "git", "checkout", "-B", branch, "FETCH_HEAD")
 	if !checkout.OK {
+		if authURL != "" && authURL != safeURL {
+			checkout.Output = strings.ReplaceAll(checkout.Output, authURL, safeURL)
+		}
 		return checkout
 	}
 	clean := run(ctx, repoDir, env, "git", "clean", "-fd")
 	if !clean.OK {
+		if authURL != "" && authURL != safeURL {
+			clean.Output = strings.ReplaceAll(clean.Output, authURL, safeURL)
+		}
 		return clean
 	}
 	return Result{OK: true, Output: join(fetch.Output, checkout.Output, clean.Output)}

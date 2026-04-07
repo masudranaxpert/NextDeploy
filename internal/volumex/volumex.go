@@ -3,6 +3,7 @@ package volumex
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -46,8 +47,10 @@ func List(ctx context.Context) ([]string, string) {
 	return names, ""
 }
 
-// ListForApp returns Docker volume names that likely belong to this app (compose project id / patterns).
-func ListForApp(ctx context.Context, appID string) ([]string, string) {
+// ListForApp returns Docker volume names that likely belong to this app.
+// composeProjects lists compose project names (e.g. from COMPOSE_PROJECT_NAME or app slug) so volumes
+// like "myproject_data" match even when the panel app id is a UUID.
+func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]string, string) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
 		return nil, ""
@@ -57,10 +60,29 @@ func ListForApp(ctx context.Context, appID string) ([]string, string) {
 		return nil, errMsg
 	}
 	u := strings.ReplaceAll(appID, "-", "_")
+	seen := map[string]struct{}{}
 	var out []string
+	add := func(vol string) {
+		if _, ok := seen[vol]; ok {
+			return
+		}
+		seen[vol] = struct{}{}
+		out = append(out, vol)
+	}
 	for _, n := range names {
 		if strings.Contains(n, appID) || strings.Contains(n, u) {
-			out = append(out, n)
+			add(n)
+			continue
+		}
+		for _, pref := range composeProjects {
+			pref = strings.TrimSpace(pref)
+			if pref == "" {
+				continue
+			}
+			if n == pref || strings.HasPrefix(n, pref+"_") {
+				add(n)
+				break
+			}
 		}
 	}
 	sort.Strings(out)
@@ -69,7 +91,7 @@ func ListForApp(ctx context.Context, appID string) ([]string, string) {
 
 // RemoveMatching deletes Docker volumes whose names match ListForApp filters (best-effort).
 func RemoveMatching(ctx context.Context, appID string) string {
-	names, errMsg := ListForApp(ctx, appID)
+	names, errMsg := ListForApp(ctx, appID, nil)
 	if errMsg != "" {
 		return errMsg
 	}
@@ -92,6 +114,37 @@ func RemoveMatching(ctx context.Context, appID string) string {
 type Entry struct {
 	Name  string
 	IsDir bool
+}
+
+type volumeInspect struct {
+	Name       string `json:"Name"`
+	Driver     string `json:"Driver"`
+	Mountpoint string `json:"Mountpoint"`
+}
+
+func getVolumeMountpoint(ctx context.Context, vol string) (string, error) {
+	if !ValidVolumeName(vol) {
+		return "", errors.New("invalid volume name")
+	}
+	cmd := exec.CommandContext(ctx, "docker", "volume", "inspect", vol)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("docker volume inspect failed: %w", err)
+	}
+	var inspectData []volumeInspect
+	if err := json.Unmarshal(out.Bytes(), &inspectData); err != nil {
+		return "", fmt.Errorf("failed to parse volume inspect output: %w", err)
+	}
+	if len(inspectData) == 0 {
+		return "", errors.New("volume not found")
+	}
+	mountpoint := strings.TrimSpace(inspectData[0].Mountpoint)
+	if mountpoint == "" {
+		return "", errors.New("volume has no mountpoint")
+	}
+	return mountpoint, nil
 }
 
 func safeVolSubpath(rel string) (string, error) {
@@ -122,31 +175,30 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 	if err != nil {
 		return nil, err.Error()
 	}
-	target := "/mnt"
+	
+	mountpoint, err := getVolumeMountpoint(ctx, vol)
+	if err != nil {
+		return nil, fmt.Sprintf("failed to get volume mountpoint: %v", err)
+	}
+	
+	targetPath := mountpoint
 	if sub != "." && sub != "" {
-		target = "/mnt/" + sub
+		targetPath = filepath.Join(mountpoint, sub)
 	}
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/mnt:ro", "alpine:3.20", "ls", "-1Ap", target)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(out.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, msg
+	
+	entries, err := os.ReadDir(targetPath)
+	if err != nil {
+		return nil, fmt.Sprintf("failed to read directory: %v", err)
 	}
+	
 	var list []Entry
-	for _, line := range strings.Split(out.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "./" || line == "../" {
-			continue
-		}
-		isDir := strings.HasSuffix(line, "/")
-		name := strings.TrimSuffix(line, "/")
-		list = append(list, Entry{Name: name, IsDir: isDir})
+	for _, entry := range entries {
+		list = append(list, Entry{
+			Name:  entry.Name(),
+			IsDir: entry.IsDir(),
+		})
 	}
+	
 	return list, ""
 }
 

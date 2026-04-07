@@ -35,6 +35,8 @@ func (s *Store) WriteMeta(wsID string, name string) error {
 	return os.WriteFile(filepath.Join(base, ".panel-meta"), []byte(strings.TrimSpace(name)+"\n"), 0600)
 }
 
+const maxUncompressedZipBytes = 2 << 30
+
 func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 	base := s.Path(wsID)
 	if err := os.MkdirAll(base, 0750); err != nil {
@@ -44,6 +46,16 @@ func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 	if err != nil {
 		return err
 	}
+
+	var declaredTotal uint64
+	for _, f := range zr.File {
+		declaredTotal += f.UncompressedSize64
+		if declaredTotal > maxUncompressedZipBytes {
+			return fmt.Errorf("zip archive too large: declared uncompressed total exceeds %d bytes", maxUncompressedZipBytes)
+		}
+	}
+
+	var extractedTotal uint64
 	for _, f := range zr.File {
 		p := filepath.Clean(f.Name)
 		if p == "." || strings.HasPrefix(p, "..") {
@@ -72,11 +84,65 @@ func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 			_ = rc.Close()
 			return err
 		}
-		_, err = io.Copy(out, rc)
+		written, err := io.CopyN(out, rc, int64(f.UncompressedSize64)+1)
 		_ = out.Close()
 		_ = rc.Close()
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if written > int64(f.UncompressedSize64) {
+			_ = os.Remove(dest)
+			return fmt.Errorf("file %s: actual size exceeds declared size", f.Name)
+		}
+		extractedTotal += uint64(written)
+		if extractedTotal > maxUncompressedZipBytes {
+			_ = os.Remove(dest)
+			return fmt.Errorf("extracted bytes exceed limit (%d)", maxUncompressedZipBytes)
+		}
+	}
+	return nil
+}
+
+// ValidateZipArchive checks path safety, total declared uncompressed size, and per-entry
+// stream sizes without writing to a workspace. Use before ClearAllUserFiles so a bad
+// archive does not wipe existing files.
+func ValidateZipArchive(r io.ReaderAt, size int64) error {
+	zr, err := zip.NewReader(r, size)
+	if err != nil {
+		return err
+	}
+	var totalUncompressed uint64
+	for _, f := range zr.File {
+		totalUncompressed += f.UncompressedSize64
+		if totalUncompressed > maxUncompressedZipBytes {
+			return fmt.Errorf("zip archive too large: uncompressed size exceeds %d bytes", maxUncompressedZipBytes)
+		}
+	}
+	fakeBase := filepath.Clean(filepath.Join(os.TempDir(), "nextdeploy-zip-check"))
+	for _, f := range zr.File {
+		p := filepath.Clean(f.Name)
+		if p == "." || strings.HasPrefix(p, "..") {
+			continue
+		}
+		dest := filepath.Join(fakeBase, p)
+		relToBase, err := filepath.Rel(filepath.Clean(fakeBase), filepath.Clean(dest))
+		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal zip path: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
 		if err != nil {
 			return err
+		}
+		written, err := io.CopyN(io.Discard, rc, int64(f.UncompressedSize64)+1)
+		_ = rc.Close()
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if written > int64(f.UncompressedSize64) {
+			return fmt.Errorf("file %s: actual size exceeds declared size", f.Name)
 		}
 	}
 	return nil

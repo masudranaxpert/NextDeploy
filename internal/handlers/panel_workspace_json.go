@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"panel/internal/workspace"
 
@@ -18,13 +20,19 @@ import (
 
 const maxWorkspaceBlobJSON = 512 << 10 // inline JSON preview (aligned with git blob UI)
 
+// maxWorkspaceFileSaveBytes caps a single workspace file save (JSON body "content") to limit memory and disk abuse.
+const maxWorkspaceFileSaveBytes = 2 << 20 // 2 MiB
+
 var errWorkspaceZipTooLarge = errors.New("workspace zip exceeds size limit")
 
 func (p *Panel) workspaceFilesGate(c *fiber.Ctx, appID string) int {
-	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+	ctx, cancel := context.WithTimeout(c.UserContext(), 30*time.Second)
+	defer cancel()
+	if _, err := p.DB.GetApp(ctx, appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	if p.isGitApp(c.UserContext(), appID) {
+	isGit, _, _ := p.appGitMetadata(ctx, appID)
+	if isGit {
 		return fiber.StatusBadRequest
 	}
 	return 0
@@ -158,6 +166,11 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid JSON body"})
 	}
+	if len(body.Content) > maxWorkspaceFileSaveBytes {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+			"ok": false, "message": fmt.Sprintf("content exceeds max size (%d bytes)", maxWorkspaceFileSaveBytes),
+		})
+	}
 	full, err := p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
@@ -178,7 +191,7 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		if code == fiber.StatusNotFound {
-			return c.Status(404).SendString("app not found")
+			return respondAppNotFound(c)
 		}
 		return c.Status(400).SendString("download zip is only for non-git apps")
 	}

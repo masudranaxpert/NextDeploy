@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/dockerapi"
@@ -83,9 +84,15 @@ func (p *Panel) GlobalContainerPrune(c *fiber.Ctx) error {
 
 func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result) error {
 	id := c.Params("id")
+	
+	v, _ := p.composeMu.LoadOrStore(id, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	
 	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return c.Status(404).SendString("app not found")
+		return respondAppNotFound(c)
 	}
 	var gitSyncPreamble string
 	if p.isGitApp(c.UserContext(), id) {
@@ -117,7 +124,14 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 	}
-	project := p.composeProjectName(app, id)
+	projCtx, projCancel := context.WithTimeout(c.UserContext(), 90*time.Second)
+	project := p.activeComposeProjectName(projCtx, app, id)
+	projCancel()
+	if action == "Deploy" || action == "Redeploy (pull + up)" {
+		downCtx, downCancel := context.WithTimeout(c.UserContext(), 5*time.Minute)
+		p.stopOtherComposeStacks(downCtx, app, id, project)
+		downCancel()
+	}
 	if err := p.startComposeJob(id, project, p.effectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment&busy=1", id))
 	}

@@ -6,6 +6,7 @@
 *.dylib
 /panel
 
+
 # Go build cache
 /vendor/
 
@@ -16,6 +17,7 @@
 *.sqlite3
 
 .cursor/
+.kiro/
 
 
 # Node / npm

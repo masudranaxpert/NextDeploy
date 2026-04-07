@@ -58,7 +58,7 @@
     </div>
 
     {{$allRunning := and (gt (len .ComposeRows) 0) (eq .RunningCount (len .ComposeRows))}}
-    <div class="panel-card space-y-5 p-5 {{if $allRunning}}ring-1 ring-emerald-500/20 border-emerald-500/20{{end}}">
+    <div class="panel-card mt-6 space-y-5 p-5 {{if $allRunning}}ring-1 ring-emerald-500/20 border-emerald-500/20{{end}}">
       <!-- Compose file config -->
       {{template "partials/components/compose_file_card" .}}
 

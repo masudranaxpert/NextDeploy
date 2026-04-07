@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 var panelTempPatterns = []string{
 	"vol-backup-*.tar.gz",
 	"panel-upload-*.zip",
+	".nextdeploy-atomic-*",
 }
 
 // ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
@@ -245,9 +247,16 @@ func (p *Panel) runScheduledCleanupForce() {
 }
 
 func (p *Panel) StartBackgroundJobs() {
+	go p.prePullAlpineImage()
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
+}
+
+func (p *Panel) prePullAlpineImage() {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "docker", "pull", "alpine:3.20")
+	_ = cmd.Run()
 }
 
 // cleanOrphanTempFiles removes any leftover NextDeploy temp files from a previous
@@ -265,8 +274,8 @@ func (p *Panel) sessionPruneLoop() {
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 	for {
-		_ = p.DB.PruneExpiredSessions(context.Background())
 		<-ticker.C
+		_ = p.DB.PruneExpiredSessions(context.Background())
 	}
 }
 

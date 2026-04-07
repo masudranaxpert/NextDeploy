@@ -30,15 +30,20 @@ func sanitizeDomainRecord(d *db.AppDomain) {
 }
 
 func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
-	app, err := p.DB.GetApp(c.UserContext(), appID)
+	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
+}
+
+// syncAppCaddyOverrideCtx writes the merged Caddy compose file using the active Docker Compose project name
+// (legacy slug vs slug_idsuffix) so volume/container_name prefixes match a running stack.
+func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return err
 	}
-	domains, err := p.DB.ListAppDomains(c.UserContext(), appID)
+	domains, err := p.DB.ListAppDomains(ctx, appID)
 	if err != nil {
 		return err
 	}
-	ctx := c.UserContext()
 	overridePath := p.composeOverridePath(ctx, appID)
 	basePath := p.composeFilePath(ctx, app, appID)
 	base, err := os.ReadFile(basePath)
@@ -51,11 +56,14 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 		}
 		return err
 	}
-	content, err := caddy.GenerateMergedCompose(base, p.composeProjectName(app, appID), domains)
+	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	project := p.activeComposeProjectName(projCtx, app, appID)
+	cancel()
+	content, err := caddy.GenerateMergedCompose(base, project, domains)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
-	return os.WriteFile(overridePath, content, 0640)
+	return atomicWriteFile(overridePath, content, 0640)
 }
 
 // syncAndApplyBackground writes the Caddy override then runs `docker compose up -d`
@@ -72,6 +80,7 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		project := p.activeComposeProjectName(ctx, app, appID)
+		p.stopOtherComposeStacks(ctx, app, appID, project)
 		dir := p.appSourcePath(ctx, appID)
 		if res := dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID)); !res.OK {
 			log.Printf("compose apply app=%s project=%s: %s", appID, project, strings.TrimSpace(res.Output))
@@ -134,7 +143,7 @@ func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
 	for i := range domains {
 		sanitizeDomainRecord(&domains[i])
 	}
-	services := p.loadComposeServices(c, id)
+	services := p.loadComposeServices(c.UserContext(), id)
 	return c.Render("partials/domain/domain_tab", fiber.Map{
 		"ID":       id,
 		"Domains":  domains,
@@ -344,12 +353,12 @@ func splitLogLines(s string) []string {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // loadComposeServices parses the compose file to get service names.
-func (p *Panel) loadComposeServices(c *fiber.Ctx, appID string) []string {
-	app, err := p.DB.GetApp(c.UserContext(), appID)
+func (p *Panel) loadComposeServices(ctx context.Context, appID string) []string {
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return nil
 	}
-	cfPath := p.composeFilePath(c.UserContext(), app, appID)
+	cfPath := p.composeFilePath(ctx, app, appID)
 	data, err := os.ReadFile(cfPath)
 	if err != nil {
 		return nil

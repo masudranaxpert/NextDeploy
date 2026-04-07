@@ -9,6 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js" crossorigin="anonymous"></script>
+  <script src="/static/js/terminal-component.js"></script>
   <script>
     (function () {
       function scrollDeployPreToBottom() {
@@ -213,6 +217,23 @@
       document.addEventListener('htmx:afterSwap', function (event) {
         initLogWrap(event.target || document);
         scrollDeployPreToBottom();
+        var tgt = event.detail && event.detail.target;
+        if (tgt && tgt.id === 'app-tab-panel') {
+          var params = new URLSearchParams(window.location.search);
+          var tab = params.get('tab') || 'overview';
+          var pathQ = params.get('path') || '';
+          document.querySelectorAll('.app-tab-strip a.app-tab').forEach(function (a) {
+            var u = new URL(a.getAttribute('href'), window.location.origin);
+            var t = u.searchParams.get('tab') || 'overview';
+            var pq = u.searchParams.get('path') || '';
+            var match = t === tab;
+            if (t === 'files') {
+              match = match && pq === pathQ;
+            }
+            a.classList.toggle('app-tab-active', match);
+            a.classList.toggle('app-tab-inactive', !match);
+          });
+        }
       });
       document.addEventListener('htmx:oobAfterSwap', function () {
         scrollDeployPreToBottom();
@@ -223,7 +244,7 @@
       window.scrollDeployPreToBottom = scrollDeployPreToBottom;
     })();
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body class="min-h-full bg-background text-foreground antialiased" style="font-family: 'Inter', system-ui, sans-serif;">
@@ -278,11 +299,13 @@
               <span class="text-[9px] text-amber-400">admin</span>
             {{end}}
           </div>
-          <a href="/logout" class="text-muted-foreground hover:text-foreground transition-colors" title="Sign out">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
-            </svg>
-          </a>
+          <form method="post" action="/logout" class="inline">
+            <button type="submit" class="text-muted-foreground hover:text-foreground transition-colors p-0 border-0 bg-transparent cursor-pointer" title="Sign out" aria-label="Sign out">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+              </svg>
+            </button>
+          </form>
         </div>
         {{else}}
         <div class="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
@@ -325,11 +348,13 @@
               {{end}}
             </div>
           </div>
-          <a href="/logout" class="text-muted-foreground hover:text-foreground transition-colors p-1 rounded" title="Sign out">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
-            </svg>
-          </a>
+          <form method="post" action="/logout" class="inline">
+            <button type="submit" class="text-muted-foreground hover:text-foreground transition-colors p-1 rounded border-0 bg-transparent cursor-pointer" title="Sign out" aria-label="Sign out">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+              </svg>
+            </button>
+          </form>
         </div>
         {{else}}
         <div class="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2.5">
