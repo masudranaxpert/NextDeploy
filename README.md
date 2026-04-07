@@ -1,75 +1,98 @@
+<div align="center">
+
 # NextDeploy
 
-![NextDeploy overview](image/readme.png)
+**Self-hosted Docker deployment panel** — Compose stacks, automatic HTTPS, domains, and ops from one clean UI.
 
 [![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go)](https://go.dev)
-[![Branch: php-panel](https://img.shields.io/badge/branch-php--panel-orange?style=flat-square)](https://github.com/masudranaxpert/NextDeploy/tree/php-panel)
+[![PHP hosting](https://img.shields.io/badge/PHP-hosting-7c3aed?style=flat-square)](https://github.com/masudranaxpert/NextDeploy/tree/php-panel)
 
-A lightweight Docker deployment panel built with Go and Caddy. Deploy Docker Compose stacks, manage domains with automatic HTTPS, and monitor your containers — all from a clean web UI.
+[GitHub](https://github.com/masudranaxpert/NextDeploy) · [Docker Hub](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 
----
+![NextDeploy overview](image/readme.png)
 
-> ### ⚠️ Experimental — PHP Panel Template (`php-panel` branch)
->
-> The `php-panel` branch introduces an **experimental one-click PHP hosting template** on top of NextDeploy.
-> It is under active development and **not yet merged into `main`**.
->
-> ![PHP Panel](image/php.png)
->
-> **What it adds:**
-> - One-click PHP hosting stack — PHP-FPM (7.4 / 8.1 / 8.2 / 8.3), MySQL 8, phpMyAdmin via Docker Compose
-> - Folder-based multi-site hosting (`sites/<slug>/public_html`) per user
-> - Caddy label auto-sync — domain add/update/delete triggers a background compose apply (only running services)
-> - Per-site PHP version selection (dropdown shows only running FPM versions)
-> - Panel-managed MySQL databases & users with cPanel-style privilege grants
-> - phpMyAdmin one-click auto-login via encrypted stored credentials (1-hour session)
-> - Scoped file browser — drag-and-drop upload, ZIP/Unzip, inline editor, per-site root only
-> - Per-user site & database limits, admin impersonation, role-based access
-> - DNS status check (Cloudflare detection, development domain detection)
->
-> **To try it:**
-> ```bash
-> git checkout php-panel
-> docker compose up -d --build panel
-> ```
->
-> **Status:** Experimental — APIs and database schema may change without notice.
+</div>
 
 ---
 
-> **GitHub:** [github.com/masudranaxpert/NextDeploy](https://github.com/masudranaxpert/NextDeploy)
-> **Docker Hub:** [hub.docker.com/r/masudranaxpert/nextdeploy](https://hub.docker.com/r/masudranaxpert/nextdeploy)
+## Install (recommended)
 
-## Features
-
-- **Deploy apps** — upload a ZIP or files, configure `docker-compose.yml`, and deploy with one click
-- **Automatic HTTPS** — Caddy reverse proxy with Let's Encrypt / ZeroSSL certificates via labels
-- **Domain routing** — add domains per app; the panel generates Caddy labels and merges them into the compose file automatically
-- **File manager** — browse, upload, view, and delete workspace files in the browser
-- **Live deploy logs** — real-time output while Docker Compose runs
-- **Container logs** — tail any container with level filtering, timestamps, and download
-- **Docker resources** — list and delete containers, images, and volumes
-- **Scheduled cleanup** — auto-prune unused Docker images and containers on a configurable interval
-- **Multi-user auth** — first-time setup creates an admin account; admins can add/remove users and change roles
-- **Mobile responsive** — works on phones and tablets
-
-## Quick start
-
-### From Docker Hub (recommended)
+One command downloads `docker-compose.yml`, creates `/data`, pulls images, starts **Caddy** + **panel**, optionally registers **systemd** auto-start, and installs **`nextdeploy-update`** / **`nextdeploy-logs`** helpers.
 
 ```bash
-# Create the data directory on your host
-mkdir -p /data
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
+```
 
-# Run the panel + Caddy proxy
+Or clone the repo and run locally:
+
+```bash
+git clone https://github.com/masudranaxpert/NextDeploy.git
+cd NextDeploy
+sudo bash install.sh
+```
+
+### Install script options
+
+| Option | Description |
+|--------|-------------|
+| `--domain <host>` | Shown in the success summary (configure DNS + HTTPS in the panel after install) |
+| `--email <addr>` | Reminder for Let's Encrypt / ACME email (set in panel settings when ready) |
+| `--dir <path>` | Install directory (default: `/opt/nextdeploy`) |
+| `--data-dir <path>` | Host data path patched into compose (default: `/data`) |
+| `--help` | Usage |
+
+Examples:
+
+```bash
+sudo bash install.sh --domain panel.example.com --email admin@example.com
+sudo bash install.sh --dir /srv/nextdeploy --data-dir /mnt/nextdeploy-data
+```
+
+After install, open **`http://<server-ip>:8080`** and create the first admin user.
+
+---
+
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash
+```
+
+| Option | Description |
+|--------|-------------|
+| `--keep-data` | Keeps the data directory (workspaces, SQLite DB, uploads) |
+| `--force` / `-f` | Skip the interactive `yes` confirmation |
+| `--dir`, `--data-dir` | Must match your install if non-default |
+
+```bash
+sudo bash uninstall.sh --keep-data    # remove stack, keep /data
+sudo bash uninstall.sh --force          # destructive, no prompt
+```
+
+---
+
+## Helper commands
+
+| Command | Purpose |
+|---------|---------|
+| `nextdeploy-update` | `docker compose pull` + `up -d` in the install directory |
+| `nextdeploy-logs` | `docker compose logs -f --tail=100` |
+| `systemctl status nextdeploy` | Systemd unit status (if enabled during install) |
+
+---
+
+## Manual quick start (Docker Compose only)
+
+```bash
+mkdir -p /data
 curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml \
   | docker compose -f - up -d
 ```
 
-Or with a local clone:
+Or from a clone:
 
 ```bash
 git clone https://github.com/masudranaxpert/NextDeploy.git
@@ -77,51 +100,70 @@ cd NextDeploy
 docker compose up -d
 ```
 
-Open `http://localhost:8080` — you will be prompted to create an admin account on first visit.
-
-### Pull image manually
-
 ```bash
 docker pull masudranaxpert/nextdeploy:latest
 ```
 
+---
+
+## Features
+
+- **Deploy apps** — ZIP or files, `docker-compose.yml`, one-click deploy
+- **Automatic HTTPS** — Caddy + [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker-proxy); Let's Encrypt / ZeroSSL via labels
+- **Domains** — Per-app domains; panel merges Caddy labels into generated compose
+- **File manager** — Browse, upload, edit, delete in the workspace
+- **Live deploy logs** — Stream Compose output during deploys
+- **Container logs** — Tail, filter levels, timestamps, download
+- **Docker resources** — Containers, images, volumes (list / remove)
+- **Scheduled cleanup** — Configurable prune of unused Docker data
+- **Multi-user** — First-run admin; admins manage users and roles
+- **Responsive UI** — Usable on phones and tablets
+- **PHP hosting (PHP Panel template)**
+  - PHP-FPM (7.4 / 8.1 / 8.2 / 8.3), MySQL 8, phpMyAdmin; multi-site folders under `sites/<slug>/public_html`
+  - Per-user site and database limits; admin impersonation; scoped file browser (upload, ZIP, inline edit)
+  - Domain Caddy labels with compose apply limited to **running** services; phpMyAdmin quick login; DNS status hints where configured
+
+![PHP Panel](image/php.png)
+
+---
+
 ## Requirements
 
-- Docker with Compose plugin
-- A server with ports 80 and 443 open (for Caddy HTTPS)
+- **Linux** host (install script target); **Docker** 24+ and **Compose V2**
+- Ports **80**, **443**, **8080** available (8080 for the panel UI by default)
+
+---
 
 ## Configuration
 
-All settings are stored in a SQLite database at `/data/panel.db` inside the container. The bind mount `/data` persists data across restarts.
+Persistent state lives under the host **`/data`** bind mount (or your `--data-dir`): SQLite at `/data/panel.db`, workspaces under `/data/workspaces`.
 
-| Environment variable | Default | Description |
-|---|---|---|
-| `DATA_DIR` | `/data` | Path to SQLite DB and workspaces |
-| `WORKSPACES_ROOT` | `/data/workspaces` | Where app files are stored |
-| `LISTEN_ADDR` | `:8080` | Panel listen address |
-| `PANEL_DEV` | `false` | Reload templates on every request |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `/data` | Panel data root inside the container |
+| `WORKSPACES_ROOT` | `/data/workspaces` | App file storage |
+| `LISTEN_ADDR` | `:8080` | Panel HTTP listen |
+| `PANEL_DEV` | `false` | Reload templates each request (dev only) |
+
+---
 
 ## Caddy proxy
 
-The panel uses [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker-proxy) for automatic HTTPS. Add a domain to any app from the **Domains** tab — the panel writes the correct Caddy labels into the generated compose file. No manual Caddyfile editing required.
+The panel generates Caddy labels and writes them into **`.nextdeploy.generated.compose.yml`**. No hand-written Caddyfile for app routing. For local-style names (`.localhost`, `.test`, …) the panel can use **internal TLS** when HTTPS is enabled on a domain.
 
-For local/development domains (`.test`, `.localhost`, etc.) the panel automatically uses `tls internal` when HTTPS is enabled.
+---
 
 ## Releases
 
-New releases are published automatically when a version tag is pushed:
+Tag push triggers CI: multi-arch image to Docker Hub, GitHub Release, tag housekeeping.
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-GitHub Actions will:
-1. Build a multi-arch Docker image (`linux/amd64` + `linux/arm64`)
-2. Push it to Docker Hub with version tags (`v1.0.0`, `latest`)
-3. Create a GitHub Release with auto-generated changelog
-4. Clean up old Docker Hub tags (keeps the 5 most recent)
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE).
