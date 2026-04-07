@@ -29,8 +29,8 @@ services:
             DOCKER_API_VERSION: "1.45"
             LISTEN_ADDR: :8080
             PANEL_STACK_COMPOSE_FILE: /stack/docker-compose.yml
-            # Optional: override compose -p name if install dir is not /opt/nextdeploy (default nextdeploy when compose is under /stack)
             PANEL_STACK_COMPOSE_PROJECT: nextdeploy
+            PANEL_HOST_INSTALL_DIR: /opt/nextdeploy
             WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
         networks:

@@ -196,13 +196,57 @@ func rootStackComposeProjectName(projectDir string) string {
 	return base
 }
 
+// shouldUseComposeHelperContainer is true when the panel process runs inside Docker with compose at /stack/...
+// Applying compose from inside the same "panel" container can kill that process mid-command and leave the stack broken.
+func shouldUseComposeHelperContainer(composeFile string) bool {
+	cf := filepath.ToSlash(filepath.Clean(composeFile))
+	return cf == "/stack/docker-compose.yml" || strings.HasSuffix(cf, "/stack/docker-compose.yml")
+}
+
+// runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
+// is not the client process that triggers its own recreate.
+func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, projectName string) error {
+	hostInstallDir = filepath.Clean(hostInstallDir)
+	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
+	if img == "" {
+		img = "docker:cli"
+	}
+	name := fmt.Sprintf("nextdeploy-compose-apply-%d", time.Now().UnixNano())
+	args := []string{
+		"run", "--rm", "-d", "--name", name,
+		"-v", "/var/run/docker.sock:/var/run/docker.sock",
+		"-v", hostInstallDir + ":/work",
+		"-w", "/work",
+		img,
+		"compose", "--project-directory", "/work", "-p", projectName,
+		"-f", "docker-compose.yml",
+		"up", "-d", "panel",
+	}
+	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // applyRootStackPanelBackground runs `docker compose up -d panel` so Caddy picks up new labels (caddy-docker-proxy).
 func (p *Panel) applyRootStackPanelBackground(composeFile string) {
-	projectDir := filepath.Dir(filepath.Clean(composeFile))
+	composeFile = filepath.Clean(composeFile)
+	projectDir := filepath.Dir(composeFile)
 	project := rootStackComposeProjectName(projectDir)
+	hostDir := strings.TrimSpace(os.Getenv("PANEL_HOST_INSTALL_DIR"))
+	if hostDir == "" {
+		hostDir = "/opt/nextdeploy"
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
+		if shouldUseComposeHelperContainer(composeFile) {
+			if err := runRootStackComposeViaHelperContainer(ctx, hostDir, project); err != nil {
+				log.Printf("root stack compose helper: %v", err)
+			}
+			return
+		}
 		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, "panel"); !res.OK {
 			log.Printf("root stack compose apply panel service: %s", strings.TrimSpace(res.Output))
 		}
