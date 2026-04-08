@@ -19,7 +19,7 @@
       <div id="env-view-raw" class="panel-card space-y-4 p-5">
         <h2 class="text-base font-semibold text-foreground">Environment variables</h2>
         <p class="text-xs leading-relaxed text-muted-foreground rounded-lg border border-border/50 bg-muted/15 px-3 py-2">
-          Values are stored in the panel and synced to <code class="rounded bg-muted px-1 font-mono text-[10px]">.env</code> next to your compose file on save (and before compose runs). Use <code class="font-mono text-[10px]">${VAR}</code> or <code class="font-mono text-[10px]">env_file: .env</code> in your YAML.
+          The panel keeps the canonical copy; on save and before compose, the workspace <code class="rounded bg-muted px-1 font-mono text-[10px]">.env</code> is fully replaced from that copy (no merge with an older file on disk). Use <code class="font-mono text-[10px]">${VAR}</code> or <code class="font-mono text-[10px]">env_file: .env</code> in your YAML.
         </p>
         <form id="env-save-form" class="space-y-3" method="post" action="/apps/{{.ID}}/env">
           <div

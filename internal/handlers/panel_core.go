@@ -389,7 +389,8 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// syncWorkspaceEnvFromPanel writes panel env to compose workspaceRoot/.env (mirrors DB for docker compose --env-file).
+// syncWorkspaceEnvFromPanel replaces workspaceRoot/.env entirely with panelEnv (DB). It does not read
+// or merge with any existing .env on disk; the database is the only source of truth for this file.
 func (p *Panel) syncWorkspaceEnvFromPanel(appID, workspaceRoot, panelEnv string) error {
 	v, _ := p.envFileMu.LoadOrStore(appID, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
@@ -399,7 +400,7 @@ func (p *Panel) syncWorkspaceEnvFromPanel(appID, workspaceRoot, panelEnv string)
 	return atomicWriteFile(dot, []byte(panelEnv), 0600)
 }
 
-// composeEnvFilesFromContent syncs DB env to workspace .env and returns it as --env-file for docker compose.
+// composeEnvFilesFromContent writes the given DB env to workspace .env (full replace), then returns that path for --env-file.
 func (p *Panel) composeEnvFilesFromContent(ctx context.Context, appID, panelEnv string) []string {
 	root := p.composeWorkspaceRoot(ctx, appID)
 	_ = p.syncWorkspaceEnvFromPanel(appID, root, panelEnv)
