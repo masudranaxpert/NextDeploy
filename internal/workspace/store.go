@@ -14,9 +14,6 @@ type Store struct {
 
 const ReservedDir = ".nextdeploy"
 
-// PanelComposeEnvFile is written under ReservedDir; passed to docker compose --env-file (does not touch project .env).
-const PanelComposeEnvFile = "panel.compose.env"
-
 func NewStore(root string) *Store {
 	return &Store{Root: root}
 }
@@ -31,11 +28,6 @@ func (s *Store) Path(id string) string {
 
 func (s *Store) ReservedPath(id string) string {
 	return filepath.Join(s.Path(id), ReservedDir)
-}
-
-// PanelComposeEnvPath is the absolute path to the panel-managed env file used by docker compose.
-func (s *Store) PanelComposeEnvPath(id string) string {
-	return filepath.Join(s.ReservedPath(id), PanelComposeEnvFile)
 }
 
 func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, error) {

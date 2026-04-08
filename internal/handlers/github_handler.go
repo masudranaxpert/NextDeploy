@@ -39,7 +39,6 @@ type githubPushPayload struct {
 	} `json:"repository"`
 }
 
-// gitlabPushPayload matches GitLab Push Hook body fields used for routing.
 type gitlabPushPayload struct {
 	ObjectKind string `json:"object_kind"`
 	Ref        string `json:"ref"`
@@ -552,7 +551,6 @@ func verifyGitHubSignature(secret string, body []byte, got string) bool {
 	return hmac.Equal([]byte(expected), []byte(got))
 }
 
-// verifyGitLabToken checks the secret token GitLab sends in X-Gitlab-Token (not HMAC like GitHub).
 func verifyGitLabToken(secret, tokenHeader string) bool {
 	s := strings.TrimSpace(secret)
 	g := strings.TrimSpace(tokenHeader)

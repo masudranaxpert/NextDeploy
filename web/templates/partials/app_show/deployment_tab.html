@@ -33,7 +33,7 @@
           <div class="sm:col-span-2 lg:col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Payload URL</p>
-              <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" onclick='ndDeployCopy({{jsq .AppWebhookURL}}, this)'>Copy</button>
+              <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" data-nd-copy="{{.AppWebhookURL}}" onclick="ndDeployCopyBtn(this)">Copy</button>
             </div>
             <p class="mt-2 break-all font-mono text-[11px] leading-relaxed text-foreground sm:text-xs"><span class="text-muted-foreground">POST</span> {{.AppWebhookURL}}</p>
           </div>
@@ -44,7 +44,7 @@
           <div class="sm:col-span-2 rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Secret</p>
-              <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" onclick='ndDeployCopy({{jsq .GitConfig.WebhookSecret}}, this)'>Copy</button>
+              <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" data-nd-copy="{{.GitConfig.WebhookSecret}}" onclick="ndDeployCopyBtn(this)">Copy</button>
             </div>
             <p class="mt-2 break-all font-mono text-[11px] leading-relaxed text-foreground sm:text-xs">{{.GitConfig.WebhookSecret}}</p>
           </div>
@@ -53,8 +53,10 @@
     </div>
     {{end}}
     <script>
-    function ndDeployCopy(text, btn) {
-      if (!text || !btn) return;
+    function ndDeployCopyBtn(btn) {
+      if (!btn) return;
+      var text = btn.getAttribute('data-nd-copy');
+      if (!text) return;
       navigator.clipboard.writeText(text).then(function() {
         var o = btn.textContent;
         btn.textContent = 'Copied!';

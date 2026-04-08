@@ -45,7 +45,7 @@ func (p *Panel) deploySnapshot(appID string) (out, action string, running bool) 
 	return r.Output.String(), r.Action, r.Running
 }
 
-// deployRunWriter streams docker CLI output into the live deploy buffer with a Coolify-style timestamp per line.
+// deployRunWriter streams docker CLI output into the live deploy buffer with a timestamp per line.
 type deployRunWriter struct {
 	r *deployRun
 }

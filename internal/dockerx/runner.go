@@ -30,9 +30,7 @@ func run(ctx context.Context, dir string, args ...string) runutil.Result {
 	return runutil.Run(ctx, dir, nil, args...)
 }
 
-// runCompose runs docker compose with stdout+stderr copied to logW (if non-nil) as well as captured for Result.
-// envFiles are repeated --env-file paths. Later entries override earlier ones for the same key.
-// NextDeploy passes a single panel-managed env file (Environment tab).
+// runCompose runs docker compose; envFiles are repeated --env-file (later overrides earlier).
 func runCompose(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, rest ...string) Result {
 	args := composeBin(projectDir, composeFiles, project, envFiles, rest...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)

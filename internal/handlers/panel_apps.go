@@ -237,7 +237,8 @@ func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	if err := p.DB.UpdatePanelEnv(c.UserContext(), id, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncPanelEnvFileToDisk(id); err != nil {
+	root := p.composeWorkspaceRoot(c.UserContext(), id)
+	if err := p.syncWorkspaceEnvFromPanel(id, root, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=environment", id))
