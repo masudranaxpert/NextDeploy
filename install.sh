@@ -169,13 +169,29 @@ download_compose() {
     warn "Removing mistaken directory $INSTALL_DIR/docker-compose.yml (Docker bind-mount artifact)"
     rm -rf "$INSTALL_DIR/docker-compose.yml"
   fi
+  local prev_bak=""
+  if [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+    prev_bak=$(mktemp)
+    cp "$INSTALL_DIR/docker-compose.yml" "$prev_bak"
+  fi
+  local tmp_cf
+  tmp_cf=$(mktemp)
   if command -v curl &>/dev/null; then
-    curl -fsSL "$COMPOSE_URL" -o "$INSTALL_DIR/docker-compose.yml"
+    curl -fsSL "$COMPOSE_URL" -o "$tmp_cf"
   elif command -v wget &>/dev/null; then
-    wget -qO "$INSTALL_DIR/docker-compose.yml" "$COMPOSE_URL"
+    wget -qO "$tmp_cf" "$COMPOSE_URL"
   else
+    rm -f "$prev_bak"
+    rm -f "$tmp_cf"
     die "curl or wget required to download compose file."
   fi
+  if [[ -n "$prev_bak" ]]; then
+    if merge_upstream_compose_keep_panel_labels "$prev_bak" "$tmp_cf"; then
+      info "Preserved panel Caddy labels from existing docker-compose.yml"
+    fi
+    rm -f "$prev_bak"
+  fi
+  mv "$tmp_cf" "$INSTALL_DIR/docker-compose.yml"
 
   patch_data_dir_bind_mounts_in_compose
 
@@ -214,6 +230,61 @@ patch_nextdeploy_image_in_compose() {
   if grep -q 'masudranaxpert/nextdeploy' "$f" 2>/dev/null; then
     sed -i "s|masudranaxpert/nextdeploy:[a-zA-Z0-9._-]*|masudranaxpert/nextdeploy:${tag}|g" "$f"
   fi
+}
+
+# Extract the panel service "labels:" block (Caddy / panel domain) from an existing compose file.
+extract_panel_labels_block() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  awk '
+    /^    panel:/{ in_panel=1; in_labels=0; next }
+    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0; in_labels=0 }
+    in_panel && /^        labels:/{ in_labels=1; print; next }
+    in_labels {
+      if (/^        [a-z_-]+:/ && !/^        labels:/) { exit }
+      print
+    }
+  ' "$f"
+}
+
+# After downloading upstream compose to new_cf, re-apply labels from old_cf (in-place).
+merge_upstream_compose_keep_panel_labels() {
+  local old_cf="$1"
+  local new_cf="$2"
+  local labels_tmp out
+  labels_tmp=$(mktemp)
+  extract_panel_labels_block "$old_cf" >"$labels_tmp" || true
+  if [[ ! -s "$labels_tmp" ]]; then
+    rm -f "$labels_tmp"
+    return 1
+  fi
+  out=$(mktemp)
+  if ! awk -v lf="$labels_tmp" '
+    BEGIN {
+      while ((getline line < lf) > 0) lbl = lbl line "\n"
+      close(lf)
+      sub(/\n$/, "", lbl)
+    }
+    /^    panel:/{ in_panel=1 }
+    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0 }
+    in_panel && /^        labels:/{ skip_labels=1; next }
+    skip_labels {
+      if (/^        [a-z_-]+:/ && !/^        labels:/) { skip_labels=0 }
+      else { next }
+    }
+    {
+      print
+      if (in_panel && /^        image:/) {
+        print lbl
+      }
+    }
+  ' "$new_cf" >"$out"; then
+    rm -f "$labels_tmp" "$out"
+    return 1
+  fi
+  mv "$out" "$new_cf"
+  rm -f "$labels_tmp"
+  return 0
 }
 
 pull_images() {
@@ -266,24 +337,86 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR}"
 DATA_DIR="${DATA_DIR}"
 COMPOSE_URL="${COMPOSE_URL}"
+
+extract_panel_labels_block() {
+  local f="\$1"
+  [[ -f "\$f" ]] || return 0
+  awk '
+    /^    panel:/{ in_panel=1; in_labels=0; next }
+    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0; in_labels=0 }
+    in_panel && /^        labels:/{ in_labels=1; print; next }
+    in_labels {
+      if (/^        [a-z_-]+:/ && !/^        labels:/) { exit }
+      print
+    }
+  ' "\$f"
+}
+
+merge_upstream_compose_keep_panel_labels() {
+  local old_cf="\$1"
+  local new_cf="\$2"
+  local labels_tmp out
+  labels_tmp=\$(mktemp)
+  extract_panel_labels_block "\$old_cf" >"\$labels_tmp" || true
+  if [[ ! -s "\$labels_tmp" ]]; then
+    rm -f "\$labels_tmp"
+    return 1
+  fi
+  out=\$(mktemp)
+  if ! awk -v lf="\$labels_tmp" '
+    BEGIN {
+      while ((getline line < lf) > 0) lbl = lbl line "\n"
+      close(lf)
+      sub(/\n\$/, "", lbl)
+    }
+    /^    panel:/{ in_panel=1 }
+    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0 }
+    in_panel && /^        labels:/{ skip_labels=1; next }
+    skip_labels {
+      if (/^        [a-z_-]+:/ && !/^        labels:/) { skip_labels=0 }
+      else { next }
+    }
+    {
+      print
+      if (in_panel && /^        image:/) {
+        print lbl
+      }
+    }
+  ' "\$new_cf" >"\$out"; then
+    rm -f "\$labels_tmp" "\$out"
+    return 1
+  fi
+  mv "\$out" "\$new_cf"
+  rm -f "\$labels_tmp"
+  return 0
+}
+
 echo "[NextDeploy] Refreshing docker-compose.yml from repository..."
+PREV_BAK=""
+if [[ -f "\$INSTALL_DIR/docker-compose.yml" && ! -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
+  PREV_BAK=\$(mktemp)
+  cp "\$INSTALL_DIR/docker-compose.yml" "\$PREV_BAK"
+fi
+if [[ -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
+  echo "[NextDeploy] Removing invalid docker-compose.yml directory..."
+  rm -rf "\$INSTALL_DIR/docker-compose.yml"
+fi
 if command -v curl &>/dev/null; then
   curl -fsSL "\$COMPOSE_URL" -o "\$INSTALL_DIR/docker-compose.yml.tmp"
-  if [[ -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
-    echo "[NextDeploy] Removing invalid docker-compose.yml directory..."
-    rm -rf "\$INSTALL_DIR/docker-compose.yml"
-  fi
-  mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
 elif command -v wget &>/dev/null; then
   wget -qO "\$INSTALL_DIR/docker-compose.yml.tmp" "\$COMPOSE_URL"
-  if [[ -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
-    echo "[NextDeploy] Removing invalid docker-compose.yml directory..."
-    rm -rf "\$INSTALL_DIR/docker-compose.yml"
-  fi
-  mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
 else
   echo "[NextDeploy] WARN: curl/wget missing — keeping existing docker-compose.yml"
+  rm -f "\$PREV_BAK"
+  exit 0
 fi
+if [[ -n "\$PREV_BAK" ]]; then
+  if merge_upstream_compose_keep_panel_labels "\$PREV_BAK" "\$INSTALL_DIR/docker-compose.yml.tmp"; then
+    echo "[NextDeploy] Preserved panel Caddy labels from previous compose file."
+  fi
+  rm -f "\$PREV_BAK"
+fi
+mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
 if [[ "\$DATA_DIR" != "/data" ]] && [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
   sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data/workspaces:/data/workspaces:ro$|\1\${DATA_DIR}/workspaces:/data/workspaces:ro|g" "\$INSTALL_DIR/docker-compose.yml"
   sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data:/data$|\1\${DATA_DIR}:/data|g" "\$INSTALL_DIR/docker-compose.yml"
