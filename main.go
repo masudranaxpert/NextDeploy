@@ -129,10 +129,21 @@ func main() {
 	app.Get("/login", p.LoginPage)
 	app.Post("/login", p.LoginPost)
 	app.Post("/logout", p.Logout)
+	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
 	app.Post("/webhooks/github/:id", p.GitHubWebhook)
 
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)
+	app.Use("/monitor", p.RequireAdminMiddleware)
+	app.Use("/partials/monitor", p.RequireAdminMiddleware)
+	app.Use("/terminal", p.RequireAdminMiddleware)
+	app.Use("/nextdeploy", p.RequireAdminMiddleware)
+	app.Use("/containers", p.RequireAdminMiddleware)
+	app.Use("/images", p.RequireAdminMiddleware)
+	app.Use("/volumes", p.RequireAdminMiddleware)
+	app.Use("/settings", p.RequireAdminMiddleware)
+	app.Use("/caddy", p.RequireAdminMiddleware)
+	app.Use("/git", p.RequireAdminMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
@@ -155,6 +166,7 @@ func main() {
 	app.Post("/volumes/remove", p.GlobalVolumeRemove)
 	app.Post("/images/remove", p.GlobalImageRemove)
 	app.Post("/images/prune", p.GlobalImagePrune)
+	app.Post("/containers/restart", p.GlobalContainerRestart)
 	app.Post("/containers/remove", p.GlobalContainerRemove)
 	app.Post("/containers/prune", p.GlobalContainerPrune)
 	app.Post("/settings/cleanup/run", p.ManualCleanupRun)
@@ -243,7 +255,6 @@ func main() {
 	app.Get("/git/gitlab/callback", p.GitLabOAuthCallback)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
-	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
 
 	// App source type switching
 	app.Post("/apps/:id/switch-source", p.AppSwitchSource)

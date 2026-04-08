@@ -127,6 +127,7 @@
       </svg>
     </a>
 
+    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
     <!-- Containers -->
     <a href="/containers" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-stone-500/40 hover:bg-stone-500/5">
       <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-500/10 ring-1 ring-stone-500/20 group-hover:bg-stone-500/15 transition-colors">
@@ -206,6 +207,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
       </svg>
     </a>
+    {{end}}
 
   </div>
 </div>

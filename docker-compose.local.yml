@@ -1,0 +1,45 @@
+# docker-compose -f docker-compose.local.yml up -d --build
+
+networks:
+    nextdeploy:
+        name: NextDeploy
+services:
+    caddy:
+        container_name: caddy
+        environment:
+            - CADDY_ADMIN=0.0.0.0:2019
+            - CADDY_INGRESS_NETWORKS=NextDeploy
+        image: lucaslorentz/caddy-docker-proxy:ci-alpine
+        networks:
+            - nextdeploy
+        ports:
+            - 80:80
+            - 443:443/tcp
+            - 443:443/udp
+        restart: unless-stopped
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - caddy_data:/data
+            - ./data/workspaces:/data/workspaces:ro
+    panel:
+        build: .
+        container_name: panel
+        depends_on:
+            - caddy
+        environment:
+            DATA_DIR: /data
+            DOCKER_API_VERSION: "1.45"
+            LISTEN_ADDR: :8080
+            WORKSPACES_ROOT: /data/workspaces
+        image: masudranaxpert/nextdeploy:latest
+        networks:
+            - nextdeploy
+        ports:
+            - 8080:8080
+        restart: unless-stopped
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./data:/data
+            - ./docker-compose.local.yml:/stack/docker-compose.yml:rw
+volumes:
+    caddy_data: {}

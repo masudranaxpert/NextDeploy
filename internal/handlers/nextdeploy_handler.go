@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/dockerapi"
@@ -21,6 +24,8 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	composePreview := ""
 	composeReadErr := ""
 	composePreviewNote := ""
+	composeApplyPath := composePath
+	composeApplyNote := ""
 	if err := rootStackComposeFileOrError(composePath); err != nil {
 		composeReadErr = err.Error()
 	}
@@ -38,6 +43,16 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		} else {
 			composePreview = string(base)
 			composePreviewNote = fmt.Sprintf("Effective stack preview could not be generated: %v", mergeErr)
+		}
+	}
+	if useDockerComposeHelper() {
+		applyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if hostComposePath, _, err := rootStackComposeHelperTarget(applyCtx); err == nil && strings.TrimSpace(hostComposePath) != "" {
+			composeApplyPath = filepath.Clean(hostComposePath)
+			if filepath.Clean(composeApplyPath) != filepath.Clean(composePath) {
+				composeApplyNote = "The path above is inside the panel container. Save/apply uses the bind-mounted host compose file shown below."
+			}
 		}
 	}
 	caddyCfg, _ := p.DB.GetAllCaddyConfig(ctx)
@@ -72,7 +87,10 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"PanelDomain":     panelSite.Domain,
 		"PanelEnableWWW":  panelSite.EnableWWW,
 		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
+		"PanelSaved":             c.Query("panelSaved") == "1",
 		"RootComposePath":        composePath,
+		"RootComposeApplyPath":   composeApplyPath,
+		"RootComposeApplyNote":   composeApplyNote,
 		"RootCompose":            composePreview,
 		"RootComposeReadErr":     composeReadErr,
 		"RootComposePreviewNote": composePreviewNote,

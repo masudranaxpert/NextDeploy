@@ -29,6 +29,22 @@ func sanitizeDomainRecord(d *db.AppDomain) {
 	d.Service = caddy.CleanQuotedValue(d.Service)
 }
 
+func (p *Panel) appDomainForRequest(c *fiber.Ctx) (db.AppDomain, error) {
+	id := c.Params("id")
+	did, err := strconv.ParseInt(c.Params("did"), 10, 64)
+	if err != nil {
+		return db.AppDomain{}, fiber.ErrNotFound
+	}
+	d, err := p.DB.GetAppDomain(c.UserContext(), did)
+	if err != nil {
+		return db.AppDomain{}, err
+	}
+	if strings.TrimSpace(d.AppID) != strings.TrimSpace(id) {
+		return db.AppDomain{}, fiber.ErrNotFound
+	}
+	return d, nil
+}
+
 func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
 }
@@ -193,8 +209,11 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 // POST /apps/:id/domains/:did/delete — delete domain
 func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
-	did, _ := strconv.ParseInt(c.Params("did"), 10, 64)
-	if err := p.DB.DeleteAppDomain(c.UserContext(), did); err != nil {
+	d, err := p.appDomainForRequest(c)
+	if err != nil {
+		return c.Status(404).SendString("not found")
+	}
+	if err := p.DB.DeleteAppDomain(c.UserContext(), d.ID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.syncAndApplyBackground(c, id); err != nil {
@@ -206,7 +225,10 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 // POST /apps/:id/domains/:did/edit — update domain
 func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	id := c.Params("id")
-	did, _ := strconv.ParseInt(c.Params("did"), 10, 64)
+	current, err := p.appDomainForRequest(c)
+	if err != nil {
+		return c.Status(404).SendString("not found")
+	}
 	port, _ := strconv.Atoi(c.FormValue("port", "80"))
 	if port <= 0 {
 		port = 80
@@ -216,7 +238,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		return c.Status(400).SendString(err.Error())
 	}
 	d := db.AppDomain{
-		ID:          did,
+		ID:          current.ID,
 		AppID:       id,
 		Domain:      caddy.CleanQuotedValue(c.FormValue("domain")),
 		Service:     caddy.CleanQuotedValue(c.FormValue("service")),
@@ -246,8 +268,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 
 // GET /apps/:id/domains/:did/labels — return generated labels as JSON (for preview modal)
 func (p *Panel) AppDomainLabels(c *fiber.Ctx) error {
-	did, _ := strconv.ParseInt(c.Params("did"), 10, 64)
-	d, err := p.DB.GetAppDomain(c.UserContext(), did)
+	d, err := p.appDomainForRequest(c)
 	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
@@ -262,8 +283,7 @@ func (p *Panel) AppDomainLabels(c *fiber.Ctx) error {
 
 // GET /apps/:id/domains/:did/dns-check — resolve domain DNS and detect Cloudflare
 func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
-	did, _ := strconv.ParseInt(c.Params("did"), 10, 64)
-	d, err := p.DB.GetAppDomain(c.UserContext(), did)
+	d, err := p.appDomainForRequest(c)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "domain not found"})
 	}

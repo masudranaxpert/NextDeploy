@@ -244,33 +244,34 @@ func useDockerComposeHelper() bool {
 	return err == nil
 }
 
-// rootStackComposeHelperTarget discovers the host directory and compose project of
+// rootStackComposeHelperTarget discovers the host compose file path and compose project of
 // the running panel stack without requiring extra env vars in docker-compose.yml.
-func rootStackComposeHelperTarget(ctx context.Context) (hostDir, project string, err error) {
+func rootStackComposeHelperTarget(ctx context.Context) (hostComposePath, project string, err error) {
 	project, source, err := dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", panelStackComposeContainerPath)
 	if err != nil {
-		legacyDir := "/opt/nextdeploy"
-		legacyCompose := filepath.Join(legacyDir, "docker-compose.yml")
+		legacyCompose := filepath.Join("/opt/nextdeploy", "docker-compose.yml")
 		if isRegularComposeFile(legacyCompose) {
-			log.Printf("root stack compose helper: inspect fallback to %s after error: %v", legacyDir, err)
-			return legacyDir, rootStackComposeProjectName(legacyDir), nil
+			log.Printf("root stack compose helper: inspect fallback to %s after error: %v", legacyCompose, err)
+			return legacyCompose, rootStackComposeProjectName(filepath.Dir(legacyCompose)), nil
 		}
 		return "", "", err
 	}
 	if !isRegularComposeFile(source) {
 		return "", "", fmt.Errorf("host compose source is not a regular file: %s", source)
 	}
-	hostDir = filepath.Dir(source)
+	hostComposePath = filepath.Clean(source)
 	if strings.TrimSpace(project) == "" {
-		project = rootStackComposeProjectName(hostDir)
+		project = rootStackComposeProjectName(filepath.Dir(hostComposePath))
 	}
-	return hostDir, project, nil
+	return hostComposePath, project, nil
 }
 
 // runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
 // is not the client process that triggers its own recreate.
-func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, projectName string) error {
-	hostInstallDir = filepath.Clean(hostInstallDir)
+func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath, projectName string) error {
+	hostComposePath = filepath.Clean(hostComposePath)
+	hostInstallDir := filepath.Dir(hostComposePath)
+	composeFile := filepath.Base(hostComposePath)
 	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
 	if img == "" {
 		img = "docker:cli"
@@ -284,7 +285,7 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostInstallDir, 
 		"-w", "/work",
 		img,
 		"compose", "--project-directory", "/work", "-p", projectName,
-		"-f", "docker-compose.yml",
+		"-f", composeFile,
 		"up", "-d", "panel",
 	}
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
@@ -317,13 +318,13 @@ func (p *Panel) applyRootStackPanelBackground(composeFile string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if useDockerComposeHelper() {
-			hostDir, detectedProject, err := rootStackComposeHelperTarget(ctx)
+			hostComposePath, detectedProject, err := rootStackComposeHelperTarget(ctx)
 			if err != nil {
 				log.Printf("root stack compose helper target: %v", err)
 				return
 			}
 			project = detectedProject
-			if err := runRootStackComposeViaHelperContainer(ctx, hostDir, project); err != nil {
+			if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project); err != nil {
 				log.Printf("root stack compose helper: %v", err)
 			}
 			return
@@ -405,7 +406,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 	p.applyRootStackPanelBackground(p.nextDeployComposePath())
-	return c.Redirect("/nextdeploy")
+	return c.Redirect("/nextdeploy?panelSaved=1")
 }
 
 func boolString(v bool) string {

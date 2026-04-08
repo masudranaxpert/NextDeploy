@@ -3,7 +3,7 @@ name: Release
 # Trigger:
 #   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags
 #   - push/PR to main or php-panel → CI build check (no image push)
-#   - push to main → docker-main.yml (on branch main) pushes :latest, :main, :main-<sha>
+#   - push to main → docker-main.yml (on branch main) pushes :latest
 #   - Docker image for php-panel branch: workflow lives only on branch php-panel (docker-php-panel.yml)
 on:
   push:
@@ -112,7 +112,7 @@ jobs:
             exit 0
           fi
 
-          # Fetch all tags sorted by last_updated (newest first), paginated.
+          # Fetch all tags (paginated), then keep the highest 5 semantic versions.
           LIST=$(mktemp)
           URL="https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags?page_size=100&ordering=last_updated"
           while [ -n "$URL" ]; do
@@ -129,21 +129,16 @@ jobs:
             exit 0
           fi
 
-          # Keep the newest 5 release versions and preserve both tag forms.
+          # Keep the highest 5 release versions and preserve both tag forms.
           KEEP=5
           declare -A KEEP_VERSIONS=()
-          declare -A SEEN_VERSIONS=()
-          kept=0
-          for TAG in "${RELEASE_TAGS[@]}"; do
-            VERSION="${TAG#v}"
-            if [ -n "${SEEN_VERSIONS[$VERSION]:-}" ]; then
-              continue
-            fi
-            SEEN_VERSIONS["$VERSION"]=1
-            if [ "$kept" -lt "$KEEP" ]; then
-              KEEP_VERSIONS["$VERSION"]=1
-              kept=$((kept + 1))
-            fi
+          mapfile -t UNIQUE_VERSIONS < <(printf '%s\n' "${RELEASE_TAGS[@]}" | sed 's/^v//' | sort -uV)
+          START=0
+          if [ "${#UNIQUE_VERSIONS[@]}" -gt "$KEEP" ]; then
+            START=$((${#UNIQUE_VERSIONS[@]} - KEEP))
+          fi
+          for ((i=START; i<${#UNIQUE_VERSIONS[@]}; i++)); do
+            KEEP_VERSIONS["${UNIQUE_VERSIONS[$i]}"]=1
           done
 
           TO_DELETE=()

@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go)](https://go.dev)
 
 [GitHub](https://github.com/masudranaxpert/NextDeploy) · [Docker Hub](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 
@@ -28,6 +28,12 @@ One command downloads `docker-compose.yml`, creates `/data`, pulls images, start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
+```
+
+With install options:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash -s -- --domain panel.example.com --email admin@example.com
 ```
 
 Or clone the repo and run locally:
@@ -109,7 +115,8 @@ sudo bash uninstall.sh --force
 ```bash
 mkdir -p /data
 curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml \
-  | docker compose -f - up -d
+  -o docker-compose.yml
+docker compose up -d
 ```
 
 Or from a clone:
@@ -118,6 +125,13 @@ Or from a clone:
 git clone https://github.com/masudranaxpert/NextDeploy.git
 cd NextDeploy
 docker compose up -d
+```
+
+For a local Dockerfile build instead of Docker Hub:
+
+```bash
+mkdir -p data/workspaces
+docker compose -f docker-compose.local.yml up -d --build
 ```
 
 ```bash

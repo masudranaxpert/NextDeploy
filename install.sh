@@ -177,15 +177,22 @@ download_compose() {
     die "curl or wget required to download compose file."
   fi
 
-  # Patch DATA_DIR into compose if non-default
-  if [[ "$DATA_DIR" != "/data" ]]; then
-    sed -i "s|/data|${DATA_DIR}|g" "$INSTALL_DIR/docker-compose.yml"
-    info "Patched DATA_DIR to $DATA_DIR in docker-compose.yml"
-  fi
+  patch_data_dir_bind_mounts_in_compose
 
   patch_nextdeploy_image_in_compose "$PANEL_IMAGE_TAG"
   drop_legacy_panel_stack_env_in_compose
   success "docker-compose.yml downloaded to $INSTALL_DIR"
+}
+
+patch_data_dir_bind_mounts_in_compose() {
+  local f="$INSTALL_DIR/docker-compose.yml"
+  [[ -f "$f" ]] || return 0
+  if [[ "$DATA_DIR" == "/data" ]]; then
+    return 0
+  fi
+  sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data/workspaces:/data/workspaces:ro$|\1${DATA_DIR}/workspaces:/data/workspaces:ro|g" "$f"
+  sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data:/data$|\1${DATA_DIR}:/data|g" "$f"
+  info "Patched host data bind mounts to $DATA_DIR in docker-compose.yml"
 }
 
 # Drop legacy env keys from older compose files. The panel now discovers the
@@ -278,7 +285,8 @@ else
   echo "[NextDeploy] WARN: curl/wget missing — keeping existing docker-compose.yml"
 fi
 if [[ "\$DATA_DIR" != "/data" ]] && [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
-  sed -i "s|/data|\${DATA_DIR}|g" "\$INSTALL_DIR/docker-compose.yml"
+  sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data/workspaces:/data/workspaces:ro$|\1\${DATA_DIR}/workspaces:/data/workspaces:ro|g" "\$INSTALL_DIR/docker-compose.yml"
+  sed -i "s|^\([[:space:]]*-[[:space:]]*\)/data:/data$|\1\${DATA_DIR}:/data|g" "\$INSTALL_DIR/docker-compose.yml"
 fi
 if [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
   sed -i '/^[[:space:]]*PANEL_HOST_INSTALL_DIR:/d' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null || true

@@ -128,6 +128,9 @@ func (p *Panel) ContainerRestartOp(c *fiber.Ctx) error {
 		return c.Status(404).SendString("not found")
 	}
 	name := strings.TrimSpace(c.FormValue("container"))
+	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+		return c.Status(400).SendString("invalid container")
+	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerRestart(ctx, name)
@@ -140,6 +143,9 @@ func (p *Panel) ContainerRemoveOp(c *fiber.Ctx) error {
 		return c.Status(404).SendString("not found")
 	}
 	name := strings.TrimSpace(c.FormValue("container"))
+	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+		return c.Status(400).SendString("invalid container")
+	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerRemove(ctx, name)

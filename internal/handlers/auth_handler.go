@@ -103,6 +103,21 @@ func currentUser(c *fiber.Ctx) (db.User, bool) {
 	return u, ok
 }
 
+func requireAdmin(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
+	return nil
+}
+
+func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
+	if err := requireAdmin(c); err != nil {
+		return err
+	}
+	return c.Next()
+}
+
 // SetupPage renders the first-time setup page.
 func (p *Panel) SetupPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()

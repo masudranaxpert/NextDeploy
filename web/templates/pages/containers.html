@@ -93,6 +93,13 @@
                 </td>
                 <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.Ports}}</td>
                 <td class="px-4 py-3 text-right">
+                  <form method="post" action="/containers/restart" class="inline"
+                        onsubmit="return confirm('Restart container {{.Name}}?');">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <button type="submit" class="btn-restart h-7 px-2 py-0 text-[11px]">
+                      Restart
+                    </button>
+                  </form>
                   <form method="post" action="/containers/remove" class="inline"
                         onsubmit="return confirm('Force remove container {{.Name}}?');">
                     <input type="hidden" name="name" value="{{.Name}}">

@@ -55,6 +55,17 @@ func (p *Panel) GlobalContainerRemove(c *fiber.Ctx) error {
 	return c.Redirect("/containers")
 }
 
+func (p *Panel) GlobalContainerRestart(c *fiber.Ctx) error {
+	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		return c.Status(400).SendString("name required")
+	}
+	if err := dockerapi.RestartContainerByName(c.UserContext(), name); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	return c.Redirect("/containers")
+}
+
 func (p *Panel) GlobalVolumeRemove(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
