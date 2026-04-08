@@ -237,12 +237,23 @@ extract_panel_labels_block() {
   local f="$1"
   [[ -f "$f" ]] || return 0
   awk '
-    /^    panel:/{ in_panel=1; in_labels=0; next }
-    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0; in_labels=0 }
-    in_panel && /^        labels:/{ in_labels=1; print; next }
-    in_labels {
-      if (/^        [a-z_-]+:/ && !/^        labels:/) { exit }
-      print
+    function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+    function get_indent(s) { return length(s) - length(ltrim(s)) }
+    /^[[:space:]]+panel:[[:space:]]*$/ {
+      in_panel=1; panel_indent=get_indent($0); in_labels=0; labels_indent=-1; next
+    }
+    in_panel {
+      cur=get_indent($0)
+      if (NF > 0 && cur <= panel_indent) { in_panel=0; in_labels=0; next }
+      if (!in_labels && /^[[:space:]]+labels:[[:space:]]*$/) {
+        in_labels=1; labels_indent=cur; print; next
+      }
+      if (in_labels) {
+        if (NF > 0 && cur <= labels_indent && !/^[[:space:]]+labels:/) {
+          in_labels=0; next
+        }
+        print
+      }
     }
   ' "$f"
 }
@@ -259,29 +270,22 @@ merge_upstream_compose_keep_panel_labels() {
     return 1
   fi
   out=$(mktemp)
-  if ! awk -v lf="$labels_tmp" '
+  awk -v lf="$labels_tmp" '
+    function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+    function get_indent(s) { return length(s) - length(ltrim(s)) }
     BEGIN {
       while ((getline line < lf) > 0) lbl = lbl line "\n"
-      close(lf)
-      sub(/\n$/, "", lbl)
-    }
-    /^    panel:/{ in_panel=1 }
-    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0 }
-    in_panel && /^        labels:/{ skip_labels=1; next }
-    skip_labels {
-      if (/^        [a-z_-]+:/ && !/^        labels:/) { skip_labels=0 }
-      else { next }
+      close(lf); sub(/\n$/, "", lbl); in_panel=0
     }
     {
-      print
-      if (in_panel && /^        image:/) {
-        print lbl
+      if (/^[[:space:]]+panel:[[:space:]]*$/) {
+        in_panel=1; panel_indent=get_indent($0); print; next
       }
+      if (in_panel && NF > 0 && get_indent($0) <= panel_indent) { in_panel=0 }
+      print
+      if (in_panel && /^[[:space:]]+image:/) { print lbl }
     }
-  ' "$new_cf" >"$out"; then
-    rm -f "$labels_tmp" "$out"
-    return 1
-  fi
+  ' "$new_cf" >"$out"
   mv "$out" "$new_cf"
   rm -f "$labels_tmp"
   return 0
@@ -342,12 +346,23 @@ extract_panel_labels_block() {
   local f="\$1"
   [[ -f "\$f" ]] || return 0
   awk '
-    /^    panel:/{ in_panel=1; in_labels=0; next }
-    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0; in_labels=0 }
-    in_panel && /^        labels:/{ in_labels=1; print; next }
-    in_labels {
-      if (/^        [a-z_-]+:/ && !/^        labels:/) { exit }
-      print
+    function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+    function get_indent(s) { return length(s) - length(ltrim(s)) }
+    /^[[:space:]]+panel:[[:space:]]*\$/ {
+      in_panel=1; panel_indent=get_indent(\$0); in_labels=0; labels_indent=-1; next
+    }
+    in_panel {
+      cur=get_indent(\$0)
+      if (\$NF > 0 && cur <= panel_indent) { in_panel=0; in_labels=0; next }
+      if (!in_labels && /^[[:space:]]+labels:[[:space:]]*\$/) {
+        in_labels=1; labels_indent=cur; print; next
+      }
+      if (in_labels) {
+        if (\$NF > 0 && cur <= labels_indent && !/^[[:space:]]+labels:/) {
+          in_labels=0; next
+        }
+        print
+      }
     }
   ' "\$f"
 }
@@ -363,29 +378,22 @@ merge_upstream_compose_keep_panel_labels() {
     return 1
   fi
   out=\$(mktemp)
-  if ! awk -v lf="\$labels_tmp" '
+  awk -v lf="\$labels_tmp" '
+    function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+    function get_indent(s) { return length(s) - length(ltrim(s)) }
     BEGIN {
       while ((getline line < lf) > 0) lbl = lbl line "\n"
-      close(lf)
-      sub(/\n\$/, "", lbl)
-    }
-    /^    panel:/{ in_panel=1 }
-    in_panel && /^    [a-z_-]+:/ && !/^    panel:/{ in_panel=0 }
-    in_panel && /^        labels:/{ skip_labels=1; next }
-    skip_labels {
-      if (/^        [a-z_-]+:/ && !/^        labels:/) { skip_labels=0 }
-      else { next }
+      close(lf); sub(/\n\$/, "", lbl); in_panel=0
     }
     {
-      print
-      if (in_panel && /^        image:/) {
-        print lbl
+      if (/^[[:space:]]+panel:[[:space:]]*\$/) {
+        in_panel=1; panel_indent=get_indent(\$0); print; next
       }
+      if (in_panel && \$NF > 0 && get_indent(\$0) <= panel_indent) { in_panel=0 }
+      print
+      if (in_panel && /^[[:space:]]+image:/) { print lbl }
     }
-  ' "\$new_cf" >"\$out"; then
-    rm -f "\$labels_tmp" "\$out"
-    return 1
-  fi
+  ' "\$new_cf" >"\$out"
   mv "\$out" "\$new_cf"
   rm -f "\$labels_tmp"
   return 0
