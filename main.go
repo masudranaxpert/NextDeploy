@@ -157,6 +157,7 @@ func main() {
 	app.Use("/terminal/ws", p.WSUpgrade)
 	app.Get("/terminal/ws", fws.New(p.VPSTerminalWebSocket))
 	app.Get("/nextdeploy", p.NextDeployPage)
+	app.Get("/nextdeploy/apply-status", p.NextDeployApplyStatus)
 	app.Get("/containers", p.Containers)
 	app.Get("/images", p.ImagesPage)
 	app.Get("/volumes", p.VolumesPage)

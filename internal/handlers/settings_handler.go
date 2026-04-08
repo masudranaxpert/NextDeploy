@@ -85,7 +85,9 @@ const (
 	settingCleanupLastRun  = "cleanup_last_run"
 	settingCleanupLastLog  = "cleanup_last_log"
 	settingPanelDomain     = "panel_domain"
+	settingPanelEnableHTTPS = "panel_enable_https"
 	settingPanelEnableWWW  = "panel_enable_www"
+	settingRootApplyStatus = "root_apply_status"
 )
 
 type intervalOption struct {
@@ -177,7 +179,6 @@ func (p *Panel) nextDeployComposePath() string {
 				return panelStackComposeContainerPath
 			}
 		}
-		return custom
 	}
 	// Default bind mount in container: ./docker-compose.yml -> /stack/docker-compose.yml (no PANEL_STACK_COMPOSE_FILE needed).
 	if isRegularComposeFile(panelStackComposeContainerPath) {
@@ -202,7 +203,7 @@ func (p *Panel) nextDeployComposePath() string {
 			return candidate
 		}
 	}
-	return local
+	return panelStackComposeContainerPath
 }
 
 func (p *Panel) syncRootStackCompose(ctx context.Context) error {
@@ -215,10 +216,11 @@ func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 		return err
 	}
 	panelDomain := p.DB.GetSetting(ctx, settingPanelDomain)
+	enableHTTPS := settingBool(p.DB.GetSetting(ctx, settingPanelEnableHTTPS), true)
 	enableWWW := settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false)
 	email := p.DB.GetCaddyConfig(ctx, "email")
 	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
-	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableWWW, email, caddyImage)
+	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage)
 	if err != nil {
 		return err
 	}
@@ -244,20 +246,26 @@ func useDockerComposeHelper() bool {
 	return err == nil
 }
 
+func (p *Panel) setRootApplyStatus(status string) {
+	_ = p.DB.SetSetting(context.Background(), settingRootApplyStatus, strings.TrimSpace(status))
+}
+
 // rootStackComposeHelperTarget discovers the host compose file path and compose project of
 // the running panel stack without requiring extra env vars in docker-compose.yml.
 func rootStackComposeHelperTarget(ctx context.Context) (hostComposePath, project string, err error) {
 	project, source, err := dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", panelStackComposeContainerPath)
+	legacyCompose := filepath.Join("/opt/nextdeploy", "docker-compose.yml")
 	if err != nil {
-		legacyCompose := filepath.Join("/opt/nextdeploy", "docker-compose.yml")
-		if isRegularComposeFile(legacyCompose) {
-			log.Printf("root stack compose helper: inspect fallback to %s after error: %v", legacyCompose, err)
-			return legacyCompose, rootStackComposeProjectName(filepath.Dir(legacyCompose)), nil
-		}
-		return "", "", err
+		log.Printf("root stack compose helper: inspect fallback to %s after error: %v", legacyCompose, err)
+		return legacyCompose, rootStackComposeProjectName(filepath.Dir(legacyCompose)), nil
 	}
-	if !isRegularComposeFile(source) {
-		return "", "", fmt.Errorf("host compose source is not a regular file: %s", source)
+	if strings.TrimSpace(source) == "" {
+		return "", "", fmt.Errorf("host compose source is empty")
+	}
+	cleanSource := filepath.ToSlash(filepath.Clean(source))
+	if cleanSource == "/docker-compose.yml" || cleanSource == panelStackComposeContainerPath || strings.HasPrefix(cleanSource, "/work/") {
+		log.Printf("root stack compose helper: ignoring non-host compose source %s, using fallback %s", cleanSource, legacyCompose)
+		return legacyCompose, rootStackComposeProjectName(filepath.Dir(legacyCompose)), nil
 	}
 	hostComposePath = filepath.Clean(source)
 	if strings.TrimSpace(project) == "" {
@@ -271,21 +279,30 @@ func rootStackComposeHelperTarget(ctx context.Context) (hostComposePath, project
 func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath, projectName string) error {
 	hostComposePath = filepath.Clean(hostComposePath)
 	hostInstallDir := filepath.Dir(hostComposePath)
-	composeFile := filepath.Base(hostComposePath)
 	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
 	if img == "" {
 		img = "docker:cli"
 	}
 	name := fmt.Sprintf("nextdeploy-compose-apply-%d", time.Now().UnixNano())
 	// No -d: wait for the helper to exit so we capture success/failure and compose logs on stderr.
+	//
+	// IMPORTANT: mount the host project directory at its real host path (not /work).
+	// docker compose resolves relative bind-mount sources (e.g. ./docker-compose.yml)
+	// using --project-directory.  If that directory is /work inside the helper but
+	// /opt/nextdeploy on the host, Docker daemon will try to bind /work/docker-compose.yml
+	// as the panel volume source — a host path that does not exist — and Docker silently
+	// creates an empty *directory* there.  The next panel restart then mounts that
+	// directory instead of the compose file, breaking everything.
+	// By mounting hostInstallDir at its own path we guarantee that the resolved absolute
+	// source paths match real host filesystem locations.
 	args := []string{
 		"run", "--rm", "--name", name,
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
-		"-v", hostInstallDir + ":/work",
-		"-w", "/work",
+		"-v", hostInstallDir + ":" + hostInstallDir,
+		"-w", hostInstallDir,
 		img,
-		"compose", "--project-directory", "/work", "-p", projectName,
-		"-f", composeFile,
+		"compose", "--project-directory", hostInstallDir, "-p", projectName,
+		"-f", hostComposePath,
 		"up", "-d", "panel",
 	}
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
@@ -314,23 +331,31 @@ func (p *Panel) applyRootStackPanelBackground(composeFile string) {
 	composeFile = filepath.Clean(composeFile)
 	projectDir := filepath.Dir(composeFile)
 	project := rootStackComposeProjectName(projectDir)
+	p.setRootApplyStatus("Queued background apply for panel route update.")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if useDockerComposeHelper() {
 			hostComposePath, detectedProject, err := rootStackComposeHelperTarget(ctx)
 			if err != nil {
+				p.setRootApplyStatus("Panel route apply failed while resolving host compose target: " + err.Error())
 				log.Printf("root stack compose helper target: %v", err)
 				return
 			}
 			project = detectedProject
 			if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project); err != nil {
+				p.setRootApplyStatus("Panel route apply failed: " + err.Error())
 				log.Printf("root stack compose helper: %v", err)
+			} else {
+				p.setRootApplyStatus("Panel route apply completed with docker compose up -d panel.")
 			}
 			return
 		}
 		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, "panel"); !res.OK {
+			p.setRootApplyStatus("Panel route apply failed: " + strings.TrimSpace(res.Output))
 			log.Printf("root stack compose apply panel service: %s", strings.TrimSpace(res.Output))
+		} else {
+			p.setRootApplyStatus("Panel route apply completed with docker compose up -d panel.")
 		}
 	}()
 }
@@ -394,19 +419,69 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 
 func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
+
+	jsonErr := func(msg string) error {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "error": msg})
+	}
+
 	panelDomain := strings.TrimSpace(c.FormValue(settingPanelDomain))
+	enableHTTPS := c.FormValue(settingPanelEnableHTTPS) == "on"
 	enableWWW := c.FormValue(settingPanelEnableWWW) == "on"
+
 	if err := p.DB.SetSetting(ctx, settingPanelDomain, panelDomain); err != nil {
+		if wantsJSON {
+			return jsonErr(err.Error())
+		}
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.DB.SetSetting(ctx, settingPanelEnableHTTPS, boolString(enableHTTPS)); err != nil {
+		if wantsJSON {
+			return jsonErr(err.Error())
+		}
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.DB.SetSetting(ctx, settingPanelEnableWWW, boolString(enableWWW)); err != nil {
+		if wantsJSON {
+			return jsonErr(err.Error())
+		}
 		return c.Status(500).SendString(err.Error())
 	}
+
 	if err := p.syncRootStackCompose(ctx); err != nil {
-		return c.Status(500).SendString(err.Error())
+		// Compose sync failure (e.g. bind-mount source is a directory) must not
+		// return a hard 500 — settings are already persisted to the DB.  Redirect
+		// back so the page can surface RootComposeReadErr with an actionable message.
+		// Skip the background apply: without an updated compose file,
+		// running docker compose up would restart the panel without new labels.
+		log.Printf("root stack compose sync on panel config save: %v", err)
+		if wantsJSON {
+			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.Redirect("/nextdeploy?panelSaved=1")
 	}
+
 	p.applyRootStackPanelBackground(p.nextDeployComposePath())
+	if wantsJSON {
+		return c.JSON(fiber.Map{"ok": true, "queued": true})
+	}
 	return c.Redirect("/nextdeploy?panelSaved=1")
+}
+
+// NextDeployApplyStatus returns the current root-stack compose apply status as JSON.
+// Used by the frontend to poll for live apply progress without a page reload.
+func (p *Panel) NextDeployApplyStatus(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	status := strings.TrimSpace(p.DB.GetSetting(ctx, settingRootApplyStatus))
+	done := status == "" ||
+		strings.Contains(status, "completed") ||
+		strings.Contains(status, "failed")
+	succeeded := status == "" || strings.Contains(status, "completed")
+	return c.JSON(fiber.Map{
+		"status":    status,
+		"done":      done,
+		"succeeded": succeeded,
+	})
 }
 
 func boolString(v bool) string {
@@ -509,7 +584,7 @@ func nextDeployPanelDomain(cfg map[string]string) db.AppDomain {
 	return db.AppDomain{
 		Domain:      strings.TrimSpace(cfg[settingPanelDomain]),
 		Port:        8080,
-		EnableHTTPS: true,
+		EnableHTTPS: settingBool(cfg[settingPanelEnableHTTPS], true),
 		EnableWWW:   settingBool(cfg[settingPanelEnableWWW], false),
 	}
 }

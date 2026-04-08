@@ -166,10 +166,17 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 			return c.Status(500).SendString(err.Error())
 		}
 	}
-	if cfg.AuthMode == "github_app" {
+	if cfg.AuthMode == "github_app" && cfg.AutoDeploy {
 		if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
-			p.setGitTabErrorCookie(c, appID, err.Error())
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+			var apiErr *githubWebhookAPIError
+			if errors.As(err, &apiErr) && apiErr.IsPermissionDenied() {
+				cfg.AutoDeploy = false
+				_ = p.DB.UpsertAppGitConfig(c.UserContext(), cfg)
+				p.setGitTabErrorCookie(c, appID, friendlyGitHubWebhookSetupError(err))
+			} else {
+				p.setGitTabErrorCookie(c, appID, err.Error())
+				return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+			}
 		}
 	}
 	// Mark app as git-sourced
@@ -335,6 +342,33 @@ func githubAPIRequest(ctx context.Context, method, rawURL, token string, body an
 	return data, resp.StatusCode, nil
 }
 
+type githubWebhookAPIError struct {
+	Op     string
+	Status int
+	Body   string
+}
+
+func (e *githubWebhookAPIError) Error() string {
+	return fmt.Sprintf("github webhook %s failed: HTTP %d: %s", e.Op, e.Status, strings.TrimSpace(e.Body))
+}
+
+func (e *githubWebhookAPIError) IsPermissionDenied() bool {
+	if e == nil {
+		return false
+	}
+	body := strings.ToLower(strings.TrimSpace(e.Body))
+	return e.Status == http.StatusForbidden &&
+		(strings.Contains(body, "resource not accessible by integration") || strings.Contains(body, "forbidden"))
+}
+
+func friendlyGitHubWebhookSetupError(err error) string {
+	var apiErr *githubWebhookAPIError
+	if !errors.As(err, &apiErr) || !apiErr.IsPermissionDenied() {
+		return err.Error()
+	}
+	return "Configuration saved, but NextDeploy could not manage the repository webhook automatically. GitHub returned 403 \"Resource not accessible by integration\". This usually means the installed GitHub App does not have repository webhook/admin access for this repo. Auto deploy on push was disabled for now. Reinstall or update the provider with repository Administration write access, then save again."
+}
+
 func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID string, cfg db.AppGitConfig) error {
 	if cfg.Provider != "github" || cfg.AuthMode != "github_app" || cfg.RepoFullName == "" {
 		return nil
@@ -354,7 +388,7 @@ func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID strin
 		return err
 	}
 	if status >= 300 {
-		return fmt.Errorf("github webhook list failed: HTTP %d: %s", status, strings.TrimSpace(string(body)))
+		return &githubWebhookAPIError{Op: "list", Status: status, Body: string(body)}
 	}
 	var hooks []githubRepoHook
 	if err := json.Unmarshal(body, &hooks); err != nil {
@@ -378,7 +412,7 @@ func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID strin
 				return err
 			}
 			if resStatus >= 300 {
-				return fmt.Errorf("github webhook update failed: HTTP %d: %s", resStatus, strings.TrimSpace(string(resBody)))
+				return &githubWebhookAPIError{Op: "update", Status: resStatus, Body: string(resBody)}
 			}
 			return nil
 		}
@@ -388,7 +422,7 @@ func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID strin
 		return err
 	}
 	if resStatus >= 300 {
-		return fmt.Errorf("github webhook create failed: HTTP %d: %s", resStatus, strings.TrimSpace(string(resBody)))
+		return &githubWebhookAPIError{Op: "create", Status: resStatus, Body: string(resBody)}
 	}
 	return nil
 }

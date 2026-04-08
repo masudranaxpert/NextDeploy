@@ -82,7 +82,10 @@ func uniqueGitHubAppName() string {
 func (p *Panel) panelBaseURL(c *fiber.Ctx) string {
 	panelDomain := strings.TrimSpace(p.DB.GetSetting(c.UserContext(), settingPanelDomain))
 	if panelDomain != "" {
-		return "https://" + panelDomain
+		if settingBool(p.DB.GetSetting(c.UserContext(), settingPanelEnableHTTPS), true) {
+			return "https://" + panelDomain
+		}
+		return "http://" + panelDomain
 	}
 	if c.Protocol() == "https" {
 		return "https://" + c.Hostname()
@@ -112,9 +115,10 @@ func (p *Panel) buildGitHubManifest(c *fiber.Ctx, providerName string) githubMan
 		SetupURL:    p.githubSetupURL(c),
 		Public:      false,
 		DefaultPermissions: map[string]string{
-			"contents":       "read",
-			"metadata":       "read",
-			"administration": "write",
+			"contents":          "read",
+			"metadata":          "read",
+			"administration":    "write",
+			"repository_hooks":  "write",
 		},
 		DefaultEvents: []string{"push"},
 	}

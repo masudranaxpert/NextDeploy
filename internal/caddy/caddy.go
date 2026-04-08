@@ -310,7 +310,7 @@ func normalizeNamedVolumes(doc map[string]interface{}, projectName string) {
 
 // GenerateRootStackCompose updates the root NextDeploy stack compose with
 // Caddy admin settings and optional panel domain labels.
-func GenerateRootStackCompose(base []byte, panelDomain string, enableWWW bool, email, caddyImage string) ([]byte, error) {
+func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -374,7 +374,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableWWW bool, e
 		mergeLabels(panelSvc, GenerateLabels(db.AppDomain{
 			Domain:      panelDomain,
 			Port:        8080,
-			EnableHTTPS: true,
+			EnableHTTPS: enableHTTPS,
 			EnableWWW:   enableWWW,
 		}))
 	}
