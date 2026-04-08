@@ -14,7 +14,7 @@
       <h3 class="text-lg font-semibold tracking-tight text-foreground">Domains</h3>
       <p class="max-w-xl text-sm text-muted-foreground">Route hostnames to compose services via Caddy. Labels are merged into generated compose on deploy.</p>
     </div>
-    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden')"
+    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden'); if(typeof resetAddDomainCaddyMounts==='function')resetAddDomainCaddyMounts();"
       class="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
       Add domain
@@ -46,10 +46,10 @@
             {{if .EnableWWW}}
               <span class="inline-flex items-center rounded-md border border-primary/30 bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary/90">www</span>
             {{end}}
-            {{if .RouteRules}}
+            {{if or (and .ServeStatic .StaticPath .StaticURLPrefix) (and .ServeMedia .MediaPath .MediaURLPrefix)}}
               <span class="inline-flex items-center gap-1 rounded-md border border-orange-500/25 bg-orange-500/10 px-2 py-0.5 text-[11px] font-medium text-orange-200">
                 <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15m-15-15h15M6.75 7.5h10.5v9H6.75z"/></svg>
-                {{len .RouteRules}} routes
+                file_server
               </span>
             {{end}}
             <span id="dns-badge-{{.ID}}" class="hidden"></span>
@@ -69,20 +69,24 @@
                 Port {{.Port}}
               </span>
             {{end}}
-            {{if .RouteRules}}
-              {{range .RouteRules}}
+            {{if and .ServeStatic .StaticPath .StaticURLPrefix}}
               <span class="inline-flex max-w-full items-center gap-1 font-mono text-[11px] text-muted-foreground">
-                <span class="shrink-0 rounded bg-muted/60 px-1 py-px text-foreground/80">p{{.Priority}}</span>
-                <span class="truncate">{{.Path}}</span>
+                <code class="truncate text-foreground/90">{{.DisplayStaticURLPrefix}}/*</code>
                 <span class="shrink-0">→</span>
-                <span class="truncate">{{.Root}}</span>
+                <code class="truncate">{{.StaticPath}}</code>
               </span>
-              {{end}}
+            {{end}}
+            {{if and .ServeMedia .MediaPath .MediaURLPrefix}}
+              <span class="inline-flex max-w-full items-center gap-1 font-mono text-[11px] text-muted-foreground">
+                <code class="truncate text-foreground/90">{{.DisplayMediaURLPrefix}}/*</code>
+                <span class="shrink-0">→</span>
+                <code class="truncate">{{.MediaPath}}</code>
+              </span>
             {{end}}
           </div>
           <p class="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-2.5 py-2 text-[11px] leading-snug text-amber-200/90">
             <svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
-            Redeploy after changing domains or routes.
+            Redeploy after changing domains or file roots.
           </p>
         </div>
 
@@ -103,8 +107,19 @@
               Labels
             </button>
             <button type="button"
-              class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-primary/10 hover:text-foreground hover:border-primary/25"
-              onclick="openEditDomain({{.ID}}, {{jsq .Domain}}, {{jsq .Service}}, {{.Port}}, {{if .EnableHTTPS}}true{{else}}false{{end}}, {{if .EnableWWW}}true{{else}}false{{end}}, {{jsq .RouteRulesJSON}})"
+              class="edit-domain-btn inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-primary/10 hover:text-foreground hover:border-primary/25"
+              data-did="{{.ID}}"
+              data-domain="{{.Domain}}"
+              data-service="{{.Service}}"
+              data-port="{{.Port}}"
+              data-https="{{if .EnableHTTPS}}1{{else}}0{{end}}"
+              data-www="{{if .EnableWWW}}1{{else}}0{{end}}"
+              data-serve-static="{{if .ServeStatic}}1{{else}}0{{end}}"
+              data-static-path="{{.StaticPath}}"
+              data-static-url-prefix="{{.StaticURLPrefix}}"
+              data-serve-media="{{if .ServeMedia}}1{{else}}0{{end}}"
+              data-media-path="{{.MediaPath}}"
+              data-media-url-prefix="{{.MediaURLPrefix}}"
               title="Edit">
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
               Edit
@@ -130,7 +145,7 @@
     </div>
     <p class="text-base font-medium text-foreground">No domains yet</p>
     <p class="mt-1 max-w-sm text-sm text-muted-foreground">Add a hostname to expose a service. Caddy labels are applied when you deploy.</p>
-    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden')"
+    <button type="button" onclick="document.getElementById('add-domain-modal').classList.remove('hidden'); if(typeof resetAddDomainCaddyMounts==='function')resetAddDomainCaddyMounts();"
       class="mt-6 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
       Add domain
@@ -166,7 +181,7 @@
     <div class="flex items-start justify-between gap-4 border-b border-border/50 px-5 py-4 sm:px-6">
       <div>
         <h3 id="edit-domain-title" class="text-lg font-semibold leading-tight tracking-tight text-foreground">Edit domain</h3>
-        <p class="mt-1 text-xs text-muted-foreground">Update routing, TLS, or file routes.</p>
+        <p class="mt-1 text-xs text-muted-foreground">Update hostname, TLS, proxy port, or static/media roots.</p>
       </div>
       <button type="button" onclick="document.getElementById('edit-domain-modal').classList.add('hidden')" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -339,18 +354,90 @@ function normalizeQuotedValue(value) {
   return v;
 }
 
+// ── Caddy file mounts (add one at a time) ─────────────────────────────────────
+function caddySuf(form) {
+  var w = form && form.querySelector('[data-caddy-form-suf]');
+  return w ? w.getAttribute('data-caddy-form-suf') : '-add';
+}
+
+function showCaddyMount(btn, kind) {
+  var form = btn.closest('form');
+  if (!form) return;
+  var suf = caddySuf(form);
+  var panel = document.getElementById('caddy-panel-' + kind + suf);
+  var addBtn = document.getElementById('btn-add-' + kind + suf);
+  var name = kind === 'static' ? 'serve_static' : 'serve_media';
+  var cb = form.querySelector('input[name="' + name + '"]');
+  if (panel) panel.classList.remove('hidden');
+  if (addBtn) addBtn.classList.add('hidden');
+  if (cb) { cb.disabled = false; cb.checked = true; }
+}
+
+function hideCaddyMountByForm(form, kind, clearFields) {
+  var suf = caddySuf(form);
+  var panel = document.getElementById('caddy-panel-' + kind + suf);
+  var addBtn = document.getElementById('btn-add-' + kind + suf);
+  var name = kind === 'static' ? 'serve_static' : 'serve_media';
+  var cb = form.querySelector('input[name="' + name + '"]');
+  if (panel) panel.classList.add('hidden');
+  if (addBtn) addBtn.classList.remove('hidden');
+  if (cb) { cb.disabled = true; cb.checked = false; }
+  if (!clearFields) return;
+  if (kind === 'static') {
+    var sp = form.querySelector('[name="static_path"]');
+    var sup = form.querySelector('[name="static_url_prefix"]');
+    if (sp) sp.value = '';
+    if (sup) sup.value = '';
+  } else {
+    var mp = form.querySelector('[name="media_path"]');
+    var mup = form.querySelector('[name="media_url_prefix"]');
+    if (mp) mp.value = '';
+    if (mup) mup.value = '';
+  }
+}
+
+function hideCaddyMount(btn, kind) {
+  hideCaddyMountByForm(btn.closest('form'), kind, true);
+}
+
+function syncCaddyMountsAfterEdit(form) {
+  var suf = caddySuf(form);
+  ['static', 'media'].forEach(function (kind) {
+    var name = kind === 'static' ? 'serve_static' : 'serve_media';
+    var cb = form.querySelector('input[name="' + name + '"]');
+    if (!cb) return;
+    var panel = document.getElementById('caddy-panel-' + kind + suf);
+    var addBtn = document.getElementById('btn-add-' + kind + suf);
+    if (cb.checked) {
+      if (panel) panel.classList.remove('hidden');
+      if (addBtn) addBtn.classList.add('hidden');
+      cb.disabled = false;
+    } else {
+      if (panel) panel.classList.add('hidden');
+      if (addBtn) addBtn.classList.remove('hidden');
+      cb.disabled = true;
+    }
+  });
+}
+
+function resetAddDomainCaddyMounts() {
+  var form = document.querySelector('#add-domain-modal form');
+  if (!form) return;
+  hideCaddyMountByForm(form, 'static', true);
+  hideCaddyMountByForm(form, 'media', true);
+}
+
 // ── Edit Domain ───────────────────────────────────────────────────────────────
-function openEditDomain(id, domain, service, port, https, www, routeRulesJSON) {
+function openEditDomainFromBtn(btn) {
   var form = document.getElementById('edit-domain-form');
-  form.action = '/apps/{{.ID}}/domains/' + id + '/edit';
-  domain = normalizeQuotedValue(domain);
-  service = normalizeQuotedValue(service);
+  form.action = '/apps/{{.ID}}/domains/' + btn.dataset.did + '/edit';
 
   var domainInput = form.querySelector('[name="domain"]');
-  if (domainInput) domainInput.value = domain;
+  if (domainInput) domainInput.value = normalizeQuotedValue(btn.dataset.domain || '');
 
   var serviceEl = form.querySelector('[name="service"]');
   if (serviceEl) {
+    var service = normalizeQuotedValue(btn.dataset.service || '');
     serviceEl.value = service;
     if (serviceEl.tagName === 'SELECT') {
       var found = false;
@@ -372,119 +459,45 @@ function openEditDomain(id, domain, service, port, https, www, routeRulesJSON) {
   }
 
   var portInput = form.querySelector('[name="port"]');
-  if (portInput) portInput.value = port;
+  if (portInput) portInput.value = parseInt(btn.dataset.port, 10) || 80;
 
   var httpsInput = form.querySelector('[name="enable_https"]');
-  if (httpsInput) httpsInput.checked = https;
+  if (httpsInput) httpsInput.checked = btn.dataset.https === '1';
 
   var wwwInput = form.querySelector('[name="enable_www"]');
-  if (wwwInput) wwwInput.checked = www;
+  if (wwwInput) wwwInput.checked = btn.dataset.www === '1';
 
-  setRouteRows(form, routeRulesJSON);
+  var ss = form.querySelector('[name="serve_static"]');
+  if (ss) ss.checked = btn.dataset.serveStatic === '1';
+  var sp = form.querySelector('[name="static_path"]');
+  if (sp) sp.value = btn.dataset.staticPath || '';
+  var sup = form.querySelector('[name="static_url_prefix"]');
+  if (sup) sup.value = btn.dataset.staticUrlPrefix || '';
+  var sm = form.querySelector('[name="serve_media"]');
+  if (sm) sm.checked = btn.dataset.serveMedia === '1';
+  var mp = form.querySelector('[name="media_path"]');
+  if (mp) mp.value = btn.dataset.mediaPath || '';
+  var mup = form.querySelector('[name="media_url_prefix"]');
+  if (mup) mup.value = btn.dataset.mediaUrlPrefix || '';
+
+  syncCaddyMountsAfterEdit(form);
+
   document.getElementById('edit-domain-modal').classList.remove('hidden');
 }
 
-// ── Route Builder ─────────────────────────────────────────────────────────────
-function routeRowHTML(priority, path, root) {
-  return '<div class="route-row grid grid-cols-1 gap-3 rounded-lg border border-border/60 bg-background/60 p-3 sm:grid-cols-12 sm:gap-2 sm:p-3.5">' +
-    '<div class="sm:col-span-2">' +
-      '<label class="mb-1.5 block text-xs font-medium text-foreground">Priority</label>' +
-      '<input name="route_priority" type="number" min="1" class="input h-9 w-full text-sm tabular-nums" value="' + String(priority || 1) + '">' +
-    '</div>' +
-    '<div class="sm:col-span-4">' +
-      '<label class="mb-1.5 block text-xs font-medium text-foreground">Path</label>' +
-      '<input name="route_path" type="text" class="input h-9 w-full font-mono text-sm" placeholder="/static/*" value="' + escHtml(path || '') + '">' +
-    '</div>' +
-    '<div class="sm:col-span-5">' +
-      '<label class="mb-1.5 block text-xs font-medium text-foreground">In container</label>' +
-      '<input name="route_root" type="text" class="input h-9 w-full font-mono text-sm" placeholder="/app/static" value="' + escHtml(root || '') + '">' +
-    '</div>' +
-    '<div class="flex items-end sm:col-span-1">' +
-      '<button type="button" class="btn-delete-icon h-9 w-full sm:h-9 sm:w-9" onclick="removeRouteRow(this)" title="Remove row" aria-label="Remove route"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>' +
-    '</div>' +
-  '</div>';
-}
-
-function getRouteList(form) {
-  return form.querySelector('.route-list');
-}
-
-function addRouteRow(form, path, root, priority) {
-  var list = getRouteList(form);
-  if (!list) return;
-  list.insertAdjacentHTML('beforeend', routeRowHTML(priority || (list.children.length + 1), path || '', root || ''));
-  refreshRoutePreview(form);
-}
-
-function removeRouteRow(btn) {
-  var form = btn.closest('form');
-  btn.closest('.route-row').remove();
-  refreshRoutePreview(form);
-}
-
-function setRouteRows(form, routeRulesJSON) {
-  var list = getRouteList(form);
-  if (!list) return;
-  list.innerHTML = '';
-  var rules = [];
-  try { rules = JSON.parse(routeRulesJSON || '[]') || []; } catch (e) {}
-  if (!Array.isArray(rules) || rules.length === 0) {
-    refreshRoutePreview(form);
-    return;
-  }
-  rules.forEach(function(rule, i) {
-    addRouteRow(form, rule.path || '', rule.root || '', rule.priority || (i + 1));
-  });
-  refreshRoutePreview(form);
-}
-
-function refreshRoutePreview(form) {
-  var preview = form ? form.querySelector('.route-preview') : null;
-  if (!preview) return;
-  var rows = Array.from(form.querySelectorAll('.route-row')).map(function(row) {
-    var p = row.querySelector('[name="route_priority"]').value;
-    var path = row.querySelector('[name="route_path"]').value;
-    var root = row.querySelector('[name="route_root"]').value;
-    return { priority: parseInt(p || '0', 10) || 0, path: path, root: root };
-  }).filter(function(rule) {
-    return rule.path.trim() !== '' || rule.root.trim() !== '';
-  }).sort(function(a, b) { return a.priority - b.priority; });
-
-  if (rows.length === 0) {
-    preview.textContent = 'No file routes — all traffic goes to the selected service.';
-    return;
-  }
-  preview.innerHTML = rows.map(function(rule) {
-    return '<div class="flex flex-wrap items-center gap-2 py-0.5">' +
-      '<span class="rounded-md border border-border/50 bg-muted/50 px-2 py-0.5 text-xs font-medium tabular-nums text-foreground">p' + rule.priority + '</span>' +
-      '<code class="rounded-md bg-muted/60 px-2 py-0.5 font-mono text-xs text-foreground">' + escHtml(rule.path) + '</code>' +
-      '<span class="text-xs text-muted-foreground">→</span>' +
-      '<code class="rounded-md bg-muted/60 px-2 py-0.5 font-mono text-xs text-foreground">' + escHtml(rule.root) + '</code>' +
-    '</div>';
-  }).join('');
-}
-
-document.addEventListener('input', function (event) {
-  if (event.target.matches('[name="route_priority"], [name="route_path"], [name="route_root"]')) {
-    refreshRoutePreview(event.target.closest('form'));
-  }
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.edit-domain-btn');
+  if (!btn) return;
+  e.preventDefault();
+  openEditDomainFromBtn(btn);
 });
 
 document.addEventListener('DOMContentLoaded', function () {
-  document.querySelectorAll('#add-domain-modal form, #edit-domain-modal form').forEach(function(f) {
-    refreshRoutePreview(f);
-  });
   {{if .DomainSaved}}
   setTimeout(function () {
     var toast = document.getElementById('domain-toast');
     if (toast) { toast.style.transition = 'opacity 0.5s'; toast.style.opacity = '0'; setTimeout(function(){ toast.remove(); }, 500); }
   }, 4000);
   {{end}}
-});
-
-document.addEventListener('htmx:afterSwap', function () {
-  document.querySelectorAll('#add-domain-modal form, #edit-domain-modal form').forEach(function(f) {
-    refreshRoutePreview(f);
-  });
 });
 </script>

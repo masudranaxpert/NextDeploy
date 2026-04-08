@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/runutil"
+	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -88,6 +91,8 @@ const (
 	settingPanelEnableHTTPS = "panel_enable_https"
 	settingPanelEnableWWW  = "panel_enable_www"
 	settingRootApplyStatus = "root_apply_status"
+	settingCaddySharedMountPrefix = "caddy_shared_mount_prefix"
+	settingCaddySharedVolumeNames = "caddy_shared_volume_names"
 )
 
 type intervalOption struct {
@@ -220,11 +225,93 @@ func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 	enableWWW := settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false)
 	email := p.DB.GetCaddyConfig(ctx, "email")
 	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
-	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage)
+	sharedMounts := p.caddySharedMountsFromSettings(ctx)
+	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, merged, 0640)
+}
+
+// formValues returns duplicate POST keys (e.g. several checkboxes sharing one name).
+// fetch(FormData) sends multipart/form-data; those fields are not in PostArgs — use MultipartForm.
+func formValues(c *fiber.Ctx, key string) []string {
+	if c.Request() == nil {
+		return nil
+	}
+	ct := strings.ToLower(c.Get("Content-Type"))
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		form, err := c.MultipartForm()
+		if err != nil {
+			log.Printf("formValues: multipart parse: %v", err)
+		} else if form != nil {
+			if v := form.Value[key]; len(v) > 0 {
+				return append([]string(nil), v...)
+			}
+			return nil
+		}
+	}
+	var out []string
+	c.Request().PostArgs().VisitAll(func(k, v []byte) {
+		if string(k) == key {
+			out = append(out, string(v))
+		}
+	})
+	return out
+}
+
+func normalizeCaddySharedMountPrefix(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\\", "/"))
+	s = strings.TrimRight(s, "/")
+	if s == "" {
+		return "/data/shared"
+	}
+	if s[0] != '/' {
+		s = "/" + s
+	}
+	return s
+}
+
+func parseCaddySharedVolumeNamesJSON(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "[]" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(s), &names); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	seen := map[string]struct{}{}
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" || !volumex.ValidVolumeName(n) {
+			continue
+		}
+		if _, ok := seen[n]; ok {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
+func (p *Panel) caddySharedMountsFromSettings(ctx context.Context) []caddy.NDSharedMount {
+	prefix := normalizeCaddySharedMountPrefix(p.DB.GetSetting(ctx, settingCaddySharedMountPrefix))
+	names := parseCaddySharedVolumeNamesJSON(p.DB.GetSetting(ctx, settingCaddySharedVolumeNames))
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]caddy.NDSharedMount, 0, len(names))
+	for _, n := range names {
+		target := prefix + "/" + n
+		if !caddy.ValidNDSharedTarget(target) {
+			continue
+		}
+		out = append(out, caddy.NDSharedMount{VolumeName: n, Target: target})
+	}
+	return out
 }
 
 // rootStackComposeProjectName is the docker compose -p project name for the root NextDeploy stack.
@@ -275,8 +362,11 @@ func rootStackComposeHelperTarget(ctx context.Context) (hostComposePath, project
 }
 
 // runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
-// is not the client process that triggers its own recreate.
-func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath, projectName string) error {
+// is not the client process that triggers its own recreate. services are passed to `docker compose up -d` (e.g. "panel" or "caddy").
+func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath, projectName string, services []string) error {
+	if len(services) == 0 {
+		return fmt.Errorf("compose apply: no services specified")
+	}
 	hostComposePath = filepath.Clean(hostComposePath)
 	hostInstallDir := filepath.Dir(hostComposePath)
 	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
@@ -303,8 +393,9 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 		img,
 		"compose", "--project-directory", hostInstallDir, "-p", projectName,
 		"-f", hostComposePath,
-		"up", "-d", "panel",
+		"up", "-d",
 	}
+	args = append(args, services...)
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if composeHelperPruneAfterRun() {
@@ -326,36 +417,41 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 	return nil
 }
 
-// applyRootStackPanelBackground runs `docker compose up -d panel` so Caddy picks up new labels (caddy-docker-proxy).
-func (p *Panel) applyRootStackPanelBackground(composeFile string) {
+// applyRootStackComposeBackground runs `docker compose up -d` for the given services only.
+// Panel domain saves use ["panel"] (new Caddy labels on the panel service); shared volume saves use ["caddy"] (mounts on the proxy).
+func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...string) {
+	if len(services) == 0 {
+		return
+	}
 	composeFile = filepath.Clean(composeFile)
 	projectDir := filepath.Dir(composeFile)
 	project := rootStackComposeProjectName(projectDir)
-	p.setRootApplyStatus("Queued background apply for panel route update.")
+	spec := strings.Join(services, " ")
+	p.setRootApplyStatus("Queued: docker compose up -d " + spec + ".")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if useDockerComposeHelper() {
 			hostComposePath, detectedProject, err := rootStackComposeHelperTarget(ctx)
 			if err != nil {
-				p.setRootApplyStatus("Panel route apply failed while resolving host compose target: " + err.Error())
+				p.setRootApplyStatus("Compose apply failed while resolving host compose target: " + err.Error())
 				log.Printf("root stack compose helper target: %v", err)
 				return
 			}
 			project = detectedProject
-			if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project); err != nil {
-				p.setRootApplyStatus("Panel route apply failed: " + err.Error())
+			if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project, services); err != nil {
+				p.setRootApplyStatus("Compose apply failed: " + err.Error())
 				log.Printf("root stack compose helper: %v", err)
 			} else {
-				p.setRootApplyStatus("Panel route apply completed with docker compose up -d panel.")
+				p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
 			}
 			return
 		}
-		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, "panel"); !res.OK {
-			p.setRootApplyStatus("Panel route apply failed: " + strings.TrimSpace(res.Output))
-			log.Printf("root stack compose apply panel service: %s", strings.TrimSpace(res.Output))
+		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, services...); !res.OK {
+			p.setRootApplyStatus("Compose apply failed: " + strings.TrimSpace(res.Output))
+			log.Printf("root stack compose apply %s: %s", spec, strings.TrimSpace(res.Output))
 		} else {
-			p.setRootApplyStatus("Panel route apply completed with docker compose up -d panel.")
+			p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
 		}
 	}()
 }
@@ -449,11 +545,6 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	}
 
 	if err := p.syncRootStackCompose(ctx); err != nil {
-		// Compose sync failure (e.g. bind-mount source is a directory) must not
-		// return a hard 500 — settings are already persisted to the DB.  Redirect
-		// back so the page can surface RootComposeReadErr with an actionable message.
-		// Skip the background apply: without an updated compose file,
-		// running docker compose up would restart the panel without new labels.
 		log.Printf("root stack compose sync on panel config save: %v", err)
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
@@ -461,11 +552,72 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		return c.Redirect("/nextdeploy?panelSaved=1")
 	}
 
-	p.applyRootStackPanelBackground(p.nextDeployComposePath())
+	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "panel")
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
 	return c.Redirect("/nextdeploy?panelSaved=1")
+}
+
+// SaveNextDeploySharedVolumes persists Caddy shared volume mounts (prefix + selected Docker volume names)
+// and syncs the root compose file. Separate from panel domain so each form only updates its own settings.
+func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
+
+	jsonErr := func(msg string) error {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "error": msg})
+	}
+
+	prefix := normalizeCaddySharedMountPrefix(c.FormValue("caddy_shared_mount_prefix"))
+	var sharedNames []string
+	seenVol := map[string]struct{}{}
+	for _, n := range formValues(c, "caddy_shared_volumes") {
+		n = strings.TrimSpace(n)
+		if n == "" || !volumex.ValidVolumeName(n) {
+			continue
+		}
+		if _, ok := seenVol[n]; ok {
+			continue
+		}
+		seenVol[n] = struct{}{}
+		sharedNames = append(sharedNames, n)
+	}
+	sort.Strings(sharedNames)
+	sharedJSON, jerr := json.Marshal(sharedNames)
+	if jerr != nil {
+		if wantsJSON {
+			return jsonErr(jerr.Error())
+		}
+		return c.Status(500).SendString(jerr.Error())
+	}
+
+	if err := p.DB.SetSetting(ctx, settingCaddySharedMountPrefix, prefix); err != nil {
+		if wantsJSON {
+			return jsonErr(err.Error())
+		}
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.DB.SetSetting(ctx, settingCaddySharedVolumeNames, string(sharedJSON)); err != nil {
+		if wantsJSON {
+			return jsonErr(err.Error())
+		}
+		return c.Status(500).SendString(err.Error())
+	}
+
+	if err := p.syncRootStackCompose(ctx); err != nil {
+		log.Printf("root stack compose sync on shared volumes save: %v", err)
+		if wantsJSON {
+			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.Redirect("/nextdeploy?volumesSaved=1")
+	}
+
+	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+	if wantsJSON {
+		return c.JSON(fiber.Map{"ok": true, "queued": true})
+	}
+	return c.Redirect("/nextdeploy?volumesSaved=1")
 }
 
 // NextDeployApplyStatus returns the current root-stack compose apply status as JSON.

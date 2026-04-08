@@ -49,6 +49,11 @@ func AuthenticatedRepoURL(rawURL, authMode, token string) string {
 		u.User = url.UserPassword("x-access-token", token)
 		return u.String()
 	}
+	// GitLab HTTPS expects oauth2:TOKEN (or any non-empty username + PAT); x-access-token is GitHub-specific.
+	if strings.EqualFold(authMode, "gitlab_token") {
+		u.User = url.UserPassword("oauth2", token)
+		return u.String()
+	}
 	u.User = url.UserPassword("x-access-token", token)
 	return u.String()
 }

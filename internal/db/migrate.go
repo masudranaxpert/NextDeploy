@@ -188,5 +188,16 @@ CREATE TABLE IF NOT EXISTS github_provider_details (
 		}
 	}
 
+	if _, err := s.db.Exec(`ALTER TABLE app_domains ADD COLUMN static_url_prefix TEXT NOT NULL DEFAULT '/static'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE app_domains ADD COLUMN media_url_prefix TEXT NOT NULL DEFAULT '/media'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+
 	return nil
 }

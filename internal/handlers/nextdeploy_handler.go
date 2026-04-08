@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/dockerapi"
+	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -37,7 +39,8 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	if readErr != nil {
 		composeReadErr = readErr.Error()
 	} else if composeReadErr == "" {
-		merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableHTTPS, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"))
+		sharedMounts := p.caddySharedMountsFromSettings(ctx)
+		merged, mergeErr := caddy.GenerateRootStackCompose(base, panelSite.Domain, panelSite.EnableHTTPS, panelSite.EnableWWW, p.DB.GetCaddyConfig(ctx, "email"), p.DB.GetCaddyConfig(ctx, "caddy_image"), sharedMounts)
 		if mergeErr == nil {
 			composePreview = string(merged)
 		} else {
@@ -73,6 +76,13 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 			break
 		}
 	}
+	dockerVolNames, _ := volumex.List(ctx)
+	sort.Strings(dockerVolNames)
+	sharedSel := map[string]bool{}
+	for _, n := range parseCaddySharedVolumeNamesJSON(p.DB.GetSetting(ctx, settingCaddySharedVolumeNames)) {
+		sharedSel[n] = true
+	}
+	sharedPrefix := normalizeCaddySharedMountPrefix(p.DB.GetSetting(ctx, settingCaddySharedMountPrefix))
 	return c.Render("pages/nextdeploy", withUser(c, fiber.Map{
 		"Nav":             "nextdeploy",
 		"Title":           "NextDeploy",
@@ -88,12 +98,11 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"PanelEnableHTTPS": panelSite.EnableHTTPS,
 		"PanelEnableWWW":  panelSite.EnableWWW,
 		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
-		"PanelSaved":             c.Query("panelSaved") == "1",
-		"RootApplyStatus":        func() string {
-			// Only surface the apply status on the redirect immediately after saving
-			// (panelSaved=1), so stale "Queued…" messages do not persist on every
-			// subsequent page load.
-			if c.Query("panelSaved") != "1" {
+		"PanelSaved":   c.Query("panelSaved") == "1",
+		"VolumesSaved": c.Query("volumesSaved") == "1",
+		"RootApplyStatus": func() string {
+			// Only surface apply status right after a save redirect (panel or shared volumes).
+			if c.Query("panelSaved") != "1" && c.Query("volumesSaved") != "1" {
 				return ""
 			}
 			return strings.TrimSpace(cfg[settingRootApplyStatus])
@@ -104,5 +113,8 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"RootCompose":            composePreview,
 		"RootComposeReadErr":     composeReadErr,
 		"RootComposePreviewNote": composePreviewNote,
+		"DockerVolumeNames":      dockerVolNames,
+		"CaddySharedMountPrefix": sharedPrefix,
+		"CaddySharedVolumeSelected": sharedSel,
 	}), "layouts/shell")
 }

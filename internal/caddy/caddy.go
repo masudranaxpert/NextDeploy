@@ -5,6 +5,8 @@ package caddy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,7 +29,134 @@ const (
 	PanelNetworkName   = "NextDeploy"
 	PanelNetworkKey    = "nextdeploy"
 	GeneratedCompose   = ".nextdeploy.generated.compose.yml"
+	// ndSharedVolPrefix is the compose-level volume key prefix for Docker volumes
+	// injected by NextDeploy so file_server roots can be resolved inside Caddy.
+	ndSharedVolPrefix = "nd_shared_"
 )
+
+// NDSharedMount binds an existing Docker named volume into the Caddy service.
+type NDSharedMount struct {
+	VolumeName string
+	Target     string
+}
+
+func ndSharedComposeKey(volName string) string {
+	h := sha256.Sum256([]byte(strings.TrimSpace(volName)))
+	return ndSharedVolPrefix + hex.EncodeToString(h[:8])
+}
+
+// ValidNDSharedTarget checks that a mount path is safe for the Caddy container (absolute Unix path, no "..").
+func ValidNDSharedTarget(target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" || t[0] != '/' {
+		return false
+	}
+	for _, seg := range strings.Split(t, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func stripNDSharedVolumeMounts(caddySvc map[string]interface{}) {
+	raw := caddySvc["volumes"]
+	switch v := raw.(type) {
+	case nil:
+		return
+	case []interface{}:
+		out := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				out = append(out, item)
+				continue
+			}
+			src := strings.TrimSpace(strings.SplitN(s, ":", 2)[0])
+			if strings.HasPrefix(src, ndSharedVolPrefix) {
+				continue
+			}
+			out = append(out, item)
+		}
+		if len(out) == 0 {
+			delete(caddySvc, "volumes")
+			return
+		}
+		caddySvc["volumes"] = out
+	default:
+		return
+	}
+}
+
+func stripNDSharedTopLevelVolumes(doc map[string]interface{}) {
+	rawVolumes, ok := toStringMap(doc["volumes"])
+	if !ok || len(rawVolumes) == 0 {
+		return
+	}
+	for k := range rawVolumes {
+		if strings.HasPrefix(k, ndSharedVolPrefix) {
+			delete(rawVolumes, k)
+		}
+	}
+	if len(rawVolumes) == 0 {
+		delete(doc, "volumes")
+	} else {
+		doc["volumes"] = rawVolumes
+	}
+}
+
+func appendCaddyVolumeMount(caddySvc map[string]interface{}, mountLine string) {
+	mountLine = strings.TrimSpace(mountLine)
+	if mountLine == "" {
+		return
+	}
+	var list []interface{}
+	switch raw := caddySvc["volumes"].(type) {
+	case nil:
+	case []interface{}:
+		list = raw
+	default:
+		list = []interface{}{raw}
+	}
+	for _, item := range list {
+		if s, ok := item.(string); ok && strings.TrimSpace(s) == mountLine {
+			return
+		}
+	}
+	list = append(list, mountLine)
+	caddySvc["volumes"] = list
+}
+
+func mergeNDSharedMountsIntoDoc(doc map[string]interface{}, caddySvc map[string]interface{}, mounts []NDSharedMount) {
+	if len(mounts) == 0 {
+		return
+	}
+	seen := map[string]struct{}{}
+	rawVolumes, ok := toStringMap(doc["volumes"])
+	if !ok {
+		rawVolumes = map[string]interface{}{}
+	}
+	for _, m := range mounts {
+		vol := strings.TrimSpace(m.VolumeName)
+		tgt := strings.TrimSpace(m.Target)
+		if vol == "" || !ValidNDSharedTarget(tgt) {
+			continue
+		}
+		key := ndSharedComposeKey(vol)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		rawVolumes[key] = map[string]interface{}{
+			"external": true,
+			"name":     vol,
+		}
+		appendCaddyVolumeMount(caddySvc, key+":"+tgt+":ro")
+	}
+	if len(rawVolumes) > 0 {
+		doc["volumes"] = rawVolumes
+	}
+}
 
 // CleanQuotedValue strips surrounding quotes (single, double, backtick) from a string.
 func CleanQuotedValue(v string) string {
@@ -143,7 +272,7 @@ func GenerateServiceLabels(domains []db.AppDomain) map[string]string {
 }
 
 func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
-	routes := d.RouteRules()
+	routes := d.EffectiveRouteRules()
 	if len(routes) == 0 {
 		return nil
 	}
@@ -151,7 +280,11 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 	for _, route := range routes {
 		path := strings.TrimSpace(route.Path)
 		root := strings.TrimSpace(route.Root)
-		if path == "" || root == "" {
+		if path == "" {
+			continue
+		}
+		direct := route.EffectiveDirect()
+		if direct && root == "" {
 			continue
 		}
 		if route.Priority <= 0 {
@@ -159,6 +292,7 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 		}
 		route.Path = path
 		route.Root = root
+		route.Direct = direct
 		out = append(out, route)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -310,7 +444,7 @@ func normalizeNamedVolumes(doc map[string]interface{}, projectName string) {
 
 // GenerateRootStackCompose updates the root NextDeploy stack compose with
 // Caddy admin settings and optional panel domain labels.
-func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string) ([]byte, error) {
+func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string, sharedMounts []NDSharedMount) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -322,6 +456,16 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	if !ok || len(services) == 0 {
 		return nil, fmt.Errorf("compose file has no services block")
 	}
+
+	stripNDSharedTopLevelVolumes(doc)
+	rawCaddyStrip, ok := services["caddy"]
+	if ok {
+		if caddySvcStrip, ok := toStringMap(rawCaddyStrip); ok {
+			stripNDSharedVolumeMounts(caddySvcStrip)
+			services["caddy"] = caddySvcStrip
+		}
+	}
+	doc["services"] = services
 
 	networks, _ := toStringMap(doc["networks"])
 	if networks == nil {
@@ -355,6 +499,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 			return key == "caddy.email"
 		})
 	}
+	mergeNDSharedMountsIntoDoc(doc, caddySvc, sharedMounts)
 	services["caddy"] = caddySvc
 
 	rawPanel, ok := services["panel"]
@@ -419,39 +564,43 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 		labels[prefix+".tls"] = "internal"
 	}
 
-	// caddy-docker-proxy orders site directives by numeric prefix (1_, 2_, ...).
-	// Use sequential indices here — not user-defined route.Priority — so labels stay
-	// valid and unique regardless of priority gaps or duplicate priority values.
-	block := 1
-	routes := normalizedRoutes(d)
-	for idx, route := range routes {
-		base := fmt.Sprintf("%s.%d_handle_path_%d", prefix, block, idx)
-		labels[base] = route.Path
-		labels[base+".file_server"] = ""
-		labels[base+".root"] = "* " + strings.TrimSpace(route.Root)
-		block++
-	}
-	priority := block
-	if len(routes) == 0 && d.ServeStatic && strings.TrimSpace(d.StaticPath) != "" {
-		p := strconv.Itoa(priority)
-		labels[prefix+"."+p+"_handle_path_0"] = "/static/*"
-		labels[prefix+"."+p+"_handle_path_0.file_server"] = ""
-		labels[prefix+"."+p+"_handle_path_0.root"] = "* " + strings.TrimSpace(d.StaticPath)
-		priority++
-	}
-	if len(routes) == 0 && d.ServeMedia && strings.TrimSpace(d.MediaPath) != "" {
-		p := strconv.Itoa(priority)
-		labels[prefix+"."+p+"_handle_path_1"] = "/media/*"
-		labels[prefix+"."+p+"_handle_path_1.file_server"] = ""
-		labels[prefix+"."+p+"_handle_path_1.root"] = "* " + strings.TrimSpace(d.MediaPath)
-		priority++
-	}
 	port := d.Port
 	if port <= 0 {
 		port = 80
 	}
-	p := strconv.Itoa(priority)
-	labels[prefix+"."+p+"_reverse_proxy"] = "{{upstreams " + strconv.Itoa(port) + "}}"
+	upstreams := "{{upstreams " + strconv.Itoa(port) + "}}"
+
+	// handle_path + file_server: root is resolved on the Caddy (ingress) host, not the app container, unless the same path is bind-mounted there.
+	routes := normalizedRoutes(d)
+	order := 1
+	for _, route := range routes {
+		path := strings.TrimSpace(route.Path)
+		if path == "" {
+			continue
+		}
+		if route.Direct {
+			root := strings.TrimSpace(route.Root)
+			if root == "" {
+				continue
+			}
+			base := fmt.Sprintf("%s.%d_handle_path", prefix, order)
+			labels[base] = path
+			// Order matters: root must come before file_server in the generated block.
+			labels[base+".0_root"] = "* " + root
+			labels[base+".1_file_server"] = `{{""}}`
+			order++
+			continue
+		}
+		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
+		labels[base] = path + " " + upstreams
+		order++
+	}
+	if order == 1 {
+		labels[prefix+".reverse_proxy"] = upstreams
+	} else {
+		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
+		labels[base] = upstreams
+	}
 }
 
 // ShouldUseInternalTLS checks if a domain should use internal/self-signed TLS.

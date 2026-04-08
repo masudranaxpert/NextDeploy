@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -174,28 +173,29 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if port <= 0 {
 		port = 80
 	}
-	rulesJSON, err := parseDomainRoutesFromForm(c)
-	if err != nil {
-		return c.Status(400).SendString(err.Error())
-	}
 	d := db.AppDomain{
-		AppID:       id,
-		Domain:      caddy.CleanQuotedValue(c.FormValue("domain")),
-		Service:     caddy.CleanQuotedValue(c.FormValue("service")),
-		Port:        port,
-		EnableHTTPS: c.FormValue("enable_https") == "on",
-		EnableWWW:   c.FormValue("enable_www") == "on",
-		ServeStatic: c.FormValue("serve_static") == "on",
-		StaticPath:  strings.TrimSpace(c.FormValue("static_path")),
-		ServeMedia:  c.FormValue("serve_media") == "on",
-		MediaPath:   strings.TrimSpace(c.FormValue("media_path")),
-		RouteRulesJSON: rulesJSON,
+		AppID:          id,
+		Domain:         caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:        caddy.CleanQuotedValue(c.FormValue("service")),
+		Port:           port,
+		EnableHTTPS:    c.FormValue("enable_https") == "on",
+		EnableWWW:      c.FormValue("enable_www") == "on",
+		ServeStatic:     c.FormValue("serve_static") == "on",
+		StaticPath:      strings.TrimSpace(c.FormValue("static_path")),
+		StaticURLPrefix: strings.TrimSpace(c.FormValue("static_url_prefix")),
+		ServeMedia:      c.FormValue("serve_media") == "on",
+		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
+		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
+		RouteRulesJSON:  "[]",
 	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")
 	}
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
+	}
+	if err := db.ValidateAppDomainFileServing(&d); err != nil {
+		return c.Status(400).SendString(err.Error())
 	}
 	if _, err := p.DB.CreateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -233,29 +233,30 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if port <= 0 {
 		port = 80
 	}
-	rulesJSON, err := parseDomainRoutesFromForm(c)
-	if err != nil {
-		return c.Status(400).SendString(err.Error())
-	}
 	d := db.AppDomain{
-		ID:          current.ID,
-		AppID:       id,
-		Domain:      caddy.CleanQuotedValue(c.FormValue("domain")),
-		Service:     caddy.CleanQuotedValue(c.FormValue("service")),
-		Port:        port,
-		EnableHTTPS: c.FormValue("enable_https") == "on",
-		EnableWWW:   c.FormValue("enable_www") == "on",
-		ServeStatic: c.FormValue("serve_static") == "on",
-		StaticPath:  strings.TrimSpace(c.FormValue("static_path")),
-		ServeMedia:  c.FormValue("serve_media") == "on",
-		MediaPath:   strings.TrimSpace(c.FormValue("media_path")),
-		RouteRulesJSON: rulesJSON,
+		ID:             current.ID,
+		AppID:          id,
+		Domain:         caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:        caddy.CleanQuotedValue(c.FormValue("service")),
+		Port:           port,
+		EnableHTTPS:    c.FormValue("enable_https") == "on",
+		EnableWWW:      c.FormValue("enable_www") == "on",
+		ServeStatic:     c.FormValue("serve_static") == "on",
+		StaticPath:      strings.TrimSpace(c.FormValue("static_path")),
+		StaticURLPrefix: strings.TrimSpace(c.FormValue("static_url_prefix")),
+		ServeMedia:      c.FormValue("serve_media") == "on",
+		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
+		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
+		RouteRulesJSON:  "[]",
 	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")
 	}
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
+	}
+	if err := db.ValidateAppDomainFileServing(&d); err != nil {
+		return c.Status(400).SendString(err.Error())
 	}
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -418,42 +419,5 @@ func parseComposeServiceNames(data []byte) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func parseDomainRoutesFromForm(c *fiber.Ctx) (string, error) {
-	paths := c.Request().PostArgs().PeekMulti("route_path")
-	roots := c.Request().PostArgs().PeekMulti("route_root")
-	priorities := c.Request().PostArgs().PeekMulti("route_priority")
-
-	var routes []db.AppDomainRoute
-	for i := 0; i < len(paths); i++ {
-		path := strings.TrimSpace(string(paths[i]))
-		var root string
-		if i < len(roots) {
-			root = strings.TrimSpace(string(roots[i]))
-		}
-		if path == "" && root == "" {
-			continue
-		}
-		if path == "" || root == "" {
-			return "", fiber.NewError(fiber.StatusBadRequest, "every route needs both path and root")
-		}
-		priority := i + 1
-		if i < len(priorities) {
-			if p, err := strconv.Atoi(strings.TrimSpace(string(priorities[i]))); err == nil && p > 0 {
-				priority = p
-			}
-		}
-		routes = append(routes, db.AppDomainRoute{
-			Priority: priority,
-			Path:     path,
-			Root:     root,
-		})
-	}
-	b, err := json.Marshal(routes)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }
 

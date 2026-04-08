@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"embed"
 	"fmt"
@@ -85,6 +86,9 @@ func main() {
 	engine.AddFunc("jsq", func(s string) string {
 		b, _ := json.Marshal(s)
 		return string(b)
+	})
+	engine.AddFunc("b64enc", func(s string) string {
+		return base64.StdEncoding.EncodeToString([]byte(s))
 	})
 	engine.AddFunc("initials", func(s string) string {
 		if len(s) == 0 {
@@ -244,6 +248,7 @@ func main() {
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
+	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 
 	// Git providers (GitHub App + GitLab OAuth only — no manual token POST)
 	app.Get("/git", p.GitProvidersPage)

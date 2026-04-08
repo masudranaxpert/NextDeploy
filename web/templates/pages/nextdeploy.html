@@ -23,12 +23,13 @@
     <div class="space-y-6">
       {{/* Status banner: JS controls this at runtime; server-renders initial state for no-JS fallback */}}
       <div id="panel-save-status"
-        {{if or .PanelSaved .RootApplyStatus}}
-          class="rounded-xl border px-4 py-3 text-sm {{if .PanelSaved}}border-emerald-500/30 bg-emerald-950/20 text-emerald-100{{else}}border-primary/30 bg-primary/10 text-primary/90{{end}}"
+        {{if or .PanelSaved .VolumesSaved .RootApplyStatus}}
+          class="rounded-xl border px-4 py-3 text-sm {{if or .PanelSaved .VolumesSaved}}border-emerald-500/30 bg-emerald-950/20 text-emerald-100{{else}}border-primary/30 bg-primary/10 text-primary/90{{end}}"
         {{else}}
           class="rounded-xl border px-4 py-3 text-sm" style="display:none"
         {{end}}>
         {{if .PanelSaved}}Panel domain saved. NextDeploy updated the compose file and queued a background apply.
+        {{else if .VolumesSaved}}Caddy shared volumes saved. NextDeploy updated the compose file and queued a background apply.
         {{else if .RootApplyStatus}}{{.RootApplyStatus}}
         {{end}}
       </div>
@@ -75,8 +76,41 @@
               </div>
             </label>
           </div>
+
           <div class="flex justify-stretch sm:justify-end">
             <button id="panel-save-btn" type="submit" class="btn btn-primary h-11 w-full sm:h-auto sm:w-auto">Save Panel Domain</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel-card p-5">
+        <div class="section-header mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <span>Caddy shared volumes</span>
+          <a href="/volumes" class="text-[11px] font-medium text-primary hover:underline">Browse volumes</a>
+        </div>
+        <p class="mb-4 text-[11px] text-muted-foreground">Mount existing Docker named volumes into the <code class="text-foreground/80">caddy</code> service (read-only) so <code class="text-foreground/80">file_server</code> roots resolve on the proxy. Each selected volume is mounted at <code class="text-foreground/80">prefix/volume_name</code>. After save, <strong class="font-medium text-foreground/90">Root Stack Compose</strong> should show <code class="text-foreground/80">nd_shared_…</code> under <code class="text-foreground/80">caddy.volumes</code>.</p>
+        <form id="caddy-shared-volumes-form" method="POST" action="/nextdeploy/shared-volumes" class="space-y-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="caddy_shared_mount_prefix">Mount prefix</label>
+            <input id="caddy_shared_mount_prefix" name="caddy_shared_mount_prefix" type="text" class="input w-full max-w-md font-mono text-xs" value="{{.CaddySharedMountPrefix}}" placeholder="/data/shared" autocomplete="off">
+          </div>
+          <div class="max-h-52 overflow-y-auto rounded-lg border border-border/50 bg-stone-950/40 p-3">
+            {{if .DockerVolumeNames}}
+            <ul class="grid gap-2 sm:grid-cols-2">
+              {{range $i, $v := .DockerVolumeNames}}
+              <li class="flex items-start gap-2">
+                <input id="caddy-shvol-{{$i}}" type="checkbox" name="caddy_shared_volumes" value="{{$v}}" class="mt-0.5 rounded border-border"
+                  {{if index $.CaddySharedVolumeSelected $v}}checked{{end}}>
+                <label for="caddy-shvol-{{$i}}" class="min-w-0 cursor-pointer break-all font-mono text-[11px] text-foreground">{{$v}}</label>
+              </li>
+              {{end}}
+            </ul>
+            {{else}}
+            <p class="text-[11px] text-muted-foreground">No Docker volumes listed (ensure the panel can use the Docker socket).</p>
+            {{end}}
+          </div>
+          <div class="flex justify-stretch sm:justify-end">
+            <button id="caddy-vol-save-btn" type="submit" class="btn btn-primary h-11 w-full sm:h-auto sm:w-auto">Save Caddy volumes</button>
           </div>
         </form>
       </div>
@@ -195,16 +229,22 @@
 </div>
 
 <script>
-/* ── Panel Domain AJAX save + live apply-status polling ── */
+/* ── NextDeploy: panel domain + Caddy shared volumes (AJAX + apply-status polling) ── */
 (function () {
-  var form      = document.getElementById('panel-domain-form');
-  var statusEl  = document.getElementById('panel-save-status');
-  var domainIn  = document.getElementById('panel_domain');
-  var httpsChk  = document.getElementById('panel_enable_https');
-  var linkEl    = document.getElementById('panel-domain-link-header');
-  var linkText  = document.getElementById('panel-domain-link-text');
-  var saveBtn   = document.getElementById('panel-save-btn');
-  var pollTimer = null;
+  var panelForm    = document.getElementById('panel-domain-form');
+  var volumesForm  = document.getElementById('caddy-shared-volumes-form');
+  var statusEl     = document.getElementById('panel-save-status');
+  var domainIn     = document.getElementById('panel_domain');
+  var httpsChk     = document.getElementById('panel_enable_https');
+  var linkEl       = document.getElementById('panel-domain-link-header');
+  var linkText     = document.getElementById('panel-domain-link-text');
+  var panelSaveBtn = document.getElementById('panel-save-btn');
+  var volSaveBtn   = document.getElementById('caddy-vol-save-btn');
+  var pollTimer    = null;
+
+  function escHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 
   /* --- Domain link (open in new tab) --- */
   function updateLink() {
@@ -224,7 +264,6 @@
   if (httpsChk)  httpsChk.addEventListener('change', updateLink);
   updateLink();
 
-  /* --- Inline status helpers --- */
   var statusStyles = {
     info:    'border-primary/30 bg-primary/10 text-primary/90',
     success: 'border-emerald-500/30 bg-emerald-950/20 text-emerald-100',
@@ -239,7 +278,6 @@
   }
   function hideStatus() { if (statusEl) statusEl.style.display = 'none'; }
 
-  /* --- Apply-status polling --- */
   function stopPolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
 
   function pollStatus(attempt) {
@@ -263,48 +301,54 @@
     }, delay);
   }
 
-  /* --- AJAX form submit --- */
-  if (!form) return;
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    stopPolling();
-    var origText = saveBtn ? saveBtn.textContent : 'Save Panel Domain';
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-    showStatus('<span class="animate-pulse">Saving settings…</span>', 'info');
+  function wireForm(form, url, btn, savingLine, queuedLine, onSuccess) {
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      stopPolling();
+      var origText = btn ? btn.textContent : 'Save';
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      showStatus('<span class="animate-pulse">' + savingLine + '</span>', 'info');
 
-    fetch('/nextdeploy/panel', {
-      method:  'POST',
-      body:    new FormData(form),
-      headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = origText; }
-        if (d.ok) {
-          if (d.queued) {
-            showStatus('<span class="mr-1 animate-pulse">⋯</span>Settings saved — applying labels…', 'info');
-            pollStatus(0);
-          } else {
-            showStatus('<span class="mr-1">✓</span>Settings saved.', 'success');
-          }
-          /* Refresh the compose preview area without full page reload */
-          updateLink();
-        } else {
-          showStatus('<strong class="mr-1">Error:</strong>' + escHtml(d.error || 'Unknown error'), 'error');
-        }
+      fetch(url, {
+        method:  'POST',
+        body:    new FormData(form),
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       })
-      .catch(function (err) {
-        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = origText; }
-        showStatus('<strong class="mr-1">Request failed:</strong>' + escHtml(err.message), 'error');
-      });
-  });
-
-  /* If page was server-rendered with panelSaved=1, start polling immediately */
-  {{if .PanelSaved}}pollStatus(0);{{end}}
-
-  function escHtml(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (btn) { btn.disabled = false; btn.textContent = origText; }
+          if (d.ok) {
+            if (d.queued) {
+              showStatus('<span class="mr-1 animate-pulse">⋯</span>' + queuedLine, 'info');
+              pollStatus(0);
+            } else {
+              showStatus('<span class="mr-1">✓</span>Saved.', 'success');
+            }
+            if (onSuccess) onSuccess();
+          } else {
+            showStatus('<strong class="mr-1">Error:</strong>' + escHtml(d.error || 'Unknown error'), 'error');
+          }
+        })
+        .catch(function (err) {
+          if (btn) { btn.disabled = false; btn.textContent = origText; }
+          showStatus('<strong class="mr-1">Request failed:</strong>' + escHtml(err.message), 'error');
+        });
+    });
   }
+
+  wireForm(panelForm, '/nextdeploy/panel', panelSaveBtn,
+    'Saving panel domain…',
+    'Panel domain saved — applying…',
+    updateLink
+  );
+  wireForm(volumesForm, '/nextdeploy/shared-volumes', volSaveBtn,
+    'Saving Caddy volumes…',
+    'Caddy volumes saved — applying…',
+    null
+  );
+
+  {{if or .PanelSaved .VolumesSaved}}pollStatus(0);{{end}}
 })();
 
 /* ── Caddy logs ── */

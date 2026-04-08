@@ -22,7 +22,7 @@ import (
 // appShowTabNeedsCompose is true when the tab template reads ComposeRows / container state from the initial handler.
 func appShowTabNeedsCompose(tab string) bool {
 	switch tab {
-	case "overview", "terminal", "containers":
+	case "overview", "logs", "terminal", "containers":
 		return true
 	default:
 		return false
