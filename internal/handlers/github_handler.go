@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -32,10 +33,19 @@ type githubPushPayload struct {
 	Ref        string `json:"ref"`
 	After      string `json:"after"`
 	Repository struct {
-		HTMLURL string `json:"html_url"`
-		Private bool   `json:"private"`
+		HTMLURL  string `json:"html_url"`
+		Private  bool   `json:"private"`
 		FullName string `json:"full_name"`
 	} `json:"repository"`
+}
+
+// gitlabPushPayload matches GitLab Push Hook body fields used for routing.
+type gitlabPushPayload struct {
+	ObjectKind string `json:"object_kind"`
+	Ref        string `json:"ref"`
+	Project    struct {
+		PathWithNamespace string `json:"path_with_namespace"`
+	} `json:"project"`
 }
 
 func randomSecret() string {
@@ -542,6 +552,33 @@ func verifyGitHubSignature(secret string, body []byte, got string) bool {
 	return hmac.Equal([]byte(expected), []byte(got))
 }
 
+// verifyGitLabToken checks the secret token GitLab sends in X-Gitlab-Token (not HMAC like GitHub).
+func verifyGitLabToken(secret, tokenHeader string) bool {
+	s := strings.TrimSpace(secret)
+	g := strings.TrimSpace(tokenHeader)
+	if s == "" || g == "" {
+		return false
+	}
+	if len(s) != len(g) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(s), []byte(g)) == 1
+}
+
+func webhookDeliveryID(c *fiber.Ctx, body []byte, githubMode bool) string {
+	if githubMode {
+		if id := strings.TrimSpace(c.Get("X-GitHub-Delivery")); id != "" {
+			return id
+		}
+	} else {
+		if id := strings.TrimSpace(c.Get("X-Gitlab-Event-UUID")); id != "" {
+			return id
+		}
+	}
+	sum := sha256.Sum256(body)
+	return "anon-" + hex.EncodeToString(sum[:16])
+}
+
 func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	app, err := p.DB.GetApp(c.UserContext(), appID)
@@ -553,25 +590,48 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusNotFound)
 	}
 	body := c.Body()
-	if !verifyGitHubSignature(cfg.WebhookSecret, body, c.Get("X-Hub-Signature-256")) {
+	githubOK := verifyGitHubSignature(cfg.WebhookSecret, body, c.Get("X-Hub-Signature-256"))
+	gitlabOK := verifyGitLabToken(cfg.WebhookSecret, c.Get("X-Gitlab-Token"))
+	if !githubOK && !gitlabOK {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
-	deliveryID := strings.TrimSpace(c.Get("X-GitHub-Delivery"))
+	githubMode := githubOK
+	deliveryID := webhookDeliveryID(c, body, githubMode)
 	if ok, err := p.DB.MarkWebhookDelivery(c.UserContext(), appID, deliveryID); err != nil || !ok {
 		return c.SendStatus(fiber.StatusOK)
 	}
-	if c.Get("X-GitHub-Event") != "push" {
-		return c.SendStatus(fiber.StatusOK)
-	}
-	var payload githubPushPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return c.SendStatus(fiber.StatusBadRequest)
-	}
-	if cfg.RepoFullName != "" && payload.Repository.FullName != "" && !strings.EqualFold(cfg.RepoFullName, payload.Repository.FullName) {
-		return c.SendStatus(fiber.StatusAccepted)
-	}
-	if normalizeBranch(payload.Ref) != normalizeBranch(cfg.Branch) {
-		return c.SendStatus(fiber.StatusAccepted)
+	if githubMode {
+		if c.Get("X-GitHub-Event") != "push" {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		var payload githubPushPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return c.SendStatus(fiber.StatusBadRequest)
+		}
+		if cfg.RepoFullName != "" && payload.Repository.FullName != "" && !strings.EqualFold(cfg.RepoFullName, payload.Repository.FullName) {
+			return c.SendStatus(fiber.StatusAccepted)
+		}
+		if normalizeBranch(payload.Ref) != normalizeBranch(cfg.Branch) {
+			return c.SendStatus(fiber.StatusAccepted)
+		}
+	} else {
+		if ev := strings.TrimSpace(c.Get("X-Gitlab-Event")); ev != "" && !strings.EqualFold(ev, "Push Hook") {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		var payload gitlabPushPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return c.SendStatus(fiber.StatusBadRequest)
+		}
+		if payload.ObjectKind != "" && payload.ObjectKind != "push" {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		if cfg.RepoFullName != "" && payload.Project.PathWithNamespace != "" &&
+			!strings.EqualFold(cfg.RepoFullName, payload.Project.PathWithNamespace) {
+			return c.SendStatus(fiber.StatusAccepted)
+		}
+		if normalizeBranch(payload.Ref) != normalizeBranch(cfg.Branch) {
+			return c.SendStatus(fiber.StatusAccepted)
+		}
 	}
 	if !cfg.AutoDeploy {
 		return c.SendStatus(fiber.StatusAccepted)

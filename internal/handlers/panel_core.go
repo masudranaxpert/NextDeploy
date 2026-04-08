@@ -284,7 +284,7 @@ func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id stri
 	}
 	root := p.composeWorkspaceRootFromRepoURL(id, hint.RepoURL)
 	paths := p.effectiveComposePathsFromRoot(app, id, root)
-	envFiles := p.composeEnvFilesFromContent(id, root, hint.PanelEnv)
+	envFiles := p.composeEnvFilesFromContent(id, hint.PanelEnv)
 	var lastRows []dockerx.ComposePsRow
 	var lastRes dockerx.Result
 	for i, proj := range names {
@@ -429,37 +429,14 @@ func (p *Panel) syncPanelEnvFileToDiskWithContent(appID, content string) error {
 	return atomicWriteFile(pth, []byte(content), 0600)
 }
 
-// syncWorkspaceDotEnvForCompose writes workspaceRoot/.env from the Environment tab when the tab
-// has content so compose `env_file: .env` sees the same values. When the tab is empty, an existing
-// manual .env is left unchanged; if no file exists yet, an empty file is created so Docker does
-// not fail on missing path.
-// Only panel.compose.env is passed to `docker compose --env-file` (see composeEnvFilesFromContent);
-// the workspace .env path is not added as a second CLI --env-file.
-func (p *Panel) syncWorkspaceDotEnvForCompose(workspaceRoot, panelEnv string) error {
-	dot := p.Store.DotEnvPath(workspaceRoot)
-	if strings.TrimSpace(panelEnv) != "" {
-		return atomicWriteFile(dot, []byte(panelEnv), 0600)
-	}
-	st, err := os.Stat(dot)
-	if err == nil {
-		if st.IsDir() {
-			return errors.New(".env exists but is a directory")
-		}
-		return nil
-	}
-	if !os.IsNotExist(err) {
-		return err
-	}
-	return atomicWriteFile(dot, []byte{}, 0600)
-}
-
 // composeEnvFilesFromContent builds --env-file paths for docker compose. Only the panel-managed
-// file (Environment tab → panel.compose.env) is passed; workspace .env is not listed so
-// substitution uses the tab only. A separate on-disk workspace/.env may still be written by
-// syncWorkspaceDotEnvForCompose for services that declare env_file: .env in YAML.
-func (p *Panel) composeEnvFilesFromContent(appID, workspaceRoot, panelEnv string) []string {
+// file (Environment tab → .nextdeploy/panel.compose.env under the app workspace) is used.
+// The panel does not create or write a .env inside the git checkout / project folder; use
+// ${VAR} substitution in compose for values defined in the Environment tab. If your compose
+// declares env_file: .env, add that file in the repo yourself or remove env_file and use
+// environment: with ${VAR} instead.
+func (p *Panel) composeEnvFilesFromContent(appID, panelEnv string) []string {
 	_ = p.syncPanelEnvFileToDiskWithContent(appID, panelEnv)
-	_ = p.syncWorkspaceDotEnvForCompose(workspaceRoot, panelEnv)
 	pth := p.Store.PanelComposeEnvPath(appID)
 	absPanel, err := filepath.Abs(pth)
 	if err != nil {
@@ -471,27 +448,16 @@ func (p *Panel) composeEnvFilesFromContent(appID, workspaceRoot, panelEnv string
 // composeEnvFiles returns --env-file paths for docker compose.
 func (p *Panel) composeEnvFiles(ctx context.Context, appID string) []string {
 	content, _ := p.DB.GetPanelEnv(ctx, appID)
-	return p.composeEnvFilesFromContent(appID, p.composeWorkspaceRoot(ctx, appID), content)
+	return p.composeEnvFilesFromContent(appID, content)
 }
 
-// panelEnvForUI returns env for the Environment tab (DB-backed, with one-time import from workspace .env if empty).
-func (p *Panel) panelEnvForUI(ctx context.Context, appID, sourcePath string) string {
+// panelEnvForUI returns env for the Environment tab (DB only). Workspace or repo .env is never read or imported.
+func (p *Panel) panelEnvForUI(ctx context.Context, appID string) string {
 	cur, err := p.DB.GetPanelEnv(ctx, appID)
 	if err != nil {
 		return ""
 	}
-	if strings.TrimSpace(cur) != "" {
-		return cur
-	}
-	legacy, _ := p.Store.ReadDotEnv(sourcePath)
-	if strings.TrimSpace(legacy) == "" {
-		return ""
-	}
-	if err := p.DB.UpdatePanelEnv(ctx, appID, legacy); err != nil {
-		return legacy
-	}
-	_ = p.syncPanelEnvFileToDisk(appID)
-	return legacy
+	return cur
 }
 
 func countComposeState(rows []dockerx.ComposePsRow, want string) int {
@@ -566,16 +532,9 @@ func parseComposeProjectNameFromEnvFile(data []byte) string {
 	return ""
 }
 
-// composeProjectNamesFromEnvFiles returns COMPOSE_PROJECT_NAME values from workspace .env (if present) and panel.compose.env.
-func (p *Panel) composeProjectNamesFromEnvFiles(ctx context.Context, appID string) []string {
+// composeProjectNamesFromEnvFiles returns COMPOSE_PROJECT_NAME from panel.compose.env only (not workspace .env).
+func (p *Panel) composeProjectNamesFromEnvFiles(appID string) []string {
 	var out []string
-	root := p.composeWorkspaceRoot(ctx, appID)
-	dot := p.Store.DotEnvPath(root)
-	if b, err := os.ReadFile(dot); err == nil {
-		if v := parseComposeProjectNameFromEnvFile(b); v != "" {
-			out = append(out, v)
-		}
-	}
 	panelPath := p.Store.PanelComposeEnvPath(appID)
 	if b, err := os.ReadFile(panelPath); err == nil {
 		if v := parseComposeProjectNameFromEnvFile(b); v != "" {
@@ -591,7 +550,7 @@ func (p *Panel) composeProjectCandidates(ctx context.Context, app db.App, appID 
 	canonical := p.composeProjectName(app, appID)
 	merged = append(merged, canonical)
 	merged = append(merged, p.legacyProjectNames(app, appID)...)
-	merged = append(merged, p.composeProjectNamesFromEnvFiles(ctx, appID)...)
+	merged = append(merged, p.composeProjectNamesFromEnvFiles(appID)...)
 	return dedupeStringsPreserveOrder(merged)
 }
 

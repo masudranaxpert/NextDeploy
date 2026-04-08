@@ -78,7 +78,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 
 	envContent := ""
 	if tab == "environment" {
-		envContent = p.panelEnvForUI(reqCtx, id, sourcePath)
+		envContent = p.panelEnvForUI(reqCtx, id)
 	}
 
 	var composeRows []dockerx.ComposePsRow
