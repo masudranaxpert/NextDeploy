@@ -12,6 +12,7 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/runutil"
 
@@ -178,6 +179,10 @@ func (p *Panel) nextDeployComposePath() string {
 		}
 		return custom
 	}
+	// Default bind mount in container: ./docker-compose.yml -> /stack/docker-compose.yml (no PANEL_STACK_COMPOSE_FILE needed).
+	if isRegularComposeFile(panelStackComposeContainerPath) {
+		return panelStackComposeContainerPath
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return "docker-compose.yml"
@@ -222,22 +227,44 @@ func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 
 // rootStackComposeProjectName is the docker compose -p project name for the root NextDeploy stack.
 func rootStackComposeProjectName(projectDir string) string {
-	if v := strings.TrimSpace(os.Getenv("PANEL_STACK_COMPOSE_PROJECT")); v != "" {
-		return v
-	}
 	base := filepath.Base(filepath.Clean(projectDir))
 	if strings.EqualFold(base, "stack") {
 		// Panel mounts host compose at /stack/docker-compose.yml; host dir is usually .../nextdeploy
 		return "nextdeploy"
 	}
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return "nextdeploy"
+	}
 	return base
 }
 
-// shouldUseComposeHelperContainer is true when the panel process runs inside Docker with compose at /stack/...
-// Applying compose from inside the same "panel" container can kill that process mid-command and leave the stack broken.
-func shouldUseComposeHelperContainer(composeFile string) bool {
-	cf := filepath.ToSlash(filepath.Clean(composeFile))
-	return cf == "/stack/docker-compose.yml" || strings.HasSuffix(cf, "/stack/docker-compose.yml")
+// useDockerComposeHelper is true when the panel can reach the host Docker socket (avoid running compose from inside the panel container process).
+func useDockerComposeHelper() bool {
+	_, err := os.Stat("/var/run/docker.sock")
+	return err == nil
+}
+
+// rootStackComposeHelperTarget discovers the host directory and compose project of
+// the running panel stack without requiring extra env vars in docker-compose.yml.
+func rootStackComposeHelperTarget(ctx context.Context) (hostDir, project string, err error) {
+	project, source, err := dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", panelStackComposeContainerPath)
+	if err != nil {
+		legacyDir := "/opt/nextdeploy"
+		legacyCompose := filepath.Join(legacyDir, "docker-compose.yml")
+		if isRegularComposeFile(legacyCompose) {
+			log.Printf("root stack compose helper: inspect fallback to %s after error: %v", legacyDir, err)
+			return legacyDir, rootStackComposeProjectName(legacyDir), nil
+		}
+		return "", "", err
+	}
+	if !isRegularComposeFile(source) {
+		return "", "", fmt.Errorf("host compose source is not a regular file: %s", source)
+	}
+	hostDir = filepath.Dir(source)
+	if strings.TrimSpace(project) == "" {
+		project = rootStackComposeProjectName(hostDir)
+	}
+	return hostDir, project, nil
 }
 
 // runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
@@ -286,17 +313,16 @@ func (p *Panel) applyRootStackPanelBackground(composeFile string) {
 	composeFile = filepath.Clean(composeFile)
 	projectDir := filepath.Dir(composeFile)
 	project := rootStackComposeProjectName(projectDir)
-	hostDir := strings.TrimSpace(os.Getenv("PANEL_HOST_INSTALL_DIR"))
-	if hostDir == "" {
-		hostDir = "/opt/nextdeploy"
-		if shouldUseComposeHelperContainer(composeFile) {
-			log.Printf("root stack compose helper: PANEL_HOST_INSTALL_DIR unset, using default %s (set in compose for custom --dir installs)", hostDir)
-		}
-	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if shouldUseComposeHelperContainer(composeFile) {
+		if useDockerComposeHelper() {
+			hostDir, detectedProject, err := rootStackComposeHelperTarget(ctx)
+			if err != nil {
+				log.Printf("root stack compose helper target: %v", err)
+				return
+			}
+			project = detectedProject
 			if err := runRootStackComposeViaHelperContainer(ctx, hostDir, project); err != nil {
 				log.Printf("root stack compose helper: %v", err)
 			}

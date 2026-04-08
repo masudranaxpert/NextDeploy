@@ -20,7 +20,6 @@ services:
             - caddy_data:/data
             - /data/workspaces:/data/workspaces:ro
     panel:
-        build: .
         container_name: panel
         depends_on:
             - caddy
@@ -28,9 +27,6 @@ services:
             DATA_DIR: /data
             DOCKER_API_VERSION: "1.45"
             LISTEN_ADDR: :8080
-            PANEL_HOST_INSTALL_DIR: /opt/nextdeploy
-            PANEL_STACK_COMPOSE_FILE: /stack/docker-compose.yml
-            PANEL_STACK_COMPOSE_PROJECT: nextdeploy
             WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
         networks:
@@ -41,6 +37,6 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - /data:/data
-            - .:/stack:rw
+            - ./docker-compose.yml:/stack/docker-compose.yml:rw
 volumes:
     caddy_data: {}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -137,6 +138,31 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 		})
 	}
 	return out, ""
+}
+
+// ContainerComposeProjectAndMountSource returns the compose project label and the
+// host source path for a specific mount destination on a container.
+func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, mountDestination string) (project, source string, err error) {
+	cli, err := newAPIClient()
+	if err != nil {
+		return "", "", err
+	}
+	defer cli.Close()
+
+	insp, err := cli.ContainerInspect(ctx, strings.TrimSpace(containerName))
+	if err != nil {
+		return "", "", err
+	}
+	if insp.Config != nil {
+		project = strings.TrimSpace(insp.Config.Labels[composeProjectLabel])
+	}
+	want := filepath.ToSlash(filepath.Clean(strings.TrimSpace(mountDestination)))
+	for _, m := range insp.Mounts {
+		if filepath.ToSlash(filepath.Clean(m.Destination)) == want {
+			return project, strings.TrimSpace(m.Source), nil
+		}
+	}
+	return project, "", fmt.Errorf("mount %q not found on container %q", mountDestination, containerName)
 }
 
 func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {

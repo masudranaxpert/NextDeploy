@@ -1,7 +1,7 @@
 name: Release
 
 # Trigger:
-#   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags + :latest
+#   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags
 #   - push/PR to main or php-panel → CI build check (no image push)
 #   - push to main → docker-main.yml (on branch main) pushes :latest, :main, :main-<sha>
 #   - Docker image for php-panel branch: workflow lives only on branch php-panel (docker-php-panel.yml)
@@ -69,7 +69,6 @@ jobs:
       # Tags pushed (DOCKER_USERNAME from secrets):
       #   <user>/nextdeploy:v1.2.3   ← git tag
       #   <user>/nextdeploy:1.2.3    ← semver without v prefix
-      #   <user>/nextdeploy:latest   ← rolling stable for main releases
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v6
@@ -80,7 +79,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_NAME }}:latest
           labels: |
             org.opencontainers.image.title=NextDeploy
             org.opencontainers.image.description=Fast self-hosted deployment platform built with Go & Caddy
@@ -92,8 +90,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Delete older Docker Hub tags (keep only last 5 versioned tags) ────────
-      # Uses Docker Hub API to list and delete old tags so the registry stays clean.
+      # ── Delete older Docker Hub release tags (keep only last 5 versions) ───────
+      # Keeps both vX.Y.Z and X.Y.Z tags for the newest 5 releases.
       - name: Clean up old Docker Hub tags
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -114,35 +112,63 @@ jobs:
             exit 0
           fi
 
-          # Fetch all tags sorted by last_updated (newest first), page size 100
-          TAGS=$(curl -s \
-            "https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags?page_size=100&ordering=last_updated" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            | jq -r '.results[].name')
+          # Fetch all tags sorted by last_updated (newest first), paginated.
+          LIST=$(mktemp)
+          URL="https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags?page_size=100&ordering=last_updated"
+          while [ -n "$URL" ]; do
+            RESP=$(curl -sS -H "Authorization: Bearer ${TOKEN}" "$URL")
+            echo "$RESP" | jq -r '.results[].name' >> "$LIST"
+            URL=$(echo "$RESP" | jq -r 'if .next == null then empty else .next end')
+          done
 
-          # Collect versioned tags (vX.Y.Z pattern), skip latest/major/minor aliases
-          VERSIONED=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          mapfile -t RELEASE_TAGS < <(grep -E '^(v)?[0-9]+\.[0-9]+\.[0-9]+$' "$LIST" || true)
+          rm -f "$LIST"
 
-          # Keep the 5 most recent versioned tags; delete the rest
+          if [ "${#RELEASE_TAGS[@]}" -eq 0 ]; then
+            echo "No release tags found."
+            exit 0
+          fi
+
+          # Keep the newest 5 release versions and preserve both tag forms.
           KEEP=5
-          TO_DELETE=$(echo "$VERSIONED" | tail -n +$((KEEP + 1)))
+          declare -A KEEP_VERSIONS=()
+          declare -A SEEN_VERSIONS=()
+          kept=0
+          for TAG in "${RELEASE_TAGS[@]}"; do
+            VERSION="${TAG#v}"
+            if [ -n "${SEEN_VERSIONS[$VERSION]:-}" ]; then
+              continue
+            fi
+            SEEN_VERSIONS["$VERSION"]=1
+            if [ "$kept" -lt "$KEEP" ]; then
+              KEEP_VERSIONS["$VERSION"]=1
+              kept=$((kept + 1))
+            fi
+          done
 
-          if [ -z "$TO_DELETE" ]; then
-            echo "Nothing to delete (≤${KEEP} versioned tags found)."
+          TO_DELETE=()
+          for TAG in "${RELEASE_TAGS[@]}"; do
+            VERSION="${TAG#v}"
+            if [ -z "${KEEP_VERSIONS[$VERSION]:-}" ]; then
+              TO_DELETE+=("$TAG")
+            fi
+          done
+
+          if [ "${#TO_DELETE[@]}" -eq 0 ]; then
+            echo "Nothing to delete (≤${KEEP} release versions found)."
             exit 0
           fi
 
           echo "Tags to delete:"
-          echo "$TO_DELETE"
+          printf '%s\n' "${TO_DELETE[@]}"
 
-          while IFS= read -r TAG; do
-            [ -z "$TAG" ] && continue
+          for TAG in "${TO_DELETE[@]}"; do
             echo "Deleting tag: $TAG"
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
               "https://hub.docker.com/v2/repositories/${DOCKER_USERNAME}/${IMAGE}/tags/${TAG}/" \
               -H "Authorization: Bearer ${TOKEN}")
             echo "  → HTTP $HTTP"
-          done <<< "$TO_DELETE"
+          done
 
           echo "Cleanup complete."
 
@@ -174,8 +200,7 @@ jobs:
             echo "**Docker image**"
             echo '```bash'
             echo "docker pull ${IMAGE}:${TAG}"
-            echo "docker pull ${IMAGE}:latest"
-            echo "docker pull ${IMAGE}:main"
+            echo "docker pull ${IMAGE}:${{ steps.version.outputs.version }}"
             echo '```'
           } > /tmp/release_notes.md
 

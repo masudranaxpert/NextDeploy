@@ -4,7 +4,7 @@
 #   :main     — explicit main-line pointer (same digest as :latest on branch pushes)
 #   :main-<full-sha> — immutable pointer for this commit
 #
-# Versioned semver images (v1.2.3, etc.) and :latest on tag push remain in release.yml.
+# Versioned release images (v1.2.3, 1.2.3, etc.) are published by release.yml.
 name: Docker (main)
 
 on:
