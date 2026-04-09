@@ -104,9 +104,9 @@ func main() {
 		AppName:      "NextDeploy",
 		ServerHeader: "NextDeploy",
 		Views:        engine,
-		// Large volume backups; stream request body so the full upload is not held in RAM at once.
-		BodyLimit:         2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
-		StreamRequestBody: true,
+		BodyLimit:                    2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
 	})
 
 	app.Use(logger.New(logger.Config{

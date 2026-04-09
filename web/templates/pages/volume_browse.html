@@ -166,6 +166,11 @@
 
         function closeModal() {
           if (!modal) return;
+          // Move focus away before hiding so aria-hidden is not set on a focused ancestor.
+          if (modal.contains(document.activeElement)) {
+            if (btn && !btn.disabled) btn.focus();
+            else document.activeElement.blur();
+          }
           modal.classList.add('hidden');
           modal.classList.remove('flex');
           modal.setAttribute('aria-hidden', 'true');

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -17,19 +16,15 @@ import (
 )
 
 // volumeRestoreBodyReader returns the raw POST body for multipart parsing.
-// With StreamRequestBody, BodyStream() is sometimes nil after buffering; fall back to c.Body().
+// Uses c.Context().RequestBodyStream() — the only fasthttp API that truly streams
+// without buffering the entire body into RAM first.
+// c.Body() and req.BodyStream() are intentionally avoided: both can trigger full
+// in-memory buffering for multipart requests when DisablePreParseMultipartForm is false.
 func volumeRestoreBodyReader(c *fiber.Ctx) (io.Reader, error) {
-	req := c.Request()
-	if req != nil {
-		if r := req.BodyStream(); r != nil {
-			return r, nil
-		}
+	if r := c.Context().RequestBodyStream(); r != nil {
+		return r, nil
 	}
-	buf := c.Body()
-	if len(buf) == 0 {
-		return nil, errors.New("empty request body")
-	}
-	return bytes.NewReader(buf), nil
+	return nil, errors.New("request body stream unavailable; ensure StreamRequestBody and DisablePreParseMultipartForm are enabled")
 }
 
 // maxVolumeRestoreBytes must match main.go BodyLimit for /volumes/restore.

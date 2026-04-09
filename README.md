@@ -164,6 +164,14 @@ Open `http://localhost:8080` — first visit creates the admin account.
 
 ---
 
+## Troubleshooting
+
+Common issues (including **Cloudflare upload limits** and **volume restore** workarounds) are documented in **[docs/troubleshooting.md](docs/troubleshooting.md)**.
+
+**Short version:** If the panel is behind **Cloudflare proxy** (orange cloud), uploads are capped at the edge (typically **100 MB** on Free/Pro). Large volume backup restores may stall or fail through the public domain. Use **`http://<server-ip>:8080`** (or your configured port) to reach the panel **directly**, or use a **DNS-only** hostname for uploads. The panel itself allows up to **2 GiB** request bodies for restore.
+
+---
+
 ## Configuration
 
 Persistent state uses the host **`/data`** bind mount (or your `--data-dir`): SQLite at `/data/panel.db`, workspaces under `/data/workspaces`.
