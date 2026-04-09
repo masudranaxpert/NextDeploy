@@ -208,6 +208,11 @@ func (p *Panel) runBackupJob(ctx context.Context, historyID int64, appID string,
 	var size int64
 	var tarPath string
 	var actualVolumeName string
+	defer func() {
+		if strings.TrimSpace(tarPath) != "" {
+			_ = os.Remove(tarPath)
+		}
+	}()
 
 	switch backupType {
 	case "volume":
@@ -258,7 +263,6 @@ func (p *Panel) runBackupJob(ctx context.Context, historyID int64, appID string,
 		if st, err := os.Stat(tarPath); err == nil {
 			size = st.Size()
 		}
-		_ = os.Remove(tarPath)
 
 	case "full":
 		logBuffer.WriteString("full app " + app.Name + "\n")
@@ -302,7 +306,6 @@ func (p *Panel) runBackupJob(ctx context.Context, historyID int64, appID string,
 		if st, err := os.Stat(tarPath); err == nil {
 			size = st.Size()
 		}
-		_ = os.Remove(tarPath)
 	}
 
 	logBuffer.WriteString(time.Now().Format(time.RFC3339) + " completed\n")

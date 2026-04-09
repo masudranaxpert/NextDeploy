@@ -110,9 +110,9 @@ func volumeRestoreFlashAfterSuccess(ctx context.Context, vol string) string {
 // Without that header, restore runs synchronously and redirects back to browse (legacy).
 func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 	wantJSON := strings.Contains(c.Get("Accept"), "application/json")
-	fromApp := strings.TrimSpace(c.FormValue("from_app"))
-
-	vol, tmpPath, syncR, archKind, err := parseVolumeRestoreMultipart(c, wantJSON)
+	// Read all multipart fields from the raw stream in one place. Calling
+	// c.FormValue() before manual parsing can consume the body and break large uploads.
+	vol, fromApp, tmpPath, syncR, archKind, err := parseVolumeRestoreMultipart(c, wantJSON)
 	if err != nil {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})

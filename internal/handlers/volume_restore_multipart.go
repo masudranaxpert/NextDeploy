@@ -61,21 +61,23 @@ func tempPatternForArchive(kind string) string {
 }
 
 // parseVolumeRestoreMultipart returns archiveKind "zip" or "tar-gz".
+// It parses all needed fields from the raw multipart stream; callers must not use
+// c.FormValue/FormFile before calling this, or fasthttp may consume the body.
 // Zip always uses a temp file; tar.gz may stream from the part when saveBackupToTemp is false.
-func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol string, tmpPath string, syncReader io.ReadCloser, archiveKind string, err error) {
+func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol string, fromApp string, tmpPath string, syncReader io.ReadCloser, archiveKind string, err error) {
 	ct := c.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(ct)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		return "", "", nil, "", errors.New("multipart form required")
+		return "", "", "", nil, "", errors.New("multipart form required")
 	}
 	boundary, ok := params["boundary"]
 	if !ok || boundary == "" {
-		return "", "", nil, "", errors.New("invalid multipart boundary")
+		return "", "", "", nil, "", errors.New("invalid multipart boundary")
 	}
 
 	body, err := volumeRestoreBodyReader(c)
 	if err != nil {
-		return "", "", nil, "", err
+		return "", "", "", nil, "", err
 	}
 
 	mr := multipart.NewReader(body, boundary)
@@ -86,7 +88,7 @@ func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol strin
 			break
 		}
 		if err != nil {
-			return "", "", nil, "", err
+			return "", "", "", nil, "", err
 		}
 
 		switch part.FormName() {
@@ -94,28 +96,32 @@ func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol strin
 			b, err := io.ReadAll(io.LimitReader(part, 512))
 			_ = part.Close()
 			if err != nil {
-				return "", "", nil, "", err
+				return "", "", "", nil, "", err
 			}
 			vol = strings.TrimSpace(string(b))
 
-		case "backup":
-			if vol == "" {
-				_ = part.Close()
-				return "", "", nil, "", errors.New("put the volume name field before the backup file in the form")
+		case "from_app":
+			b, err := io.ReadAll(io.LimitReader(part, 512))
+			_ = part.Close()
+			if err != nil {
+				return "", "", "", nil, "", err
 			}
+			fromApp = strings.TrimSpace(string(b))
+
+		case "backup":
 			filename := part.FileName()
 			kind, ok := backupArchiveKind(filename)
 			if !ok {
 				_ = part.Close()
-				return "", "", nil, "", errors.New("unsupported file type; use .tar.gz, .tgz, .gz, or .zip")
+				return "", "", "", nil, "", errors.New("unsupported file type; use .tar.gz, .tgz, .gz, or .zip")
 			}
 
-			needTemp := saveBackupToTemp || kind == archiveKindZip
+			needTemp := saveBackupToTemp || kind == archiveKindZip || vol == ""
 			if needTemp {
 				f, err := os.CreateTemp(volumex.HostStagingDir(), tempPatternForArchive(kind))
 				if err != nil {
 					_ = part.Close()
-					return "", "", nil, "", err
+					return "", "", "", nil, "", err
 				}
 				destPath := f.Name()
 				n, copyErr := io.Copy(f, io.LimitReader(part, maxVolumeRestoreBytes+1))
@@ -123,19 +129,24 @@ func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol strin
 				_ = part.Close()
 				if copyErr != nil {
 					_ = os.Remove(destPath)
-					return "", "", nil, "", copyErr
+					return "", "", "", nil, "", copyErr
 				}
 				if closeErr != nil {
 					_ = os.Remove(destPath)
-					return "", "", nil, "", closeErr
+					return "", "", "", nil, "", closeErr
 				}
 				if n > maxVolumeRestoreBytes {
 					_ = os.Remove(destPath)
-					return "", "", nil, "", fmt.Errorf("backup exceeds maximum size (%d bytes)", maxVolumeRestoreBytes)
+					return "", "", "", nil, "", fmt.Errorf("backup exceeds maximum size (%d bytes)", maxVolumeRestoreBytes)
 				}
-				return vol, destPath, nil, kind, nil
+				if vol == "" {
+					tmpPath = destPath
+					archiveKind = kind
+					continue
+				}
+				return vol, fromApp, destPath, nil, kind, nil
 			}
-			return vol, "", part, kind, nil
+			return vol, fromApp, "", part, kind, nil
 
 		default:
 			_ = part.Close()
@@ -143,7 +154,13 @@ func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol strin
 	}
 
 	if vol == "" {
-		return "", "", nil, "", errors.New("volume name is required")
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+		return "", fromApp, "", nil, "", errors.New("volume name is required")
 	}
-	return "", "", nil, "", errors.New("upload a backup archive (.tar.gz or .zip)")
+	if tmpPath != "" {
+		return vol, fromApp, tmpPath, nil, archiveKind, nil
+	}
+	return vol, fromApp, "", nil, "", errors.New("upload a backup archive (.tar.gz or .zip)")
 }

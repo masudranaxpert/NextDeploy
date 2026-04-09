@@ -27,4 +27,19 @@ This document collects operational quirks and workarounds. Add new entries here 
 
 ---
 
+## Volume restore: safe order for an app (containers → restore → deploy)
+
+**When to follow this:** You are restoring a Docker volume that an app’s stack still uses (for example Postgres/MySQL data, uploads, or any bind-mounted named volume). Running containers can keep files open or rewrite the volume while restore runs, which leads to corruption, permission errors, or confusing failures after restore.
+
+**Recommended workflow:**
+
+1. Open the **app** in the panel and go to the **Containers** tab.
+2. **Remove** every container that belongs to that app (use the container remove actions there so nothing is still running against the volume).
+3. Go to **Volumes → Browse**, select the correct volume, and run **Restore from backup** (prefer the `.tar.gz` from **Download full backup** for databases).
+4. Return to the app and **Deploy** again so Compose recreates containers against the restored data.
+
+Skipping step 2 often causes issues with database volumes (e.g. Postgres `pg_logical` permission or checkpoint errors) because the old process tree still expects the old on-disk state.
+
+---
+
 

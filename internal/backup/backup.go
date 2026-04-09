@@ -26,6 +26,24 @@ func backupStagingDir() string {
 	return os.TempDir()
 }
 
+func copyFileContents(srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		return err
+	}
+	return dst.Close()
+}
+
 func BackupVolume(ctx context.Context, volumeName string) (string, error) {
 	timestamp := time.Now().Format("20060102-150405")
 	backupName := fmt.Sprintf("%s-%s.tar.gz", volumeName, timestamp)
@@ -246,12 +264,8 @@ func BackupFullApp(ctx context.Context, appName, sourceDir string) (string, erro
 
 	finalPath := filepath.Join(staging, backupName)
 	if err := os.Rename(tmpPath, finalPath); err != nil {
-		data, readErr := os.ReadFile(tmpPath)
-		if readErr != nil {
-			return "", fmt.Errorf("read backup: %w", readErr)
-		}
-		if err := os.WriteFile(finalPath, data, 0600); err != nil {
-			return "", fmt.Errorf("write backup: %w", err)
+		if err := copyFileContents(tmpPath, finalPath); err != nil {
+			return "", fmt.Errorf("copy backup: %w", err)
 		}
 	}
 
@@ -285,6 +299,16 @@ func RestoreFullApp(ctx context.Context, appName, composePath, restoreDir, backu
 	}
 	if strings.TrimSpace(restoreDir) == "" {
 		restoreDir = filepath.Dir(composePath)
+	}
+	if !filepath.IsAbs(backupPath) {
+		if wd, err := os.Getwd(); err == nil {
+			backupPath = filepath.Join(wd, backupPath)
+		}
+	}
+	// Validate the archive before stopping the app, so a tampered backup cannot
+	// write outside restoreDir or cause downtime before we reject it.
+	if err := volumex.ValidateTarGzPaths(backupPath); err != nil {
+		return fmt.Errorf("backup validation failed: %w", err)
 	}
 
 	// Bring the stack down before extracting (best-effort). Prefer the configured

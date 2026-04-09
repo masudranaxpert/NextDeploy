@@ -23,6 +23,7 @@ import (
 )
 
 var volNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+var uidGidRe = regexp.MustCompile(`^\d+:\d+$`)
 
 // HostStagingDir returns a directory that is bind-mounted on the Docker host
 // (via DATA_DIR) so that temp files written here can be passed as -v src:/dst
@@ -449,6 +450,50 @@ func RestoreTarGz(ctx context.Context, vol string, in io.Reader) string {
 	return restoreTarGzFromReader(ctx, vol, in)
 }
 
+func detectDominantVolumeOwner(ctx context.Context, dockerVolume, mountPoint string) string {
+	switch mountPoint {
+	case "/b", "/restore":
+	default:
+		return ""
+	}
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", dockerVolume+":"+mountPoint,
+		"alpine:3.20", "sh", "-c",
+		"find "+mountPoint+" -mindepth 1 -exec stat -c '%u:%g' {} + 2>/dev/null | sort | uniq -c | sort -nr | awk 'NR==1{print $2}'")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	owner := strings.TrimSpace(out.String())
+	if !uidGidRe.MatchString(owner) {
+		return ""
+	}
+	return owner
+}
+
+func applyRecursiveVolumeOwner(ctx context.Context, dockerVolume, mountPoint, owner string) string {
+	if !uidGidRe.MatchString(strings.TrimSpace(owner)) {
+		return ""
+	}
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", dockerVolume+":"+mountPoint,
+		"alpine:3.20", "sh", "-c",
+		"chown -R "+owner+" "+mountPoint)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		s := strings.TrimSpace(out.String())
+		if s == "" {
+			s = err.Error()
+		}
+		return "chown: " + s
+	}
+	return ""
+}
+
 // dockerGnuTarExtract wipes dockerVolume at mountPoint and extracts a validated .tar.gz.
 // The archive is streamed via stdin so no host-path bind-mount is needed — this works
 // correctly whether the panel runs directly on the host or inside a container.
@@ -492,11 +537,12 @@ func dockerGnuTarExtract(ctx context.Context, dockerVolume, hostTarAbs, mountPoi
 	}
 
 	// Step 2: stream the tar.gz via stdin — no host-path bind-mount required.
-	// Alpine 3.20 ships BusyBox tar; install GNU tar for --no-same-owner support.
+	// Preserve numeric owner + permissions from the backup archive so database
+	// volumes (e.g. Postgres) keep directory ownership such as pg_logical/*.
 	extract := exec.CommandContext(ctx, "docker", "run", "--rm", "-i",
 		"-v", dockerVolume+":"+mountPoint,
 		"alpine:3.20", "sh", "-c",
-		"apk add --no-cache tar >/dev/null 2>&1 && tar xzf - -C "+mountPoint+" --no-same-owner --no-same-permissions 2>&1")
+		"apk add --no-cache tar >/dev/null 2>&1 && tar xzf - -C "+mountPoint+" --same-owner --same-permissions --numeric-owner 2>&1")
 	extract.Stdin = f
 	var extractOut bytes.Buffer
 	extract.Stdout = &extractOut
@@ -567,11 +613,20 @@ func zipToTarGzStream(zipPath string, w io.Writer) error {
 	tw := tar.NewWriter(gw)
 
 	for _, f := range r.File {
+		mode := f.Mode()
+		perm := int64(mode.Perm())
+		if perm == 0 {
+			if mode.IsDir() {
+				perm = 0755
+			} else {
+				perm = 0644
+			}
+		}
 		if f.FileInfo().IsDir() {
 			hdr := &tar.Header{
 				Name:     f.Name + "/",
 				Typeflag: tar.TypeDir,
-				Mode:     0755,
+				Mode:     perm,
 			}
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
@@ -582,11 +637,28 @@ func zipToTarGzStream(zipPath string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if mode&os.ModeSymlink != 0 {
+			linkTarget, err := io.ReadAll(io.LimitReader(rc, 8192))
+			_ = rc.Close()
+			if err != nil {
+				return err
+			}
+			hdr := &tar.Header{
+				Name:     f.Name,
+				Typeflag: tar.TypeSymlink,
+				Mode:     perm,
+				Linkname: string(linkTarget),
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				return err
+			}
+			continue
+		}
 		hdr := &tar.Header{
 			Name:     f.Name,
 			Typeflag: tar.TypeReg,
 			Size:     int64(f.UncompressedSize64),
-			Mode:     0644,
+			Mode:     perm,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			rc.Close()
@@ -622,6 +694,10 @@ func RestoreZipFile(ctx context.Context, vol, zipPath string, onProgress func(in
 	if onProgress != nil {
 		onProgress(0)
 	}
+	// Zip archives do not reliably preserve Unix uid/gid metadata. Capture the
+	// dominant owner from the existing volume before wiping it so we can reapply
+	// ownership after extraction for common single-owner volumes like databases.
+	prevOwner := detectDominantVolumeOwner(ctx, vol, "/b")
 
 	// Wipe the volume first.
 	wipe := exec.CommandContext(ctx, "docker", "run", "--rm",
@@ -654,7 +730,7 @@ func RestoreZipFile(ctx context.Context, vol, zipPath string, onProgress func(in
 	extract := exec.CommandContext(ctx, "docker", "run", "--rm", "-i",
 		"-v", vol+":/b",
 		"alpine:3.20", "sh", "-c",
-		"apk add --no-cache tar >/dev/null 2>&1 && tar xzf - -C /b --no-same-owner --no-same-permissions")
+		"apk add --no-cache tar >/dev/null 2>&1 && tar xzf - -C /b --same-owner --same-permissions --numeric-owner")
 	extract.Stdin = pr
 	var extractOut bytes.Buffer
 	extract.Stdout = &extractOut
@@ -693,6 +769,11 @@ func RestoreZipFile(ctx context.Context, vol, zipPath string, onProgress func(in
 			s = runErr.Error()
 		}
 		return s
+	}
+	if prevOwner != "" {
+		if msg := applyRecursiveVolumeOwner(ctx, vol, "/b", prevOwner); msg != "" {
+			return msg
+		}
 	}
 
 	if onProgress != nil {
