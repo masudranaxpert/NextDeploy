@@ -55,6 +55,15 @@ type Panel struct {
 	deployRuns     map[string]*deployRun
 	envFileMu      sync.Map
 	composeMu      sync.Map
+	gitlabTokenMu  sync.Map
+}
+
+func (p *Panel) InitDeployRuns() {
+	p.deployMu.Lock()
+	defer p.deployMu.Unlock()
+	if p.deployRuns == nil {
+		p.deployRuns = make(map[string]*deployRun)
+	}
 }
 
 // withUser adds the current authenticated user to a fiber.Map for template rendering.

@@ -49,13 +49,15 @@ type AppGitConfig struct {
 
 // GitProvider holds a named global Git credential (token) for a provider.
 type GitProvider struct {
-	ID        int64
-	Name      string
-	Provider  string
-	Token     string
-	Notes     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           int64
+	Name         string
+	Provider     string
+	Token        string
+	RefreshToken string
+	ExpiresAt    int64 // Unix timestamp
+	Notes        string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type GitHubProviderDetail struct {

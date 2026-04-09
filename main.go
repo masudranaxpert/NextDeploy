@@ -122,6 +122,9 @@ func main() {
 		Store:          workspace.NewStore(root),
 		WorkspacesRoot: root,
 	}
+	// Initialize deployRuns map to prevent race condition
+	p.InitDeployRuns()
+	
 	if err := p.SyncRootStackComposeOnStart(); err != nil {
 		log.Printf("nextdeploy root compose sync skipped: %v", err)
 	}

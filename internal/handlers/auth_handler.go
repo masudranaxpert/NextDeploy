@@ -15,7 +15,7 @@ import (
 
 const (
 	sessionCookie  = "nd_session"
-	sessionTTL     = 30 * 24 * time.Hour
+	sessionTTL     = 7 * 24 * time.Hour // Reduced from 30 to 7 days for better security
 	contextUserKey = "auth_user"
 )
 

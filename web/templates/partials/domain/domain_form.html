@@ -1,86 +1,86 @@
 {{/* FormIDSuffix e.g. "-add" / "-edit" — unique input ids when both modals are in the DOM */}}
 {{$suf := .FormIDSuffix}}
-<div class="space-y-6">
+<div class="space-y-5">
   <div class="space-y-2">
-    <label class="text-sm font-medium leading-none text-foreground" for="domain-input{{$suf}}">Domain <span class="text-destructive">*</span></label>
-    <input id="domain-input{{$suf}}" name="domain" type="text" class="input h-10 w-full font-mono text-sm" placeholder="app.example.com" required autocomplete="off">
-    <p class="text-xs text-muted-foreground">DNS or <code class="rounded-md bg-muted px-1.5 py-0.5 text-[11px]">hosts</code> must point to this server.</p>
+    <label class="text-sm font-medium leading-none text-foreground" for="domain-input{{$suf}}">Hostname <span class="text-destructive">*</span></label>
+    <input id="domain-input{{$suf}}" name="domain" type="text" class="input h-11 w-full font-mono text-sm" placeholder="app.example.com" required autocomplete="off">
+    <p class="text-xs text-muted-foreground">DNS or <code class="rounded-md bg-muted px-1.5 py-0.5 text-[11px]">hosts</code> must point to this server</p>
   </div>
 
-  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
     <div class="space-y-2">
       <label class="text-sm font-medium leading-none text-foreground" for="service-input{{$suf}}">Service <span class="text-destructive">*</span></label>
       {{if .Services}}
-      <select id="service-input{{$suf}}" name="service" class="input h-10 w-full text-sm" required>
+      <select id="service-input{{$suf}}" name="service" class="input h-11 w-full text-sm" required>
         <option value="">Select service…</option>
         {{range .Services}}
         <option value="{{.}}">{{.}}</option>
         {{end}}
       </select>
       {{else}}
-      <input id="service-input{{$suf}}" name="service" type="text" class="input h-10 w-full text-sm" placeholder="web" required autocomplete="off">
+      <input id="service-input{{$suf}}" name="service" type="text" class="input h-11 w-full text-sm" placeholder="web" required autocomplete="off">
       {{end}}
-      <p class="text-xs text-muted-foreground">Compose service that receives proxied traffic</p>
+      <p class="text-xs text-muted-foreground">Compose service receiving traffic</p>
     </div>
     <div class="space-y-2">
-      <label class="text-sm font-medium leading-none text-foreground" for="port-input{{$suf}}">Port</label>
-      <input id="port-input{{$suf}}" name="port" type="number" class="input h-10 w-full text-sm tabular-nums" value="80" min="1" max="65535">
-      <p class="text-xs text-muted-foreground">App container port (Gunicorn/uWSGI, etc.)</p>
+      <label class="text-sm font-medium leading-none text-foreground" for="port-input{{$suf}}">Proxy port</label>
+      <input id="port-input{{$suf}}" name="port" type="number" class="input h-11 w-full text-sm tabular-nums" value="80" min="1" max="65535">
+      <p class="text-xs text-muted-foreground">Container port (e.g. 8000, 3000)</p>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-    <label class="flex cursor-pointer gap-3 rounded-xl border border-border/60 bg-muted/10 p-4 transition-colors hover:bg-muted/20 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+  <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <label class="flex cursor-pointer gap-3 rounded-xl border border-border/60 bg-muted/10 p-3.5 transition-colors hover:bg-muted/20 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
       <input type="checkbox" name="enable_https" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30" checked>
-      <div class="min-w-0 space-y-1">
-        <p class="text-sm font-medium text-foreground">HTTPS</p>
-        <p class="text-xs text-muted-foreground">Off = HTTP only</p>
+      <div class="min-w-0 space-y-0.5">
+        <p class="text-sm font-medium text-foreground">TLS (HTTPS)</p>
+        <p class="text-xs text-muted-foreground">Auto SSL certificate</p>
       </div>
     </label>
-    <label class="flex cursor-pointer gap-3 rounded-xl border border-border/60 bg-muted/10 p-4 transition-colors hover:bg-muted/20 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+    <label class="flex cursor-pointer gap-3 rounded-xl border border-border/60 bg-muted/10 p-3.5 transition-colors hover:bg-muted/20 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
       <input type="checkbox" name="enable_www" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30">
-      <div class="min-w-0 space-y-1">
+      <div class="min-w-0 space-y-0.5">
         <p class="text-sm font-medium text-foreground">www alias</p>
-        <p class="text-xs text-muted-foreground">Also serve <code class="rounded bg-muted px-1 py-px text-[11px]">www.</code>…</p>
+        <p class="text-xs text-muted-foreground">Redirect <code class="rounded bg-muted px-1 py-px text-[11px]">www.</code> subdomain</p>
       </div>
     </label>
   </div>
 
   <div
-    class="relative overflow-visible rounded-2xl border border-border/55 bg-gradient-to-b from-muted/[0.12] via-background/80 to-background p-4 shadow-sm ring-1 ring-border/30 sm:p-5"
+    class="relative overflow-visible rounded-2xl border border-border/55 bg-gradient-to-b from-muted/[0.12] via-background/80 to-background p-4 shadow-sm ring-1 ring-border/30 md:p-5"
     data-caddy-form-suf="{{$suf}}">
     <div class="flex min-w-0 gap-3">
-      <div class="mt-0.5 hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/[0.08] sm:flex" aria-hidden="true">
+      <div class="mt-0.5 hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/[0.08] md:flex" aria-hidden="true">
         <svg class="h-5 w-5 text-primary/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15m-15-15h15M6.75 7.5h10.5v9H6.75z"/></svg>
       </div>
       <div class="min-w-0 space-y-2">
         <div class="flex flex-wrap items-center gap-2">
-          <h4 class="text-sm font-semibold tracking-tight text-foreground">Direct file serving</h4>
+          <h4 class="text-sm font-semibold tracking-tight text-foreground">Static/media roots</h4>
           <span class="inline-flex items-center gap-1 rounded-full border border-orange-500/25 bg-orange-500/[0.12] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-200/95">Caddy</span>
           <span class="inline-flex items-center gap-1 rounded-full border border-muted-foreground/20 bg-muted/40 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">file_server</span>
         </div>
         <p class="max-w-prose text-xs leading-relaxed text-muted-foreground">
-          Serve files from disk at a URL prefix. Optional—only if you want Caddy to read files directly instead of proxying everything to the app.
+          Serve files directly from disk. Optional—skip if proxying everything to your app.
         </p>
       </div>
     </div>
 
-    <div id="caddy-add-actions{{$suf}}" class="mt-5 grid grid-cols-1 gap-2 sm:mt-6 sm:grid-cols-2 sm:gap-3">
+    <div id="caddy-add-actions{{$suf}}" class="mt-4 grid grid-cols-1 gap-2 md:mt-5 md:grid-cols-2 md:gap-3">
       <button type="button" id="btn-add-static{{$suf}}"
-        class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/60 px-4 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-10 sm:justify-start sm:px-3 sm:text-xs"
+        class="inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/60 px-4 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:justify-start"
         onclick="showCaddyMount(this,'static')">
         <svg class="h-4 w-4 shrink-0 text-primary/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        <span>Add static files</span>
+        <span>Static files</span>
       </button>
       <button type="button" id="btn-add-media{{$suf}}"
-        class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/60 px-4 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-10 sm:justify-start sm:px-3 sm:text-xs"
+        class="inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/60 px-4 text-sm font-medium text-foreground shadow-sm transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:justify-start"
         onclick="showCaddyMount(this,'media')">
         <svg class="h-4 w-4 shrink-0 text-primary/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        <span>Add user media</span>
+        <span>User media</span>
       </button>
     </div>
 
-    <div id="caddy-panel-static{{$suf}}" class="mt-4 hidden rounded-xl border border-border/50 bg-muted/[0.15] p-4 sm:p-4">
+    <div id="caddy-panel-static{{$suf}}" class="mt-4 hidden rounded-xl border border-border/50 bg-muted/[0.15] p-4">
       <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
         <div class="flex items-center gap-2">
           <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-background/80 text-primary shadow-sm ring-1 ring-border/40" aria-hidden="true">
@@ -91,21 +91,21 @@
         <button type="button" class="text-xs font-medium text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline" onclick="hideCaddyMount(this,'static')">Remove</button>
       </div>
       <input type="checkbox" name="serve_static" value="on" id="serve-static{{$suf}}" class="hidden" tabindex="-1" aria-hidden="true" disabled>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div class="space-y-2">
-          <label class="text-xs font-medium text-foreground" for="static-url-prefix{{$suf}}">Public URL prefix</label>
+          <label class="text-xs font-medium text-foreground" for="static-url-prefix{{$suf}}">URL prefix</label>
           <input id="static-url-prefix{{$suf}}" name="static_url_prefix" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/assets" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Must match how browsers load assets (leading <code class="rounded bg-muted/80 px-1 py-px font-mono">/</code>). Not the site root alone.</p>
+          <p class="text-[11px] leading-snug text-muted-foreground">Browser path (e.g. <code class="rounded bg-muted/80 px-1 py-px font-mono">/static</code>)</p>
         </div>
         <div class="space-y-2">
-          <label class="text-xs font-medium text-foreground" for="static-path{{$suf}}">Filesystem root (Caddy)</label>
+          <label class="text-xs font-medium text-foreground" for="static-path{{$suf}}">Caddy filesystem path</label>
           <input id="static-path{{$suf}}" name="static_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/app/staticfiles" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Must exist on the <strong class="font-medium text-foreground/90">Caddy</strong> container. Often same as <code class="rounded bg-muted/80 px-1 py-px font-mono">STATIC_ROOT</code>, with the host volume mounted at this path on Caddy and the app.</p>
+          <p class="text-[11px] leading-snug text-muted-foreground">Absolute path on Caddy container</p>
         </div>
       </div>
     </div>
 
-    <div id="caddy-panel-media{{$suf}}" class="mt-4 hidden rounded-xl border border-border/50 bg-muted/[0.15] p-4 sm:p-4">
+    <div id="caddy-panel-media{{$suf}}" class="mt-4 hidden rounded-xl border border-border/50 bg-muted/[0.15] p-4">
       <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
         <div class="flex items-center gap-2">
           <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-background/80 text-primary shadow-sm ring-1 ring-border/40" aria-hidden="true">
@@ -116,16 +116,16 @@
         <button type="button" class="text-xs font-medium text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline" onclick="hideCaddyMount(this,'media')">Remove</button>
       </div>
       <input type="checkbox" name="serve_media" value="on" id="serve-media{{$suf}}" class="hidden" tabindex="-1" aria-hidden="true" disabled>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div class="space-y-2">
-          <label class="text-xs font-medium text-foreground" for="media-url-prefix{{$suf}}">Public URL prefix</label>
+          <label class="text-xs font-medium text-foreground" for="media-url-prefix{{$suf}}">URL prefix</label>
           <input id="media-url-prefix{{$suf}}" name="media_url_prefix" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/media" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Must match <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_URL</code> (any depth, e.g. <code class="rounded bg-muted/80 px-1 py-px font-mono">/media</code> or <code class="rounded bg-muted/80 px-1 py-px font-mono">/app/media</code>).</p>
+          <p class="text-[11px] leading-snug text-muted-foreground">Must match <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_URL</code></p>
         </div>
         <div class="space-y-2">
-          <label class="text-xs font-medium text-foreground" for="media-path{{$suf}}">Filesystem root (Caddy)</label>
+          <label class="text-xs font-medium text-foreground" for="media-path{{$suf}}">Caddy filesystem path</label>
           <input id="media-path{{$suf}}" name="media_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/app/media" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Must exist on the <strong class="font-medium text-foreground/90">Caddy</strong> container. Usually same absolute path as <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_ROOT</code>, with the same host directory mounted into Caddy and the app.</p>
+          <p class="text-[11px] leading-snug text-muted-foreground">Same as <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_ROOT</code></p>
         </div>
       </div>
     </div>

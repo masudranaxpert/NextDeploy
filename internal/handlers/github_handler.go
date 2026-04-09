@@ -281,15 +281,7 @@ func (p *Panel) resolveGitAuthToken(ctx context.Context, cfg db.AppGitConfig) (s
 		return gitx.MintGitHubInstallationToken(ctx, cfg.AppGitID, cfg.InstallationID, cfg.PrivateKeyPEM)
 	}
 	if cfg.AuthMode == "gitlab_token" && cfg.GitProviderID > 0 {
-		provider, err := p.DB.GetGitProvider(ctx, cfg.GitProviderID)
-		if err != nil {
-			return "", fmt.Errorf("GitLab provider not found: %w", err)
-		}
-		token := strings.TrimSpace(provider.Token)
-		if token == "" {
-			return "", fmt.Errorf("GitLab provider has no token — reconnect from Git Providers page")
-		}
-		return token, nil
+		return p.EnsureFreshGitLabToken(ctx, cfg.GitProviderID)
 	}
 	if cfg.GitProviderID > 0 && strings.TrimSpace(cfg.Token) == "" {
 		provider, err := p.DB.GetGitProvider(ctx, cfg.GitProviderID)

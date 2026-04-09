@@ -132,6 +132,13 @@
           <li>Enable scopes: <code class="bg-muted/40 px-1 rounded">read_user</code> <code class="bg-muted/40 px-1 rounded">api</code> <code class="bg-muted/40 px-1 rounded">read_repository</code></li>
           <li>Save → copy Application ID &amp; Secret → click <strong class="text-foreground/80">Connect with OAuth</strong></li>
         </ol>
+        <div class="mt-3 pt-3 border-t border-amber-500/20">
+          <p class="font-medium text-amber-200 text-sm flex items-center gap-1.5">
+            <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+            Important: Git operations limitation
+          </p>
+          <p class="mt-1.5 text-xs text-amber-100/90">OAuth tokens work for browsing repos but <strong class="text-amber-200">cannot clone/pull repositories</strong>. After connecting, you'll need to add a <strong class="text-amber-200">Personal Access Token</strong> in each app's Git tab for actual deployments.</p>
+        </div>
       </div>
     </div>
     </div>
@@ -200,11 +207,6 @@
             </form>
             {{end}}
           {{end}}
-          <button type="button"
-                  class="btn-secondary min-h-9 px-3 py-2 text-xs"
-                  onclick="openEditProvider({{.ID}}, {{jsq .Name}}, {{jsq .Provider}}, {{jsq .Notes}})">
-            Edit
-          </button>
           <form method="post" action="/git/{{.ID}}/delete" class="inline"
                 onsubmit="return confirm('Delete provider {{.Name}}? Apps using this token will need to be reconfigured.');">
             <button type="submit" class="btn-delete-sm">Delete</button>
@@ -244,52 +246,6 @@
     {{end}}
   </section>
 
-</div>
-
-<!-- Edit Provider Modal -->
-<div id="edit-provider-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="edit-provider-title">
-  <div class="absolute inset-0" onclick="document.getElementById('edit-provider-modal').classList.add('hidden')" aria-hidden="true"></div>
-  <div class="modal-box" onclick="event.stopPropagation()">
-    <div class="mb-5 flex items-start justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/25">
-          <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
-        </div>
-        <div>
-          <h2 id="edit-provider-title" class="text-base font-semibold text-foreground">Edit provider</h2>
-          <p class="text-xs text-muted-foreground">Leave token blank to keep the existing one</p>
-        </div>
-      </div>
-      <button type="button" class="btn-icon" onclick="document.getElementById('edit-provider-modal').classList.add('hidden')">
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-      </button>
-    </div>
-    <form method="post" id="edit-provider-form" action="/git/0/update" class="space-y-4">
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Name <span class="text-rose-400">*</span></label>
-        <input class="input w-full" name="name" id="edit-provider-name" required autocomplete="off">
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Provider</label>
-        <select class="input w-full" name="provider" id="edit-provider-type">
-          <option value="github">GitHub</option>
-          <option value="gitlab">GitLab</option>
-        </select>
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">New access token <span class="text-muted-foreground/50">(leave blank to keep current)</span></label>
-        <input class="input w-full font-mono text-xs" type="password" name="token" placeholder="Leave blank to keep current token" autocomplete="new-password">
-      </div>
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-foreground">Notes <span class="text-muted-foreground/50">(optional)</span></label>
-        <input class="input w-full" name="notes" id="edit-provider-notes">
-      </div>
-      <div class="flex justify-end gap-3 pt-1">
-        <button type="button" class="btn-ghost px-4 py-2 text-sm" onclick="document.getElementById('edit-provider-modal').classList.add('hidden')">Cancel</button>
-        <button type="submit" class="btn-primary px-5 py-2 text-sm">Update provider</button>
-      </div>
-    </form>
-  </div>
 </div>
 
 <!-- GitLab OAuth Connect Modal -->
@@ -347,17 +303,6 @@
 </div>
 
 <script>
-function openEditProvider(id, name, provider, notes) {
-  document.getElementById('edit-provider-form').action = '/git/' + id + '/update';
-  document.getElementById('edit-provider-name').value = name;
-  document.getElementById('edit-provider-notes').value = notes;
-  var sel = document.getElementById('edit-provider-type');
-  for (var i = 0; i < sel.options.length; i++) {
-    sel.options[i].selected = (sel.options[i].value === provider);
-  }
-  document.getElementById('edit-provider-modal').classList.remove('hidden');
-}
-
 function copyGLCallback() {
   var url = document.getElementById('gl-callback-url').textContent.trim();
   navigator.clipboard.writeText(url).then(function() {

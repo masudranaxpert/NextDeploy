@@ -151,6 +151,17 @@ CREATE TABLE IF NOT EXISTS git_providers (
 );`); err != nil {
 		return err
 	}
+	// Add refresh_token and expires_at columns for OAuth token refresh (GitLab)
+	if _, err := s.db.Exec(`ALTER TABLE git_providers ADD COLUMN refresh_token TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE git_providers ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS github_provider_details (
   provider_id INTEGER PRIMARY KEY,

@@ -264,7 +264,7 @@ func normalizeCaddySharedMountPrefix(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\\", "/"))
 	s = strings.TrimRight(s, "/")
 	if s == "" {
-		return "/data/shared"
+		return "/mnt/shared"
 	}
 	if s[0] != '/' {
 		s = "/" + s

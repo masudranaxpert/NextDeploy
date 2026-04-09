@@ -583,11 +583,13 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 			if root == "" {
 				continue
 			}
-			base := fmt.Sprintf("%s.%d_handle_path", prefix, order)
+			// Use route instead of handle_path for better file_server compatibility
+			base := fmt.Sprintf("%s.%d_route", prefix, order)
 			labels[base] = path
-			// Order matters: root must come before file_server in the generated block.
-			labels[base+".0_root"] = "* " + root
-			labels[base+".1_file_server"] = `{{""}}`
+			// Strip prefix using uri directive, then serve files
+			labels[base+".0_uri"] = "strip_prefix " + strings.TrimRight(path, "*")
+			labels[base+".1_root"] = "* " + root
+			labels[base+".2_file_server"] = `{{""}}`
 			order++
 			continue
 		}

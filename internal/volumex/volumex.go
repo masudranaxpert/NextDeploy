@@ -242,7 +242,11 @@ func RestoreTarGz(ctx context.Context, vol string, in io.Reader) string {
 	if !ValidVolumeName(vol) {
 		return "invalid volume"
 	}
-	cmd := exec.CommandContext(ctx, "docker", "run", "-i", "--rm", "-v", vol+":/b", "alpine:3.20", "sh", "-c", "cd /b && tar xzf -")
+	// Use --no-same-owner and --no-same-permissions for security
+	// Add --exclude to prevent symlink attacks and path traversal
+	cmd := exec.CommandContext(ctx, "docker", "run", "-i", "--rm", "-v", vol+":/b", 
+		"alpine:3.20", "sh", "-c", 
+		"cd /b && tar xzf - --no-same-owner --no-same-permissions --exclude='../*' --exclude='*/../*'")
 	cmd.Stdin = in
 	var out bytes.Buffer
 	cmd.Stdout = &out

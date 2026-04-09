@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,provider,token,notes,created_at,updated_at FROM git_providers ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -15,7 +15,7 @@ func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
 	for rows.Next() {
 		var p GitProvider
 		var ca, ua string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.Notes, &ca, &ua); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, ca)
@@ -28,8 +28,8 @@ func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
 func (s *Store) GetGitProvider(ctx context.Context, id int64) (GitProvider, error) {
 	var p GitProvider
 	var ca, ua string
-	err := s.db.QueryRowContext(ctx, `SELECT id,name,provider,token,notes,created_at,updated_at FROM git_providers WHERE id=?`, id).
-		Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.Notes, &ca, &ua)
+	err := s.db.QueryRowContext(ctx, `SELECT id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE id=?`, id).
+		Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua)
 	if err != nil {
 		return GitProvider{}, err
 	}
@@ -49,11 +49,30 @@ func (s *Store) CreateGitProvider(ctx context.Context, name, provider, token, no
 	return res.LastInsertId()
 }
 
+func (s *Store) CreateGitProviderWithRefresh(ctx context.Context, name, provider, token, refreshToken string, expiresAt int64, notes string) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO git_providers(name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+		name, provider, token, refreshToken, expiresAt, notes, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func (s *Store) UpdateGitProvider(ctx context.Context, id int64, name, provider, token, notes string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE git_providers SET name=?,provider=?,token=?,notes=?,updated_at=? WHERE id=?`,
 		name, provider, token, notes, now, id)
+	return err
+}
+
+func (s *Store) UpdateGitProviderTokens(ctx context.Context, id int64, token, refreshToken string, expiresAt int64) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE git_providers SET token=?,refresh_token=?,expires_at=?,updated_at=? WHERE id=?`,
+		token, refreshToken, expiresAt, now, id)
 	return err
 }
 
@@ -155,7 +174,6 @@ FROM github_provider_details ORDER BY provider_id ASC`)
 	return out, rows.Err()
 }
 
-// GetAppSourceType returns the source type for an app ("files" or "git").
 func (s *Store) GetAppSourceType(ctx context.Context, appID string) string {
 	var v string
 	_ = s.db.QueryRowContext(ctx, `SELECT source_type FROM apps WHERE id=?`, appID).Scan(&v)
@@ -165,7 +183,6 @@ func (s *Store) GetAppSourceType(ctx context.Context, appID string) string {
 	return v
 }
 
-// SetAppSourceType updates the source_type for an app.
 func (s *Store) SetAppSourceType(ctx context.Context, appID, sourceType string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE apps SET source_type=? WHERE id=?`, sourceType, appID)
 	return err

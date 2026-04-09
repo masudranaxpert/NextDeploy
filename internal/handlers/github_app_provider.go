@@ -268,10 +268,21 @@ func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 
 func (p *Panel) GitHubAppSetup(c *fiber.Ctx) error {
 	installationID := strings.TrimSpace(c.Query("installation_id"))
+	setupAction := strings.TrimSpace(c.Query("setup_action"))
 	state := strings.TrimSpace(c.Query("state"))
-	if installationID == "" || state == "" {
+	
+	if installationID == "" {
 		return c.Redirect("/git?error=Missing+GitHub+installation+data")
 	}
+	
+	if setupAction == "install" && state == "" {
+		return c.Redirect("/git?saved=1")
+	}
+	
+	if state == "" {
+		return c.Redirect("/git?error=Missing+GitHub+installation+state")
+	}
+	
 	detail, err := p.DB.GetGitHubProviderDetailByManifestState(c.UserContext(), state)
 	if err != nil {
 		return c.Redirect("/git?error=Unknown+GitHub+installation+state")
