@@ -32,6 +32,7 @@ func appShowTabNeedsCompose(tab string) bool {
 func (p *Panel) AppShow(c *fiber.Ctx) error {
 	id := c.Params("id")
 	htmxTabPartial := strings.EqualFold(c.Get("HX-Request"), "true") && c.Query("partial") == "tab"
+	appShowFlash := readFlash(c) // read once; cookie is cleared after this call
 
 	reqCtx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 	defer cancel()
@@ -43,7 +44,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	tab := c.Query("tab", "overview")
 	isGitApp, gitCfg, hasGitCfg := p.appGitMetadata(reqCtx, id)
 	switch tab {
-	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git":
+	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup":
 	default:
 		tab = "overview"
 	}
@@ -108,7 +109,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		deployBusy = c.Query("busy") == "1"
 		liveOut, liveAct, liveRun = p.deploySnapshot(id)
 	}
-	if tab == "volumes" {
+	if tab == "volumes" || tab == "backup" {
 		volProjects := p.composeProjectCandidates(reqCtx, app, id)
 		if hasComp {
 			if active, _, pr := p.composeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
@@ -155,6 +156,18 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		gitSaved, gitSynced, gitErrFlash = p.consumeGitTabFlash(c, id)
 	}
 
+	var backupDestinations []db.BackupDestination
+	var backupSchedules []db.BackupSchedule
+	var backupHistory []db.BackupHistory
+	var backupAutoVolumeName string
+	var backupAutoVolumeErr string
+	if tab == "backup" {
+		backupDestinations, _ = p.DB.ListBackupDestinations(reqCtx)
+		backupSchedules, _ = p.DB.ListBackupSchedules(reqCtx, id)
+		backupHistory, _ = p.DB.ListBackupHistory(reqCtx, id, 50)
+		backupAutoVolumeName, backupAutoVolumeErr = p.resolveRequestedBackupVolume(reqCtx, app, "")
+	}
+
 	m := fiber.Map{
 		"Nav":                    "apps",
 		"Title":                  app.Name,
@@ -191,18 +204,23 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"DeployLogs":             deployLogs,
 		"AppVolumes":             appVols,
 		"AppVolumeError":         appVolErr,
+		"BackupAutoVolumeName":   backupAutoVolumeName,
+		"BackupAutoVolumeError":  backupAutoVolumeErr,
 		"DeployLiveOutput":       liveOut,
 		"DeployLiveAction":       liveAct,
 		"DeployJobRunning":       liveRun,
 		"DeployQueueBusy":        deployBusy,
 		"AppDomains":             appDomains,
 		"DomainServices":         domainServices,
-		"DomainSaved":            c.Query("domainSaved") == "1",
+		"DomainSaved":            appShowFlash == "domainSaved" || c.Query("domainSaved") == "1",
 		"GitSaved":               gitSaved,
 		"GitSynced":              gitSynced,
 		"GitError":               gitErrFlash,
-		"SourceSwitched":         c.Query("sourceSwitched") == "1",
-		"SourceSwitchClearError": c.Query("switchError") == "clear",
+		"SourceSwitched":         appShowFlash == "sourceSwitched" || c.Query("sourceSwitched") == "1",
+		"SourceSwitchClearError": appShowFlash == "switchError_clear" || c.Query("switchError") == "clear",
+		"BackupDestinations":     backupDestinations,
+		"BackupSchedules":        backupSchedules,
+		"BackupHistory":          backupHistory,
 	}
 
 	eng, _ := c.App().Config().Views.(viewsRenderer)

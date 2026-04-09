@@ -55,16 +55,19 @@ func (p *Panel) GitLabOAuthStart(c *fiber.Ctx) error {
 		name = p.uniqueGitLabProviderName(c.UserContext(), "GitLab")
 	}
 	if clientID == "" || clientSecret == "" {
-		return c.Redirect("/git?error=Application+ID+and+Secret+are+required")
+		setFlashError(c, "Application ID and Secret are required")
+		return c.Redirect("/git")
 	}
 
 	state := randomState()
 	stateVal := fmt.Sprintf("%s\n%s\n%s", clientID, clientSecret, name)
 	if err := p.DB.SetSetting(c.UserContext(), "gitlab_oauth_state:"+state, stateVal); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	if err := p.DB.SetSetting(c.UserContext(), "gitlab_client:"+state, clientID+"\n"+clientSecret); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 
 	params := url.Values{
@@ -86,21 +89,25 @@ func (p *Panel) GitLabOAuthCallback(c *fiber.Ctx) error {
 		if desc == "" {
 			desc = errParam
 		}
-		return c.Redirect("/git?error=" + url.QueryEscape("GitLab denied: "+desc))
+		setFlashError(c, "GitLab denied: "+desc)
+		return c.Redirect("/git")
 	}
 	if code == "" || state == "" {
-		return c.Redirect("/git?error=Missing+callback+data")
+		setFlashError(c, "Missing callback data")
+		return c.Redirect("/git")
 	}
 
 	stateVal := strings.TrimSpace(p.DB.GetSetting(c.UserContext(), "gitlab_oauth_state:"+state))
 	if stateVal == "" {
-		return c.Redirect("/git?error=Unknown+or+expired+state")
+		setFlashError(c, "Unknown or expired OAuth state")
+		return c.Redirect("/git")
 	}
 	_ = p.DB.SetSetting(c.UserContext(), "gitlab_oauth_state:"+state, "")
 
 	parts := strings.SplitN(stateVal, "\n", 3)
 	if len(parts) != 3 {
-		return c.Redirect("/git?error=Corrupted+state")
+		setFlashError(c, "Corrupted OAuth state")
+		return c.Redirect("/git")
 	}
 	clientID, clientSecret, name := parts[0], parts[1], parts[2]
 
@@ -109,7 +116,8 @@ func (p *Panel) GitLabOAuthCallback(c *fiber.Ctx) error {
 
 	tokenResp, err := exchangeGitLabCode(ctx, clientID, clientSecret, code, p.gitlabCallbackURL(c))
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape("Token exchange failed: "+err.Error()))
+		setFlashError(c, "Token exchange failed: "+err.Error())
+		return c.Redirect("/git")
 	}
 
 	expiresAt := time.Now().Unix() + int64(tokenResp.ExpiresIn)
@@ -125,22 +133,27 @@ func (p *Panel) GitLabOAuthCallback(c *fiber.Ctx) error {
 
 	if existingID != 0 {
 		if err := p.DB.UpdateGitProviderTokens(c.UserContext(), existingID, tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
-			return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+			setFlashError(c, err.Error())
+			return c.Redirect("/git")
 		}
 		if err := p.DB.SetSetting(c.UserContext(), fmt.Sprintf("gitlab_client:%d", existingID), clientID+"\n"+clientSecret); err != nil {
-			return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+			setFlashError(c, err.Error())
+			return c.Redirect("/git")
 		}
 	} else {
 		providerID, err := p.DB.CreateGitProviderWithRefresh(c.UserContext(), name, "gitlab", tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt, "GitLab OAuth App")
 		if err != nil {
-			return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+			setFlashError(c, err.Error())
+			return c.Redirect("/git")
 		}
 		if err := p.DB.SetSetting(c.UserContext(), fmt.Sprintf("gitlab_client:%d", providerID), clientID+"\n"+clientSecret); err != nil {
-			return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+			setFlashError(c, err.Error())
+			return c.Redirect("/git")
 		}
 	}
 	_ = p.DB.SetSetting(c.UserContext(), "gitlab_client:"+state, "")
-	return c.Redirect("/git?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/git")
 }
 
 type gitlabProject struct {

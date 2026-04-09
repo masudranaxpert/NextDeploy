@@ -18,6 +18,7 @@ const (
 	tmplPartialAppShowContainers   = "partials/app_show/containers_tab"
 	tmplPartialAppShowVolumes      = "partials/app_show/volumes_tab"
 	tmplPartialAppShowDomains      = "partials/app_show/domains_tab"
+	tmplPartialAppShowBackup       = "partials/app_show/backup_tab"
 	tmplPartialAppShowOverview     = "partials/app_show/overview_tab"
 	tmplPartialAppShowHeaderTabs   = "partials/app_show/header_tabs"
 	tmplPartialAppShowSwitchSource = "partials/app_show/switch_source_bundle"

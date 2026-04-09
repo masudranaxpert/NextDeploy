@@ -248,12 +248,14 @@ func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 	}
 	state := randomState()
 	if err := p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, name); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	manifest := p.buildGitHubManifest(c, name)
 	body, err := json.Marshal(manifest)
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	target := githubAppInstallURL(name)
 	return c.Status(fiber.StatusOK).Type("html").SendString(`
@@ -272,45 +274,54 @@ func (p *Panel) GitHubAppSetup(c *fiber.Ctx) error {
 	state := strings.TrimSpace(c.Query("state"))
 	
 	if installationID == "" {
-		return c.Redirect("/git?error=Missing+GitHub+installation+data")
+		setFlashError(c, "Missing GitHub installation data")
+		return c.Redirect("/git")
 	}
-	
+
 	if setupAction == "install" && state == "" {
-		return c.Redirect("/git?saved=1")
+		setFlash(c, "saved")
+		return c.Redirect("/git")
 	}
-	
+
 	if state == "" {
-		return c.Redirect("/git?error=Missing+GitHub+installation+state")
+		setFlashError(c, "Missing GitHub installation state")
+		return c.Redirect("/git")
 	}
-	
+
 	detail, err := p.DB.GetGitHubProviderDetailByManifestState(c.UserContext(), state)
 	if err != nil {
-		return c.Redirect("/git?error=Unknown+GitHub+installation+state")
+		setFlashError(c, "Unknown GitHub installation state")
+		return c.Redirect("/git")
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 20*time.Second)
 	defer cancel()
 	verified, err := fetchGitHubInstallation(ctx, detail, installationID)
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	detail.InstallationID = fmt.Sprintf("%d", verified.ID)
 	detail.AccountLogin = strings.TrimSpace(verified.Account.Login)
 	detail.ManifestState = ""
 	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
-	return c.Redirect("/git?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/git")
 }
 
 func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
-		return c.Redirect("/git?error=Missing+GitHub+manifest+callback+data")
+		setFlashError(c, "Missing GitHub manifest callback data")
+		return c.Redirect("/git")
 	}
 	providerName := strings.TrimSpace(p.DB.GetSetting(c.UserContext(), "github_manifest_state:"+state))
 	if providerName == "" {
-		return c.Redirect("/git?error=Invalid+or+expired+manifest+state")
+		setFlashError(c, "Invalid or expired manifest state")
+		return c.Redirect("/git")
 	}
 	_ = p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, "")
 
@@ -318,7 +329,8 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	defer cancel()
 	converted, err := convertGitHubManifestCode(ctx, code)
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 
 	providerID, err := p.DB.CreateGitProvider(c.UserContext(), providerName, "github", "", "GitHub App")
@@ -336,7 +348,8 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 		}
 	}
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 
 	detail := db.GitHubProviderDetail{
@@ -354,65 +367,81 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 		detail = refreshed
 	}
 	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
-	return c.Redirect("/git?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/git")
 }
 
 func (p *Panel) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("pid"), 10, 64)
 	if err != nil {
-		return c.Redirect("/git?error=Invalid+provider+ID")
+		setFlashError(c, "Invalid provider ID")
+		return c.Redirect("/git")
 	}
 	provider, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
-		return c.Redirect("/git?error=Provider+not+found")
+		setFlashError(c, "Provider not found")
+		return c.Redirect("/git")
 	}
 	if provider.Provider != "github" {
-		return c.Redirect("/git?error=This+provider+is+not+GitHub")
+		setFlashError(c, "This provider is not GitHub")
+		return c.Redirect("/git")
 	}
 	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), id)
 	if err != nil {
-		return c.Redirect("/git?error=GitHub+App+details+not+found")
+		setFlashError(c, "GitHub App details not found")
+		return c.Redirect("/git")
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 20*time.Second)
 	defer cancel()
 	detail, err = refreshGitHubProviderInstallation(ctx, detail)
 	if err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
-	return c.Redirect("/git?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/git")
 }
 
 func (p *Panel) GitHubProviderInstall(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("pid"), 10, 64)
 	if err != nil {
-		return c.Redirect("/git?error=Invalid+provider+ID")
+		setFlashError(c, "Invalid provider ID")
+		return c.Redirect("/git")
 	}
 	provider, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
-		return c.Redirect("/git?error=Provider+not+found")
+		setFlashError(c, "Provider not found")
+		return c.Redirect("/git")
 	}
 	if provider.Provider != "github" {
-		return c.Redirect("/git?error=This+provider+is+not+GitHub")
+		setFlashError(c, "This provider is not GitHub")
+		return c.Redirect("/git")
 	}
 	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), id)
 	if err != nil {
-		return c.Redirect("/git?error=GitHub+App+details+not+found")
+		setFlashError(c, "GitHub App details not found")
+		return c.Redirect("/git")
 	}
 	if strings.TrimSpace(detail.AppSlug) == "" {
-		return c.Redirect("/git?error=GitHub+App+slug+is+missing")
+		setFlashError(c, "GitHub App slug is missing")
+		return c.Redirect("/git")
 	}
 	detail.ManifestState = "gh_setup:" + randomState()
 	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
-		return c.Redirect("/git?error=" + url.QueryEscape(err.Error()))
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
 	target := githubAppInstallationURL(detail.AppSlug, detail.ManifestState)
 	if target == "" {
-		return c.Redirect("/git?error=Could+not+build+GitHub+install+URL")
+		setFlashError(c, "Could not build GitHub install URL")
+		return c.Redirect("/git")
 	}
 	return c.Redirect(target)
 }

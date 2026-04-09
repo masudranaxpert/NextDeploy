@@ -42,8 +42,8 @@ func (p *Panel) UsersPage(c *fiber.Ctx) error {
 		"Title":       "Users",
 		"Users":       users,
 		"CurrentUser": user,
-		"Flash":       c.Query("flash"),
-		"Error":       c.Query("error"),
+		"Flash":       readFlash(c),
+		"Error":       readFlashError(c),
 	}, "layouts/shell")
 }
 
@@ -59,10 +59,12 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 	role := c.FormValue("role")
 
 	if username == "" || len(username) < 3 {
-		return c.Redirect("/users?error=Username+must+be+at+least+3+characters")
+		setFlashError(c, "Username must be at least 3 characters")
+		return c.Redirect("/users")
 	}
 	if len(password) < 8 {
-		return c.Redirect("/users?error=Password+must+be+at+least+8+characters")
+		setFlashError(c, "Password must be at least 8 characters")
+		return c.Redirect("/users")
 	}
 	if role != db.RoleAdmin && role != db.RoleUser {
 		role = db.RoleUser
@@ -70,12 +72,15 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 
 	hash, err := hashPassword(password)
 	if err != nil {
-		return c.Redirect("/users?error=Internal+error")
+		setFlashError(c, "Internal error")
+		return c.Redirect("/users")
 	}
 	if _, err := p.DB.CreateUser(c.UserContext(), username, hash, role); err != nil {
-		return c.Redirect("/users?error=Username+already+taken")
+		setFlashError(c, "Username already taken")
+		return c.Redirect("/users")
 	}
-	return c.Redirect("/users?flash=User+created+successfully")
+	setFlash(c, "User created successfully")
+	return c.Redirect("/users")
 }
 
 // UserDelete handles deleting a user (admin only, cannot delete self).
@@ -91,7 +96,8 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		return c.Status(400).SendString("invalid id")
 	}
 	if id == current.ID {
-		return c.Redirect("/users?error=Cannot+delete+your+own+account")
+		setFlashError(c, "Cannot delete your own account")
+		return c.Redirect("/users")
 	}
 
 	ctx := c.UserContext()
@@ -102,18 +108,22 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 	target, err := p.DB.GetUserByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.Redirect("/users?error=User+not+found")
+			setFlashError(c, "User not found")
+			return c.Redirect("/users")
 		}
 		return c.Status(500).SendString(err.Error())
 	}
 	if target.Role == db.RoleAdmin && adminCount <= 1 {
-		return c.Redirect("/users?error=Cannot+delete+the+last+admin")
+		setFlashError(c, "Cannot delete the last admin")
+		return c.Redirect("/users")
 	}
 
 	if err := p.DB.DeleteUser(ctx, id); err != nil {
-		return c.Redirect("/users?error=Delete+failed")
+		setFlashError(c, "Delete failed")
+		return c.Redirect("/users")
 	}
-	return c.Redirect("/users?flash=User+deleted")
+	setFlash(c, "User deleted")
+	return c.Redirect("/users")
 }
 
 // UserChangePassword handles password change (admin changes any, user changes own).
@@ -134,20 +144,25 @@ func (p *Panel) UserChangePassword(c *fiber.Ctx) error {
 	password := c.FormValue("password")
 	confirm := c.FormValue("confirm")
 	if len(password) < 8 {
-		return c.Redirect("/users?error=Password+must+be+at+least+8+characters")
+		setFlashError(c, "Password must be at least 8 characters")
+		return c.Redirect("/users")
 	}
 	if password != confirm {
-		return c.Redirect("/users?error=Passwords+do+not+match")
+		setFlashError(c, "Passwords do not match")
+		return c.Redirect("/users")
 	}
 
 	hash, err := hashPassword(password)
 	if err != nil {
-		return c.Redirect("/users?error=Internal+error")
+		setFlashError(c, "Internal error")
+		return c.Redirect("/users")
 	}
 	if err := p.DB.UpdateUserPassword(c.UserContext(), id, hash); err != nil {
-		return c.Redirect("/users?error=Update+failed")
+		setFlashError(c, "Update failed")
+		return c.Redirect("/users")
 	}
-	return c.Redirect("/users?flash=Password+updated")
+	setFlash(c, "Password updated")
+	return c.Redirect("/users")
 }
 
 // UserChangeRole handles role changes (admin only).
@@ -163,19 +178,22 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 		return c.Status(400).SendString("invalid id")
 	}
 	if id == current.ID {
-		return c.Redirect("/users?error=Cannot+change+your+own+role")
+		setFlashError(c, "Cannot change your own role")
+		return c.Redirect("/users")
 	}
 
 	role := c.FormValue("role")
 	if role != db.RoleAdmin && role != db.RoleUser {
-		return c.Redirect("/users?error=Invalid+role")
+		setFlashError(c, "Invalid role")
+		return c.Redirect("/users")
 	}
 
 	ctx := c.UserContext()
 	target, err := p.DB.GetUserByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.Redirect("/users?error=User+not+found")
+			setFlashError(c, "User not found")
+			return c.Redirect("/users")
 		}
 		return c.Status(500).SendString(err.Error())
 	}
@@ -186,14 +204,17 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 			return c.Status(500).SendString(err.Error())
 		}
 		if adminCount <= 1 {
-			return c.Redirect("/users?error=Cannot+demote+the+last+admin")
+			setFlashError(c, "Cannot demote the last admin")
+			return c.Redirect("/users")
 		}
 	}
 
 	if err := p.DB.UpdateUserRole(ctx, id, role); err != nil {
-		return c.Redirect("/users?error=Update+failed")
+		setFlashError(c, "Update failed")
+		return c.Redirect("/users")
 	}
-	return c.Redirect("/users?flash=Role+updated")
+	setFlash(c, "Role updated")
+	return c.Redirect("/users")
 }
 
 func parseID(s string, out *int64) (int64, error) {

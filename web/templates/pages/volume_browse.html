@@ -2,7 +2,11 @@
 <div class="page-shell max-w-5xl">
   <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
     <div class="min-w-0">
-      <a href="/volumes" class="text-xs text-muted-foreground hover:text-foreground">← Volumes</a>
+      {{if .FromApp}}
+        <a href="/apps/{{.FromApp}}?tab=volumes" class="text-xs text-muted-foreground hover:text-foreground">← Back to app</a>
+      {{else}}
+        <a href="/volumes" class="text-xs text-muted-foreground hover:text-foreground">← Volumes</a>
+      {{end}}
       <h1 class="mt-1 font-mono text-xl font-semibold tracking-tight md:text-2xl">{{.VolumeName}}</h1>
       <p class="mt-1 break-all font-mono text-xs text-muted-foreground">
         {{if .Path}}/{{.Path}}{{else}}(root){{end}}
@@ -14,18 +18,31 @@
   </div>
 
   {{if .Flash}}
-    <p class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100 whitespace-pre-wrap">{{.Flash}}</p>
+    <p class="rounded-md border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 whitespace-pre-wrap">{{.Flash}}</p>
+  {{end}}
+  {{if .FlashError}}
+    <p class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-200 whitespace-pre-wrap">{{.FlashError}}</p>
   {{end}}
   {{if .BrowseError}}
     <p class="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-200 whitespace-pre-wrap">{{.BrowseError}}</p>
   {{end}}
+  <script>
+    (function() {
+      // Remove any stale ?flash= from URL without reload (legacy bookmarks)
+      if (window.location.search && window.location.search.indexOf('flash=') !== -1) {
+        var u = new URL(window.location.href);
+        u.searchParams.delete('flash');
+        history.replaceState(null, '', u.toString());
+      }
+    })();
+  </script>
 
   <div class="panel-card space-y-4 p-4 sm:p-5">
     <div class="flex flex-wrap items-center gap-2 text-sm">
       {{if .Path}}
-        <a href="/volumes/browse?name={{urlquery .VolumeName}}&path={{urlquery .ParentPath}}" class="rounded-md border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/80">↑ Up</a>
+        <a href="/volumes/browse?name={{urlquery .VolumeName}}&path={{urlquery .ParentPath}}{{if .FromApp}}&from_app={{urlquery .FromApp}}{{end}}" class="rounded-md border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/80">↑ Up</a>
       {{end}}
-      <a href="/volumes/browse?name={{urlquery .VolumeName}}" class="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60">Volume root</a>
+      <a href="/volumes/browse?name={{urlquery .VolumeName}}{{if .FromApp}}&from_app={{urlquery .FromApp}}{{end}}" class="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60">Volume root</a>
     </div>
 
     {{if .VolRows}}
@@ -42,7 +59,7 @@
               <tr class="hover:bg-muted/25">
                 <td class="px-3 py-2 font-mono text-xs">
                   {{if .IsDir}}
-                    <a class="font-medium text-emerald-300 hover:underline" href="/volumes/browse?name={{urlquery $.VolumeName}}&path={{urlquery .RelPath}}">{{.Name}}</a>
+                    <a class="font-medium text-emerald-300 hover:underline" href="/volumes/browse?name={{urlquery $.VolumeName}}&path={{urlquery .RelPath}}{{if $.FromApp}}&from_app={{urlquery $.FromApp}}{{end}}">{{.Name}}</a>
                   {{else}}
                     <span class="text-foreground">{{.Name}}</span>
                   {{end}}
@@ -62,14 +79,272 @@
 
   <div class="panel-card space-y-3 p-5">
     <h2 class="text-lg font-semibold">Restore from backup</h2>
-    <p class="text-sm text-muted-foreground">Upload a <code class="rounded bg-muted px-1">.tar.gz</code> created from “Download full backup”. Existing files in the volume may be overwritten.</p>
-    <form class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end" action="/volumes/restore" method="post" enctype="multipart/form-data">
+    <p class="text-sm text-muted-foreground">Upload <code class="rounded bg-muted px-1">.tar.gz</code> (from “Download full backup”) or <code class="rounded bg-muted px-1">.zip</code>. Confirming runs a full replace: existing data is removed, then the archive is extracted.</p>
+    <form id="vol-restore-form" class="flex flex-col gap-3" action="/volumes/restore" method="post" enctype="multipart/form-data">
       <input type="hidden" name="name" value="{{.VolumeName}}">
-      <div class="min-w-[220px] flex-1">
-        <label class="text-xs font-medium text-muted-foreground" for="vol-restore">Backup file</label>
-        <input id="vol-restore" class="input mt-1" type="file" name="backup" accept=".gz,.tgz,.tar.gz,application/gzip" required>
+      {{if .FromApp}}<input type="hidden" name="from_app" value="{{.FromApp}}">{{end}}
+      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div class="min-w-[220px] flex-1">
+          <label class="text-xs font-medium text-muted-foreground" for="vol-restore">Backup file</label>
+          <input id="vol-restore" class="input mt-1" type="file" name="backup" accept=".gz,.tgz,.tar.gz,.zip,application/gzip,application/zip,application/x-zip-compressed">
+        </div>
+        <button type="button" id="vol-restore-submit" class="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 sm:min-h-[42px]">Restore into volume</button>
       </div>
-      <button type="submit" class="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500">Restore into volume</button>
+      <div id="vol-restore-error" class="hidden rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-200 whitespace-pre-wrap"></div>
+      <div id="vol-restore-progress" class="hidden space-y-3">
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-muted-foreground">
+            <span>Upload</span>
+            <span id="vol-restore-upload-pct">0%</span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div id="vol-restore-upload-fill" class="h-full rounded-full bg-amber-500 transition-[width] duration-150" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-muted-foreground">
+            <span>Extract to volume</span>
+            <span id="vol-restore-extract-pct">0%</span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div id="vol-restore-extract-fill" class="h-full rounded-full bg-emerald-600/90 transition-[width] duration-150" style="width:0%"></div>
+          </div>
+        </div>
+        <p id="vol-restore-phase" class="text-sm text-muted-foreground"></p>
+        <p id="vol-restore-bg-note" class="hidden text-xs leading-relaxed text-amber-200/85">Extraction runs on the server — you may leave this page or switch tabs while it finishes.</p>
+      </div>
     </form>
+
+    <div id="vol-restore-modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4" aria-hidden="true">
+      <div id="vol-restore-modal-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-[2px]" aria-hidden="true"></div>
+      <div class="relative z-10 w-full max-w-md rounded-xl border border-amber-500/30 bg-[#141210] p-5 shadow-xl ring-1 ring-black/40">
+        <h3 class="text-lg font-semibold text-amber-100">Replace entire volume?</h3>
+        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">All current files in this volume will be <span class="text-amber-200/95">permanently deleted</span>, then your backup will be extracted. This cannot be undone.</p>
+        <p class="mt-3 font-mono text-xs text-muted-foreground/90 break-all">{{.VolumeName}}</p>
+        <div class="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" id="vol-restore-cancel" class="rounded-md border border-border bg-muted/40 px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/70">Cancel</button>
+          <button type="button" id="vol-restore-confirm" class="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500">Yes, restore</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var form = document.getElementById('vol-restore-form');
+        if (!form) return;
+        var fileInput = document.getElementById('vol-restore');
+        var btn = document.getElementById('vol-restore-submit');
+        var modal = document.getElementById('vol-restore-modal');
+        var modalBackdrop = document.getElementById('vol-restore-modal-backdrop');
+        var btnCancel = document.getElementById('vol-restore-cancel');
+        var btnConfirm = document.getElementById('vol-restore-confirm');
+        var progressWrap = document.getElementById('vol-restore-progress');
+        var uploadFill = document.getElementById('vol-restore-upload-fill');
+        var uploadPct = document.getElementById('vol-restore-upload-pct');
+        var extractFill = document.getElementById('vol-restore-extract-fill');
+        var extractPct = document.getElementById('vol-restore-extract-pct');
+        var phaseEl = document.getElementById('vol-restore-phase');
+        var errEl = document.getElementById('vol-restore-error');
+        var bgNote = document.getElementById('vol-restore-bg-note');
+        var nameInput = form.querySelector('input[name="name"]');
+        var pollTimer = null;
+        var pollBad = 0;
+
+        function setPhase(t) { if (phaseEl) phaseEl.textContent = t || ''; }
+        function setErr(t) {
+          if (!errEl) return;
+          errEl.textContent = t || '';
+          errEl.classList.toggle('hidden', !t);
+        }
+
+        function openModal() {
+          if (!modal) return;
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+          modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeModal() {
+          if (!modal) return;
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+          modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function runVolRestoreUpload() {
+          if (!fileInput.files || !fileInput.files.length) return;
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+          pollBad = 0;
+          setErr('');
+          btn.disabled = true;
+          progressWrap.classList.remove('hidden');
+          uploadFill.style.width = '0%';
+          extractFill.style.width = '0%';
+          if (uploadPct) uploadPct.textContent = '0%';
+          if (extractPct) extractPct.textContent = '0%';
+          bgNote.classList.add('hidden');
+          setPhase('Uploading backup…');
+
+          var fd = new FormData(form);
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', form.action);
+          xhr.setRequestHeader('Accept', 'application/json');
+          xhr.upload.addEventListener('progress', function (e) {
+            if (e.lengthComputable) {
+              var pct = Math.round((e.loaded * 100) / e.total);
+              uploadFill.style.width = pct + '%';
+              if (uploadPct) uploadPct.textContent = pct + '%';
+              setPhase('Uploading backup… ' + pct + '%');
+            }
+          });
+          xhr.onload = function () {
+            if (xhr.status === 409) {
+              btn.disabled = false;
+              var cmsg = 'Another restore is already running for this volume.';
+              try {
+                var cj = JSON.parse(xhr.responseText);
+                if (cj.error) cmsg = cj.error;
+              } catch (e0) {}
+              setErr(cmsg);
+              setPhase('');
+              return;
+            }
+            if (xhr.status !== 202) {
+              btn.disabled = false;
+              var msg = 'Request failed';
+              try {
+                var j = JSON.parse(xhr.responseText);
+                if (j.error) msg = j.error;
+              } catch (e1) {
+                if (xhr.responseText && xhr.status >= 400) msg = xhr.responseText.slice(0, 500);
+              }
+              setErr(msg);
+              setPhase('');
+              return;
+            }
+            var data;
+            try {
+              data = JSON.parse(xhr.responseText);
+            } catch (e2) {
+              btn.disabled = false;
+              setErr('Invalid response from server');
+              setPhase('');
+              return;
+            }
+            var jobId = data.job_id;
+            uploadFill.style.width = '100%';
+            if (uploadPct) uploadPct.textContent = '100%';
+            setPhase('Upload complete. Starting extraction…');
+            bgNote.classList.remove('hidden');
+
+            function stopPoll(err) {
+              if (pollTimer) clearInterval(pollTimer);
+              pollTimer = null;
+              btn.disabled = false;
+              if (err) setErr(err);
+              setPhase('');
+            }
+
+            function poll() {
+              var s = new XMLHttpRequest();
+              s.open('GET', '/volumes/restore/status?id=' + encodeURIComponent(jobId));
+              s.onload = function () {
+                if (s.status === 404) {
+                  stopPoll('Restore status is no longer available. Check the volume or try again.');
+                  return;
+                }
+                if (s.status !== 200) {
+                  pollBad += 1;
+                  if (pollBad >= 5) {
+                    stopPoll('Lost connection to restore status. Check the volume or refresh the page.');
+                  }
+                  return;
+                }
+                pollBad = 0;
+                var st;
+                try {
+                  st = JSON.parse(s.responseText);
+                } catch (e3) {
+                  pollBad += 1;
+                  if (pollBad >= 5) {
+                    stopPoll('Invalid status response. Check the volume or refresh the page.');
+                  }
+                  return;
+                }
+                var p = typeof st.extract_percent === 'number' ? st.extract_percent : 0;
+                extractFill.style.width = p + '%';
+                if (extractPct) extractPct.textContent = p + '%';
+                if (st.status === 'extracting') {
+                  setPhase('Extracting to volume… ' + p + '%');
+                }
+                if (st.status === 'completed') {
+                  if (pollTimer) clearInterval(pollTimer);
+                  pollTimer = null;
+                  extractFill.style.width = '100%';
+                  if (extractPct) extractPct.textContent = '100%';
+                  setPhase('Restore completed.');
+                  btn.disabled = false;
+                  var vol = nameInput ? nameInput.value : '';
+                  // Flash cookie is set server-side in VolumeRestoreStatus when completed.
+                  var destUrl = '/volumes/browse?name=' + encodeURIComponent(vol);
+                  var fromApp = new URLSearchParams(window.location.search).get('from_app');
+                  if (fromApp) destUrl += '&from_app=' + encodeURIComponent(fromApp);
+                  window.location.href = destUrl;
+                }
+                if (st.status === 'failed') {
+                  stopPoll(st.error || 'Restore failed');
+                }
+              };
+              s.onerror = function () {
+                pollBad += 1;
+                if (pollBad >= 5) {
+                  stopPoll('Lost connection to restore status. Check the volume or refresh the page.');
+                }
+              };
+              s.send();
+            }
+            poll();
+            pollTimer = setInterval(poll, 500);
+          };
+          xhr.onerror = function () {
+            btn.disabled = false;
+            setErr('Network error');
+            setPhase('');
+          };
+          xhr.send(fd);
+        }
+
+        btn.addEventListener('click', function () {
+          if (!fileInput.files || !fileInput.files.length) {
+            setErr('Choose a backup file first.');
+            return;
+          }
+          setErr('');
+          openModal();
+        });
+
+        if (btnCancel) btnCancel.addEventListener('click', closeModal);
+        if (modalBackdrop) modalBackdrop.addEventListener('click', closeModal);
+        if (btnConfirm) {
+          btnConfirm.addEventListener('click', function () {
+            closeModal();
+            runVolRestoreUpload();
+          });
+        }
+
+        form.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+        });
+
+        document.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+            closeModal();
+          }
+        });
+      })();
+    </script>
   </div>
 </div>

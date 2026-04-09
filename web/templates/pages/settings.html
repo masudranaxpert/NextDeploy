@@ -14,8 +14,10 @@
     </svg>
     {{if eq .Flash "tmp_cleaned"}}
     <p class="text-sm text-emerald-300">Temp files cleaned successfully.</p>
-    {{else}}
+    {{else if eq .Flash "cleanup_started"}}
     <p class="text-sm text-emerald-300">Cleanup started in the background. Refresh in a moment to see the result.</p>
+    {{else}}
+    <p class="text-sm text-emerald-300">{{.Flash}}</p>
     {{end}}
   </div>
   {{end}}

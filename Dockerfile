@@ -26,8 +26,9 @@ COPY --from=assets /app/web/static/css/app.css ./web/static/css/app.css
 # Build the binary
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /panel .
 
-# Final runtime image with Docker CLI
+# Runtime: Docker CLI + rclone (volume ZIP restore uses `docker run alpine` + apk add unzip in that container, not this image)
 FROM docker:27-cli
+RUN apk add --no-cache rclone ca-certificates
 
 # Copy the compiled binary
 COPY --from=build /panel /usr/local/bin/panel

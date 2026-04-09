@@ -1,0 +1,495 @@
+{{/* Backup destinations management page. Layout: layouts/shell. */}}
+<div class="page-shell max-w-4xl">
+
+  <!-- Page header -->
+  <div class="section-header">
+    <div class="min-w-0">
+      <h1 class="page-title">Backup Destinations</h1>
+      <p class="page-subtitle">Connect cloud storage providers to enable automatic and manual backups.</p>
+    </div>
+    <div class="flex gap-2 shrink-0">
+      <button type="button" onclick="showAddGDriveModal()"
+        class="btn-primary h-9 gap-1.5 px-3.5 text-sm">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Google Drive
+      </button>
+      <button type="button" onclick="showAddR2Modal()"
+        class="btn-secondary h-9 gap-1.5 px-3.5 text-sm">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Cloudflare R2
+      </button>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">Destination connected successfully.</p>
+  </div>
+  {{end}}
+
+  {{if .Error}}
+  <div class="flex items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3" role="alert">
+    <svg class="h-4 w-4 shrink-0 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+    </svg>
+    <p class="text-sm text-red-300">{{.Error}}</p>
+  </div>
+  {{end}}
+
+  <!-- Destinations list -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Configured Destinations</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Manage your cloud storage connections.</p>
+      </div>
+      <button type="button" onclick="loadBackupDestinations()" title="Refresh"
+        class="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-muted/50">
+        <svg id="dest-refresh-icon" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+        </svg>
+      </button>
+    </div>
+    <div id="backup-destinations-list" class="divide-y divide-border/50">
+      <div class="px-5 py-10 text-center">
+        <svg class="h-5 w-5 animate-spin text-muted-foreground mx-auto" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help card -->
+  <div class="panel-card px-5 py-4">
+    <div class="flex gap-3">
+      <svg class="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+      </svg>
+      <div class="space-y-1">
+        <p class="text-xs font-medium text-foreground">How it works</p>
+        <p class="text-xs text-muted-foreground">Add a destination here, then configure per-app backup schedules from each app's <strong class="text-foreground/80">Backup</strong> tab. Backups are stored in a <code class="font-mono text-[11px] bg-muted/50 px-1 rounded">nextdeploy/</code> folder inside your cloud storage.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Google Drive Modal ─────────────────────────────────── -->
+<div id="gdrive-modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+  <div class="panel-card w-full max-w-lg sm:rounded-2xl">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 ring-1 ring-blue-500/20">
+          <svg class="h-4 w-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095H6.75z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-foreground">Connect Google Drive</h3>
+          <p class="text-xs text-muted-foreground">OAuth 2.0 — your credentials stay private</p>
+        </div>
+      </div>
+      <button type="button" onclick="hideGDriveModal()" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="px-5 py-5 space-y-4">
+      <!-- Step 1 -->
+      <div class="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+        <div class="flex items-start gap-3">
+          <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-[10px] font-bold text-blue-400 mt-0.5">1</span>
+          <div class="flex-1 min-w-0 space-y-2">
+            <p class="text-xs font-medium text-blue-300">Copy the redirect URI into Google Cloud Console</p>
+            <p class="text-xs text-blue-200/70">In your GCP project → <em>APIs &amp; Services → Credentials → OAuth 2.0 Client ID</em>, add this as an authorized redirect URI.</p>
+            <div class="flex gap-2">
+              <input type="text" id="redirect-url" readonly
+                class="input flex-1 font-mono text-[11px] bg-muted/30 text-muted-foreground" value="">
+              <button type="button" onclick="copyRedirectURL()" id="copy-redirect-btn"
+                class="btn-secondary h-9 px-3 text-xs whitespace-nowrap gap-1.5">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/>
+                </svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <form id="gdrive-form" class="space-y-4">
+        <div class="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted/60 text-[10px] font-bold text-muted-foreground">2</span>
+            <p class="text-xs font-medium text-foreground">Enter your OAuth credentials</p>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client ID</label>
+            <input type="text" name="client_id" required autocomplete="off"
+              class="input w-full font-mono text-xs" placeholder="123456789-abc.apps.googleusercontent.com">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client Secret</label>
+            <input type="password" name="client_secret" required autocomplete="new-password"
+              class="input w-full font-mono text-xs" placeholder="GOCSPX-…">
+          </div>
+        </div>
+        <div id="gdrive-form-error" class="hidden rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300"></div>
+        <div class="flex gap-2">
+          <button type="submit" id="gdrive-submit-btn" class="btn-primary flex-1 h-10 gap-2">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+            </svg>
+            Authorize with Google
+          </button>
+          <button type="button" onclick="hideGDriveModal()" class="btn-secondary h-10 px-4">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Cloudflare R2 Modal ────────────────────────────────── -->
+<div id="r2-modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+  <div class="panel-card w-full max-w-lg sm:rounded-2xl">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-foreground">Connect Cloudflare R2</h3>
+          <p class="text-xs text-muted-foreground">S3-compatible object storage</p>
+        </div>
+      </div>
+      <button type="button" onclick="hideR2Modal()" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="r2-form" class="px-5 py-5 space-y-3">
+      <input type="hidden" name="provider" value="r2">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Friendly name</label>
+        <input type="text" name="name" required class="input w-full" placeholder="My R2 Bucket">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Account ID</label>
+          <input type="text" name="account_id" required class="input w-full font-mono text-xs" placeholder="abc123…">
+          <p class="mt-1 text-[11px] text-muted-foreground/70">Cloudflare dashboard → R2</p>
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Access Key ID</label>
+          <input type="text" name="access_key_id" required autocomplete="off" class="input w-full font-mono text-xs">
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Secret Access Key</label>
+          <input type="password" name="secret_access_key" required autocomplete="new-password" class="input w-full font-mono text-xs">
+        </div>
+        <div class="col-span-2">
+          <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Bucket Name</label>
+          <input type="text" name="bucket" required class="input w-full font-mono text-xs" placeholder="my-backups">
+        </div>
+      </div>
+      <div id="r2-form-error" class="hidden rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300"></div>
+      <div class="flex gap-2 pt-1">
+        <button type="submit" id="r2-submit-btn" class="btn-primary flex-1 h-10">Add Destination</button>
+        <button type="button" onclick="hideR2Modal()" class="btn-secondary h-10 px-4">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Delete confirmation modal ─────────────────────────── -->
+<div id="delete-confirm-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+  <div class="panel-card w-full max-w-sm">
+    <div class="px-5 py-5 space-y-4">
+      <div class="flex items-start gap-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/10 ring-1 ring-red-500/20">
+          <svg class="h-4 w-4 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-sm font-semibold text-foreground">Delete destination?</p>
+          <p class="mt-1 text-xs text-muted-foreground">Apps using <strong id="delete-dest-name" class="text-foreground/80"></strong> will fail to backup. This cannot be undone.</p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" id="delete-confirm-btn"
+          class="btn-primary flex-1 h-9 text-sm bg-red-600 hover:bg-red-500 border-red-600 hover:border-red-500">Delete</button>
+        <button type="button" onclick="hideDeleteModal()" class="btn-secondary flex-1 h-9 text-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+{{if .RedirectURL}}
+document.getElementById('redirect-url').value = {{.RedirectURL | jsq}};
+{{else}}
+document.getElementById('redirect-url').value = window.location.origin + '/backup/gdrive/callback';
+{{end}}
+
+/* ── Modal helpers ─────────────────────────────────────── */
+function showAddGDriveModal() {
+  document.getElementById('gdrive-form').reset();
+  document.getElementById('gdrive-form-error').classList.add('hidden');
+  document.getElementById('gdrive-modal').classList.remove('hidden');
+}
+function hideGDriveModal() { document.getElementById('gdrive-modal').classList.add('hidden'); }
+
+function showAddR2Modal() {
+  document.getElementById('r2-form').reset();
+  document.getElementById('r2-form-error').classList.add('hidden');
+  document.getElementById('r2-modal').classList.remove('hidden');
+}
+function hideR2Modal() { document.getElementById('r2-modal').classList.add('hidden'); }
+
+var _deleteDestID = null;
+function confirmDeleteDest(id, name) {
+  _deleteDestID = id;
+  document.getElementById('delete-dest-name').textContent = name;
+  document.getElementById('delete-confirm-modal').classList.remove('hidden');
+}
+function hideDeleteModal() {
+  _deleteDestID = null;
+  document.getElementById('delete-confirm-modal').classList.add('hidden');
+}
+document.getElementById('delete-confirm-btn').addEventListener('click', function() {
+  if (!_deleteDestID) return;
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  fetch('/backup/destinations/' + _deleteDestID + '/delete', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function() { hideDeleteModal(); loadBackupDestinations(); })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.textContent = 'Delete';
+      alert('Delete failed: ' + e);
+    });
+});
+
+/* Close modals on backdrop click */
+['gdrive-modal','r2-modal','delete-confirm-modal'].forEach(function(id) {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) {
+      this.classList.add('hidden');
+      _deleteDestID = null;
+    }
+  });
+});
+
+/* ── Copy redirect URL ─────────────────────────────────── */
+function copyRedirectURL() {
+  var input = document.getElementById('redirect-url');
+  navigator.clipboard ? navigator.clipboard.writeText(input.value) : (input.select(), document.execCommand('copy'));
+  var btn = document.getElementById('copy-redirect-btn');
+  var orig = btn.innerHTML;
+  btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg> Copied!';
+  btn.classList.add('text-emerald-400');
+  setTimeout(function() { btn.innerHTML = orig; btn.classList.remove('text-emerald-400'); }, 2000);
+}
+
+/* ── Google Drive form ─────────────────────────────────── */
+document.getElementById('gdrive-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var errEl = document.getElementById('gdrive-form-error');
+  errEl.classList.add('hidden');
+  var btn = document.getElementById('gdrive-submit-btn');
+  var orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Redirecting…';
+  var params = new URLSearchParams(new FormData(e.target));
+  fetch('/backup/gdrive/auth-url?' + params.toString())
+    .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'Request failed'); return d; }); })
+    .then(function(d) {
+      if (d.auth_url) { window.location.href = d.auth_url; }
+      else { throw new Error('No auth URL returned'); }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = orig;
+      errEl.textContent = err.message || String(err);
+      errEl.classList.remove('hidden');
+    });
+});
+
+/* ── R2 form ───────────────────────────────────────────── */
+document.getElementById('r2-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var errEl = document.getElementById('r2-form-error');
+  errEl.classList.add('hidden');
+  var btn = document.getElementById('r2-submit-btn');
+  var orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Saving…';
+  fetch('/backup/destinations', { method: 'POST', body: new FormData(e.target) })
+    .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'Request failed'); return d; }); })
+    .then(function() { hideR2Modal(); loadBackupDestinations(); })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = orig;
+      errEl.textContent = err.message || String(err);
+      errEl.classList.remove('hidden');
+    });
+});
+
+/* ── Destinations list ─────────────────────────────────── */
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtBytes(n) {
+  n = parseInt(n, 10);
+  if (isNaN(n) || n <= 0) return '0 B';
+  var units = ['B','KB','MB','GB','TB'];
+  var i = Math.floor(Math.log(n) / Math.log(1024));
+  return (n / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + ' ' + units[i];
+}
+
+function storagePct(used, limit) {
+  var u = parseInt(used, 10), l = parseInt(limit, 10);
+  if (!u || !l || l <= 0) return 0;
+  return Math.min(100, Math.round(u / l * 100));
+}
+
+function loadBackupDestinations() {
+  var icon = document.getElementById('dest-refresh-icon');
+  if (icon) icon.classList.add('animate-spin');
+
+  fetch('/backup/destinations')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (icon) icon.classList.remove('animate-spin');
+      var list = document.getElementById('backup-destinations-list');
+      if (!d.destinations || d.destinations.length === 0) {
+        list.innerHTML =
+          '<div class="px-5 py-12 text-center space-y-3">' +
+          '<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted/40 ring-1 ring-border/50">' +
+          '<svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095H6.75z"/></svg>' +
+          '</div>' +
+          '<p class="text-sm font-medium text-foreground">No destinations yet</p>' +
+          '<p class="text-xs text-muted-foreground max-w-xs mx-auto">Add Google Drive or Cloudflare R2 to start backing up your apps.</p>' +
+          '<div class="flex justify-center gap-2 pt-1">' +
+          '<button type="button" onclick="showAddGDriveModal()" class="btn-primary h-8 px-3 text-xs gap-1.5"><svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>Google Drive</button>' +
+          '<button type="button" onclick="showAddR2Modal()" class="btn-secondary h-8 px-3 text-xs gap-1.5"><svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>Cloudflare R2</button>' +
+          '</div></div>';
+        return;
+      }
+
+      list.innerHTML = d.destinations.map(function(dest) {
+        var cfg = {};
+        try { cfg = JSON.parse(dest.Config); } catch(e) {}
+
+        var isGDrive = dest.Provider === 'gdrive';
+        var isR2 = dest.Provider === 'r2';
+
+        /* Provider badge */
+        var badge = isGDrive
+          ? '<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-blue-500/10 text-blue-400 ring-blue-500/20">Google Drive</span>'
+          : '<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-orange-500/10 text-orange-400 ring-orange-500/20">Cloudflare R2</span>';
+
+        /* Provider icon */
+        var iconSVG = isGDrive
+          ? '<svg class="h-5 w-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 5.75 5.75 0 011.344 11.095H6.75z"/></svg>'
+          : '<svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>';
+
+        /* Extra info block */
+        var extraInfo = '';
+        if (isGDrive) {
+          if (cfg.info_error) {
+            extraInfo = '<div class="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">' +
+              '<svg class="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>' +
+              '<div><p class="text-[11px] font-medium text-amber-300">Could not fetch account info</p>' +
+              '<p class="text-[11px] text-amber-200/70 mt-0.5">' + escHtml(cfg.info_error) + '</p>' +
+              '<button type="button" onclick="showAddGDriveModal()" class="mt-1.5 text-[11px] font-medium text-amber-300 hover:text-amber-200 underline underline-offset-2">Reconnect</button>' +
+              '</div></div>';
+          } else if (cfg.email) {
+            var pct = storagePct(cfg.storage_used, cfg.storage_limit);
+            var barColor = pct > 85 ? 'bg-red-500' : pct > 60 ? 'bg-amber-500' : 'bg-emerald-500';
+            var usedStr = fmtBytes(cfg.storage_used);
+            var limitStr = cfg.storage_limit ? fmtBytes(cfg.storage_limit) : 'Unlimited';
+            var freeStr = cfg.storage_limit && cfg.storage_used
+              ? fmtBytes(parseInt(cfg.storage_limit,10) - parseInt(cfg.storage_used,10))
+              : 'N/A';
+            extraInfo =
+              '<div class="mt-3 space-y-2">' +
+              '<div class="flex flex-wrap items-center gap-x-4 gap-y-1">' +
+              '<p class="text-xs text-muted-foreground flex items-center gap-1.5">' +
+              '<svg class="h-3 w-3 text-muted-foreground/60" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/></svg>' +
+              escHtml(cfg.email) + '</p>' +
+              (cfg.display_name ? '<p class="text-xs text-muted-foreground">' + escHtml(cfg.display_name) + '</p>' : '') +
+              '</div>';
+            if (cfg.storage_limit) {
+              extraInfo +=
+                '<div class="space-y-1">' +
+                '<div class="flex items-center justify-between text-[11px] text-muted-foreground">' +
+                '<span>' + usedStr + ' used · ' + freeStr + ' free</span>' +
+                '<span>' + pct + '%</span>' +
+                '</div>' +
+                '<div class="h-1.5 w-full rounded-full bg-muted/50 overflow-hidden">' +
+                '<div class="h-full rounded-full transition-all ' + barColor + '" style="width:' + pct + '%"></div>' +
+                '</div>' +
+                '<p class="text-[11px] text-muted-foreground/60">' + limitStr + ' total</p>' +
+                '</div>';
+            }
+            extraInfo += '</div>';
+          } else {
+            extraInfo = '<p class="mt-2 text-xs text-muted-foreground/60 italic">Loading account info…</p>';
+          }
+        } else if (isR2 && cfg.bucket) {
+          extraInfo =
+            '<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">' +
+            '<p class="text-xs text-muted-foreground">Bucket: <span class="font-mono text-foreground/80">' + escHtml(cfg.bucket) + '</span></p>' +
+            (cfg.account_id ? '<p class="text-xs text-muted-foreground">Account: <span class="font-mono text-foreground/80">' + escHtml(cfg.account_id) + '</span></p>' : '') +
+            '</div>';
+        }
+
+        return '<div class="px-5 py-4">' +
+          '<div class="flex items-start gap-3">' +
+          '<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ' +
+            (isGDrive ? 'bg-blue-500/10 ring-1 ring-blue-500/20' : 'bg-orange-500/10 ring-1 ring-orange-500/20') + '">' +
+          iconSVG + '</div>' +
+          '<div class="flex-1 min-w-0">' +
+          '<div class="flex flex-wrap items-center gap-2 mb-0.5">' +
+          '<p class="text-sm font-semibold text-foreground">' + escHtml(dest.Name) + '</p>' +
+          badge + '</div>' +
+          '<p class="text-[11px] text-muted-foreground/60">Added ' + escHtml(dest.CreatedAt) + '</p>' +
+          extraInfo +
+          '</div>' +
+          '<button type="button" onclick="confirmDeleteDest(' + dest.ID + ', \'' + escHtml(dest.Name).replace(/'/g,"\\'") + '\')" ' +
+          'class="btn-secondary h-8 px-2.5 text-xs text-red-400 hover:border-red-500/40 hover:bg-red-950/30 hover:text-red-300 shrink-0 ml-2">' +
+          '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">' +
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>' +
+          '</svg></button>' +
+          '</div></div>';
+      }).join('');
+    })
+    .catch(function(e) {
+      if (icon) icon.classList.remove('animate-spin');
+      console.error('Failed to load destinations:', e);
+      document.getElementById('backup-destinations-list').innerHTML =
+        '<div class="px-5 py-8 text-center">' +
+        '<p class="text-sm text-red-400">Failed to load destinations.</p>' +
+        '<button type="button" onclick="loadBackupDestinations()" class="mt-2 text-xs text-muted-foreground hover:text-foreground underline">Retry</button>' +
+        '</div>';
+    });
+}
+
+loadBackupDestinations();
+</script>

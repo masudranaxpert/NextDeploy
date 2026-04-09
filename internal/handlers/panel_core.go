@@ -42,6 +42,8 @@ func appShowTabPartialName(tab string) string {
 		return tmplPartialAppShowVolumes
 	case "domains":
 		return tmplPartialAppShowDomains
+	case "backup":
+		return tmplPartialAppShowBackup
 	default:
 		return tmplPartialAppShowOverview
 	}
@@ -53,9 +55,23 @@ type Panel struct {
 	WorkspacesRoot string
 	deployMu       sync.Mutex
 	deployRuns     map[string]*deployRun
-	envFileMu      sync.Map
+	volRestoreMu   sync.Mutex
+	volRestoreJobs map[string]*volumeRestoreJob
+	// volRestoreActive tracks volume names that have an in-flight restore (async path).
+	volRestoreActive sync.Map
+	envFileMu        sync.Map
 	composeMu      sync.Map
 	gitlabTokenMu  sync.Map
+
+	backupRestoreMu    sync.Mutex
+	backupRestoreState map[string]backupRestoreState // app id -> current/last restore state
+}
+
+type backupRestoreState struct {
+	ActiveHistoryID int64
+	LastHistoryID   int64
+	Status          string
+	Error           string
 }
 
 func (p *Panel) InitDeployRuns() {
@@ -64,6 +80,54 @@ func (p *Panel) InitDeployRuns() {
 	if p.deployRuns == nil {
 		p.deployRuns = make(map[string]*deployRun)
 	}
+	p.volRestoreMu.Lock()
+	if p.volRestoreJobs == nil {
+		p.volRestoreJobs = make(map[string]*volumeRestoreJob)
+	}
+	p.volRestoreMu.Unlock()
+}
+
+func (p *Panel) startBackupRestore(appID string, historyID int64) bool {
+	p.backupRestoreMu.Lock()
+	defer p.backupRestoreMu.Unlock()
+	if p.backupRestoreState == nil {
+		p.backupRestoreState = make(map[string]backupRestoreState)
+	}
+	cur := p.backupRestoreState[appID]
+	if cur.ActiveHistoryID > 0 {
+		return false
+	}
+	p.backupRestoreState[appID] = backupRestoreState{
+		ActiveHistoryID: historyID,
+		LastHistoryID:   historyID,
+		Status:          "running",
+	}
+	return true
+}
+
+func (p *Panel) finishBackupRestore(appID string, historyID int64, errMsg string) {
+	p.backupRestoreMu.Lock()
+	defer p.backupRestoreMu.Unlock()
+	if p.backupRestoreState == nil {
+		p.backupRestoreState = make(map[string]backupRestoreState)
+	}
+	st := p.backupRestoreState[appID]
+	st.ActiveHistoryID = 0
+	st.LastHistoryID = historyID
+	if strings.TrimSpace(errMsg) != "" {
+		st.Status = "failed"
+		st.Error = errMsg
+	} else {
+		st.Status = "completed"
+		st.Error = ""
+	}
+	p.backupRestoreState[appID] = st
+}
+
+func (p *Panel) backupRestoreSnapshot(appID string) backupRestoreState {
+	p.backupRestoreMu.Lock()
+	defer p.backupRestoreMu.Unlock()
+	return p.backupRestoreState[appID]
 }
 
 // withUser adds the current authenticated user to a fiber.Map for template rendering.
@@ -528,6 +592,16 @@ func (p *Panel) composeProjectCandidates(ctx context.Context, app db.App, appID 
 	merged = append(merged, p.legacyProjectNames(app, appID)...)
 	merged = append(merged, p.composeProjectNamesFromEnvFiles(ctx, appID)...)
 	return dedupeStringsPreserveOrder(merged)
+}
+
+// backupVolumeComposeProjects returns compose project hints in the same order as the Volumes tab
+// (running compose stack first, then canonical / legacy / COMPOSE_PROJECT_NAME from env).
+func (p *Panel) backupVolumeComposeProjects(ctx context.Context, app db.App, appID string) []string {
+	volProjects := p.composeProjectCandidates(ctx, app, appID)
+	if active, _, pr := p.composeProjectAndPS(ctx, app, appID); pr.OK && strings.TrimSpace(active) != "" {
+		volProjects = dedupeStringsPreserveOrder(append([]string{strings.TrimSpace(active)}, volProjects...))
+	}
+	return volProjects
 }
 
 func panelEnvDefinesComposeProjectName(s string) bool {
