@@ -210,5 +210,61 @@ CREATE TABLE IF NOT EXISTS github_provider_details (
 		}
 	}
 
+	// Backup system tables
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS backup_destinations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL,
+  config TEXT NOT NULL DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS backup_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_id TEXT NOT NULL,
+  destination_id INTEGER NOT NULL,
+  backup_type TEXT NOT NULL,
+  volume_names TEXT NOT NULL DEFAULT '',
+  cron_schedule TEXT NOT NULL DEFAULT '',
+  retention_count INTEGER NOT NULL DEFAULT 5,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_run_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
+  FOREIGN KEY(destination_id) REFERENCES backup_destinations(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_backup_schedules_app ON backup_schedules(app_id);`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS backup_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_id TEXT NOT NULL,
+  destination_id INTEGER NOT NULL,
+  backup_type TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_size INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  error_message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
+  FOREIGN KEY(destination_id) REFERENCES backup_destinations(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_backup_history_app ON backup_history(app_id, created_at);`); err != nil {
+		return err
+	}
+
 	return nil
 }

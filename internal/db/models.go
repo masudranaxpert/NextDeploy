@@ -210,3 +210,42 @@ type DeployLog struct {
 	Output    string
 	CreatedAt time.Time
 }
+
+// BackupDestination represents a cloud storage destination for backups
+type BackupDestination struct {
+	ID          int64
+	Name        string
+	Provider    string // "gdrive", "r2"
+	Config      string // JSON config (tokens, credentials, etc.)
+	IsDefault   bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// BackupSchedule represents a scheduled backup configuration
+type BackupSchedule struct {
+	ID              int64
+	AppID           string
+	DestinationID   int64
+	BackupType      string // "volume", "full"
+	VolumeNames     string // comma-separated for volume backups
+	CronSchedule    string // cron expression
+	RetentionCount  int    // keep last N backups
+	Enabled         bool
+	LastRunAt       *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// BackupHistory represents a completed backup
+type BackupHistory struct {
+	ID            int64
+	AppID         string
+	DestinationID int64
+	BackupType    string
+	FileName      string
+	FileSize      int64
+	Status        string // "success", "failed"
+	ErrorMessage  string
+	CreatedAt     time.Time
+}
