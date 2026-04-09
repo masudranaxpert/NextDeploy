@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,4 +325,89 @@ func appendConfig(configPath, content string) error {
 	
 	_, err = f.WriteString(content)
 	return err
+}
+
+func UploadToGoogleDrive(ctx context.Context, token, folderID, localPath, remoteName string) error {
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/data/%s:ro", localPath, filepath.Base(localPath)),
+		"rclone/rclone:latest",
+		"copy", fmt.Sprintf("/data/%s", filepath.Base(localPath)),
+		fmt.Sprintf(":drive,token=%s,root_folder_id=%s:/%s", token, folderID, remoteName))
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("upload failed: %s: %w", stderr.String(), err)
+	}
+	return nil
+}
+
+func DownloadFromGoogleDrive(ctx context.Context, token, remotePath string) (string, error) {
+	tmpPath := filepath.Join(os.TempDir(), filepath.Base(remotePath))
+	
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/data", filepath.Dir(tmpPath)),
+		"rclone/rclone:latest",
+		"copy", fmt.Sprintf(":drive,token=%s:/%s", token, remotePath),
+		fmt.Sprintf("/data/%s", filepath.Base(tmpPath)))
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("download failed: %s: %w", stderr.String(), err)
+	}
+	return tmpPath, nil
+}
+
+func UploadToCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAccessKey, bucket, localPath, remoteName string) error {
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
+	
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/data/%s:ro", localPath, filepath.Base(localPath)),
+		"rclone/rclone:latest",
+		"copy", fmt.Sprintf("/data/%s", filepath.Base(localPath)),
+		fmt.Sprintf(":s3,provider=Cloudflare,access_key_id=%s,secret_access_key=%s,endpoint=%s:/%s/%s",
+			accessKeyID, secretAccessKey, endpoint, bucket, remoteName))
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("upload failed: %s: %w", stderr.String(), err)
+	}
+	return nil
+}
+
+func DownloadFromCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAccessKey, bucket, remotePath string) (string, error) {
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
+	tmpPath := filepath.Join(os.TempDir(), filepath.Base(remotePath))
+	
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/data", filepath.Dir(tmpPath)),
+		"rclone/rclone:latest",
+		"copy", fmt.Sprintf(":s3,provider=Cloudflare,access_key_id=%s,secret_access_key=%s,endpoint=%s:/%s/%s",
+			accessKeyID, secretAccessKey, endpoint, bucket, remotePath),
+		fmt.Sprintf("/data/%s", filepath.Base(tmpPath)))
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("download failed: %s: %w", stderr.String(), err)
+	}
+	return tmpPath, nil
+}
+
+func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
+	return fmt.Sprintf("https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=https://www.googleapis.com/auth/drive.file&access_type=offline&prompt=consent", clientID, redirectURL)
+}
+
+func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, redirectURL string) (string, error) {
+	return "", fmt.Errorf("not implemented yet")
+}
+
+func EnsureGoogleDriveFolder(ctx context.Context, token, folderName string) (string, error) {
+	return "", fmt.Errorf("not implemented yet")
 }
