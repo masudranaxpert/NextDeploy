@@ -5,334 +5,181 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// Config represents rclone remote configuration
-type Config struct {
-	Name     string
-	Type     string
-	Settings map[string]string
+type GoogleDriveTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	TokenType    string `json:"token_type"`
 }
 
-// GDriveConfig represents Google Drive OAuth configuration
-type GDriveConfig struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	Token        string `json:"token"`
-	RootFolderID string `json:"root_folder_id,omitempty"`
+func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
+	params := url.Values{}
+	params.Set("client_id", clientID)
+	params.Set("redirect_uri", redirectURL)
+	params.Set("response_type", "code")
+	params.Set("scope", "https://www.googleapis.com/auth/drive.file")
+	params.Set("access_type", "offline")
+	params.Set("prompt", "consent")
+	
+	return "https://accounts.google.com/o/oauth2/v2/auth?" + params.Encode()
 }
 
-// R2Config represents Cloudflare R2 configuration
-type R2Config struct {
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key"`
-	Endpoint        string `json:"endpoint"`
-	Bucket          string `json:"bucket"`
-}
-
-// CreateGDriveRemote creates a Google Drive remote configuration
-func CreateGDriveRemote(ctx context.Context, name string, config GDriveConfig) error {
-	configDir, err := getConfigDir()
+func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, redirectURL string) (string, error) {
+	data := url.Values{}
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("code", code)
+	data.Set("redirect_uri", redirectURL)
+	data.Set("grant_type", "authorization_code")
+	
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://oauth2.googleapis.com/token", strings.NewReader(data.Encode()))
 	if err != nil {
-		return err
+		return "", err
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	
-	configPath := filepath.Join(configDir, "rclone.conf")
-	
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("[%s]\n", name))
-	buf.WriteString("type = drive\n")
-	buf.WriteString(fmt.Sprintf("client_id = %s\n", config.ClientID))
-	buf.WriteString(fmt.Sprintf("client_secret = %s\n", config.ClientSecret))
-	buf.WriteString(fmt.Sprintf("token = %s\n", config.Token))
-	buf.WriteString("scope = drive\n")
-	if config.RootFolderID != "" {
-		buf.WriteString(fmt.Sprintf("root_folder_id = %s\n", config.RootFolderID))
-	}
-	buf.WriteString("\n")
-	
-	return appendConfig(configPath, buf.String())
-}
-
-// CreateR2Remote creates a Cloudflare R2 remote configuration
-func CreateR2Remote(ctx context.Context, name string, config R2Config) error {
-	configDir, err := getConfigDir()
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("token exchange failed: %s", string(body))
 	}
 	
-	configPath := filepath.Join(configDir, "rclone.conf")
-	
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("[%s]\n", name))
-	buf.WriteString("type = s3\n")
-	buf.WriteString("provider = Cloudflare\n")
-	buf.WriteString(fmt.Sprintf("access_key_id = %s\n", config.AccessKeyID))
-	buf.WriteString(fmt.Sprintf("secret_access_key = %s\n", config.SecretAccessKey))
-	buf.WriteString(fmt.Sprintf("endpoint = %s\n", config.Endpoint))
-	buf.WriteString("acl = private\n")
-	buf.WriteString("\n")
-	
-	return appendConfig(configPath, buf.String())
-}
-
-// Upload uploads a file to remote storage
-func Upload(ctx context.Context, remoteName, localPath, remotePath string) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return err
+	var tokenResp GoogleDriveTokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", err
 	}
 	
-	cmd := exec.CommandContext(ctx, "rclone", "copy",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		localPath,
-		fmt.Sprintf("%s:%s", remoteName, remotePath))
-	
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("rclone upload failed: %s: %w", stderr.String(), err)
-	}
-	
-	return nil
-}
-
-// Download downloads a file from remote storage
-func Download(ctx context.Context, remoteName, remotePath, localPath string) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return err
-	}
-	
-	cmd := exec.CommandContext(ctx, "rclone", "copy",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		fmt.Sprintf("%s:%s", remoteName, remotePath),
-		localPath)
-	
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("rclone download failed: %s: %w", stderr.String(), err)
-	}
-	
-	return nil
-}
-
-// List lists files in remote storage
-func List(ctx context.Context, remoteName, remotePath string) ([]string, error) {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return nil, err
-	}
-	
-	cmd := exec.CommandContext(ctx, "rclone", "lsf",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		fmt.Sprintf("%s:%s", remoteName, remotePath))
-	
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("rclone list failed: %s: %w", stderr.String(), err)
-	}
-	
-	var files []string
-	for _, line := range strings.Split(stdout.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, line)
-		}
-	}
-	
-	return files, nil
-}
-
-// Delete deletes a file from remote storage
-func Delete(ctx context.Context, remoteName, remotePath string) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return err
-	}
-	
-	cmd := exec.CommandContext(ctx, "rclone", "deletefile",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		fmt.Sprintf("%s:%s", remoteName, remotePath))
-	
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("rclone delete failed: %s: %w", stderr.String(), err)
-	}
-	
-	return nil
-}
-
-// DeleteRemote removes a remote configuration
-func DeleteRemote(ctx context.Context, name string) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return err
-	}
-	
-	configPath := filepath.Join(configDir, "rclone.conf")
-	
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	
-	lines := strings.Split(string(content), "\n")
-	var newLines []string
-	skip := false
-	
-	for _, line := range lines {
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			remoteName := strings.Trim(line, "[]")
-			skip = (remoteName == name)
-		}
-		
-		if !skip {
-			newLines = append(newLines, line)
-		}
-		
-		if skip && strings.TrimSpace(line) == "" {
-			skip = false
-		}
-	}
-	
-	return os.WriteFile(configPath, []byte(strings.Join(newLines, "\n")), 0600)
-}
-
-// GetOAuthURL generates OAuth URL for Google Drive
-func GetOAuthURL(clientID, redirectURL string) string {
-	return fmt.Sprintf("https://accounts.google.com/o/oauth2/v2/auth?"+
-		"client_id=%s&"+
-		"redirect_uri=%s&"+
-		"response_type=code&"+
-		"scope=https://www.googleapis.com/auth/drive&"+
-		"access_type=offline&"+
-		"prompt=consent",
-		clientID, redirectURL)
-}
-
-// ExchangeOAuthCode exchanges OAuth code for token
-func ExchangeOAuthCode(ctx context.Context, clientID, clientSecret, code, redirectURL string) (string, error) {
-	cmd := exec.CommandContext(ctx, "rclone", "authorize", "drive",
-		clientID, clientSecret, code)
-	
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("oauth exchange failed: %s: %w", stderr.String(), err)
-	}
-	
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-// CreateFolder creates a folder in Google Drive
-func CreateFolder(ctx context.Context, remoteName, folderName string) (string, error) {
-	configDir, err := getConfigDir()
+	tokenJSON, err := json.Marshal(map[string]interface{}{
+		"access_token":  tokenResp.AccessToken,
+		"token_type":    tokenResp.TokenType,
+		"refresh_token": tokenResp.RefreshToken,
+		"expiry":        time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339),
+	})
 	if err != nil {
 		return "", err
 	}
 	
-	cmd := exec.CommandContext(ctx, "rclone", "mkdir",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		fmt.Sprintf("%s:%s", remoteName, folderName))
-	
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("create folder failed: %s: %w", stderr.String(), err)
+	return string(tokenJSON), nil
+}
+
+func EnsureGoogleDriveFolder(ctx context.Context, token, folderName string) (string, error) {
+	var tokenData map[string]interface{}
+	if err := json.Unmarshal([]byte(token), &tokenData); err != nil {
+		return "", err
 	}
 	
-	folderID, err := getFolderID(ctx, remoteName, folderName)
+	accessToken, ok := tokenData["access_token"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid token format")
+	}
+	
+	searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false", folderName))
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	
-	return folderID, nil
-}
-
-// getFolderID gets the folder ID from Google Drive
-func getFolderID(ctx context.Context, remoteName, folderPath string) (string, error) {
-	configDir, err := getConfigDir()
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 	
-	cmd := exec.CommandContext(ctx, "rclone", "lsjson",
-		"--config", filepath.Join(configDir, "rclone.conf"),
-		fmt.Sprintf("%s:%s", remoteName, folderPath))
+	body, _ := io.ReadAll(resp.Body)
 	
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("get folder ID failed: %s: %w", stderr.String(), err)
+	var searchResult struct {
+		Files []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"files"`
 	}
 	
-	var items []struct {
-		ID   string `json:"ID"`
-		Name string `json:"Name"`
-	}
-	
-	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+	if err := json.Unmarshal(body, &searchResult); err != nil {
 		return "", err
 	}
 	
-	if len(items) > 0 {
-		return items[0].ID, nil
+	if len(searchResult.Files) > 0 {
+		return searchResult.Files[0].ID, nil
 	}
 	
-	return "", fmt.Errorf("folder not found")
-}
-
-func getConfigDir() (string, error) {
-	configDir := os.Getenv("RCLONE_CONFIG_DIR")
-	if configDir == "" {
-		configDir = "/data/rclone"
+	createData := map[string]interface{}{
+		"name":     folderName,
+		"mimeType": "application/vnd.google-apps.folder",
 	}
+	createJSON, _ := json.Marshal(createData)
 	
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return "", err
-	}
-	
-	return configDir, nil
-}
-
-func appendConfig(configPath, content string) error {
-	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	req, err = http.NewRequestWithContext(ctx, "POST", "https://www.googleapis.com/drive/v3/files", bytes.NewReader(createJSON))
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer f.Close()
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
 	
-	_, err = f.WriteString(content)
-	return err
+	resp, err = client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	body, _ = io.ReadAll(resp.Body)
+	
+	var createResult struct {
+		ID string `json:"id"`
+	}
+	
+	if err := json.Unmarshal(body, &createResult); err != nil {
+		return "", err
+	}
+	
+	return createResult.ID, nil
 }
 
 func UploadToGoogleDrive(ctx context.Context, token, folderID, localPath, remoteName string) error {
+	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("rclone-upload-%d", time.Now().UnixNano()))
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	
+	configPath := filepath.Join(tmpDir, "rclone.conf")
+	configContent := fmt.Sprintf(`[gdrive]
+type = drive
+scope = drive.file
+token = %s
+root_folder_id = %s
+`, token, folderID)
+	
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return err
+	}
+	
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/config:ro", tmpDir),
 		"-v", fmt.Sprintf("%s:/data/%s:ro", localPath, filepath.Base(localPath)),
 		"rclone/rclone:latest",
+		"--config", "/config/rclone.conf",
 		"copy", fmt.Sprintf("/data/%s", filepath.Base(localPath)),
-		fmt.Sprintf(":drive,token=%s,root_folder_id=%s:/%s", token, folderID, remoteName))
+		fmt.Sprintf("gdrive:%s", remoteName))
 	
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -340,36 +187,103 @@ func UploadToGoogleDrive(ctx context.Context, token, folderID, localPath, remote
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("upload failed: %s: %w", stderr.String(), err)
 	}
+	
 	return nil
 }
 
 func DownloadFromGoogleDrive(ctx context.Context, token, remotePath string) (string, error) {
-	tmpPath := filepath.Join(os.TempDir(), filepath.Base(remotePath))
+	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("rclone-download-%d", time.Now().UnixNano()))
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return "", err
+	}
+	
+	configPath := filepath.Join(tmpDir, "rclone.conf")
+	configContent := fmt.Sprintf(`[gdrive]
+type = drive
+scope = drive.file
+token = %s
+`, token)
+	
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return "", err
+	}
+	
+	outputPath := filepath.Join(tmpDir, "download")
+	if err := os.MkdirAll(outputPath, 0700); err != nil {
+		return "", err
+	}
 	
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
-		"-v", fmt.Sprintf("%s:/data", filepath.Dir(tmpPath)),
+		"-v", fmt.Sprintf("%s:/config:ro", tmpDir),
+		"-v", fmt.Sprintf("%s:/output", outputPath),
 		"rclone/rclone:latest",
-		"copy", fmt.Sprintf(":drive,token=%s:/%s", token, remotePath),
-		fmt.Sprintf("/data/%s", filepath.Base(tmpPath)))
+		"--config", "/config/rclone.conf",
+		"copy", fmt.Sprintf("gdrive:%s", remotePath),
+		"/output")
 	
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	
 	if err := cmd.Run(); err != nil {
+		os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("download failed: %s: %w", stderr.String(), err)
 	}
-	return tmpPath, nil
+	
+	files, err := os.ReadDir(outputPath)
+	if err != nil || len(files) == 0 {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("no files downloaded")
+	}
+	
+	downloadedFile := filepath.Join(outputPath, files[0].Name())
+	finalPath := filepath.Join(os.TempDir(), files[0].Name())
+	
+	if err := os.Rename(downloadedFile, finalPath); err != nil {
+		data, err := os.ReadFile(downloadedFile)
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			return "", err
+		}
+		if err := os.WriteFile(finalPath, data, 0600); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", err
+		}
+	}
+	
+	os.RemoveAll(tmpDir)
+	return finalPath, nil
 }
 
 func UploadToCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAccessKey, bucket, localPath, remoteName string) error {
 	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
 	
+	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("rclone-r2-upload-%d", time.Now().UnixNano()))
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	
+	configPath := filepath.Join(tmpDir, "rclone.conf")
+	configContent := fmt.Sprintf(`[r2]
+type = s3
+provider = Cloudflare
+access_key_id = %s
+secret_access_key = %s
+endpoint = %s
+acl = private
+`, accessKeyID, secretAccessKey, endpoint)
+	
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return err
+	}
+	
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/config:ro", tmpDir),
 		"-v", fmt.Sprintf("%s:/data/%s:ro", localPath, filepath.Base(localPath)),
 		"rclone/rclone:latest",
+		"--config", "/config/rclone.conf",
 		"copy", fmt.Sprintf("/data/%s", filepath.Base(localPath)),
-		fmt.Sprintf(":s3,provider=Cloudflare,access_key_id=%s,secret_access_key=%s,endpoint=%s:/%s/%s",
-			accessKeyID, secretAccessKey, endpoint, bucket, remoteName))
+		fmt.Sprintf("r2:%s/%s", bucket, remoteName))
 	
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -377,54 +291,74 @@ func UploadToCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAcc
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("upload failed: %s: %w", stderr.String(), err)
 	}
+	
 	return nil
 }
 
 func DownloadFromCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAccessKey, bucket, remotePath string) (string, error) {
 	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
-	tmpPath := filepath.Join(os.TempDir(), filepath.Base(remotePath))
+	
+	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("rclone-r2-download-%d", time.Now().UnixNano()))
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return "", err
+	}
+	
+	configPath := filepath.Join(tmpDir, "rclone.conf")
+	configContent := fmt.Sprintf(`[r2]
+type = s3
+provider = Cloudflare
+access_key_id = %s
+secret_access_key = %s
+endpoint = %s
+acl = private
+`, accessKeyID, secretAccessKey, endpoint)
+	
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		return "", err
+	}
+	
+	outputPath := filepath.Join(tmpDir, "download")
+	if err := os.MkdirAll(outputPath, 0700); err != nil {
+		return "", err
+	}
 	
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
-		"-v", fmt.Sprintf("%s:/data", filepath.Dir(tmpPath)),
+		"-v", fmt.Sprintf("%s:/config:ro", tmpDir),
+		"-v", fmt.Sprintf("%s:/output", outputPath),
 		"rclone/rclone:latest",
-		"copy", fmt.Sprintf(":s3,provider=Cloudflare,access_key_id=%s,secret_access_key=%s,endpoint=%s:/%s/%s",
-			accessKeyID, secretAccessKey, endpoint, bucket, remotePath),
-		fmt.Sprintf("/data/%s", filepath.Base(tmpPath)))
+		"--config", "/config/rclone.conf",
+		"copy", fmt.Sprintf("r2:%s/%s", bucket, remotePath),
+		"/output")
 	
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	
 	if err := cmd.Run(); err != nil {
+		os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("download failed: %s: %w", stderr.String(), err)
 	}
-	return tmpPath, nil
-}
-
-func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
-	return fmt.Sprintf("https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=https://www.googleapis.com/auth/drive.file&access_type=offline&prompt=consent", clientID, redirectURL)
-}
-
-func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, redirectURL string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
-		"-e", "RCLONE_CONFIG_GDRIVE_TYPE=drive",
-		"-e", "RCLONE_CONFIG_GDRIVE_CLIENT_ID="+clientID,
-		"-e", "RCLONE_CONFIG_GDRIVE_CLIENT_SECRET="+clientSecret,
-		"-e", "RCLONE_CONFIG_GDRIVE_SCOPE=drive.file",
-		"rclone/rclone:latest",
-		"config", "create", "gdrive", "drive",
-		"--drive-auth-code", code)
 	
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("oauth exchange failed: %s: %w", stderr.String(), err)
+	files, err := os.ReadDir(outputPath)
+	if err != nil || len(files) == 0 {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("no files downloaded")
 	}
 	
-	return "token_placeholder", nil
-}
-
-func EnsureGoogleDriveFolder(ctx context.Context, token, folderName string) (string, error) {
-	return "folder_id_placeholder", nil
+	downloadedFile := filepath.Join(outputPath, files[0].Name())
+	finalPath := filepath.Join(os.TempDir(), files[0].Name())
+	
+	if err := os.Rename(downloadedFile, finalPath); err != nil {
+		data, err := os.ReadFile(downloadedFile)
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			return "", err
+		}
+		if err := os.WriteFile(finalPath, data, 0600); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", err
+		}
+	}
+	
+	os.RemoveAll(tmpDir)
+	return finalPath, nil
 }
