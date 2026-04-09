@@ -1,0 +1,235 @@
+{{/* Backup tab for app show page */}}
+<div class="space-y-4">
+  <!-- Manual Backup -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5">
+      <h2 class="text-sm font-semibold text-foreground">Manual Backup</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Create a one-time backup to cloud storage.</p>
+    </div>
+    <div class="space-y-4 px-4 py-4 sm:px-5">
+      <div class="flex flex-col gap-3 sm:flex-row">
+        <select id="backup-destination" class="input flex-1">
+          <option value="">Select destination...</option>
+        </select>
+        <select id="backup-type" class="input w-full sm:w-48">
+          <option value="volume">Volume only</option>
+          <option value="full">Full app</option>
+        </select>
+        <button type="button" onclick="startManualBackup()" class="btn-primary h-11 px-4 sm:h-9">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"/>
+          </svg>
+          Backup Now
+        </button>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Volume backup: Only app data volumes. Full backup: Volumes + compose + environment.
+      </p>
+    </div>
+  </div>
+
+  <!-- Backup History -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5">
+      <h2 class="text-sm font-semibold text-foreground">Backup History</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Recent backups and restore options.</p>
+    </div>
+    <div id="backup-history-list" class="divide-y divide-border/50">
+      <!-- History items will be loaded here -->
+    </div>
+  </div>
+
+  <!-- Scheduled Backups -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Scheduled Backups</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Automatic backups on a schedule.</p>
+      </div>
+      <button type="button" onclick="showAddScheduleModal()" class="btn-secondary h-9 px-3 text-xs">
+        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Schedule
+      </button>
+    </div>
+    <div id="backup-schedules-list" class="divide-y divide-border/50">
+      <!-- Schedule items will be loaded here -->
+    </div>
+  </div>
+</div>
+
+<!-- Add Schedule Modal -->
+<div id="schedule-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+  <div class="panel-card w-full max-w-md mx-4">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h3 class="text-sm font-semibold text-foreground">Add Backup Schedule</h3>
+    </div>
+    <form id="schedule-form" class="space-y-4 px-5 py-4">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Destination</label>
+        <select name="destination" required class="input w-full" id="schedule-destination">
+          <option value="">Select destination...</option>
+        </select>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Backup Type</label>
+        <select name="type" required class="input w-full">
+          <option value="volume">Volume only</option>
+          <option value="full">Full app</option>
+        </select>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Schedule (Cron)</label>
+        <input type="text" name="cron" required class="input w-full" placeholder="0 2 * * *">
+        <p class="mt-1 text-xs text-muted-foreground">Example: 0 2 * * * (daily at 2 AM)</p>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Keep Last N Backups</label>
+        <input type="number" name="retention" value="7" min="1" required class="input w-full">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="btn-primary flex-1">Create Schedule</button>
+        <button type="button" onclick="hideScheduleModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var appID = '{{.App.ID}}';
+
+function loadBackupDestinations() {
+  fetch('/backup/destinations')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var select = document.getElementById('backup-destination');
+      var scheduleSelect = document.getElementById('schedule-destination');
+      if (!d.destinations || d.destinations.length === 0) {
+        select.innerHTML = '<option value="">No destinations configured</option>';
+        scheduleSelect.innerHTML = '<option value="">No destinations configured</option>';
+        return;
+      }
+      var options = d.destinations.map(function(dest) {
+        return '<option value="' + dest.ID + '">' + dest.Name + ' (' + dest.Provider + ')</option>';
+      }).join('');
+      select.innerHTML = '<option value="">Select destination...</option>' + options;
+      scheduleSelect.innerHTML = '<option value="">Select destination...</option>' + options;
+    });
+}
+
+function startManualBackup() {
+  var destID = document.getElementById('backup-destination').value;
+  var type = document.getElementById('backup-type').value;
+  if (!destID) {
+    alert('Please select a destination');
+    return;
+  }
+  var formData = new FormData();
+  formData.append('type', type);
+  fetch('/apps/' + appID + '/backup/' + destID, {
+    method: 'POST',
+    body: formData
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      alert(d.message || 'Backup started');
+      loadBackupHistory();
+    })
+    .catch(function(e) { alert('Backup failed: ' + e); });
+}
+
+function loadBackupHistory() {
+  fetch('/apps/' + appID + '/backup/history')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = document.getElementById('backup-history-list');
+      if (!d.history || d.history.length === 0) {
+        list.innerHTML = '<div class="px-4 py-8 text-center text-xs text-muted-foreground">No backups yet</div>';
+        return;
+      }
+      list.innerHTML = d.history.map(function(h) {
+        var statusColor = h.Status === 'completed' ? 'text-emerald-400' : h.Status === 'running' ? 'text-blue-400' : 'text-red-400';
+        var restoreBtn = h.Status === 'completed' ? 
+          '<button type="button" onclick="restoreBackup(' + h.ID + ')" class="btn-secondary h-8 px-3 text-xs">Restore</button>' : '';
+        return '<div class="flex items-center justify-between px-4 py-3">' +
+          '<div class="flex-1"><p class="text-sm font-medium text-foreground">' + h.BackupType + ' backup</p>' +
+          '<p class="text-xs text-muted-foreground">' + h.CreatedAt + ' • <span class="' + statusColor + '">' + h.Status + '</span></p></div>' +
+          restoreBtn + '</div>';
+      }).join('');
+    });
+}
+
+function restoreBackup(historyID) {
+  if (!confirm('Restore from this backup? This will overwrite current data.')) return;
+  fetch('/apps/' + appID + '/backup/restore/' + historyID, { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert(d.message || 'Restore started'); })
+    .catch(function(e) { alert('Restore failed: ' + e); });
+}
+
+function loadBackupSchedules() {
+  fetch('/apps/' + appID + '/backup/schedules')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = document.getElementById('backup-schedules-list');
+      if (!d.schedules || d.schedules.length === 0) {
+        list.innerHTML = '<div class="px-4 py-8 text-center text-xs text-muted-foreground">No schedules configured</div>';
+        return;
+      }
+      list.innerHTML = d.schedules.map(function(s) {
+        var toggleBtn = '<button type="button" onclick="toggleSchedule(' + s.ID + ', ' + !s.Enabled + ')" class="btn-secondary h-8 px-3 text-xs">' +
+          (s.Enabled ? 'Disable' : 'Enable') + '</button>';
+        var deleteBtn = '<button type="button" onclick="deleteSchedule(' + s.ID + ')" class="btn-secondary h-8 px-3 text-xs text-red-400">Delete</button>';
+        return '<div class="flex items-center justify-between px-4 py-3">' +
+          '<div class="flex-1"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + '</p>' +
+          '<p class="text-xs text-muted-foreground">Keep last ' + s.RetentionCount + ' backups</p></div>' +
+          '<div class="flex gap-2">' + toggleBtn + deleteBtn + '</div></div>';
+      }).join('');
+    });
+}
+
+function showAddScheduleModal() {
+  document.getElementById('schedule-modal').classList.remove('hidden');
+}
+
+function hideScheduleModal() {
+  document.getElementById('schedule-modal').classList.add('hidden');
+}
+
+document.getElementById('schedule-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var formData = new FormData(e.target);
+  var destID = formData.get('destination');
+  fetch('/apps/' + appID + '/backup/schedule/' + destID, {
+    method: 'POST',
+    body: formData
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      alert(d.message || 'Schedule created');
+      hideScheduleModal();
+      loadBackupSchedules();
+    })
+    .catch(function(e) { alert('Failed: ' + e); });
+});
+
+function toggleSchedule(scheduleID, enabled) {
+  fetch('/apps/' + appID + '/backup/schedule/' + scheduleID + '/toggle?enabled=' + enabled, { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { loadBackupSchedules(); })
+    .catch(function(e) { alert('Failed: ' + e); });
+}
+
+function deleteSchedule(scheduleID) {
+  if (!confirm('Delete this schedule?')) return;
+  fetch('/apps/' + appID + '/backup/schedule/' + scheduleID + '/delete', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { loadBackupSchedules(); })
+    .catch(function(e) { alert('Failed: ' + e); });
+}
+
+loadBackupDestinations();
+loadBackupHistory();
+loadBackupSchedules();
+</script>

@@ -42,6 +42,8 @@ func appShowTabPartialName(tab string) string {
 		return tmplPartialAppShowVolumes
 	case "domains":
 		return tmplPartialAppShowDomains
+	case "backup":
+		return tmplPartialAppShowBackup
 	default:
 		return tmplPartialAppShowOverview
 	}

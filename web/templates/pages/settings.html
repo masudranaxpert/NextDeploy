@@ -128,9 +128,146 @@
       </div>
     </form>
   </div>
+
+  <!-- ── Backup Destinations ─────────────────────────────────── -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5">
+      <h2 class="text-sm font-semibold text-foreground">Backup Destinations</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        Configure cloud storage providers for app backups (Google Drive, Cloudflare R2).
+      </p>
+    </div>
+    <div class="space-y-4 px-4 py-4 sm:px-5">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <button type="button" onclick="showAddGDriveModal()" class="btn-secondary h-11 w-full gap-1.5 px-4 text-xs sm:h-9 sm:w-auto">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add Google Drive
+        </button>
+        <button type="button" onclick="showAddR2Modal()" class="btn-secondary h-11 w-full gap-1.5 px-4 text-xs sm:h-9 sm:w-auto">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add Cloudflare R2
+        </button>
+      </div>
+
+      <div id="backup-destinations-list" class="space-y-2">
+        <!-- Destinations will be loaded here -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Google Drive Modal -->
+<div id="gdrive-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+  <div class="panel-card w-full max-w-md mx-4">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h3 class="text-sm font-semibold text-foreground">Add Google Drive</h3>
+    </div>
+    <form id="gdrive-form" class="space-y-4 px-5 py-4">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client ID</label>
+        <input type="text" name="client_id" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client Secret</label>
+        <input type="text" name="client_secret" required class="input w-full">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="btn-primary flex-1">Connect</button>
+        <button type="button" onclick="hideGDriveModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- R2 Modal -->
+<div id="r2-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+  <div class="panel-card w-full max-w-md mx-4">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h3 class="text-sm font-semibold text-foreground">Add Cloudflare R2</h3>
+    </div>
+    <form id="r2-form" method="post" action="/backup/destinations" class="space-y-4 px-5 py-4">
+      <input type="hidden" name="provider" value="r2">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
+        <input type="text" name="name" required class="input w-full" placeholder="My R2 Storage">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Account ID</label>
+        <input type="text" name="account_id" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Access Key ID</label>
+        <input type="text" name="access_key_id" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Secret Access Key</label>
+        <input type="password" name="secret_access_key" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Bucket Name</label>
+        <input type="text" name="bucket" required class="input w-full">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="btn-primary flex-1">Add Destination</button>
+        <button type="button" onclick="hideR2Modal()" class="btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
+function showAddGDriveModal() {
+  document.getElementById('gdrive-modal').classList.remove('hidden');
+}
+function hideGDriveModal() {
+  document.getElementById('gdrive-modal').classList.add('hidden');
+}
+function showAddR2Modal() {
+  document.getElementById('r2-modal').classList.remove('hidden');
+}
+function hideR2Modal() {
+  document.getElementById('r2-modal').classList.add('hidden');
+}
+
+document.getElementById('gdrive-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var formData = new FormData(e.target);
+  var params = new URLSearchParams(formData);
+  fetch('/backup/gdrive/auth-url?' + params.toString())
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.auth_url) {
+        window.location.href = d.auth_url;
+      }
+    });
+});
+
+function loadBackupDestinations() {
+  fetch('/backup/destinations')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = document.getElementById('backup-destinations-list');
+      if (!d.destinations || d.destinations.length === 0) {
+        list.innerHTML = '<p class="text-xs text-muted-foreground">No destinations configured yet.</p>';
+        return;
+      }
+      list.innerHTML = d.destinations.map(function(dest) {
+        return '<div class="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3">' +
+          '<div><p class="text-sm font-medium text-foreground">' + dest.Name + '</p>' +
+          '<p class="text-xs text-muted-foreground">' + dest.Provider + '</p></div>' +
+          '<form method="post" action="/backup/destinations/' + dest.ID + '/delete" onsubmit="return confirm(\'Delete this destination?\')">' +
+          '<button type="submit" class="btn-secondary h-9 px-3 text-xs text-red-400 hover:border-red-500/40 hover:bg-red-950/30">Delete</button>' +
+          '</form></div>';
+      }).join('');
+    });
+}
+
+loadBackupDestinations();
+
 function refreshTmpInfo() {
   var countEl = document.getElementById('tmp-count');
   var sizeEl  = document.getElementById('tmp-size');

@@ -278,6 +278,22 @@ func main() {
 	app.Post("/users/:id/password", p.UserChangePassword)
 	app.Post("/users/:id/role", p.UserChangeRole)
 
+	// Backup destinations
+	app.Get("/backup/destinations", p.BackupDestinationsList)
+	app.Post("/backup/destinations", p.BackupDestinationCreate)
+	app.Post("/backup/destinations/:id/delete", p.BackupDestinationDelete)
+	app.Get("/backup/gdrive/auth-url", p.BackupGDriveOAuthURL)
+	app.Get("/backup/gdrive/callback", p.BackupGDriveCallback)
+
+	// App backup operations
+	app.Post("/apps/:id/backup/:destid", p.AppBackupManual)
+	app.Get("/apps/:id/backup/history", p.AppBackupHistory)
+	app.Post("/apps/:id/backup/restore/:historyid", p.AppBackupRestore)
+	app.Post("/apps/:id/backup/schedule/:destid", p.AppBackupScheduleCreate)
+	app.Get("/apps/:id/backup/schedules", p.AppBackupScheduleList)
+	app.Post("/apps/:id/backup/schedule/:scheduleid/toggle", p.AppBackupScheduleToggle)
+	app.Post("/apps/:id/backup/schedule/:scheduleid/delete", p.AppBackupScheduleDelete)
+
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
