@@ -664,6 +664,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
+	go p.StartBackupWorker()
 }
 
 func (p *Panel) prePullAlpineImage() {

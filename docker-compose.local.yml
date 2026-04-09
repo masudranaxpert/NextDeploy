@@ -32,11 +32,11 @@ services:
         image: masudranaxpert/nextdeploy:latest
         labels:
             caddy: sw.gcloud.lol
-            caddy.1_reverse_proxy: '{{upstreams 8080}}'
             caddy.header.Referrer-Policy: strict-origin-when-cross-origin
             caddy.header.X-Content-Type-Options: nosniff
             caddy.header.X-Frame-Options: SAMEORIGIN
             caddy.header.X-XSS-Protection: 1; mode=block
+            caddy.reverse_proxy: '{{upstreams 8080}}'
         networks:
             - nextdeploy
         ports:
