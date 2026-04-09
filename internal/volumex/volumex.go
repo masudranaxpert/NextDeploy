@@ -3,7 +3,6 @@ package volumex
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -116,37 +115,6 @@ type Entry struct {
 	IsDir bool
 }
 
-type volumeInspect struct {
-	Name       string `json:"Name"`
-	Driver     string `json:"Driver"`
-	Mountpoint string `json:"Mountpoint"`
-}
-
-func getVolumeMountpoint(ctx context.Context, vol string) (string, error) {
-	if !ValidVolumeName(vol) {
-		return "", errors.New("invalid volume name")
-	}
-	cmd := exec.CommandContext(ctx, "docker", "volume", "inspect", vol)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("docker volume inspect failed: %w", err)
-	}
-	var inspectData []volumeInspect
-	if err := json.Unmarshal(out.Bytes(), &inspectData); err != nil {
-		return "", fmt.Errorf("failed to parse volume inspect output: %w", err)
-	}
-	if len(inspectData) == 0 {
-		return "", errors.New("volume not found")
-	}
-	mountpoint := strings.TrimSpace(inspectData[0].Mountpoint)
-	if mountpoint == "" {
-		return "", errors.New("volume has no mountpoint")
-	}
-	return mountpoint, nil
-}
-
 func safeVolSubpath(rel string) (string, error) {
 	rel = filepath.ToSlash(strings.TrimSpace(rel))
 	rel = strings.Trim(rel, "/")
@@ -176,26 +144,40 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 		return nil, err.Error()
 	}
 	
-	mountpoint, err := getVolumeMountpoint(ctx, vol)
-	if err != nil {
-		return nil, fmt.Sprintf("failed to get volume mountpoint: %v", err)
-	}
-	
-	targetPath := mountpoint
+	targetPath := "/vol"
 	if sub != "." && sub != "" {
-		targetPath = filepath.Join(mountpoint, sub)
+		targetPath = filepath.Join("/vol", sub)
 	}
 	
-	entries, err := os.ReadDir(targetPath)
-	if err != nil {
-		return nil, fmt.Sprintf("failed to read directory: %v", err)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/vol:ro",
+		"alpine:3.20", "ls", "-1Ap", targetPath)
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(errBuf.String())
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return nil, fmt.Sprintf("failed to read directory: %v", errMsg)
 	}
 	
 	var list []Entry
-	for _, entry := range entries {
+	for _, line := range strings.Split(out.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		isDir := strings.HasSuffix(line, "/")
+		name := strings.TrimSuffix(line, "/")
+		if name == "" || name == "." || name == ".." {
+			continue
+		}
 		list = append(list, Entry{
-			Name:  entry.Name(),
-			IsDir: entry.IsDir(),
+			Name:  name,
+			IsDir: isDir,
 		})
 	}
 	

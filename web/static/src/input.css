@@ -215,8 +215,19 @@
     @apply btn-delete gap-1.5 px-3 py-1.5 text-xs;
     min-height: 2rem;
   }
+  /* Table row actions: paired height, ≥36px touch, icon + label */
+  .btn-restart-table {
+    @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+    border-color: hsl(var(--primary) / 0.38);
+    background-color: hsl(var(--primary) / 0.11);
+    color: hsl(var(--primary) / 0.95);
+  }
+  .btn-restart-table:hover {
+    background-color: hsl(var(--primary) / 0.2);
+    border-color: hsl(var(--primary) / 0.52);
+  }
   .btn-delete-table {
-    @apply inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold leading-none text-white shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+    @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
     background: linear-gradient(135deg, #dc2626, #b91c1c);
     box-shadow: 0 1px 3px rgb(220 38 38 / 0.45), 0 0 0 1px rgb(254 202 202 / 0.12) inset;
   }

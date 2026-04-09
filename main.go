@@ -176,6 +176,7 @@ func main() {
 	app.Post("/images/prune", p.GlobalImagePrune)
 	app.Post("/containers/restart", p.GlobalContainerRestart)
 	app.Post("/containers/remove", p.GlobalContainerRemove)
+	app.Post("/containers/remove-selected", p.GlobalContainerRemoveSelected)
 	app.Post("/containers/prune", p.GlobalContainerPrune)
 	app.Post("/settings/cleanup/run", p.ManualCleanupRun)
 	app.Post("/settings/tmp/clean", p.TempCleanupRun)

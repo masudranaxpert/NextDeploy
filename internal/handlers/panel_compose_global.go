@@ -55,6 +55,27 @@ func (p *Panel) GlobalContainerRemove(c *fiber.Ctx) error {
 	return c.Redirect("/containers")
 }
 
+// GlobalContainerRemoveSelected force-removes every container whose name was posted (checkboxes, same key "name").
+func (p *Panel) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
+	var names []string
+	c.Request().PostArgs().VisitAll(func(key, val []byte) {
+		if string(key) != "name" {
+			return
+		}
+		if n := strings.TrimSpace(string(val)); n != "" {
+			names = append(names, n)
+		}
+	})
+	if len(names) == 0 {
+		return c.Status(400).SendString("no containers selected")
+	}
+	ctx := c.UserContext()
+	for _, name := range names {
+		_ = dockerapi.RemoveContainerByName(ctx, name)
+	}
+	return c.Redirect("/containers")
+}
+
 func (p *Panel) GlobalContainerRestart(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
