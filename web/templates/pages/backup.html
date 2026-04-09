@@ -1,0 +1,228 @@
+{{/* Backup destinations management page. Layout: layouts/shell. */}}
+<div class="page-shell max-w-5xl">
+  <div class="section-header">
+    <div class="min-w-0">
+      <h1 class="page-title">Backup Destinations</h1>
+      <p class="page-subtitle">Configure cloud storage providers for app backups.</p>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex flex-col gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">Destination saved successfully.</p>
+  </div>
+  {{end}}
+
+  <!-- Add Destination Buttons -->
+  <div class="panel-card space-y-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-3 sm:flex-row">
+      <button type="button" onclick="showAddGDriveModal()" class="btn-primary h-11 w-full gap-1.5 px-4 text-sm sm:h-10 sm:w-auto">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Google Drive
+      </button>
+      <button type="button" onclick="showAddR2Modal()" class="btn-secondary h-11 w-full gap-1.5 px-4 text-sm sm:h-10 sm:w-auto">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Cloudflare R2
+      </button>
+    </div>
+  </div>
+
+  <!-- Destinations List -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-4 py-4 sm:px-5">
+      <h2 class="text-sm font-semibold text-foreground">Configured Destinations</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Manage your cloud storage connections.</p>
+    </div>
+    <div id="backup-destinations-list" class="divide-y divide-border/50">
+      <!-- Destinations will be loaded here -->
+    </div>
+  </div>
+</div>
+
+<!-- Google Drive Modal -->
+<div id="gdrive-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="panel-card w-full max-w-lg">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h3 class="text-base font-semibold text-foreground">Add Google Drive</h3>
+      <p class="mt-1 text-xs text-muted-foreground">Connect your Google Drive for backups</p>
+    </div>
+    <div class="space-y-4 px-5 py-5">
+      <!-- Step 1: Redirect URL -->
+      <div class="rounded-xl border border-blue-500/25 bg-blue-500/10 p-4">
+        <div class="flex items-start gap-3">
+          <svg class="h-5 w-5 shrink-0 text-blue-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+          </svg>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-blue-300 mb-2">Step 1: Copy Redirect URL</p>
+            <p class="text-xs text-blue-200/80 mb-3">Add this URL to your Google Cloud Console OAuth 2.0 credentials as an authorized redirect URI.</p>
+            <div class="flex gap-2">
+              <input type="text" id="redirect-url" readonly class="input flex-1 font-mono text-xs" value="">
+              <button type="button" onclick="copyRedirectURL()" class="btn-secondary h-9 px-3 text-xs whitespace-nowrap">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/>
+                </svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Enter Credentials -->
+      <form id="gdrive-form" class="space-y-4">
+        <div class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
+          <p class="text-sm font-medium text-foreground">Step 2: Enter OAuth Credentials</p>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client ID</label>
+            <input type="text" name="client_id" required class="input w-full" placeholder="123456789-abc.apps.googleusercontent.com">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Client Secret</label>
+            <input type="text" name="client_secret" required class="input w-full" placeholder="GOCSPX-...">
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button type="submit" class="btn-primary flex-1 h-10">Connect Google Drive</button>
+          <button type="button" onclick="hideGDriveModal()" class="btn-secondary h-10 px-4">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- R2 Modal -->
+<div id="r2-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="panel-card w-full max-w-lg">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h3 class="text-base font-semibold text-foreground">Add Cloudflare R2</h3>
+      <p class="mt-1 text-xs text-muted-foreground">Connect your Cloudflare R2 storage for backups</p>
+    </div>
+    <form id="r2-form" method="post" action="/backup/destinations" class="space-y-4 px-5 py-5">
+      <input type="hidden" name="provider" value="r2">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
+        <input type="text" name="name" required class="input w-full" placeholder="My R2 Storage">
+        <p class="mt-1 text-xs text-muted-foreground">A friendly name for this destination</p>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Account ID</label>
+        <input type="text" name="account_id" required class="input w-full" placeholder="abc123...">
+        <p class="mt-1 text-xs text-muted-foreground">Found in Cloudflare dashboard</p>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Access Key ID</label>
+        <input type="text" name="access_key_id" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Secret Access Key</label>
+        <input type="password" name="secret_access_key" required class="input w-full">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Bucket Name</label>
+        <input type="text" name="bucket" required class="input w-full" placeholder="my-backups">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="btn-primary flex-1 h-10">Add Destination</button>
+        <button type="button" onclick="hideR2Modal()" class="btn-secondary h-10 px-4">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Set redirect URL on page load
+document.getElementById('redirect-url').value = window.location.origin + '/backup/gdrive/callback';
+
+function showAddGDriveModal() {
+  document.getElementById('gdrive-modal').classList.remove('hidden');
+}
+
+function hideGDriveModal() {
+  document.getElementById('gdrive-modal').classList.add('hidden');
+}
+
+function showAddR2Modal() {
+  document.getElementById('r2-modal').classList.remove('hidden');
+}
+
+function hideR2Modal() {
+  document.getElementById('r2-modal').classList.add('hidden');
+}
+
+function copyRedirectURL() {
+  var input = document.getElementById('redirect-url');
+  input.select();
+  document.execCommand('copy');
+  
+  var btn = event.target.closest('button');
+  var originalText = btn.innerHTML;
+  btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg> Copied!';
+  btn.classList.add('text-emerald-400');
+  
+  setTimeout(function() {
+    btn.innerHTML = originalText;
+    btn.classList.remove('text-emerald-400');
+  }, 2000);
+}
+
+document.getElementById('gdrive-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var formData = new FormData(e.target);
+  var params = new URLSearchParams(formData);
+  fetch('/backup/gdrive/auth-url?' + params.toString())
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.auth_url) {
+        window.location.href = d.auth_url;
+      } else if (d.error) {
+        alert('Error: ' + d.error);
+      }
+    })
+    .catch(function(e) { alert('Failed: ' + e); });
+});
+
+function loadBackupDestinations() {
+  fetch('/backup/destinations')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = document.getElementById('backup-destinations-list');
+      if (!d.destinations || d.destinations.length === 0) {
+        list.innerHTML = '<div class="px-4 py-8 text-center"><p class="text-sm text-muted-foreground">No destinations configured yet.</p><p class="mt-1 text-xs text-muted-foreground">Add Google Drive or Cloudflare R2 to get started.</p></div>';
+        return;
+      }
+      list.innerHTML = d.destinations.map(function(dest) {
+        var providerBadge = dest.Provider === 'gdrive' ? 
+          '<span class="inline-flex items-center gap-1 rounded-md bg-blue-500/10 px-2 py-1 text-xs font-medium text-blue-400 ring-1 ring-inset ring-blue-500/20">Google Drive</span>' :
+          '<span class="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-400 ring-1 ring-inset ring-orange-500/20">Cloudflare R2</span>';
+        
+        return '<div class="flex items-center justify-between px-4 py-4 sm:px-5">' +
+          '<div class="flex-1 min-w-0">' +
+          '<div class="flex items-center gap-2 mb-1">' +
+          '<p class="text-sm font-medium text-foreground">' + dest.Name + '</p>' +
+          providerBadge +
+          '</div>' +
+          '<p class="text-xs text-muted-foreground">Added ' + dest.CreatedAt + '</p>' +
+          '</div>' +
+          '<form method="post" action="/backup/destinations/' + dest.ID + '/delete" onsubmit="return confirm(\'Delete this destination? Apps using it will fail to backup.\')">' +
+          '<button type="submit" class="btn-secondary h-9 px-3 text-xs text-red-400 hover:border-red-500/40 hover:bg-red-950/30 hover:text-red-300">' +
+          '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">' +
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>' +
+          '</svg> Delete</button>' +
+          '</form></div>';
+      }).join('');
+    })
+    .catch(function(e) {
+      console.error('Failed to load destinations:', e);
+    });
+}
+
+loadBackupDestinations();
+</script>

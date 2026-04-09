@@ -114,29 +114,29 @@ func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
-		return c.Redirect("/settings?tab=backup&error=missing+callback+data")
+		return c.Redirect("/backup?error=missing+callback+data")
 	}
 
 	creds := p.DB.GetSetting(c.UserContext(), "gdrive_oauth:"+state)
 	if creds == "" {
-		return c.Redirect("/settings?tab=backup&error=invalid+state")
+		return c.Redirect("/backup?error=invalid+state")
 	}
 	_ = p.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, "")
 
 	parts := strings.SplitN(creds, "\n", 2)
 	if len(parts) != 2 {
-		return c.Redirect("/settings?tab=backup&error=corrupted+state")
+		return c.Redirect("/backup?error=corrupted+state")
 	}
 
 	redirectURL := strings.TrimRight(p.panelBaseURL(c), "/") + "/backup/gdrive/callback"
 	token, err := rclone.ExchangeGoogleDriveCode(c.UserContext(), parts[0], parts[1], code, redirectURL)
 	if err != nil {
-		return c.Redirect("/settings?tab=backup&error=" + err.Error())
+		return c.Redirect("/backup?error=" + err.Error())
 	}
 
 	folderID, err := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy")
 	if err != nil {
-		return c.Redirect("/settings?tab=backup&error=" + err.Error())
+		return c.Redirect("/backup?error=" + err.Error())
 	}
 
 	config, _ := json.Marshal(map[string]string{
@@ -149,8 +149,8 @@ func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	name := fmt.Sprintf("Google Drive %s", randomState()[:6])
 	_, err = p.DB.CreateBackupDestination(c.UserContext(), name, "gdrive", string(config))
 	if err != nil {
-		return c.Redirect("/settings?tab=backup&error=" + err.Error())
+		return c.Redirect("/backup?error=" + err.Error())
 	}
 
-	return c.Redirect("/settings?tab=backup&saved=1")
+	return c.Redirect("/backup?saved=1")
 }

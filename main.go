@@ -151,6 +151,7 @@ func main() {
 	app.Use("/settings", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
 	app.Use("/git", p.RequireAdminMiddleware)
+	app.Use("/backup", p.RequireAdminMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
@@ -279,6 +280,7 @@ func main() {
 	app.Post("/users/:id/role", p.UserChangeRole)
 
 	// Backup destinations
+	app.Get("/backup", p.BackupPage)
 	app.Get("/backup/destinations", p.BackupDestinationsList)
 	app.Post("/backup/destinations", p.BackupDestinationCreate)
 	app.Post("/backup/destinations/:id/delete", p.BackupDestinationDelete)
