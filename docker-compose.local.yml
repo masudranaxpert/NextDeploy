@@ -30,13 +30,6 @@ services:
             LISTEN_ADDR: :8080
             WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
-        labels:
-            caddy: sw.gcloud.lol
-            caddy.header.Referrer-Policy: strict-origin-when-cross-origin
-            caddy.header.X-Content-Type-Options: nosniff
-            caddy.header.X-Frame-Options: SAMEORIGIN
-            caddy.header.X-XSS-Protection: 1; mode=block
-            caddy.reverse_proxy: '{{upstreams 8080}}'
         networks:
             - nextdeploy
         ports:

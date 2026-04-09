@@ -15,7 +15,63 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
+	for i := range dests {
+		if dests[i].Provider != "gdrive" {
+			continue
+		}
+		var configMap map[string]string
+		if err := json.Unmarshal([]byte(dests[i].Config), &configMap); err != nil {
+			continue
+		}
+		token, hasToken := configMap["token"]
+		if !hasToken || token == "" {
+			continue
+		}
+
+		// Proactively refresh token if it is expired or close to expiry
+		if rclone.IsTokenExpired(token) {
+			if newToken, refreshErr := rclone.RefreshGoogleDriveToken(
+				c.UserContext(),
+				configMap["client_id"],
+				configMap["client_secret"],
+				token,
+			); refreshErr == nil {
+				token = newToken
+				configMap["token"] = newToken
+				updatedConfig := string(mustMarshal(configMap))
+				_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, updatedConfig)
+				dests[i].Config = updatedConfig
+			}
+		}
+
+		aboutInfo, aboutErr := rclone.GetGoogleDriveAboutInfo(c.UserContext(), token)
+		if aboutErr != nil {
+			// Attach error hint so UI can show reconnect prompt
+			dests[i].Config = string(mustMarshal(map[string]interface{}{
+				"client_id":     configMap["client_id"],
+				"client_secret": configMap["client_secret"],
+				"folder_id":     configMap["folder_id"],
+				"info_error":    aboutErr.Error(),
+			}))
+			continue
+		}
+		dests[i].Config = string(mustMarshal(map[string]interface{}{
+			"client_id":     configMap["client_id"],
+			"client_secret": configMap["client_secret"],
+			"folder_id":     configMap["folder_id"],
+			"email":         aboutInfo.User.EmailAddress,
+			"display_name":  aboutInfo.User.DisplayName,
+			"storage_limit": aboutInfo.StorageQuota.Limit,
+			"storage_used":  aboutInfo.StorageQuota.Usage,
+		}))
+	}
+
 	return c.JSON(fiber.Map{"destinations": dests})
+}
+
+func mustMarshal(v interface{}) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
@@ -114,29 +170,34 @@ func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
-		return c.Redirect("/backup?error=missing+callback+data")
+		setFlashError(c, "Missing callback data")
+		return c.Redirect("/backup")
 	}
 
 	creds := p.DB.GetSetting(c.UserContext(), "gdrive_oauth:"+state)
 	if creds == "" {
-		return c.Redirect("/backup?error=invalid+state")
+		setFlashError(c, "Invalid or expired OAuth state")
+		return c.Redirect("/backup")
 	}
 	_ = p.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, "")
 
 	parts := strings.SplitN(creds, "\n", 2)
 	if len(parts) != 2 {
-		return c.Redirect("/backup?error=corrupted+state")
+		setFlashError(c, "Corrupted OAuth state")
+		return c.Redirect("/backup")
 	}
 
 	redirectURL := strings.TrimRight(p.panelBaseURL(c), "/") + "/backup/gdrive/callback"
 	token, err := rclone.ExchangeGoogleDriveCode(c.UserContext(), parts[0], parts[1], code, redirectURL)
 	if err != nil {
-		return c.Redirect("/backup?error=" + err.Error())
+		setFlashError(c, "Google Drive auth failed: "+err.Error())
+		return c.Redirect("/backup")
 	}
 
 	folderID, err := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy")
 	if err != nil {
-		return c.Redirect("/backup?error=" + err.Error())
+		setFlashError(c, "Could not create Drive folder: "+err.Error())
+		return c.Redirect("/backup")
 	}
 
 	config, _ := json.Marshal(map[string]string{
@@ -149,8 +210,10 @@ func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	name := fmt.Sprintf("Google Drive %s", randomState()[:6])
 	_, err = p.DB.CreateBackupDestination(c.UserContext(), name, "gdrive", string(config))
 	if err != nil {
-		return c.Redirect("/backup?error=" + err.Error())
+		setFlashError(c, "Failed to save destination: "+err.Error())
+		return c.Redirect("/backup")
 	}
 
-	return c.Redirect("/backup?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/backup")
 }

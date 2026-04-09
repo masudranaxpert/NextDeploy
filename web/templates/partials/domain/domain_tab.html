@@ -124,12 +124,14 @@
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
               Edit
             </button>
-            <form method="POST" action="/apps/{{$.ID}}/domains/{{.ID}}/delete" class="contents" onsubmit="return confirm('Delete domain {{.Domain}}?')">
-              <button type="submit" class="btn-delete inline-flex h-9 w-full justify-center gap-1.5 px-3 py-0 text-xs sm:w-auto">
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
-                Delete
-              </button>
-            </form>
+            <button type="button"
+              class="btn-delete inline-flex h-9 w-full justify-center gap-1.5 px-3 py-0 text-xs sm:w-auto"
+              data-delete-did="{{.ID}}"
+              data-delete-domain="{{.Domain}}"
+              onclick="openDeleteDomainModal(this)">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+              Delete
+            </button>
           </div>
         </div>
       </div>
@@ -166,11 +168,12 @@
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    <form method="POST" action="/apps/{{.ID}}/domains" class="px-5 py-4 sm:px-6 sm:py-5">
+    <form id="add-domain-form" method="POST" action="/apps/{{.ID}}/domains" class="px-5 py-4 sm:px-6 sm:py-5">
+      <div id="add-domain-error" class="mb-4 hidden rounded-lg border border-rose-500/25 bg-rose-500/[0.08] px-3 py-2.5 text-xs text-rose-300"></div>
       {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-add")}}
       <div class="mt-6 flex flex-col-reverse gap-2 border-t border-border/50 pt-4 sm:flex-row sm:justify-end sm:gap-3">
         <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">Cancel</button>
-        <button type="submit" class="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Add domain</button>
+        <button type="submit" id="add-domain-submit" class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Add domain</button>
       </div>
     </form>
   </div>
@@ -188,10 +191,11 @@
       </button>
     </div>
     <form id="edit-domain-form" method="POST" action="" class="px-5 py-4 sm:px-6 sm:py-5">
+      <div id="edit-domain-error" class="mb-4 hidden rounded-lg border border-rose-500/25 bg-rose-500/[0.08] px-3 py-2.5 text-xs text-rose-300"></div>
       {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-edit")}}
       <div class="mt-6 flex flex-col-reverse gap-2 border-t border-border/50 pt-4 sm:flex-row sm:justify-end sm:gap-3">
         <button type="button" onclick="document.getElementById('edit-domain-modal').classList.add('hidden')" class="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">Cancel</button>
-        <button type="submit" class="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Save</button>
+        <button type="submit" id="edit-domain-submit" class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Save</button>
       </div>
     </form>
   </div>
@@ -231,6 +235,24 @@
     <div id="dns-modal-body" class="px-5 py-4 sm:px-6">Loading…</div>
     <div class="flex justify-end border-t border-border/50 bg-muted/10 px-5 py-3 sm:px-6">
       <button type="button" onclick="document.getElementById('dns-modal').classList.add('hidden')" class="inline-flex h-9 items-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="delete-domain-modal" class="modal-overlay hidden p-4 sm:p-6" onclick="if(event.target===this)this.classList.add('hidden')" role="dialog" aria-modal="true" aria-labelledby="delete-domain-title">
+  <div class="modal-box w-full max-w-sm rounded-2xl border border-border/80 bg-card p-0 shadow-2xl ring-1 ring-border/40" onclick="event.stopPropagation()">
+    <div class="px-5 py-5 sm:px-6 sm:py-6">
+      <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/20 bg-rose-500/[0.08]">
+        <svg class="h-5 w-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+      </div>
+      <h3 id="delete-domain-title" class="text-base font-semibold text-foreground">Delete domain?</h3>
+      <p class="mt-1.5 text-sm text-muted-foreground">This will remove <code id="delete-domain-name" class="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-foreground"></code> and trigger a redeploy to apply changes.</p>
+    </div>
+    <div class="flex gap-2 border-t border-border/50 bg-muted/10 px-5 py-3 sm:justify-end sm:px-6">
+      <button type="button" onclick="document.getElementById('delete-domain-modal').classList.add('hidden')" class="inline-flex h-9 flex-1 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground sm:flex-none">Cancel</button>
+      <form id="delete-domain-form" method="POST" action="" class="flex-1 sm:flex-none">
+        <button type="submit" class="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-rose-600 px-4 text-sm font-medium text-white shadow transition-colors hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">Delete</button>
+      </form>
     </div>
   </div>
 </div>
@@ -492,7 +514,55 @@ document.addEventListener('click', function (e) {
   openEditDomainFromBtn(btn);
 });
 
+// ── Delete confirmation modal ─────────────────────────────────────────────────
+function openDeleteDomainModal(btn) {
+  var did = btn.dataset.deleteDid;
+  var domain = btn.dataset.deleteDomain || '';
+  document.getElementById('delete-domain-name').textContent = domain;
+  document.getElementById('delete-domain-form').action = '/apps/{{.ID}}/domains/' + did + '/delete';
+  document.getElementById('delete-domain-modal').classList.remove('hidden');
+}
+
+// ── AJAX form submit with inline error ───────────────────────────────────────
+function submitDomainForm(formId, errorId, submitId) {
+  var form = document.getElementById(formId);
+  var errorEl = document.getElementById(errorId);
+  var submitBtn = document.getElementById(submitId);
+  if (!form) return;
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    errorEl.classList.add('hidden');
+    errorEl.textContent = '';
+    var origText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg> Saving…';
+    var data = new FormData(form);
+    fetch(form.action, { method: 'POST', body: data, redirect: 'follow' })
+      .then(function(r) {
+        if (r.ok || r.redirected) {
+          window.location.href = r.url || window.location.href;
+          return;
+        }
+        return r.text().then(function(msg) {
+          errorEl.textContent = msg || 'An error occurred.';
+          errorEl.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = origText;
+        });
+      })
+      .catch(function(err) {
+        errorEl.textContent = 'Network error: ' + err.message;
+        errorEl.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.textContent = origText;
+      });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+  submitDomainForm('add-domain-form', 'add-domain-error', 'add-domain-submit');
+  submitDomainForm('edit-domain-form', 'edit-domain-error', 'edit-domain-submit');
+
   {{if .DomainSaved}}
   setTimeout(function () {
     var toast = document.getElementById('domain-toast');

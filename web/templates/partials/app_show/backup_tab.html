@@ -7,24 +7,64 @@
       <p class="mt-0.5 text-xs text-muted-foreground">Create a one-time backup to cloud storage.</p>
     </div>
     <div class="space-y-4 px-4 py-4 sm:px-5">
-      <div class="flex flex-col gap-3 sm:flex-row">
-        <select id="backup-destination" class="input flex-1">
+      <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+        <select id="backup-destination" class="input w-full">
           <option value="">Select destination...</option>
         </select>
-        <select id="backup-type" class="input w-full sm:w-48">
+        <select id="backup-type" class="input w-full">
           <option value="volume">Volume only</option>
           <option value="full">Full app</option>
         </select>
-        <button type="button" onclick="startManualBackup()" class="btn-primary h-11 px-4 sm:h-9">
+        <button type="button" id="backup-start-btn" onclick="startManualBackup()" class="btn-primary min-h-11 px-4 sm:min-h-10">
           <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"/>
           </svg>
           Backup Now
         </button>
       </div>
-      <p class="text-xs text-muted-foreground">
-        Volume backup: Only app data volumes. Full backup: Volumes + compose + environment.
-      </p>
+      <div id="backup-volume-panel" class="rounded-2xl border border-border/60 bg-muted/10 p-4">
+        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-foreground">Volume target</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Leave the exact name empty to use the recommended volume automatically, or pin one Docker volume by its exact name.</p>
+          </div>
+          {{if .BackupAutoVolumeName}}
+            <div class="shrink-0 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-200">Auto target: <span class="font-mono">{{.BackupAutoVolumeName}}</span></div>
+          {{else if .BackupAutoVolumeError}}
+            <div class="shrink-0 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-200">{{.BackupAutoVolumeError}}</div>
+          {{end}}
+        </div>
+        <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div class="space-y-2">
+            <label for="backup-volume-name" class="block text-xs font-medium text-muted-foreground">Exact Docker volume name</label>
+            <input id="backup-volume-name" list="backup-volume-options" class="input w-full font-mono text-sm" placeholder="{{if .BackupAutoVolumeName}}{{.BackupAutoVolumeName}}{{else}}project_data{{end}}">
+            <p class="text-[11px] leading-relaxed text-muted-foreground">Optional. Use this when you want to pin one exact volume name instead of relying on auto-detect.</p>
+          </div>
+          <div class="space-y-2">
+            <p class="text-xs font-medium text-muted-foreground">Detected app volumes</p>
+            {{if .AppVolumes}}
+              <div class="flex flex-wrap gap-2">
+                {{range .AppVolumes}}
+                  <button type="button" class="rounded-full border border-border/70 bg-background/40 px-3 py-1.5 text-[11px] font-mono text-foreground transition hover:border-primary/40 hover:bg-primary/5" data-volume-pick="backup-volume-name" data-volume-name="{{.}}">{{.}}</button>
+                {{end}}
+              </div>
+            {{else}}
+              <div class="rounded-xl border border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">No detected volumes for this app yet. You can still enter an exact Docker volume name manually.</div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+      <div id="backup-full-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-4 py-3 text-xs leading-relaxed text-sky-100">
+        <p><span class="font-medium">Full app</span> backs up the app workspace files and environment. Use <span class="font-medium">Volume only</span> when you need one exact Docker volume snapshot.</p>
+        {{if .AppVolumes}}
+          <div class="mt-3 flex flex-wrap gap-2">
+            {{range .AppVolumes}}
+              <span class="rounded-full border border-sky-400/20 bg-sky-950/20 px-3 py-1 font-mono text-[11px] text-sky-100/90">{{.}}</span>
+            {{end}}
+          </div>
+        {{end}}
+      </div>
+      <p id="backup-manual-msg" class="mt-2 hidden text-xs text-emerald-400" role="status"></p>
     </div>
   </div>
 
@@ -35,8 +75,8 @@
       <p class="mt-0.5 text-xs text-muted-foreground">Recent backups and restore options.</p>
     </div>
     <div id="backup-history-list" class="divide-y divide-border/50">
-      <!-- History items will be loaded here -->
     </div>
+    <div id="backup-history-pager" class="hidden border-t border-border/50 px-4 py-3"></div>
   </div>
 
   <!-- Scheduled Backups -->
@@ -59,13 +99,14 @@
   </div>
 </div>
 
-<!-- Add Schedule Modal -->
-<div id="schedule-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-  <div class="panel-card w-full max-w-md mx-4">
+<!-- Add / Edit Schedule Modal -->
+<div id="schedule-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="panel-card w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl ring-1 ring-border/50">
     <div class="border-b border-border/50 px-5 py-4">
-      <h3 class="text-sm font-semibold text-foreground">Add Backup Schedule</h3>
+      <h3 id="schedule-modal-title" class="text-sm font-semibold text-foreground">Add Backup Schedule</h3>
     </div>
     <form id="schedule-form" class="space-y-4 px-5 py-4">
+      <input type="hidden" id="schedule-edit-id" value="">
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Destination</label>
         <select name="destination" required class="input w-full" id="schedule-destination">
@@ -74,30 +115,276 @@
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Backup Type</label>
-        <select name="type" required class="input w-full">
+        <select name="type" required class="input w-full" id="schedule-type">
           <option value="volume">Volume only</option>
           <option value="full">Full app</option>
         </select>
       </div>
+      <div id="schedule-volume-panel" class="rounded-xl border border-border/60 bg-muted/15 p-3.5">
+        <p class="text-xs font-semibold text-foreground">Volume target</p>
+        <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Optional exact Docker volume name for <span class="font-medium">Volume only</span> schedules. Leave empty to keep using the recommended auto-detected volume.</p>
+        <input type="text" name="volume_names" id="schedule-volume-name" list="backup-volume-options" class="input mt-3 w-full font-mono text-sm" placeholder="{{if .BackupAutoVolumeName}}{{.BackupAutoVolumeName}}{{else}}project_data{{end}}">
+        <div class="mt-3">
+          <p class="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Detected volumes</p>
+          {{if .AppVolumes}}
+            <div class="flex flex-wrap gap-2">
+              {{range .AppVolumes}}
+                <button type="button" class="rounded-full border border-border/70 bg-background/40 px-3 py-1.5 text-[11px] font-mono text-foreground transition hover:border-primary/40 hover:bg-primary/5" data-volume-pick="schedule-volume-name" data-volume-name="{{.}}">{{.}}</button>
+              {{end}}
+            </div>
+          {{else}}
+            <p class="text-xs text-muted-foreground">No detected volumes right now. You can still type an exact Docker volume name.</p>
+          {{end}}
+        </div>
+      </div>
+      <div id="schedule-full-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-3.5 py-3 text-[11px] leading-relaxed text-sky-100">
+        <p>Full app schedules back up the app workspace files and environment. Use <span class="font-medium">Volume only</span> if you want to pin one specific Docker volume.</p>
+        {{if .AppVolumes}}
+          <div class="mt-3 flex flex-wrap gap-2">
+            {{range .AppVolumes}}
+              <span class="rounded-full border border-sky-400/20 bg-sky-950/20 px-3 py-1 font-mono text-[11px] text-sky-100/90">{{.}}</span>
+            {{end}}
+          </div>
+        {{end}}
+      </div>
       <div>
-        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Schedule (Cron)</label>
-        <input type="text" name="cron" required class="input w-full" placeholder="0 2 * * *">
-        <p class="mt-1 text-xs text-muted-foreground">Example: 0 2 * * * (daily at 2 AM)</p>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Schedule</label>
+        <div class="flex gap-2 mb-2">
+          <button type="button" onclick="setSchedule('0 * * * *')" class="btn-secondary h-8 px-3 text-xs flex-1">Hourly</button>
+          <button type="button" onclick="setSchedule('0 */6 * * *')" class="btn-secondary h-8 px-3 text-xs flex-1">Every 6h</button>
+          <button type="button" onclick="setSchedule('0 */12 * * *')" class="btn-secondary h-8 px-3 text-xs flex-1">Every 12h</button>
+        </div>
+        <div class="flex gap-2 mb-2">
+          <button type="button" onclick="setSchedule('0 2 * * *')" class="btn-secondary h-8 px-3 text-xs flex-1">Daily 2AM</button>
+          <button type="button" onclick="setSchedule('0 0 * * 0')" class="btn-secondary h-8 px-3 text-xs flex-1">Weekly</button>
+          <button type="button" onclick="setSchedule('0 0 1 * *')" class="btn-secondary h-8 px-3 text-xs flex-1">Monthly</button>
+        </div>
+        <input type="text" name="cron" id="cron-input" required class="input w-full font-mono" placeholder="0 2 * * *">
+        <p class="mt-1 text-xs text-muted-foreground">Cron format: minute hour day month weekday</p>
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Keep Last N Backups</label>
         <input type="number" name="retention" value="7" min="1" required class="input w-full">
       </div>
-      <div class="flex gap-2">
-        <button type="submit" class="btn-primary flex-1">Create Schedule</button>
-        <button type="button" onclick="hideScheduleModal()" class="btn-secondary">Cancel</button>
+      <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" onclick="hideScheduleModal()" class="btn-secondary w-full sm:w-auto min-h-10 px-4">Cancel</button>
+        <button type="submit" id="schedule-submit-btn" class="btn-primary w-full sm:w-auto min-h-10 px-4 font-semibold">Create Schedule</button>
       </div>
     </form>
   </div>
 </div>
 
+<datalist id="backup-volume-options">
+  {{range .AppVolumes}}
+    <option value="{{.}}"></option>
+  {{end}}
+</datalist>
+
+<!-- Restore confirmation modal -->
+<div id="restore-confirm-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6" role="presentation">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-[2px]" aria-hidden="true" onclick="hideRestoreConfirmModal()"></div>
+  <div class="relative z-10 panel-card w-full max-w-md shadow-2xl ring-1 ring-border/60" role="dialog" aria-modal="true" aria-labelledby="restore-confirm-heading" onclick="event.stopPropagation()">
+    <div class="border-b border-border/50 px-5 py-4 flex items-start justify-between gap-3">
+      <div class="flex gap-3 min-w-0">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 ring-1 ring-amber-500/25">
+          <svg class="h-5 w-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+          </svg>
+        </div>
+        <div class="min-w-0 pt-0.5">
+          <h3 id="restore-confirm-heading" class="text-base font-semibold text-foreground leading-snug">Restore this backup?</h3>
+          <p class="mt-1 text-xs text-muted-foreground leading-relaxed">This replaces current app data. The process runs in the background.</p>
+        </div>
+      </div>
+      <button type="button" onclick="hideRestoreConfirmModal()" class="btn-icon shrink-0 -mr-1" aria-label="Close">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <div class="rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5 text-xs">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Backup type</p>
+        <p id="restore-confirm-type" class="mt-0.5 text-sm font-medium text-foreground">—</p>
+      </div>
+      <div id="restore-confirm-path-wrap" class="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 hidden">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-amber-300/80">Remote file</p>
+        <p id="restore-confirm-path" class="mt-0.5 font-mono text-xs text-amber-200/95 break-all leading-relaxed"></p>
+      </div>
+      <p class="text-xs text-muted-foreground leading-relaxed">You can keep working; status updates appear in the list when the restore finishes.</p>
+    </div>
+    <div class="flex flex-col-reverse gap-2 border-t border-border/50 px-5 py-4 sm:flex-row sm:justify-end sm:gap-3">
+      <button type="button" onclick="hideRestoreConfirmModal()" class="btn-secondary w-full sm:w-auto min-h-10 px-4">Cancel</button>
+      <button type="button" id="restore-confirm-submit" onclick="confirmRestoreBackup()" class="btn-delete w-full sm:w-auto min-h-10 px-4 font-semibold">Start restore</button>
+    </div>
+  </div>
+</div>
+
+<!-- Backup Log Modal -->
+<div id="log-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="panel-card w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <svg class="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>
+        </svg>
+        <h3 class="text-sm font-semibold text-foreground">Backup Log</h3>
+      </div>
+      <button type="button" onclick="hideLogModal()" class="text-muted-foreground hover:text-foreground transition-colors">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-4">
+      <div id="log-content" class="text-xs font-mono bg-[#0d1117] border border-border/30 rounded-lg p-4 whitespace-pre-wrap break-words leading-relaxed min-h-[4rem]"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 var appID = '{{.App.ID}}';
+var backupHistoryPage = 1;
+var backupLogTimer = null;
+var backupHistoryPollTimer = null;
+var restoreStatusTimer = null;
+var backupScheduleRefreshTimer = window.__backupScheduleRefreshTimer || null;
+var restorePendingHistoryID = 0;
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function highlightLogLine(raw) {
+  var line = escapeHtml(raw);
+  // ISO timestamp lines: 2026-04-09T15:21:07Z completed / started
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/.test(raw)) {
+    var m = raw.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(.*)/);
+    if (m) {
+      var ts = '<span style="color:#6e7681">' + escapeHtml(m[1]) + '</span>';
+      var word = m[2].trim().toLowerCase();
+      var wordColor = word === 'completed' ? '#3fb950' : word === 'started' ? '#58a6ff' : '#e6edf3';
+      var rest = '<span style="color:' + wordColor + ';font-weight:600">' + escapeHtml(m[2]) + '</span>';
+      return ts + ' ' + rest;
+    }
+  }
+  // rclone date log: 2026/04/09 15:21:07 INFO  :
+  if (/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) {
+    var m2 = raw.match(/^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})\s+(INFO\s*:|ERROR\s*:|NOTICE\s*:)?(.*)/);
+    if (m2) {
+      var ts2 = '<span style="color:#6e7681">' + escapeHtml(m2[1]) + '</span>';
+      var level = m2[2] ? '<span style="color:#d2a8ff">' + escapeHtml(m2[2]) + '</span>' : '';
+      var msg2 = '<span style="color:#c9d1d9">' + escapeHtml(m2[3]) + '</span>';
+      return ts2 + ' ' + level + msg2;
+    }
+  }
+  // Upload header: [upload] → ...
+  if (/^\[upload\]/.test(raw)) {
+    return '<span style="color:#79c0ff;font-weight:600">' + line + '</span>';
+  }
+  // tar / archive command lines
+  if (/^(tar|archive)\s/.test(raw)) {
+    return '<span style="color:#ffa657">' + line + '</span>';
+  }
+  // Stats lines: Transferred, Elapsed, Checks, Errors
+  if (/^(Transferred|Elapsed time|Checks|Errors|Total transfer)/.test(raw)) {
+    return '<span style="color:#a5d6ff">' + line + '</span>';
+  }
+  // Done.
+  if (/^Done\.$/.test(raw.trim())) {
+    return '<span style="color:#3fb950;font-weight:700">' + line + '</span>';
+  }
+  // Error lines
+  if (/error|failed|ERROR|FAILED/i.test(raw)) {
+    return '<span style="color:#f85149">' + line + '</span>';
+  }
+  // Warning lines
+  if (/warn|WARN/i.test(raw)) {
+    return '<span style="color:#d29922">' + line + '</span>';
+  }
+  // Default
+  return '<span style="color:#8b949e">' + line + '</span>';
+}
+
+function renderHighlightedLog(text) {
+  if (!text) return '<span style="color:#6e7681;font-style:italic">No log available</span>';
+  return text.split('\n').map(highlightLogLine).join('\n');
+}
+
+function parseBackupDate(str) {
+  if (!str) return null;
+  var t = String(str).trim();
+  if (t.indexOf('T') === -1) t = t.replace(' ', 'T');
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(t)) t += 'Z';
+  var d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatRelativeTime(str) {
+  var d = parseBackupDate(str);
+  if (!d) return str || '';
+  var sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 0) return 'just now';
+  if (sec < 45) return 'just now';
+  if (sec < 3600) {
+    var m = Math.floor(sec / 60);
+    return m < 1 ? '1 min ago' : m + ' min ago';
+  }
+  if (sec < 86400) {
+    var h = Math.floor(sec / 3600);
+    return h === 1 ? '1 hour ago' : h + ' hours ago';
+  }
+  if (sec < 604800) {
+    var days = Math.floor(sec / 86400);
+    return days === 1 ? '1 day ago' : days + ' days ago';
+  }
+  if (sec < 2592000) {
+    var w = Math.floor(sec / 604800);
+    return w === 1 ? '1 week ago' : w + ' weeks ago';
+  }
+  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatScheduleNextRun(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function escapeHtmlAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/\r|\n/g, ' ');
+}
+
+function syncBackupTypeUI() {
+  var type = (document.getElementById('backup-type') || {}).value || 'volume';
+  var volumePanel = document.getElementById('backup-volume-panel');
+  var fullNote = document.getElementById('backup-full-note');
+  if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
+  if (fullNote) fullNote.classList.toggle('hidden', type !== 'full');
+}
+
+function syncScheduleTypeUI() {
+  var type = (document.getElementById('schedule-type') || {}).value || 'volume';
+  var volumePanel = document.getElementById('schedule-volume-panel');
+  var fullNote = document.getElementById('schedule-full-note');
+  if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
+  if (fullNote) fullNote.classList.toggle('hidden', type !== 'full');
+}
+
+function showBackupManualMsg(text, isErr) {
+  var el = document.getElementById('backup-manual-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden', 'text-emerald-400', 'text-red-400');
+  el.classList.add(isErr ? 'text-red-400' : 'text-emerald-400');
+}
 
 function loadBackupDestinations() {
   fetch('/backup/destinations')
@@ -121,56 +408,298 @@ function loadBackupDestinations() {
 function startManualBackup() {
   var destID = document.getElementById('backup-destination').value;
   var type = document.getElementById('backup-type').value;
+  var btn = document.getElementById('backup-start-btn');
   if (!destID) {
-    alert('Please select a destination');
+    showBackupManualMsg('Select a destination first.', true);
     return;
   }
+  if (!btn) {
+    showBackupManualMsg('Backup button not found.', true);
+    return;
+  }
+  var originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg> Backing up...';
+
   var formData = new FormData();
   formData.append('type', type);
+  if (type === 'volume') {
+    var volumeName = (document.getElementById('backup-volume-name') || {}).value || '';
+    formData.append('volume_names', volumeName);
+  }
   fetch('/apps/' + appID + '/backup/' + destID, {
     method: 'POST',
     body: formData
   })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      alert(d.message || 'Backup started');
-      loadBackupHistory();
+    .then(function(r) {
+      if (!r.ok) {
+        return r.json().then(function(err) { throw new Error(err.error || 'Backup failed'); });
+      }
+      return r.json();
     })
-    .catch(function(e) { alert('Backup failed: ' + e); });
+    .then(function(d) {
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      showBackupManualMsg('Backup started — log opens below.', false);
+      if (d.history_id) {
+        startBackupLogPoll(d.history_id);
+      }
+      loadBackupHistory(1);
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      showBackupManualMsg('Backup failed: ' + e.message, true);
+      console.error('Backup error:', e);
+    });
 }
 
-function loadBackupHistory() {
-  fetch('/apps/' + appID + '/backup/history')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+function startBackupLogPoll(historyID) {
+  if (backupLogTimer) {
+    clearInterval(backupLogTimer);
+    backupLogTimer = null;
+  }
+  var pre = document.getElementById('log-content');
+  var modal = document.getElementById('log-modal');
+  modal.classList.remove('hidden');
+  pre.innerHTML = '<span style="color:#6e7681;font-style:italic">Starting…</span>';
+  function tick() {
+    fetch('/apps/' + appID + '/backup/history/' + historyID + '/log')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        pre.innerHTML = renderHighlightedLog(d.log || '');
+        var wrap = pre.parentElement;
+        if (wrap) wrap.scrollTop = wrap.scrollHeight;
+        var st = d.status != null ? d.status : d.Status;
+        if (st && st !== 'running') {
+          if (backupLogTimer) clearInterval(backupLogTimer);
+          backupLogTimer = null;
+          loadBackupHistory(backupHistoryPage);
+        }
+      })
+      .catch(function() {});
+  }
+  tick();
+  backupLogTimer = setInterval(tick, 900);
+}
+
+function loadBackupHistory(page) {
+  if (backupHistoryPollTimer) {
+    clearInterval(backupHistoryPollTimer);
+    backupHistoryPollTimer = null;
+  }
+  if (typeof page === 'number') backupHistoryPage = page;
+  var historyURL = '/apps/' + appID + '/backup/history?page=' + backupHistoryPage + '&per_page=5';
+  Promise.all([
+    fetch(historyURL).then(function(r) { return r.json(); }),
+    fetch('/apps/' + appID + '/backup/restore-status').then(function(r) { return r.json(); })
+  ])
+    .then(function(arr) {
+      var d = arr[0];
+      var rs = arr[1] || {};
+      var restoringId = Number(rs.restoring_history_id) || 0;
+
       var list = document.getElementById('backup-history-list');
+      var pager = document.getElementById('backup-history-pager');
       if (!d.history || d.history.length === 0) {
         list.innerHTML = '<div class="px-4 py-8 text-center text-xs text-muted-foreground">No backups yet</div>';
+        if (pager) { pager.classList.add('hidden'); pager.innerHTML = ''; }
         return;
       }
       list.innerHTML = d.history.map(function(h) {
         var statusColor = h.Status === 'completed' ? 'text-emerald-400' : h.Status === 'running' ? 'text-blue-400' : 'text-red-400';
-        var restoreBtn = h.Status === 'completed' ? 
-          '<button type="button" onclick="restoreBackup(' + h.ID + ')" class="btn-secondary h-8 px-3 text-xs">Restore</button>' : '';
-        return '<div class="flex items-center justify-between px-4 py-3">' +
-          '<div class="flex-1"><p class="text-sm font-medium text-foreground">' + h.BackupType + ' backup</p>' +
-          '<p class="text-xs text-muted-foreground">' + h.CreatedAt + ' • <span class="' + statusColor + '">' + h.Status + '</span></p></div>' +
-          restoreBtn + '</div>';
+        var missing = h.RemoteMissing ? ' <span class="text-amber-400">(not on cloud)</span>' : '';
+        var okRestore = h.Status === 'completed' && !h.RemoteMissing;
+        var okDrive = okRestore && h.RemotePath;
+        var isRestoring = restoringId > 0 && Number(h.ID) === restoringId;
+        var statusExtra = isRestoring ? ' <span class="text-sky-400 font-medium">· Restoring…</span>' : '';
+        var rel = formatRelativeTime(h.CreatedAt);
+        var fullAt = String(h.CreatedAt || '').replace(/"/g, '&quot;');
+        var volumeLine = h.VolumeName ? '<p class="text-xs text-muted-foreground/90 mt-1">Volume: <span class="font-mono text-foreground/90">' + escapeHtmlAttr(h.VolumeName) + '</span></p>' : '';
+
+        var timeBadge = '<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 bg-muted/60 ring-border/50 text-muted-foreground" title="' + fullAt + '">' +
+          '<svg class="h-2.5 w-2.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"/></svg>' +
+          rel + '</span>';
+        var statusBadge = '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ' +
+          (h.Status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20' :
+           h.Status === 'running'   ? 'bg-blue-500/10 text-blue-400 ring-blue-500/20 animate-pulse' :
+                                      'bg-red-500/10 text-red-400 ring-red-500/20') + '">' +
+          h.Status + '</span>';
+
+        var buttons = '<div class="flex flex-wrap gap-2">';
+        buttons += '<button type="button" onclick="showBackupLog(' + h.ID + ')" class="btn-secondary h-8 px-3 text-xs">' +
+          '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">' +
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>' +
+          '</svg> Log</button>';
+
+        if (okDrive) {
+          buttons += '<button type="button" id="drive-btn-' + h.ID + '" onclick="openDriveLink(' + h.ID + ')" class="btn-secondary h-8 px-3 text-xs">' +
+            '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>' +
+            '</svg> Drive</button>';
+        }
+        if (okRestore) {
+          var rDisabled = isRestoring ? ' disabled' : '';
+          var rLabel = isRestoring ? 'Restoring…' : 'Restore';
+          buttons += '<button type="button"' + rDisabled +
+            ' class="btn-secondary h-8 px-3 text-xs js-open-restore' + (isRestoring ? ' opacity-70 cursor-not-allowed' : '') + '"' +
+            ' data-hid="' + h.ID + '"' +
+            ' data-btype="' + escapeHtmlAttr(h.BackupType || 'volume') + '"' +
+            ' data-rpath="' + escapeHtmlAttr(h.RemotePath || '') + '">' +
+            '<svg class="h-3.5 w-3.5 inline-block mr-1 -translate-y-px" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>' +
+            '</svg> ' + rLabel + '</button>';
+        }
+        buttons += '</div>';
+
+        return '<div class="px-4 py-3">' +
+          '<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">' +
+          '<div class="flex-1 min-w-0">' +
+          '<div class="flex flex-wrap items-center gap-1.5 mb-1">' +
+          '<p class="text-sm font-medium text-foreground mr-1">' + h.BackupType + ' backup</p>' +
+          statusBadge +
+          (isRestoring ? '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-sky-500/10 text-sky-400 ring-sky-500/20">Restoring…</span>' : '') +
+          (missing ? '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 bg-amber-500/10 text-amber-400 ring-amber-500/20">not on cloud</span>' : '') +
+          '</div>' +
+          '<div class="flex items-center gap-2">' + timeBadge + '</div>' +
+          volumeLine +
+          (h.RemotePath ? '<p class="text-xs text-muted-foreground font-mono mt-1 break-all">' + h.RemotePath + '</p>' : '') +
+          '</div>' +
+          buttons +
+          '</div></div>';
       }).join('');
-    });
+
+      if (pager && d.total_pages > 1) {
+        pager.classList.remove('hidden');
+        var prevNum = d.page - 1;
+        var nextNum = d.page + 1;
+        var prev = d.page > 1
+          ? '<button type="button" class="inline-flex h-9 min-w-[2.75rem] items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-foreground bg-muted/50 ring-1 ring-border/60 hover:bg-muted hover:ring-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" onclick="loadBackupHistory(' + prevNum + ')" aria-label="Previous page"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg><span class="hidden sm:inline">Prev</span></button>'
+          : '<span class="inline-flex h-9 min-w-[2.75rem] cursor-not-allowed items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-muted-foreground/45 ring-1 ring-border/30 bg-muted/20" aria-disabled="true"><svg class="h-4 w-4 opacity-50" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg><span class="hidden sm:inline">Prev</span></span>';
+        var next = d.page < d.total_pages
+          ? '<button type="button" class="inline-flex h-9 min-w-[2.75rem] items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-foreground bg-muted/50 ring-1 ring-border/60 hover:bg-muted hover:ring-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" onclick="loadBackupHistory(' + nextNum + ')" aria-label="Next page"><span class="hidden sm:inline">Next</span><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></button>'
+          : '<span class="inline-flex h-9 min-w-[2.75rem] cursor-not-allowed items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-muted-foreground/45 ring-1 ring-border/30 bg-muted/20" aria-disabled="true"><span class="hidden sm:inline">Next</span><svg class="h-4 w-4 opacity-50" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg></span>';
+        pager.innerHTML = '<div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">' +
+          '<p class="text-[11px] text-muted-foreground"><span class="font-medium text-foreground/90">Page ' + d.page + '</span><span class="text-muted-foreground/50"> / </span>' + d.total_pages + '<span class="text-muted-foreground/60"> · </span>' + d.total + ' recent</p>' +
+          '<div class="inline-flex items-center gap-1 rounded-lg border border-border/50 bg-muted/15 p-0.5">' + prev + next + '</div></div>';
+      } else if (pager) {
+        pager.classList.add('hidden');
+        pager.innerHTML = '';
+      }
+
+      var hasRunning = d.history.some(function(h) {
+        var s = h.Status != null ? h.Status : h.status;
+        return s === 'running';
+      });
+      if (hasRunning) {
+        backupHistoryPollTimer = setInterval(function() {
+          loadBackupHistory(backupHistoryPage);
+        }, 2000);
+      }
+      if (d.remote_check_pending) {
+        setTimeout(function() { loadBackupHistory(backupHistoryPage); }, 2500);
+      }
+
+      if (restoringId > 0) {
+        if (!restoreStatusTimer) {
+          restoreStatusTimer = setInterval(function() {
+            fetch('/apps/' + appID + '/backup/restore-status')
+              .then(function(r) { return r.json(); })
+              .then(function(st) {
+                var id = Number(st.restoring_history_id) || 0;
+                if (id === 0) {
+                  if (restoreStatusTimer) {
+                    clearInterval(restoreStatusTimer);
+                    restoreStatusTimer = null;
+                  }
+                  loadBackupHistory(backupHistoryPage);
+                  if (st.status === 'failed') {
+                    showBackupManualMsg('Restore failed: ' + (st.error || 'Unknown error'), true);
+                  } else {
+                    showBackupManualMsg('Restore finished.', false);
+                  }
+                } else {
+                  loadBackupHistory(backupHistoryPage);
+                }
+              })
+              .catch(function() {});
+          }, 2000);
+        }
+      } else if (restoreStatusTimer) {
+        clearInterval(restoreStatusTimer);
+        restoreStatusTimer = null;
+      }
+    })
+    .catch(function() {});
 }
 
-function restoreBackup(historyID) {
-  if (!confirm('Restore from this backup? This will overwrite current data.')) return;
-  fetch('/apps/' + appID + '/backup/restore/' + historyID, { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { alert(d.message || 'Restore started'); })
-    .catch(function(e) { alert('Restore failed: ' + e); });
+function hideRestoreConfirmModal() {
+  var m = document.getElementById('restore-confirm-modal');
+  if (m) m.classList.add('hidden');
+  restorePendingHistoryID = 0;
 }
+
+function openRestoreConfirm(historyID, backupType, remotePath) {
+  restorePendingHistoryID = historyID;
+  var typeEl = document.getElementById('restore-confirm-type');
+  if (typeEl) {
+    typeEl.textContent = (backupType === 'full')
+      ? 'Full app — workspace files and environment'
+      : 'Volume only — application data volume';
+  }
+  var wrap = document.getElementById('restore-confirm-path-wrap');
+  var pathEl = document.getElementById('restore-confirm-path');
+  if (wrap && pathEl) {
+    if (remotePath && String(remotePath).trim() !== '') {
+      pathEl.textContent = remotePath;
+      wrap.classList.remove('hidden');
+    } else {
+      wrap.classList.add('hidden');
+    }
+  }
+  var modal = document.getElementById('restore-confirm-modal');
+  if (modal) modal.classList.remove('hidden');
+  setTimeout(function() {
+    var btn = document.getElementById('restore-confirm-submit');
+    if (btn) btn.focus();
+  }, 30);
+}
+
+function confirmRestoreBackup() {
+  var historyID = restorePendingHistoryID;
+  if (!historyID) return;
+  hideRestoreConfirmModal();
+  fetch('/apps/' + appID + '/backup/restore/' + historyID, { method: 'POST' })
+    .then(function(r) {
+      return r.json().then(function(data) {
+        if (!r.ok) throw new Error(data.error || 'Restore failed');
+        return data;
+      });
+    })
+    .then(function() {
+      showBackupManualMsg('Restore started…', false);
+      loadBackupHistory(backupHistoryPage);
+    })
+    .catch(function(e) { showBackupManualMsg('Restore failed: ' + (e && e.message ? e.message : e), true); });
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var m = document.getElementById('restore-confirm-modal');
+  if (m && !m.classList.contains('hidden')) {
+    e.preventDefault();
+    hideRestoreConfirmModal();
+  }
+});
 
 function loadBackupSchedules() {
   fetch('/apps/' + appID + '/backup/schedules')
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok) throw new Error(d.error || 'Failed to load schedules');
+        return d;
+      });
+    })
     .then(function(d) {
       var list = document.getElementById('backup-schedules-list');
       if (!d.schedules || d.schedules.length === 0) {
@@ -178,18 +707,73 @@ function loadBackupSchedules() {
         return;
       }
       list.innerHTML = d.schedules.map(function(s) {
+        var editBtn = '<button type="button" class="btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 js-edit-schedule" title="Edit schedule" data-sid="' + s.ID + '" data-did="' + s.DestinationID + '" data-btype="' + escapeHtmlAttr(s.BackupType || 'volume') + '" data-vname="' + escapeHtmlAttr(s.VolumeNames || '') + '" data-cron="' + escapeHtmlAttr(s.CronExpression || '') + '" data-ret="' + s.RetentionCount + '">' +
+          '<svg class="h-3.5 w-3.5 opacity-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg> Edit</button>';
         var toggleBtn = '<button type="button" onclick="toggleSchedule(' + s.ID + ', ' + !s.Enabled + ')" class="btn-secondary h-8 px-3 text-xs">' +
           (s.Enabled ? 'Disable' : 'Enable') + '</button>';
         var deleteBtn = '<button type="button" onclick="deleteSchedule(' + s.ID + ')" class="btn-secondary h-8 px-3 text-xs text-red-400">Delete</button>';
-        return '<div class="flex items-center justify-between px-4 py-3">' +
-          '<div class="flex-1"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + '</p>' +
-          '<p class="text-xs text-muted-foreground">Keep last ' + s.RetentionCount + ' backups</p></div>' +
-          '<div class="flex gap-2">' + toggleBtn + deleteBtn + '</div></div>';
+        var nextAt = s.NextRunAt != null ? s.NextRunAt : '';
+        var nextLine;
+        if (s.Enabled && nextAt) {
+          nextLine = '<p class="text-xs text-sky-300/90 mt-0.5">Next run: ' + formatScheduleNextRun(nextAt) + '</p>';
+        } else if (!s.Enabled) {
+          nextLine = '<p class="text-xs text-muted-foreground mt-0.5">Next run: — <span class="opacity-80">(disabled)</span></p>';
+        } else {
+          nextLine = '<p class="text-xs text-muted-foreground mt-0.5">Next run: —</p>';
+        }
+        var volumeLine = '';
+        if (s.BackupType === 'volume') {
+          volumeLine = '<p class="text-xs text-muted-foreground mt-1">Target volume: ' + (s.VolumeNames ? '<span class="font-mono text-foreground/90">' + escapeHtmlAttr(s.VolumeNames) + '</span>' : '<span class="text-emerald-300/90">Auto detect</span>') + '</p>';
+        }
+        return '<div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">' +
+          '<div class="flex-1 min-w-0"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + '</p>' +
+          '<p class="text-xs text-muted-foreground">Keep last ' + s.RetentionCount + ' backups</p>' +
+          nextLine + volumeLine + '</div>' +
+          '<div class="flex flex-wrap gap-2 shrink-0 sm:justify-end">' + editBtn + toggleBtn + deleteBtn + '</div></div>';
       }).join('');
+    })
+    .catch(function(err) {
+      var list = document.getElementById('backup-schedules-list');
+      if (list) list.innerHTML = '<div class="px-4 py-8 text-center text-xs text-red-400">' + (err.message || 'Failed to load') + '</div>';
     });
 }
 
 function showAddScheduleModal() {
+  var hid = document.getElementById('schedule-edit-id');
+  if (hid) hid.value = '';
+  var title = document.getElementById('schedule-modal-title');
+  if (title) title.textContent = 'Add Backup Schedule';
+  var sub = document.getElementById('schedule-submit-btn');
+  if (sub) sub.textContent = 'Create Schedule';
+  document.getElementById('schedule-form').reset();
+  var cron = document.getElementById('cron-input');
+  if (cron) cron.value = '';
+  var ret = document.querySelector('#schedule-form input[name="retention"]');
+  if (ret) ret.value = '7';
+  var vol = document.getElementById('schedule-volume-name');
+  if (vol) vol.value = '';
+  syncScheduleTypeUI();
+  document.getElementById('schedule-modal').classList.remove('hidden');
+}
+
+function openEditSchedule(scheduleID, destinationID, backupType, volumeName, cronExpr, retention) {
+  var hid = document.getElementById('schedule-edit-id');
+  if (hid) hid.value = String(scheduleID);
+  var title = document.getElementById('schedule-modal-title');
+  if (title) title.textContent = 'Edit Backup Schedule';
+  var sub = document.getElementById('schedule-submit-btn');
+  if (sub) sub.textContent = 'Save changes';
+  var dest = document.getElementById('schedule-destination');
+  if (dest) dest.value = String(destinationID);
+  var typeSel = document.querySelector('#schedule-form select[name="type"]');
+  if (typeSel) typeSel.value = backupType === 'full' ? 'full' : 'volume';
+  var volIn = document.getElementById('schedule-volume-name');
+  if (volIn) volIn.value = volumeName || '';
+  var cron = document.getElementById('cron-input');
+  if (cron) cron.value = cronExpr || '';
+  var retIn = document.querySelector('#schedule-form input[name="retention"]');
+  if (retIn) retIn.value = String(retention != null ? retention : 7);
+  syncScheduleTypeUI();
   document.getElementById('schedule-modal').classList.remove('hidden');
 }
 
@@ -200,36 +784,171 @@ function hideScheduleModal() {
 document.getElementById('schedule-form').addEventListener('submit', function(e) {
   e.preventDefault();
   var formData = new FormData(e.target);
+  if ((formData.get('type') || '') !== 'volume') {
+    formData.delete('volume_names');
+  }
   var destID = formData.get('destination');
-  fetch('/apps/' + appID + '/backup/schedule/' + destID, {
+  if (!destID) {
+    showBackupManualMsg('Select a destination.', true);
+    return;
+  }
+  var editId = (document.getElementById('schedule-edit-id') || {}).value;
+  var url = (editId && String(editId).trim() !== '')
+    ? ('/apps/' + appID + '/backup/schedule/' + encodeURIComponent(editId) + '/edit')
+    : ('/apps/' + appID + '/backup/schedule/' + encodeURIComponent(destID));
+  fetch(url, {
     method: 'POST',
     body: formData
   })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      alert(d.message || 'Schedule created');
+    .then(function(r) {
+      return r.json().then(function(data) {
+        if (!r.ok) throw new Error(data.error || 'Schedule failed');
+        return data;
+      });
+    })
+    .then(function() {
       hideScheduleModal();
       loadBackupSchedules();
+      showBackupManualMsg(editId ? 'Schedule updated.' : 'Schedule saved.', false);
     })
-    .catch(function(e) { alert('Failed: ' + e); });
+    .catch(function(err) { showBackupManualMsg('Schedule failed: ' + (err && err.message ? err.message : err), true); });
 });
 
 function toggleSchedule(scheduleID, enabled) {
   fetch('/apps/' + appID + '/backup/schedule/' + scheduleID + '/toggle?enabled=' + enabled, { method: 'POST' })
     .then(function(r) { return r.json(); })
-    .then(function(d) { loadBackupSchedules(); })
-    .catch(function(e) { alert('Failed: ' + e); });
+    .then(function() { loadBackupSchedules(); })
+    .catch(function(err) { showBackupManualMsg('Update failed: ' + err, true); });
 }
 
 function deleteSchedule(scheduleID) {
   if (!confirm('Delete this schedule?')) return;
   fetch('/apps/' + appID + '/backup/schedule/' + scheduleID + '/delete', { method: 'POST' })
     .then(function(r) { return r.json(); })
-    .then(function(d) { loadBackupSchedules(); })
-    .catch(function(e) { alert('Failed: ' + e); });
+    .then(function() { loadBackupSchedules(); })
+    .catch(function(err) { showBackupManualMsg('Delete failed: ' + err, true); });
 }
 
+function showBackupLog(historyID) {
+  if (backupLogTimer) {
+    clearInterval(backupLogTimer);
+    backupLogTimer = null;
+  }
+  fetch('/apps/' + appID + '/backup/history/' + historyID + '/log')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('log-content').innerHTML = renderHighlightedLog(d.log || '');
+      document.getElementById('log-modal').classList.remove('hidden');
+      var st = d.status != null ? d.status : d.Status;
+      if (st === 'running') {
+        startBackupLogPoll(historyID);
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('log-content').innerHTML = '<span style="color:#f85149">Failed to load log: ' + escapeHtml(String(err)) + '</span>';
+      document.getElementById('log-modal').classList.remove('hidden');
+    });
+}
+
+function hideLogModal() {
+  if (backupLogTimer) {
+    clearInterval(backupLogTimer);
+    backupLogTimer = null;
+  }
+  document.getElementById('log-modal').classList.add('hidden');
+}
+
+function openDriveLink(historyID) {
+  var btn = document.getElementById('drive-btn-' + historyID);
+  var origHTML = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+  }
+  fetch('/apps/' + appID + '/backup/history/' + historyID + '/drivelink')
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok) throw new Error(d.error || 'Failed to get drive link (HTTP ' + r.status + ')');
+        return d;
+      });
+    })
+    .then(function(d) {
+      if (btn) { btn.disabled = false; btn.innerHTML = origHTML; }
+      if (d.link) {
+        window.open(d.link, '_blank', 'noopener,noreferrer');
+      } else {
+        showBackupManualMsg('Drive link not available.', true);
+      }
+    })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.innerHTML = origHTML; }
+      console.error('Drive link error:', e);
+      showBackupManualMsg((e && e.message) ? e.message : 'Could not open file link.', true);
+    });
+}
+
+function setSchedule(cronExpr) {
+  document.getElementById('cron-input').value = cronExpr;
+}
+
+(function initBackupTabClickDelegates() {
+  var hlist = document.getElementById('backup-history-list');
+  if (hlist) {
+    hlist.addEventListener('click', function(e) {
+      var btn = e.target.closest('.js-open-restore');
+      if (!btn || btn.disabled) return;
+      e.preventDefault();
+      openRestoreConfirm(
+        parseInt(btn.getAttribute('data-hid'), 10),
+        btn.getAttribute('data-btype') || 'volume',
+        btn.getAttribute('data-rpath') || ''
+      );
+    });
+  }
+  var slist = document.getElementById('backup-schedules-list');
+  if (slist) {
+    slist.addEventListener('click', function(e) {
+      var btn = e.target.closest('.js-edit-schedule');
+      if (!btn) return;
+      e.preventDefault();
+      openEditSchedule(
+        parseInt(btn.getAttribute('data-sid'), 10),
+        parseInt(btn.getAttribute('data-did'), 10),
+        btn.getAttribute('data-btype') || 'volume',
+        btn.getAttribute('data-vname') || '',
+        btn.getAttribute('data-cron') || '',
+        parseInt(btn.getAttribute('data-ret'), 10) || 7
+      );
+    });
+  }
+})();
+
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-volume-pick]');
+  if (!btn) return;
+  e.preventDefault();
+  var target = btn.getAttribute('data-volume-pick');
+  var value = btn.getAttribute('data-volume-name') || '';
+  var input = document.getElementById(target);
+  if (input) {
+    input.value = value;
+    input.focus();
+  }
+});
+
+var backupTypeSel = document.getElementById('backup-type');
+if (backupTypeSel) backupTypeSel.addEventListener('change', syncBackupTypeUI);
+var scheduleTypeSel = document.getElementById('schedule-type');
+if (scheduleTypeSel) scheduleTypeSel.addEventListener('change', syncScheduleTypeUI);
+
 loadBackupDestinations();
-loadBackupHistory();
+loadBackupHistory(1);
 loadBackupSchedules();
+syncBackupTypeUI();
+syncScheduleTypeUI();
+if (backupScheduleRefreshTimer) clearInterval(backupScheduleRefreshTimer);
+backupScheduleRefreshTimer = setInterval(function() {
+  loadBackupSchedules();
+}, 60000);
+window.__backupScheduleRefreshTimer = backupScheduleRefreshTimer;
 </script>

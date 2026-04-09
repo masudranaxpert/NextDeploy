@@ -25,26 +25,35 @@ import (
 // panelTempPatterns are the glob patterns NextDeploy uses for temp files in os.TempDir().
 var panelTempPatterns = []string{
 	"vol-backup-*.tar.gz",
+	"vol-restore-*.tar.gz",
+	"vol-restore-*.zip",
 	"panel-upload-*.zip",
 	".nextdeploy-atomic-*",
 }
 
 // ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
 func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
-	dir := os.TempDir()
-	for _, pattern := range panelTempPatterns {
-		matches, err := filepath.Glob(filepath.Join(dir, pattern))
-		if err != nil {
-			continue
-		}
-		for _, m := range matches {
-			st, err := os.Stat(m)
+	dirs := []string{os.TempDir(), volumex.HostStagingDir()}
+	seen := map[string]struct{}{}
+	for _, dir := range dirs {
+		for _, pattern := range panelTempPatterns {
+			matches, err := filepath.Glob(filepath.Join(dir, pattern))
 			if err != nil {
 				continue
 			}
-			count++
-			totalBytes += st.Size()
-			paths = append(paths, m)
+			for _, m := range matches {
+				if _, ok := seen[m]; ok {
+					continue
+				}
+				seen[m] = struct{}{}
+				st, err := os.Stat(m)
+				if err != nil {
+					continue
+				}
+				count++
+				totalBytes += st.Size()
+				paths = append(paths, m)
+			}
 		}
 	}
 	return
@@ -466,7 +475,7 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	return c.Render("pages/settings", withUser(c, fiber.Map{
 		"Nav":              "settings",
 		"Title":            "Settings",
-		"Flash":            c.Query("flash"),
+		"Flash":            readFlash(c),
 		"CleanupEnabled":   settingBool(cfg[settingCleanupEnabled], true),
 		"CleanupInterval":  normalizeCleanupInterval(cfg[settingCleanupInterval]),
 		"CleanupIntervals": cleanupIntervalOptions(),
@@ -484,7 +493,8 @@ func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
 	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
-	return c.Redirect("/settings?flash=tmp_cleaned")
+	setFlash(c, "tmp_cleaned")
+	return c.Redirect("/settings")
 }
 
 // TempCleanupInfo returns live temp file info as JSON (for AJAX refresh).
@@ -549,14 +559,16 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		return c.Redirect("/nextdeploy?panelSaved=1")
+		setFlash(c, "panelSaved")
+		return c.Redirect("/nextdeploy")
 	}
 
 	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "panel")
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	return c.Redirect("/nextdeploy?panelSaved=1")
+	setFlash(c, "panelSaved")
+	return c.Redirect("/nextdeploy")
 }
 
 // SaveNextDeploySharedVolumes persists Caddy shared volume mounts (prefix + selected Docker volume names)
@@ -610,14 +622,16 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		return c.Redirect("/nextdeploy?volumesSaved=1")
+		setFlash(c, "volumesSaved")
+		return c.Redirect("/nextdeploy")
 	}
 
 	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	return c.Redirect("/nextdeploy?volumesSaved=1")
+	setFlash(c, "volumesSaved")
+	return c.Redirect("/nextdeploy")
 }
 
 // NextDeployApplyStatus returns the current root-stack compose apply status as JSON.
@@ -646,7 +660,8 @@ func boolString(v bool) string {
 // ManualCleanupRun triggers an immediate Docker cleanup regardless of schedule.
 func (p *Panel) ManualCleanupRun(c *fiber.Ctx) error {
 	go p.runScheduledCleanupForce()
-	return c.Redirect("/settings?flash=cleanup_started")
+	setFlash(c, "cleanup_started")
+	return c.Redirect("/settings")
 }
 
 func (p *Panel) runScheduledCleanupForce() {

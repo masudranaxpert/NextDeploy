@@ -405,14 +405,12 @@
     Overview
   </a>
 
-  {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
   <a href="/monitor" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "monitor"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h3.75l1.5-6 3 12 2.25-9 1.5 3H21"/>
     </svg>
     Monitor
   </a>
-  {{end}}
 
   <a href="/apps" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "apps"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -421,7 +419,6 @@
     Apps
   </a>
 
-  {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
   <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Docker</p>
 
   <a href="/containers" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "containers"}}sidebar-link-active{{end}}">
@@ -490,6 +487,5 @@
     </svg>
     Users
   </a>
-  {{end}}
 </nav>
 {{end}}

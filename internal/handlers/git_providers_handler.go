@@ -20,14 +20,19 @@ func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
 	for _, d := range ghDetails {
 		ghMap[d.ProviderID] = d
 	}
+	flash := readFlash(c)
+	// Legacy: ?saved=1 / ?deleted=1 from old bookmarks
+	saved := flash == "saved" || c.Query("saved") == "1"
+	deleted := flash == "deleted" || c.Query("deleted") == "1"
+	errMsg := readFlashError(c)
 	return c.Render("pages/git_providers", withUser(c, fiber.Map{
 		"Nav":                  "git",
 		"Title":                "Git Providers",
 		"Providers":            providers,
 		"GitHubDetails":        ghMap,
-		"Saved":                c.Query("saved") == "1",
-		"Deleted":              c.Query("deleted") == "1",
-		"Error":                c.Query("error"),
+		"Saved":                saved,
+		"Deleted":              deleted,
+		"Error":                errMsg,
 		"GitHubAppCreateURL":   "https://github.com/settings/apps/new",
 		"GitLabAppCreateURL":   "https://gitlab.com/-/user_settings/applications",
 		"GitHubManifestStart":  "/git/github/start",
@@ -40,12 +45,14 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return c.Redirect("/git?error=Invalid+ID")
+		setFlashError(c, "Invalid ID")
+		return c.Redirect("/git")
 	}
 
 	existing, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
-		return c.Redirect("/git?error=Provider+not+found")
+		setFlashError(c, "Provider not found")
+		return c.Redirect("/git")
 	}
 
 	name := strings.TrimSpace(c.FormValue("name"))
@@ -70,9 +77,11 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	}
 
 	if err := p.DB.UpdateGitProvider(c.UserContext(), id, name, provider, token, notes); err != nil {
-		return c.Redirect("/git?error=" + err.Error())
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
-	return c.Redirect("/git?saved=1")
+	setFlash(c, "saved")
+	return c.Redirect("/git")
 }
 
 // GitProviderDelete deletes a global Git provider credential.
@@ -80,12 +89,15 @@ func (p *Panel) GitProviderDelete(c *fiber.Ctx) error {
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return c.Redirect("/git?error=Invalid+ID")
+		setFlashError(c, "Invalid ID")
+		return c.Redirect("/git")
 	}
 	if err := p.DB.DeleteGitProvider(c.UserContext(), id); err != nil {
-		return c.Redirect("/git?error=" + err.Error())
+		setFlashError(c, err.Error())
+		return c.Redirect("/git")
 	}
-	return c.Redirect("/git?deleted=1")
+	setFlash(c, "deleted")
+	return c.Redirect("/git")
 }
 
 // AppSwitchSource switches an app between "files" and "git" source types.
@@ -109,16 +121,19 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 	if newSource == "git" {
 		// Before flipping DB to git, clear uploaded workspace so stale files are not left behind.
 		if err := p.Store.ClearUploadedProjectForGitSource(id); err != nil {
-			return c.Redirect("/apps/" + id + "?tab=overview&switchError=clear")
+			setFlash(c, "switchError_clear")
+			return c.Redirect("/apps/" + id + "?tab=overview")
 		}
 	}
 
 	if err := p.DB.SetAppSourceType(c.UserContext(), id, newSource); err != nil {
-		return c.Redirect("/apps/" + id + "?tab=overview&switchError=1")
+		setFlashError(c, "Failed to switch source type")
+		return c.Redirect("/apps/" + id + "?tab=overview")
 	}
 
+	setFlash(c, "sourceSwitched")
 	if newSource == "git" {
-		return c.Redirect("/apps/" + id + "?tab=git&sourceSwitched=1")
+		return c.Redirect("/apps/" + id + "?tab=git")
 	}
-	return c.Redirect("/apps/" + id + "?tab=files&sourceSwitched=1")
+	return c.Redirect("/apps/" + id + "?tab=files")
 }

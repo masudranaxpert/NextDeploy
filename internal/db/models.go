@@ -226,6 +226,7 @@ type BackupSchedule struct {
 	AppID           string
 	DestinationID   int64
 	BackupType      string
+	VolumeNames     string
 	CronExpression  string
 	RetentionCount  int
 	Enabled         bool
@@ -239,9 +240,38 @@ type BackupHistory struct {
 	AppID         string
 	DestinationID int64
 	BackupType    string
+	VolumeName    string
 	RemotePath    string
 	Status        string
 	ErrorMessage  string
 	SizeBytes     int64
+	Log           string
 	CreatedAt     string
+	// RemoteMissingCode: -1 unknown, 0 present on remote, 1 missing (cached; refreshed at most hourly).
+	RemoteMissingCode int    `json:"-"`
+	RemoteCheckedAt   string `json:"-"`
+}
+
+// ShouldRecheckRemotePresence returns true if cloud presence should be verified again (unknown or stale >1h).
+func (h BackupHistory) ShouldRecheckRemotePresence(now time.Time) bool {
+	if h.Status != "completed" || strings.TrimSpace(h.RemotePath) == "" {
+		return false
+	}
+	if h.RemoteMissingCode < 0 || strings.TrimSpace(h.RemoteCheckedAt) == "" {
+		return true
+	}
+	t, err := ParseRemoteCheckedAt(h.RemoteCheckedAt)
+	if err != nil {
+		return true
+	}
+	return now.Sub(t) >= time.Hour
+}
+
+// ParseRemoteCheckedAt parses SQLite datetime('now') values stored in backup_history.remote_checked_at.
+func ParseRemoteCheckedAt(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, errors.New("empty remote_checked_at")
+	}
+	return time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
 }

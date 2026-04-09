@@ -104,8 +104,9 @@ func main() {
 		AppName:      "NextDeploy",
 		ServerHeader: "NextDeploy",
 		Views:        engine,
-		// Default Fiber body limit is small; ZIP uploads need a higher cap or the connection can abort.
-		BodyLimit: 512 * 1024 * 1024,
+		// Large volume backups; stream request body so the full upload is not held in RAM at once.
+		BodyLimit:         2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
+		StreamRequestBody: true,
 	})
 
 	app.Use(logger.New(logger.Config{
@@ -171,6 +172,7 @@ func main() {
 	app.Get("/volumes", p.VolumesPage)
 	app.Get("/volumes/browse", p.VolumeBrowse)
 	app.Get("/volumes/download", p.VolumeDownload)
+	app.Get("/volumes/restore/status", p.VolumeRestoreStatus)
 	app.Post("/volumes/restore", p.VolumeRestore)
 	app.Post("/volumes/remove", p.GlobalVolumeRemove)
 	app.Post("/images/remove", p.GlobalImageRemove)
@@ -290,7 +292,11 @@ func main() {
 	// App backup operations
 	app.Post("/apps/:id/backup/:destid", p.AppBackupManual)
 	app.Get("/apps/:id/backup/history", p.AppBackupHistory)
+	app.Get("/apps/:id/backup/history/:historyid/log", p.AppBackupHistoryLog)
+	app.Get("/apps/:id/backup/history/:historyid/drivelink", p.AppBackupDriveLink)
+	app.Get("/apps/:id/backup/restore-status", p.AppBackupRestoreStatus)
 	app.Post("/apps/:id/backup/restore/:historyid", p.AppBackupRestore)
+	app.Post("/apps/:id/backup/schedule/:scheduleid/edit", p.AppBackupScheduleUpdate)
 	app.Post("/apps/:id/backup/schedule/:destid", p.AppBackupScheduleCreate)
 	app.Get("/apps/:id/backup/schedules", p.AppBackupScheduleList)
 	app.Post("/apps/:id/backup/schedule/:scheduleid/toggle", p.AppBackupScheduleToggle)

@@ -2,22 +2,34 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log"
+	"strings"
 	"time"
+
+	"github.com/robfig/cron/v3"
 
 	"panel/internal/db"
 )
 
+var backupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+
 func (p *Panel) StartBackupWorker() {
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		p.processScheduledBackups()
+		firstWait := time.Until(time.Now().Truncate(time.Minute).Add(time.Minute))
+		if firstWait > 0 {
+			timer := time.NewTimer(firstWait)
+			<-timer.C
+		}
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			p.processScheduledBackups()
 		}
 	}()
-	
+
 	log.Println("Backup worker started")
 }
 
@@ -51,29 +63,103 @@ func (p *Panel) processScheduledBackups() {
 					continue
 				}
 				
-				go p.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType)
-				
+				retention := schedule.RetentionCount
+				if retention < 1 {
+					retention = 5
+				}
+				go p.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention)
+
 				_ = p.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID)
-				
-				go p.cleanupOldBackups(ctx, app.ID, dest.ID, schedule.BackupType, schedule.RetentionCount)
 			}
 		}
 	}
 }
 
 func shouldRunSchedule(schedule db.BackupSchedule) bool {
-	if schedule.LastRun == "" {
-		return true
+	expr := strings.TrimSpace(schedule.CronExpression)
+	if expr == "" {
+		return false
 	}
-	
-	lastRun, err := time.Parse("2006-01-02 15:04:05", schedule.LastRun)
+	sched, err := backupCronParser.Parse(expr)
 	if err != nil {
-		return true
+		return false
 	}
-	
-	return time.Since(lastRun) > 5*time.Minute
+	now := time.Now()
+	if schedule.LastRun == "" {
+		base, ok := backupScheduleBaseTime(schedule, now)
+		if !ok {
+			return false
+		}
+		next := sched.Next(base)
+		return !now.Before(next)
+	}
+	lastRun, err := parseScheduleDBTime(schedule.LastRun)
+	if err != nil {
+		base, ok := backupScheduleBaseTime(schedule, now)
+		if !ok {
+			return false
+		}
+		next := sched.Next(base)
+		return !now.Before(next)
+	}
+	next := sched.Next(lastRun)
+	return !now.Before(next)
 }
 
-func (p *Panel) cleanupOldBackups(ctx context.Context, appID string, destID int64, backupType string, keepCount int) {
-	_ = p.DB.DeleteOldBackups(ctx, appID, destID, backupType, keepCount)
+func parseScheduleDBTime(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, errors.New("empty schedule timestamp")
+	}
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.In(time.Local), nil
 }
+
+func backupScheduleBaseTime(schedule db.BackupSchedule, now time.Time) (time.Time, bool) {
+	if createdAt := strings.TrimSpace(schedule.CreatedAt); createdAt != "" {
+		t, err := parseScheduleDBTime(createdAt)
+		if err == nil {
+			return t, true
+		}
+	}
+	return now, true
+}
+
+// nextBackupScheduleRun returns the next calendar run time after now for UI (enabled schedules with valid cron).
+func nextBackupScheduleRun(schedule db.BackupSchedule) (time.Time, bool) {
+	if !schedule.Enabled {
+		return time.Time{}, false
+	}
+	expr := strings.TrimSpace(schedule.CronExpression)
+	if expr == "" {
+		return time.Time{}, false
+	}
+	sched, err := backupCronParser.Parse(expr)
+	if err != nil {
+		return time.Time{}, false
+	}
+	now := time.Now()
+	var next time.Time
+	if schedule.LastRun != "" {
+		lastRun, err := parseScheduleDBTime(schedule.LastRun)
+		if err != nil {
+			next = sched.Next(now.Add(-time.Second))
+		} else {
+			next = sched.Next(lastRun)
+		}
+	} else {
+		next = sched.Next(now.Add(-time.Second))
+	}
+	for !next.After(now) {
+		n := sched.Next(next)
+		if !n.After(next) {
+			break
+		}
+		next = n
+	}
+	return next, true
+}
+

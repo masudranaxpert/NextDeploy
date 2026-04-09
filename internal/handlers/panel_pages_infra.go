@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -88,6 +87,8 @@ func (p *Panel) VolumeBrowse(c *fiber.Ctx) error {
 		return c.Status(400).SendString("invalid volume")
 	}
 	rel := c.Query("path", "")
+	fromApp := strings.TrimSpace(c.Query("from_app", ""))
+
 	entries, msg := volumex.ListDir(c.UserContext(), name, rel)
 	parent := volumex.ParentRel(rel)
 	rows := make([]volRow, 0, len(entries))
@@ -112,7 +113,9 @@ func (p *Panel) VolumeBrowse(c *fiber.Ctx) error {
 		"ParentPath":  parent,
 		"VolRows":     rows,
 		"BrowseError": msg,
-		"Flash":       c.Query("flash", ""),
+		"Flash":       readFlash(c),
+		"FlashError":  readFlashError(c),
+		"FromApp":     fromApp,
 	}), "layouts/shell")
 }
 
@@ -138,27 +141,4 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	c.Set("Content-Type", "application/gzip")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-backup.tar.gz"`, safe))
 	return c.SendFile(tmpPath)
-}
-
-func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
-	name := strings.TrimSpace(c.FormValue("name"))
-	if !volumex.ValidVolumeName(name) {
-		return c.Status(400).SendString("invalid volume")
-	}
-	fh, err := c.FormFile("backup")
-	if err != nil {
-		return c.Status(400).SendString("upload a .tar.gz backup")
-	}
-	src, err := fh.Open()
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	defer src.Close()
-	msg := volumex.RestoreTarGz(c.UserContext(), name, src)
-	q := url.Values{}
-	q.Set("name", name)
-	if msg != "" {
-		q.Set("flash", msg)
-	}
-	return c.Redirect("/volumes/browse?" + q.Encode())
 }

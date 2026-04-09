@@ -570,7 +570,8 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	}
 	upstreams := "{{upstreams " + strconv.Itoa(port) + "}}"
 
-	// handle_path + file_server: root is resolved on the Caddy (ingress) host, not the app container, unless the same path is bind-mounted there.
+	// handle_path automatically strips the matched prefix before passing to file_server,
+	// which is the correct approach for serving static/media files at a URL sub-path.
 	routes := normalizedRoutes(d)
 	order := 1
 	for _, route := range routes {
@@ -583,13 +584,11 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 			if root == "" {
 				continue
 			}
-			// Use route instead of handle_path for better file_server compatibility
-			base := fmt.Sprintf("%s.%d_route", prefix, order)
+			// handle_path strips the matched prefix automatically (no uri directive needed)
+			base := fmt.Sprintf("%s.%d_handle_path", prefix, order)
 			labels[base] = path
-			// Strip prefix using uri directive, then serve files
-			labels[base+".0_uri"] = "strip_prefix " + strings.TrimRight(path, "*")
-			labels[base+".1_root"] = "* " + root
-			labels[base+".2_file_server"] = `{{""}}`
+			labels[base+".0_root"] = "* " + root
+			labels[base+".1_file_server"] = `{{""}}`
 			order++
 			continue
 		}

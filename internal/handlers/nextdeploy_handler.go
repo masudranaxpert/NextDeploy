@@ -18,6 +18,7 @@ import (
 
 func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	nextDeployFlash := readFlash(c) // read once; cookie is cleared after this call
 	cfg, _ := p.DB.GetAllSettings(ctx)
 	panelSite := nextDeployPanelDomain(cfg)
 	labels := caddy.GenerateLabels(panelSite)
@@ -98,11 +99,14 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"PanelEnableHTTPS": panelSite.EnableHTTPS,
 		"PanelEnableWWW":  panelSite.EnableWWW,
 		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
-		"PanelSaved":   c.Query("panelSaved") == "1",
-		"VolumesSaved": c.Query("volumesSaved") == "1",
+		// readFlash is called once; legacy ?panelSaved=1 / ?volumesSaved=1 still accepted.
+		"PanelSaved":   nextDeployFlash == "panelSaved" || c.Query("panelSaved") == "1",
+		"VolumesSaved": nextDeployFlash == "volumesSaved" || c.Query("volumesSaved") == "1",
 		"RootApplyStatus": func() string {
 			// Only surface apply status right after a save redirect (panel or shared volumes).
-			if c.Query("panelSaved") != "1" && c.Query("volumesSaved") != "1" {
+			panelSaved := nextDeployFlash == "panelSaved" || c.Query("panelSaved") == "1"
+			volSaved := nextDeployFlash == "volumesSaved" || c.Query("volumesSaved") == "1"
+			if !panelSaved && !volSaved {
 				return ""
 			}
 			return strings.TrimSpace(cfg[settingRootApplyStatus])

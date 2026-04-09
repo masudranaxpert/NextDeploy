@@ -203,7 +203,8 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
+	setFlash(c, "domainSaved")
+	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
 // POST /apps/:id/domains/:did/delete — delete domain
@@ -219,7 +220,8 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
+	setFlash(c, "domainSaved")
+	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
 // POST /apps/:id/domains/:did/edit — update domain
@@ -264,7 +266,8 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	return c.Redirect("/apps/" + id + "?tab=domains&domainSaved=1")
+	setFlash(c, "domainSaved")
+	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
 // GET /apps/:id/domains/:did/labels — return generated labels as JSON (for preview modal)

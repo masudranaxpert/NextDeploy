@@ -10,6 +10,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/google/uuid v1.6.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sync v0.10.0

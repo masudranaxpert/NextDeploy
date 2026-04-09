@@ -99,8 +99,8 @@
         </div>
         <div class="space-y-2">
           <label class="text-xs font-medium text-foreground" for="static-path{{$suf}}">Caddy filesystem path</label>
-          <input id="static-path{{$suf}}" name="static_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/app/staticfiles" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Absolute path on Caddy container</p>
+          <input id="static-path{{$suf}}" name="static_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/mnt/shared/myvolume/staticfiles" autocomplete="off">
+          <p class="text-[11px] leading-snug text-muted-foreground">Absolute path <em>inside Caddy container</em>. If using a shared volume, path starts with <code class="rounded bg-muted/80 px-1 py-px font-mono">/mnt/shared/&lt;volume&gt;</code></p>
         </div>
       </div>
     </div>
@@ -124,8 +124,8 @@
         </div>
         <div class="space-y-2">
           <label class="text-xs font-medium text-foreground" for="media-path{{$suf}}">Caddy filesystem path</label>
-          <input id="media-path{{$suf}}" name="media_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/app/media" autocomplete="off">
-          <p class="text-[11px] leading-snug text-muted-foreground">Same as <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_ROOT</code></p>
+          <input id="media-path{{$suf}}" name="media_path" type="text" class="input h-10 w-full font-mono text-sm" placeholder="/mnt/shared/myvolume/media" autocomplete="off">
+          <p class="text-[11px] leading-snug text-muted-foreground">Same as <code class="rounded bg-muted/80 px-1 py-px font-mono">MEDIA_ROOT</code>. If using a shared volume, path starts with <code class="rounded bg-muted/80 px-1 py-px font-mono">/mnt/shared/&lt;volume&gt;</code></p>
         </div>
       </div>
     </div>

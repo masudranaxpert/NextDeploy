@@ -252,10 +252,12 @@ CREATE TABLE IF NOT EXISTS backup_history (
   app_id TEXT NOT NULL,
   destination_id INTEGER NOT NULL,
   backup_type TEXT NOT NULL,
-  file_name TEXT NOT NULL,
-  file_size INTEGER NOT NULL DEFAULT 0,
+  volume_name TEXT NOT NULL DEFAULT '',
+  remote_path TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   error_message TEXT NOT NULL DEFAULT '',
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  log TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
   FOREIGN KEY(destination_id) REFERENCES backup_destinations(id) ON DELETE CASCADE
@@ -264,6 +266,60 @@ CREATE TABLE IF NOT EXISTS backup_history (
 	}
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_backup_history_app ON backup_history(app_id, created_at);`); err != nil {
 		return err
+	}
+
+	// Check if backup_history has old schema and migrate
+	var hasFileNameColumn int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'file_name'`).Scan(&hasFileNameColumn)
+	
+	if hasFileNameColumn > 0 {
+		// Old schema detected - drop and recreate (safe since backup feature is new)
+		_, _ = s.db.Exec(`DROP TABLE IF EXISTS backup_history`)
+		_, _ = s.db.Exec(`
+			CREATE TABLE backup_history (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				app_id TEXT NOT NULL,
+				destination_id INTEGER NOT NULL,
+				backup_type TEXT NOT NULL,
+				remote_path TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL,
+				error_message TEXT NOT NULL DEFAULT '',
+				size_bytes INTEGER NOT NULL DEFAULT 0,
+				log TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
+				FOREIGN KEY(destination_id) REFERENCES backup_destinations(id) ON DELETE CASCADE
+			)
+		`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_backup_history_app ON backup_history(app_id, created_at)`)
+	}
+	
+	// Add log column if missing
+	var hasLogColumn int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'log'`).Scan(&hasLogColumn)
+	if hasLogColumn == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN log TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasRemoteMissing int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'remote_missing'`).Scan(&hasRemoteMissing)
+	if hasRemoteMissing == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN remote_missing INTEGER NOT NULL DEFAULT -1`)
+	}
+	var hasRemoteChecked int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'remote_checked_at'`).Scan(&hasRemoteChecked)
+	if hasRemoteChecked == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN remote_checked_at TEXT NOT NULL DEFAULT ''`)
+	}
+	var hasScheduleVolumeNames int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_schedules') WHERE name = 'volume_names'`).Scan(&hasScheduleVolumeNames)
+	if hasScheduleVolumeNames == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_schedules ADD COLUMN volume_names TEXT NOT NULL DEFAULT ''`)
+	}
+	var hasBackupVolumeName int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'volume_name'`).Scan(&hasBackupVolumeName)
+	if hasBackupVolumeName == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN volume_name TEXT NOT NULL DEFAULT ''`)
 	}
 
 	return nil
