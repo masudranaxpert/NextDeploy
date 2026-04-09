@@ -9,11 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"panel/internal/dockerx"
+
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
 )
 
-// AppLogWebSocket streams `docker logs -f` output to the browser.
+// AppLogWebSocket streams live logs: `docker compose logs -f <service>` when the query names a compose
+// service (stable after recreate), else `docker logs -f` for a legacy container id/name.
 // The initial history is still loaded by the normal partial; this stream only appends new output.
 func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	appID := strings.TrimSpace(c.Params("id"))
@@ -27,11 +30,13 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	}
 	chkCtx, chkCancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer chkCancel()
-	if _, err := p.DB.GetApp(chkCtx, appID); err != nil {
+	app, err := p.DB.GetApp(chkCtx, appID)
+	if err != nil {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
-	if container == "" || !p.containerBelongsToApp(chkCtx, appID, container) {
+	byService := p.composeServiceBelongsToApp(chkCtx, appID, container)
+	if container == "" || (!byService && !p.containerBelongsToApp(chkCtx, appID, container)) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("invalid container for this app"))
 		return
 	}
@@ -39,7 +44,18 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "0", container)
+	var cmd *exec.Cmd
+	if byService {
+		project := p.activeComposeProjectName(chkCtx, app, appID)
+		dir := p.appSourcePath(chkCtx, appID)
+		cmd, err = dockerx.ComposeServiceLogsFollowCmd(ctx, dir, p.effectiveComposePaths(chkCtx, app, appID), project, p.composeEnvFiles(chkCtx, appID), container)
+		if err != nil {
+			_ = c.WriteMessage(websocket.TextMessage, []byte("compose logs: "+err.Error()))
+			return
+		}
+	} else {
+		cmd = exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "0", container)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("stdout pipe error: "+err.Error()))

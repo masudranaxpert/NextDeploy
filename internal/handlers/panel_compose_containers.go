@@ -220,28 +220,60 @@ func (p *Panel) containerBelongsToApp(ctx context.Context, appID, containerName 
 	return false
 }
 
+// composeServiceBelongsToApp reports whether the compose service exists in this app's current compose ps.
+// Prefer this over container Name for logs — Names embed ephemeral container id prefixes.
+func (p *Panel) composeServiceBelongsToApp(ctx context.Context, appID, service string) bool {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return false
+	}
+	app, err := p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return false
+	}
+	_, rows, res := p.composeProjectAndPS(ctx, app, appID)
+	if !res.OK {
+		return false
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.Service) == service {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Panel) AppLogPartial(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
-	name := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")
+	q := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")
 	tail := logTailLines(c.Query("tail"))
-	if name == "" {
+	if q == "" {
 		return c.Render(tmplPartialLogView, fiber.Map{
 			"LogHTML": logview.FormatDockerLog("Select a container from the list."),
 			"LogMeta": "",
 		})
 	}
-	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+	ctx, cancel := context.WithTimeout(c.UserContext(), 45*time.Second)
+	defer cancel()
+	byService := p.composeServiceBelongsToApp(ctx, id, q)
+	if !byService && !p.containerBelongsToApp(ctx, id, q) {
 		return c.Render(tmplPartialLogView, fiber.Map{
-			"LogHTML": logview.FormatDockerLog("That container does not belong to this app."),
+			"LogHTML": logview.FormatDockerLog("That service or container does not belong to this app."),
 			"LogMeta": "",
 		})
 	}
-	ctx, cancel := context.WithTimeout(c.UserContext(), 45*time.Second)
-	defer cancel()
-	res := dockerx.DockerLogs(ctx, name, tail)
+	var res dockerx.Result
+	if byService {
+		project := p.activeComposeProjectName(ctx, app, id)
+		dir := p.appSourcePath(ctx, id)
+		res = dockerx.ComposeServiceLogs(ctx, dir, p.effectiveComposePaths(ctx, app, id), project, p.composeEnvFiles(ctx, id), q, tail)
+	} else {
+		res = dockerx.DockerLogs(ctx, q, tail)
+	}
 	raw := res.Output
 	if !res.OK && strings.TrimSpace(raw) == "" {
 		raw = "docker logs failed."
@@ -250,7 +282,7 @@ func (p *Panel) AppLogPartial(c *fiber.Ctx) error {
 	if !res.OK {
 		status = "error"
 	}
-	meta := fmt.Sprintf("%s · %s · last %d lines", name, status, tail)
+	meta := fmt.Sprintf("%s · %s · last %d lines", q, status, tail)
 	html := logview.FormatDockerLog(raw)
 	return c.Render(tmplPartialLogView, fiber.Map{
 		"LogHTML": html,

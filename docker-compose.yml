@@ -37,6 +37,6 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - /data:/data
-            - ./docker-compose.yml:/stack/docker-compose.yml:rw
+            - /opt/nextdeploy/docker-compose.yml:/stack/docker-compose.yml:rw
 volumes:
     caddy_data: {}

@@ -224,6 +224,31 @@ func DockerLogs(ctx context.Context, container string, tail int) Result {
 	return run(ctx, ".", "docker", "logs", "-t", "--tail", fmt.Sprintf("%d", tail), container)
 }
 
+// ComposeServiceLogs runs `docker compose logs` for one service. Service names stay valid after
+// `compose up --force-recreate`; container Names often embed a short id that becomes stale.
+func ComposeServiceLogs(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service string, tail int) Result {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return Result{OK: false, Output: "no service selected"}
+	}
+	if tail <= 0 {
+		tail = 400
+	}
+	return run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "logs", "-t", "--tail", fmt.Sprintf("%d", tail), service)...)
+}
+
+// ComposeServiceLogsFollowCmd builds `docker compose logs -f` for a single service (streaming).
+func ComposeServiceLogsFollowCmd(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service string) (*exec.Cmd, error) {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return nil, fmt.Errorf("no service selected")
+	}
+	args := composeBin(projectDir, composeFiles, project, envFiles, "logs", "-f", "--tail", "0", service)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = projectDir
+	return cmd, nil
+}
+
 func DockerPruneUnused(ctx context.Context) Result {
 	containerRes := run(ctx, ".", "docker", "container", "prune", "-f")
 	imageRes := run(ctx, ".", "docker", "image", "prune", "-a", "-f")

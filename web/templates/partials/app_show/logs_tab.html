@@ -21,7 +21,7 @@
                     hx-target="#log-view"
                     hx-swap="innerHTML">
               {{range .ComposeRows}}
-                <option value="{{.Name}}">{{.Name}} · {{.Service}} · {{.State}}</option>
+                <option value="{{.Service}}">{{.Service}} · {{.Name}} · {{.State}}</option>
               {{end}}
             </select>
           </div>

@@ -48,57 +48,20 @@
 
   <div
     class="relative overflow-visible rounded-2xl border border-border/55 bg-gradient-to-b from-muted/[0.12] via-background/80 to-background p-4 shadow-sm ring-1 ring-border/30 sm:p-5"
-    data-caddy-form-suf="{{$suf}}"
-    x-data="{ fsHelp: false }"
-    @keydown.escape.window="fsHelp = false">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
-      <div class="flex min-w-0 flex-1 gap-3">
-        <div class="mt-0.5 hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/[0.08] sm:flex" aria-hidden="true">
-          <svg class="h-5 w-5 text-primary/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15m-15-15h15M6.75 7.5h10.5v9H6.75z"/></svg>
-        </div>
-        <div class="min-w-0 space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <h4 class="text-sm font-semibold tracking-tight text-foreground">Direct file serving</h4>
-            <span class="inline-flex items-center gap-1 rounded-full border border-orange-500/25 bg-orange-500/[0.12] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-200/95">Caddy</span>
-            <span class="inline-flex items-center gap-1 rounded-full border border-muted-foreground/20 bg-muted/40 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">file_server</span>
-          </div>
-          <p class="max-w-prose text-xs leading-relaxed text-muted-foreground">
-            Serve files from disk at a URL prefix. Optional—only if you want Caddy to read files directly instead of proxying everything to the app.
-          </p>
-        </div>
+    data-caddy-form-suf="{{$suf}}">
+    <div class="flex min-w-0 gap-3">
+      <div class="mt-0.5 hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/[0.08] sm:flex" aria-hidden="true">
+        <svg class="h-5 w-5 text-primary/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15m-15-15h15M6.75 7.5h10.5v9H6.75z"/></svg>
       </div>
-
-      <div
-        class="relative shrink-0 self-start sm:pt-0.5"
-        @mouseenter="fsHelp = true"
-        @mouseleave="fsHelp = false">
-        <button
-          type="button"
-          class="inline-flex h-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-border/80 bg-background/90 text-muted-foreground shadow-sm transition hover:border-primary/35 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-9 sm:min-w-9"
-          aria-label="Documentation: direct file serving and Docker mounts"
-          :aria-expanded="fsHelp"
-          @click="fsHelp = !fsHelp">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/></svg>
-        </button>
-        <div
-          x-show="fsHelp"
-          x-cloak
-          x-transition:enter="transition ease-out duration-150"
-          x-transition:enter-start="opacity-0 translate-y-1"
-          x-transition:enter-end="opacity-100 translate-y-0"
-          x-transition:leave="transition ease-in duration-100"
-          x-transition:leave-start="opacity-100"
-          x-transition:leave-end="opacity-0"
-          class="pointer-events-auto absolute right-0 top-full z-[70] mt-2 w-[min(calc(100vw-2rem),22rem)] rounded-xl border border-border/60 bg-card p-4 text-left text-xs text-card-foreground shadow-lg ring-1 ring-black/5 dark:ring-white/10 sm:left-0 sm:right-auto sm:w-[22rem]">
-          <p class="mb-2 font-semibold text-foreground">How this works</p>
-          <ul class="list-outside space-y-2.5 pl-4 text-[11px] leading-relaxed text-muted-foreground marker:text-primary/80">
-            <li><span class="font-medium text-foreground/90">Who reads files:</span> the path is resolved on the <strong class="font-medium text-foreground">Caddy (ingress)</strong> container, not inside your app process.</li>
-            <li><span class="font-medium text-foreground/90">Add one route:</span> choose <strong class="text-foreground/85">Static files</strong> (e.g. after <code class="rounded bg-muted px-1 py-px font-mono text-[10px]">collectstatic</code>) <em>or</em> <strong class="text-foreground/85">User media</strong> (uploads). Static and media must use <strong class="text-foreground/85">different</strong> public URL prefixes.</li>
-            <li><span class="font-medium text-foreground/90">Mounts:</span> that filesystem path must exist in the Caddy container—usually by bind-mounting the <strong class="text-foreground/85">same host folder</strong> to the <strong class="text-foreground/85">same absolute path</strong> on both Caddy and the app (e.g. <code class="rounded bg-muted px-1 py-px font-mono text-[10px]">MEDIA_ROOT</code> and this field both <code class="rounded bg-muted px-1 py-px font-mono text-[10px]">/app/media</code>).</li>
-            <li><span class="font-medium text-foreground/90">URL prefix:</span> must match what the browser requests (<code class="rounded bg-muted px-1 py-px font-mono text-[10px]">STATIC_URL</code> / <code class="rounded bg-muted px-1 py-px font-mono text-[10px]">MEDIA_URL</code>). Caddy strips the prefix and maps the rest under your filesystem root.</li>
-            <li><span class="font-medium text-foreground/90">After saving:</span> redeploy so generated compose labels apply.</li>
-          </ul>
+      <div class="min-w-0 space-y-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="text-sm font-semibold tracking-tight text-foreground">Direct file serving</h4>
+          <span class="inline-flex items-center gap-1 rounded-full border border-orange-500/25 bg-orange-500/[0.12] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-200/95">Caddy</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-muted-foreground/20 bg-muted/40 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">file_server</span>
         </div>
+        <p class="max-w-prose text-xs leading-relaxed text-muted-foreground">
+          Serve files from disk at a URL prefix. Optional—only if you want Caddy to read files directly instead of proxying everything to the app.
+        </p>
       </div>
     </div>
 

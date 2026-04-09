@@ -399,6 +399,80 @@ merge_upstream_compose_keep_panel_labels() {
   return 0
 }
 
+# Panel "Save Caddy volumes" writes nd_shared_* mounts into docker-compose.yml. Upstream refresh
+# used to wipe those (only panel.labels were merged). Re-apply from the previous file so Caddy
+# keeps named-volume bind paths like /data/shared/flixbd_media_data.
+merge_caddy_shared_volumes_from_previous_compose() {
+  local old_cf="\$1"
+  local new_cf="\$2"
+  [[ -f "\$old_cf" && -f "\$new_cf" ]] || return 0
+  if ! grep -qE 'nd_shared_|/data/shared/' "\$old_cf" 2>/dev/null; then
+    return 0
+  fi
+  if grep -q 'nd_shared_' "\$new_cf" 2>/dev/null; then
+    echo "[NextDeploy] Compose already lists nd_shared volume mounts; skipping shared-volume restore."
+    return 0
+  fi
+  local mounts_tmp blocks_tmp out_tmp
+  mounts_tmp=\$(mktemp)
+  blocks_tmp=\$(mktemp)
+  awk '
+    /^[[:space:]]+caddy:[[:space:]]*\$/ { c=1; next }
+    c && /^[[:space:]]+panel:[[:space:]]*\$/ { c=0 }
+    c && /^[[:space:]]+volumes:[[:space:]]*\$/ { v=1; next }
+    c && v && /^[[:space:]]+- / {
+      if (index(\$0, "nd_shared_") > 0 || index(\$0, "/data/shared/") > 0) print
+      next
+    }
+    c && v && /^[[:space:]]+[a-zA-Z_]/ && !/^[[:space:]]+- / { v=0 }
+  ' "\$old_cf" >"\$mounts_tmp" || true
+  awk '
+    /^volumes:/ { v=1; next }
+    v && /^    nd_shared_/ {
+      print
+      getline; print
+      getline; print
+      next
+    }
+    v { next }
+  ' "\$old_cf" >"\$blocks_tmp" || true
+  if [[ ! -s "\$mounts_tmp" && ! -s "\$blocks_tmp" ]]; then
+    rm -f "\$mounts_tmp" "\$blocks_tmp"
+    return 0
+  fi
+  out_tmp=\$(mktemp)
+  if [[ -s "\$mounts_tmp" ]]; then
+    awk -v mf="\$mounts_tmp" '
+      BEGIN { while ((getline l < mf) > 0) { n++; m[n] = l }; close(mf) }
+      {
+        print
+        if (!done && /^[[:space:]]*-[[:space:]]+\/data\/workspaces:\/data\/workspaces:ro[[:space:]]*\$/) {
+          for (i = 1; i <= n; i++) print m[i]
+          done = 1
+        }
+      }
+    ' "\$new_cf" >"\$out_tmp"
+    mv "\$out_tmp" "\$new_cf"
+  fi
+  if [[ -s "\$blocks_tmp" ]]; then
+    out_tmp=\$(mktemp)
+    awk -v bf="\$blocks_tmp" '
+      BEGIN { while ((getline l < bf) > 0) blk = blk l "\n"; close(bf) }
+      /^volumes:/ { v = 1; print; next }
+      v && /^    caddy_data:[[:space:]]*\{\}[[:space:]]*\$/ {
+        print
+        if (length(blk) > 2) printf "%s", blk
+        next
+      }
+      { print }
+    ' "\$new_cf" >"\$out_tmp"
+    mv "\$out_tmp" "\$new_cf"
+  fi
+  rm -f "\$mounts_tmp" "\$blocks_tmp"
+  echo "[NextDeploy] Preserved Caddy shared volume mounts from previous docker-compose.yml."
+  return 0
+}
+
 echo "[NextDeploy] Refreshing docker-compose.yml from repository..."
 PREV_BAK=""
 if [[ -f "\$INSTALL_DIR/docker-compose.yml" && ! -d "\$INSTALL_DIR/docker-compose.yml" ]]; then
@@ -422,6 +496,7 @@ if [[ -n "\$PREV_BAK" ]]; then
   if merge_upstream_compose_keep_panel_labels "\$PREV_BAK" "\$INSTALL_DIR/docker-compose.yml.tmp"; then
     echo "[NextDeploy] Preserved panel Caddy labels from previous compose file."
   fi
+  merge_caddy_shared_volumes_from_previous_compose "\$PREV_BAK" "\$INSTALL_DIR/docker-compose.yml.tmp" || true
   rm -f "\$PREV_BAK"
 fi
 mv "\$INSTALL_DIR/docker-compose.yml.tmp" "\$INSTALL_DIR/docker-compose.yml"
