@@ -375,38 +375,9 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 }
 
 func (p *Panel) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("pid"), 10, 64)
-	if err != nil {
-		setFlashError(c, "Invalid provider ID")
-		return c.Redirect("/git")
-	}
-	provider, err := p.DB.GetGitProvider(c.UserContext(), id)
-	if err != nil {
-		setFlashError(c, "Provider not found")
-		return c.Redirect("/git")
-	}
-	if provider.Provider != "github" {
-		setFlashError(c, "This provider is not GitHub")
-		return c.Redirect("/git")
-	}
-	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), id)
-	if err != nil {
-		setFlashError(c, "GitHub App details not found")
-		return c.Redirect("/git")
-	}
-	ctx, cancel := context.WithTimeout(c.UserContext(), 20*time.Second)
-	defer cancel()
-	detail, err = refreshGitHubProviderInstallation(ctx, detail)
-	if err != nil {
-		setFlashError(c, err.Error())
-		return c.Redirect("/git")
-	}
-	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
-		setFlashError(c, err.Error())
-		return c.Redirect("/git")
-	}
-	setFlash(c, "saved")
-	return c.Redirect("/git")
+	// "Re-check" is expected to reopen GitHub's installation / repository access flow.
+	// Reuse the install handler so users can review or expand selected repositories.
+	return p.GitHubProviderInstall(c)
 }
 
 func (p *Panel) GitHubProviderInstall(c *fiber.Ctx) error {
