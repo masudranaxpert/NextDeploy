@@ -102,7 +102,8 @@ func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
 		}
 		return checkout
 	}
-	clean := run(ctx, repoDir, env, "git", "clean", "-fd")
+	// Do not remove panel-managed .env (often untracked if not gitignored); compose uses this path as --env-file.
+	clean := run(ctx, repoDir, env, "git", "clean", "-fd", "--exclude=.env")
 	if !clean.OK {
 		if authURL != "" && authURL != safeURL {
 			clean.Output = strings.ReplaceAll(clean.Output, authURL, safeURL)

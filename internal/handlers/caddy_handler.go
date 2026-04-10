@@ -48,8 +48,8 @@ func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
 	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
 }
 
-// syncAppCaddyOverrideCtx writes the merged Caddy compose file using the active Docker Compose project name
-// (legacy slug vs slug_idsuffix) so volume/container_name prefixes match a running stack.
+// syncAppCaddyOverrideCtx writes the merged Caddy compose override file.
+// It passes the panel env so GenerateMergedCompose can inject env_file into every service.
 func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
@@ -74,7 +74,8 @@ func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
-	content, err := caddy.GenerateMergedCompose(base, project, domains)
+	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
+	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}

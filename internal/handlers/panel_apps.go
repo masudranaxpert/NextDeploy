@@ -241,5 +241,6 @@ func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	if err := p.syncWorkspaceEnvFromPanel(id, root, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	_ = p.syncAppCaddyOverride(c, id)
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=environment", id))
 }

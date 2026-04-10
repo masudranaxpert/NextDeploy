@@ -252,6 +252,10 @@ func (p *Panel) syncGitAppSource(ctx context.Context, appID string) (string, err
 	if !res.OK {
 		return res.Output, errors.New(res.Output)
 	}
+	// Restore workspace .env from the panel DB after clone/pull so git checkout/clean cannot drop or replace it
+	// (e.g. tracked .env in the repo, or untracked .env removed by older clean rules).
+	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
+	_ = p.syncWorkspaceEnvFromPanel(appID, repoDir, panelEnv)
 	commit := gitx.CurrentCommit(ctx, repoDir)
 	cfg.LastDeployRef = commit
 	_ = p.DB.UpsertAppGitConfig(ctx, cfg)
