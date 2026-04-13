@@ -299,7 +299,14 @@
 
   /* ── Log styles ── */
   .log-viewport .log-line {
-    @apply whitespace-pre-wrap break-words border-l-[3px] border-transparent py-[3px] pl-3 text-[13px] leading-relaxed;
+    @apply whitespace-pre-wrap break-words border-l-[3px] border-transparent py-[3px] pl-3 text-[15px] leading-relaxed;
+  }
+  /* Heuristic keyword highlights (live + static logs) */
+  .log-kw-scrape {
+    @apply rounded px-0.5 font-semibold text-sky-300;
+  }
+  .log-kw-browser {
+    @apply rounded px-0.5 font-semibold text-violet-300;
   }
   .log-lvl-fatal,
   .log-lvl-error {

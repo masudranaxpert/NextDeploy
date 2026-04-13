@@ -204,6 +204,24 @@ func ContainerRestart(ctx context.Context, name string) Result {
 	return run(ctx, ".", "docker", "restart", name)
 }
 
+// ContainerStart runs `docker start` for an existing stopped container.
+func ContainerStart(ctx context.Context, name string) Result {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Result{OK: false, Output: "no container name"}
+	}
+	return run(ctx, ".", "docker", "start", name)
+}
+
+// ContainerStop runs `docker stop` with a 10s grace period.
+func ContainerStop(ctx context.Context, name string) Result {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Result{OK: false, Output: "no container name"}
+	}
+	return run(ctx, ".", "docker", "stop", "-t", "10", name)
+}
+
 func ContainerRemove(ctx context.Context, name string) Result {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -222,31 +240,6 @@ func DockerLogs(ctx context.Context, container string, tail int) Result {
 	// Keep Docker timestamps so the browser toggle has a stable source.
 	// No --no-color so ANSI from apps is preserved for browser rendering.
 	return run(ctx, ".", "docker", "logs", "-t", "--tail", fmt.Sprintf("%d", tail), container)
-}
-
-// ComposeServiceLogs runs `docker compose logs` for one service. Service names stay valid after
-// `compose up --force-recreate`; container Names often embed a short id that becomes stale.
-func ComposeServiceLogs(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service string, tail int) Result {
-	service = strings.TrimSpace(service)
-	if service == "" {
-		return Result{OK: false, Output: "no service selected"}
-	}
-	if tail <= 0 {
-		tail = 400
-	}
-	return run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "logs", "-t", "--tail", fmt.Sprintf("%d", tail), service)...)
-}
-
-// ComposeServiceLogsFollowCmd builds `docker compose logs -f` for a single service (streaming).
-func ComposeServiceLogsFollowCmd(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string, service string) (*exec.Cmd, error) {
-	service = strings.TrimSpace(service)
-	if service == "" {
-		return nil, fmt.Errorf("no service selected")
-	}
-	args := composeBin(projectDir, composeFiles, project, envFiles, "logs", "-f", "--tail", "0", service)
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = projectDir
-	return cmd, nil
 }
 
 func DockerPruneUnused(ctx context.Context) Result {

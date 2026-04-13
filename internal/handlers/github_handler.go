@@ -100,6 +100,57 @@ func repoFullNameFromURL(raw string) string {
 	return p
 }
 
+// commitPageURL builds a web URL to the commit on GitHub or GitLab (hosted or self-managed).
+func commitPageURL(cfg db.AppGitConfig, fullSHA string) string {
+	fullSHA = strings.TrimSpace(fullSHA)
+	if fullSHA == "" {
+		return ""
+	}
+	fn := strings.TrimSpace(cfg.RepoFullName)
+	if fn == "" {
+		fn = repoFullNameFromURL(cfg.RepoURL)
+	}
+	if fn == "" {
+		return ""
+	}
+	raw := strings.TrimSpace(cfg.RepoURL)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(u.Host)
+	prov := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	// GitHub.com, GitHub Enterprise (custom host), and explicit github provider use /commit/SHA.
+	if prov == "github" || strings.Contains(host, "github") {
+		return fmt.Sprintf("https://%s/%s/commit/%s", u.Host, fn, fullSHA)
+	}
+	if prov == "gitlab" || strings.Contains(host, "gitlab") {
+		return fmt.Sprintf("https://%s/%s/-/commit/%s", u.Host, fn, fullSHA)
+	}
+	return ""
+}
+
+// gitDeployedSummary returns short SHA, subject line, and optional host commit URL for UI (Overview / Deploy / Git).
+func (p *Panel) gitDeployedSummary(ctx context.Context, appID string, cfg db.AppGitConfig) (shortSHA, subject, pageURL string) {
+	sha := strings.TrimSpace(cfg.LastDeployRef)
+	if sha == "" {
+		return "", "", ""
+	}
+	if len(sha) >= 7 {
+		shortSHA = sha[:7]
+	} else {
+		shortSHA = sha
+	}
+	pageURL = commitPageURL(cfg, sha)
+	repoDir := p.appCheckoutPath(appID)
+	if gitx.RepoExists(repoDir) {
+		if s := gitx.CurrentCommitSubject(ctx, repoDir); s != "" {
+			subject = s
+		}
+	}
+	return shortSHA, subject, pageURL
+}
+
 func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {

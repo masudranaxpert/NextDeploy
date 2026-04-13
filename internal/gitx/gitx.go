@@ -121,6 +121,19 @@ func CurrentCommit(ctx context.Context, repoDir string) string {
 	return strings.TrimSpace(res.Output)
 }
 
+// CurrentCommitSubject returns the first line of the latest commit message (git log -1 %s).
+func CurrentCommitSubject(ctx context.Context, repoDir string) string {
+	res := run(ctx, repoDir, nil, "git", "log", "-1", "--pretty=%s")
+	if !res.OK {
+		return ""
+	}
+	s := strings.TrimSpace(res.Output)
+	if len(s) > 200 {
+		return s[:197] + "..."
+	}
+	return s
+}
+
 func EnsureSafeRemote(ctx context.Context, repoDir, authMode, token string) {
 	remote := run(ctx, repoDir, nil, "git", "remote", "get-url", "origin")
 	if !remote.OK {

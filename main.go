@@ -99,6 +99,7 @@ func main() {
 		}
 		return strings.ToUpper(s[:1])
 	})
+	engine.AddFunc("lower", strings.ToLower)
 
 	app := fiber.New(fiber.Config{
 		AppName:      "NextDeploy",
@@ -237,6 +238,8 @@ func main() {
 	app.Post("/apps/:id/compose-file", p.SaveAppCompose)
 	app.Post("/apps/:id/env", p.SaveAppEnv)
 	app.Post("/apps/:id/delete", p.DeleteApp)
+	app.Post("/apps/:id/containers/start", p.ContainerStartOp)
+	app.Post("/apps/:id/containers/stop", p.ContainerStopOp)
 	app.Post("/apps/:id/containers/restart", p.ContainerRestartOp)
 	app.Post("/apps/:id/containers/remove", p.ContainerRemoveOp)
 	app.Post("/apps/:id/containers/remove-selected", p.ContainerRemoveSelectedOp)

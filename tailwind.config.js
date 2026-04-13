@@ -18,6 +18,8 @@ module.exports = {
     "log-badge-success",
     "log-badge-info",
     "log-badge-debug",
+    "log-kw-scrape",
+    "log-kw-browser",
     "log-ts",
     "ansi-bold",
     "ansi-dim",

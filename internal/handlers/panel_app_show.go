@@ -168,6 +168,11 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		backupAutoVolumeName, backupAutoVolumeErr = p.resolveRequestedBackupVolume(reqCtx, app, "")
 	}
 
+	gitDeployShort, gitDeploySubject, gitDeployURL := "", "", ""
+	if hasGitCfg && (tab == "overview" || tab == "deployment" || tab == "git") {
+		gitDeployShort, gitDeploySubject, gitDeployURL = p.gitDeployedSummary(reqCtx, id, gitCfg)
+	}
+
 	m := fiber.Map{
 		"Nav":                    "apps",
 		"Title":                  app.Name,
@@ -216,6 +221,9 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"GitSaved":               gitSaved,
 		"GitSynced":              gitSynced,
 		"GitError":               gitErrFlash,
+		"GitDeployShort":         gitDeployShort,
+		"GitDeploySubject":       gitDeploySubject,
+		"GitDeployURL":           gitDeployURL,
 		"SourceSwitched":         appShowFlash == "sourceSwitched" || c.Query("sourceSwitched") == "1",
 		"SourceSwitchClearError": appShowFlash == "switchError_clear" || c.Query("switchError") == "clear",
 		"BackupDestinations":     backupDestinations,

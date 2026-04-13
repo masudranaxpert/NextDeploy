@@ -14,6 +14,7 @@
                 {{if .GitConfig.AutoDeploy}}<span class="inline-flex items-center gap-1.5 rounded-full bg-orange-500/15 px-2.5 py-1 text-[11px] font-medium text-orange-300 ring-1 ring-orange-500/25">Auto-deploy on</span>{{else}}<span class="inline-flex items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">Auto-deploy off</span>{{end}}
                 {{if eq .GitConfig.AuthMode "github_app"}}<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">GitHub App managed</span>{{else}}<span class="inline-flex items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">Manual webhook</span>{{end}}
               </div>
+              {{template "partials/git/deployed_revision_badge" .}}
               <p class="mt-2 break-all font-mono text-[11px] text-muted-foreground sm:text-xs">{{.GitConfig.RepoURL}}</p>
             </div>
           </div>

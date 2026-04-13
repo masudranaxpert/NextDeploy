@@ -28,6 +28,7 @@
             </div>
             {{if .HasGitConfig}}
             <p class="mt-1 break-all font-mono text-[11px] leading-snug text-muted-foreground sm:text-xs sm:max-w-xl">{{.GitConfig.RepoURL}}</p>
+            {{template "partials/git/deployed_revision_badge" .}}
             {{else}}
             <p class="mt-0.5 text-xs text-amber-400/80">Git source active — configure repo in the <a href="/apps/{{.ID}}?tab=git" class="underline underline-offset-2">Git tab</a></p>
             {{end}}

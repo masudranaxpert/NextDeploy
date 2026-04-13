@@ -22,6 +22,7 @@
           {{.GitError}}
         </div>
       {{end}}
+      {{template "partials/git/deployed_revision_badge" .}}
 
       <div class="panel-card min-w-0 overflow-x-clip">
         <div class="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">

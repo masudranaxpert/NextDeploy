@@ -1,8 +1,6 @@
     <div class="panel-card space-y-4 p-5">
       <div>
         <h2 class="text-base font-semibold text-foreground">Terminal</h2>
-        <p class="mt-0.5 text-sm text-muted-foreground">Interactive TTY in the container over WebSocket (<code class="rounded bg-muted px-1">xterm.js</code> + Docker exec). Pick a container — connection starts automatically.</p>
-        <p class="mt-1 text-xs text-muted-foreground/70">Package manager depends on the image: <strong>Alpine</strong> → <code class="rounded bg-muted px-1">apk add …</code>; Debian/Ubuntu → <code class="rounded bg-muted px-1">apt</code>; Fedora/RHEL → <code class="rounded bg-muted px-1">dnf</code>/<code class="rounded bg-muted px-1">yum</code>. Alpine has no <code class="rounded bg-muted px-1">apt</code> — "apt: not found" there is normal. If the status shows "Connection closed" immediately, check panel logs for <code class="rounded bg-muted px-1">terminal exec</code> / <code class="rounded bg-muted px-1">terminal read docker</code>.</p>
       </div>
       {{if not .HasCompose}}
         <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">

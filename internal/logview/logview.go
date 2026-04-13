@@ -43,9 +43,14 @@ func (l LogLevel) String() string {
 var (
 	// ansiSeq strips ANSI escape sequences from raw docker logs (when apps emit real ones).
 	ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	// ansiOSC strips hyperlink / title OSC sequences (e.g. OSC 8) that would otherwise show as garbage.
+	ansiOSC = regexp.MustCompile(`\x1b\][^\x07]{0,4096}\x07|\x1b\][^\x1b\\]{0,4096}\x1b\\`)
 
 	// ansiSeqParse parses individual ANSI SGR sequences to extract codes.
 	ansiSeqParse = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+	reBracketScrape  = regexp.MustCompile(`(?i)\[Scrape\]`)
+	reBracketBrowser = regexp.MustCompile(`(?i)\[Browser\]`)
 
 	// Bracket-level patterns that apps print instead of real ANSI codes:
 	//   [DEBUG] [INFO] [WARNING] [ERROR] etc.
@@ -168,10 +173,21 @@ func ansiCodesToClass(codes string) string {
 	return strings.Join(classes, " ")
 }
 
+// wrapLogKeywordHints wraps common bracket-tagged prefixes for CSS coloring (s is HTML-escaped).
+func wrapLogKeywordHints(s string) string {
+	if s == "" {
+		return s
+	}
+	s = reBracketScrape.ReplaceAllString(s, `<span class="log-kw-scrape">$0</span>`)
+	s = reBracketBrowser.ReplaceAllString(s, `<span class="log-kw-browser">$0</span>`)
+	return s
+}
+
 // FormatDockerLog turns raw docker log text into colored HTML divs.
 // Returns htmpl.HTML so Go templates render it as raw HTML (no extra escaping).
 func FormatDockerLog(raw string) htmpl.HTML {
 	raw = ansiSeq.ReplaceAllString(raw, "")
+	raw = ansiOSC.ReplaceAllString(raw, "")
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 
 	var out strings.Builder
@@ -187,6 +203,7 @@ func FormatDockerLog(raw string) htmpl.HTML {
 		}
 		level := classify(line)
 		esc := html.EscapeString(line)
+		esc = wrapLogKeywordHints(esc)
 		out.WriteString(`<div class="log-line `)
 		out.WriteString(level.String())
 		out.WriteString(`">`)

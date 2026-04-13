@@ -70,7 +70,8 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	cols := parseDim(c.Query("cols"), 80)
 	rows := parseDim(c.Query("rows"), 24)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess, err := dockerapi.ExecPTYAutoShell(ctx, container, rows, cols)
 	if err != nil {
 		log.Printf("terminal exec: %v", err)
@@ -78,6 +79,21 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		return
 	}
 	defer sess.Close()
+
+	go func() {
+		tick := time.NewTicker(45 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
+					return
+				}
+			}
+		}
+	}()
 
 	hij := sess.Hijack
 	var wg sync.WaitGroup
@@ -109,6 +125,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	for {
 		mt, msg, err := c.ReadMessage()
 		if err != nil {
+			cancel()
 			break
 		}
 		if mt == websocket.TextMessage {
@@ -174,6 +191,23 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 		_ = cmd.Wait()
 	}()
 
+	vpsCtx, vpsCancel := context.WithCancel(context.Background())
+	defer vpsCancel()
+	go func() {
+		tick := time.NewTicker(45 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-vpsCtx.Done():
+				return
+			case <-tick.C:
+				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -198,6 +232,7 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	for {
 		mt, msg, err := c.ReadMessage()
 		if err != nil {
+			vpsCancel()
 			break
 		}
 		if mt == websocket.TextMessage {

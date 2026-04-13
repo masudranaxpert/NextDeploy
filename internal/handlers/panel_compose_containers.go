@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/logview"
 
@@ -122,6 +123,36 @@ func (p *Panel) renderComposeTable(c *fiber.Ctx, id string) error {
 	})
 }
 
+func (p *Panel) ContainerStartOp(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).SendString("not found")
+	}
+	name := strings.TrimSpace(c.FormValue("container"))
+	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+		return c.Status(400).SendString("invalid container")
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
+	defer cancel()
+	_ = dockerx.ContainerStart(ctx, name)
+	return p.renderComposeTable(c, id)
+}
+
+func (p *Panel) ContainerStopOp(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).SendString("not found")
+	}
+	name := strings.TrimSpace(c.FormValue("container"))
+	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+		return c.Status(400).SendString("invalid container")
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
+	defer cancel()
+	_ = dockerx.ContainerStop(ctx, name)
+	return p.renderComposeTable(c, id)
+}
+
 func (p *Panel) ContainerRestartOp(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
@@ -182,6 +213,10 @@ func logTailLines(q string) int {
 		return 500
 	case "1000":
 		return 1000
+	case "3000":
+		return 3000
+	case "5000":
+		return 5000
 	case "300":
 		return 300
 	default:
@@ -266,20 +301,24 @@ func (p *Panel) AppLogPartial(c *fiber.Ctx) error {
 			"LogMeta": "",
 		})
 	}
-	var res dockerx.Result
+	logRef := q
 	if byService {
 		project := p.activeComposeProjectName(ctx, app, id)
-		dir := p.appSourcePath(ctx, id)
-		res = dockerx.ComposeServiceLogs(ctx, dir, p.effectiveComposePaths(ctx, app, id), project, p.composeEnvFiles(ctx, id), q, tail)
-	} else {
-		res = dockerx.DockerLogs(ctx, q, tail)
+		cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, q)
+		if rerr != nil {
+			return c.Render(tmplPartialLogView, fiber.Map{
+				"LogHTML": logview.FormatDockerLog("Could not resolve container for service " + q + ": " + rerr.Error()),
+				"LogMeta": "",
+			})
+		}
+		logRef = cid
 	}
-	raw := res.Output
-	if !res.OK && strings.TrimSpace(raw) == "" {
-		raw = "docker logs failed."
-	}
+	raw, ferr := dockerapi.FetchContainerLogsText(ctx, logRef, tail)
 	status := "ok"
-	if !res.OK {
+	if ferr != nil {
+		if strings.TrimSpace(raw) == "" {
+			raw = "docker logs failed: " + ferr.Error()
+		}
 		status = "error"
 	}
 	meta := fmt.Sprintf("%s · %s · last %d lines", q, status, tail)

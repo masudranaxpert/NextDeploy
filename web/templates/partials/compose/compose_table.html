@@ -10,7 +10,14 @@
           hx-confirm="Remove selected containers? This removes only the chosen containers.">
       <div class="flex items-center justify-between gap-2">
         <p class="text-xs text-muted-foreground">Container names use the app project prefix so volumes become predictable like <code class="rounded bg-muted px-1">app_volume</code>.</p>
-        <button type="submit" class="btn-stop h-8 px-3 py-0 text-[11px]">Remove selected</button>
+        <button type="submit"
+                class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-rose-500/35 hover:bg-rose-950/25 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                title="Remove selected">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+          </svg>
+          <span class="sr-only">Remove selected</span>
+        </button>
       </div>
     <div class="table-wrap">
       <table class="min-w-full divide-y divide-border text-sm">
@@ -29,6 +36,7 @@
         </thead>
         <tbody class="divide-y divide-border">
           {{range .ComposeRows}}
+            {{$running := eq (lower .State) "running"}}
             <tr class="hover:bg-muted/30">
               <td class="px-2 py-2 align-middle">
                 <input type="checkbox" name="containers" value="{{.Name}}" data-compose-pick class="rounded border-border">
@@ -39,13 +47,49 @@
               <td class="px-3 py-2 text-xs text-muted-foreground">{{.Status}}</td>
               <td class="px-2 py-2 text-right">
                 <div class="flex flex-wrap justify-end gap-1">
+                  {{if not $running}}
+                  <form hx-post="/apps/{{$.ID}}/containers/start" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
+                    <input type="hidden" name="container" value="{{.Name}}">
+                    <button type="submit"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-emerald-500/35 hover:bg-emerald-950/25 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            title="Start container">
+                      <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                      <span class="sr-only">Start</span>
+                    </button>
+                  </form>
+                  {{else}}
+                  <form hx-post="/apps/{{$.ID}}/containers/stop" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline" hx-confirm="Stop this container?">
+                    <input type="hidden" name="container" value="{{.Name}}">
+                    <button type="submit"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-amber-500/35 hover:bg-amber-950/25 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            title="Stop container">
+                      <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+                      <span class="sr-only">Stop</span>
+                    </button>
+                  </form>
+                  {{end}}
                   <form hx-post="/apps/{{$.ID}}/containers/restart" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
                     <input type="hidden" name="container" value="{{.Name}}">
-                    <button type="submit" class="btn-restart h-7 px-2 py-0 text-[11px]">Restart</button>
+                    <button type="submit"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            title="Restart container">
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                      </svg>
+                      <span class="sr-only">Restart</span>
+                    </button>
                   </form>
                   <form hx-post="/apps/{{$.ID}}/containers/remove" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
                     <input type="hidden" name="container" value="{{.Name}}">
-                    <button type="submit" class="btn-stop h-7 px-2 py-0 text-[11px]" hx-confirm="Remove this container? Data in anonymous volumes may be lost.">Remove</button>
+                    <button type="submit"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-rose-500/35 hover:bg-rose-950/25 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            hx-confirm="Remove this container? Data in anonymous volumes may be lost."
+                            title="Remove container">
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                      </svg>
+                      <span class="sr-only">Remove</span>
+                    </button>
                   </form>
                 </div>
               </td>
