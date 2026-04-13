@@ -11,48 +11,51 @@
     </div>
     {{end}}
     <!-- Source type indicator + switch -->
-    <div class="panel-card p-4">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+    <div class="panel-card p-5">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex min-w-0 flex-1 gap-4">
           {{if .IsGitApp}}
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/25">
-            <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20">
+            <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
           </div>
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 flex-1 space-y-3">
             <div class="flex flex-wrap items-center gap-2">
-              <p class="text-sm font-semibold text-foreground">Git source</p>
-              <span class="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">
-                <span class="inline-block h-1.5 w-1.5 rounded-full bg-orange-400"></span>
+              <h2 class="text-sm font-semibold tracking-tight text-foreground">Git source</h2>
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true"></span>
                 Active
               </span>
             </div>
             {{if .HasGitConfig}}
-            <p class="mt-1 break-all font-mono text-[11px] leading-snug text-muted-foreground sm:text-xs sm:max-w-xl">{{.GitConfig.RepoURL}}</p>
+            <div class="rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5">
+              <p class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Repository URL</p>
+              <p class="mt-1 break-all font-mono text-xs leading-relaxed text-foreground/90">{{.GitConfig.RepoURL}}</p>
+            </div>
             {{template "partials/git/deployed_revision_badge" .}}
             {{else}}
-            <p class="mt-0.5 text-xs text-amber-400/80">Git source active — configure repo in the <a href="/apps/{{.ID}}?tab=git" class="underline underline-offset-2">Git tab</a></p>
+            <p class="text-xs leading-relaxed text-muted-foreground">Git is the active source. Open the <a href="/apps/{{.ID}}?tab=git" class="font-medium text-primary underline underline-offset-2 hover:text-primary/90">Git</a> tab to connect a repository.</p>
             {{end}}
           </div>
           {{else}}
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-500/15 ring-1 ring-stone-500/25">
-            <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/40 ring-1 ring-border/60">
+            <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <p class="text-sm font-semibold text-foreground">Manual files</p>
-              <span class="inline-flex items-center gap-1 rounded-full bg-stone-500/15 px-2 py-0.5 text-[10px] font-medium text-stone-300 ring-1 ring-stone-500/25">
-                <span class="inline-block h-1.5 w-1.5 rounded-full bg-stone-400"></span>
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-sm font-semibold tracking-tight text-foreground">Manual files</h2>
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden="true"></span>
                 Active
               </span>
             </div>
-            <p class="mt-0.5 text-xs text-muted-foreground">Upload files or ZIP to deploy. Switch to Git for repo-based deploys.</p>
+            <p class="text-xs leading-relaxed text-muted-foreground">Upload a ZIP or files to deploy. Switch to Git for commits and webhooks.</p>
           </div>
           {{end}}
         </div>
         <button type="button"
-                class="shrink-0 btn-ghost h-9 px-3 text-xs"
+                class="btn-secondary inline-flex h-9 shrink-0 items-center gap-1.5 px-3 text-xs"
                 onclick="document.getElementById('switch-source-modal').classList.remove('hidden')">
-          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5"/></svg>
+          <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5"/></svg>
           Switch source
         </button>
       </div>

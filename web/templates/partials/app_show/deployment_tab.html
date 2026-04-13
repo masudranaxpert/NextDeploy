@@ -14,8 +14,13 @@
                 {{if .GitConfig.AutoDeploy}}<span class="inline-flex items-center gap-1.5 rounded-full bg-orange-500/15 px-2.5 py-1 text-[11px] font-medium text-orange-300 ring-1 ring-orange-500/25">Auto-deploy on</span>{{else}}<span class="inline-flex items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">Auto-deploy off</span>{{end}}
                 {{if eq .GitConfig.AuthMode "github_app"}}<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">GitHub App managed</span>{{else}}<span class="inline-flex items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">Manual webhook</span>{{end}}
               </div>
-              {{template "partials/git/deployed_revision_badge" .}}
-              <p class="mt-2 break-all font-mono text-[11px] text-muted-foreground sm:text-xs">{{.GitConfig.RepoURL}}</p>
+              <div class="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                <p class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Repository URL</p>
+                <p class="mt-1 break-all font-mono text-xs leading-relaxed text-foreground/90">{{.GitConfig.RepoURL}}</p>
+              </div>
+              <div class="mt-3 w-full min-w-0">
+                {{template "partials/git/deployed_revision_badge" .}}
+              </div>
             </div>
           </div>
           <form method="post" action="/apps/{{.ID}}/git/sync" class="shrink-0 lg:pt-0.5">
@@ -187,7 +192,7 @@
                 </button>
               </div>
             </div>
-            <pre id="deploy-log-modal-pre" class="mt-3 max-h-[min(65vh,560px)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-[#060a10] p-4 font-mono text-[12px] leading-relaxed text-muted-foreground">Loading…</pre>
+            <pre id="deploy-log-modal-pre" class="mt-3 max-h-[min(65vh,560px)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-[#060a10] p-4 font-mono text-base leading-relaxed text-muted-foreground sm:text-lg">Loading…</pre>
             <div class="mt-4 flex justify-end">
               <button type="button" class="btn-secondary px-4 py-2 text-sm" onclick="ndDeployLogModalClose()">Close</button>
             </div>

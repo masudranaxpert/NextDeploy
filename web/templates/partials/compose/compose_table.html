@@ -11,7 +11,7 @@
       <div class="flex items-center justify-between gap-2">
         <p class="text-xs text-muted-foreground">Container names use the app project prefix so volumes become predictable like <code class="rounded bg-muted px-1">app_volume</code>.</p>
         <button type="submit"
-                class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-rose-500/35 hover:bg-rose-950/25 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-500/30 bg-red-950/20 text-red-500 transition-colors hover:border-red-500/50 hover:bg-red-950/35 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:text-red-400 dark:hover:text-red-300"
                 title="Remove selected">
           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
@@ -82,7 +82,7 @@
                   <form hx-post="/apps/{{$.ID}}/containers/remove" hx-target="#compose-table-root" hx-swap="innerHTML" class="inline">
                     <input type="hidden" name="container" value="{{.Name}}">
                     <button type="submit"
-                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:border-rose-500/35 hover:bg-rose-950/25 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-500/30 bg-red-950/20 text-red-500 transition-colors hover:border-red-500/50 hover:bg-red-950/35 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:text-red-400 dark:hover:text-red-300"
                             hx-confirm="Remove this container? Data in anonymous volumes may be lost."
                             title="Remove container">
                       <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">

@@ -44,7 +44,8 @@ var (
 	// ansiSeq strips ANSI escape sequences from raw docker logs (when apps emit real ones).
 	ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	// ansiOSC strips hyperlink / title OSC sequences (e.g. OSC 8) that would otherwise show as garbage.
-	ansiOSC = regexp.MustCompile(`\x1b\][^\x07]{0,4096}\x07|\x1b\][^\x1b\\]{0,4096}\x1b\\`)
+	// Use * not {0,N}: Go regexp rejects repeat counts above 1000 (RE2 limit).
+	ansiOSC = regexp.MustCompile(`\x1b\][^\x07]*\x07|\x1b\][^\x1b\\]*\x1b\\`)
 
 	// ansiSeqParse parses individual ANSI SGR sequences to extract codes.
 	ansiSeqParse = regexp.MustCompile(`\x1b\[([0-9;]*)m`)

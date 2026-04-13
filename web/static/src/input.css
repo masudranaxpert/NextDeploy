@@ -299,7 +299,7 @@
 
   /* ── Log styles ── */
   .log-viewport .log-line {
-    @apply whitespace-pre-wrap break-words border-l-[3px] border-transparent py-[3px] pl-3 text-[15px] leading-relaxed;
+    @apply whitespace-pre-wrap break-words border-l-[3px] border-transparent py-[3px] pl-3 text-lg leading-relaxed;
   }
   /* Heuristic keyword highlights (live + static logs) */
   .log-kw-scrape {
@@ -333,7 +333,7 @@
 
   /* Log level badge pills */
   .log-badge {
-    @apply mr-2 inline-block rounded-md px-1.5 py-px align-middle font-mono text-[9px] font-bold uppercase leading-tight tracking-wider;
+    @apply mr-2 inline-block rounded-md px-1.5 py-px align-middle font-mono text-[10px] font-bold uppercase leading-tight tracking-wider;
   }
   .log-badge-fatal { @apply bg-rose-700 text-white; }
   .log-badge-error { @apply bg-rose-600/90 text-white; }
