@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"golang.org/x/sync/errgroup"
 )
 
 const composeProjectLabel = "com.docker.compose.project"
@@ -177,6 +179,24 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 		return nil, err.Error()
 	}
 
+	ids := make([]string, 0, len(list))
+	for _, c := range list {
+		ids = append(ids, c.ID)
+	}
+
+	// CPU % from a single ContainerStats JSON is unreliable: precpu_stats may be only
+	// microseconds before cpu_stats when we burst one-shot reads. Match docker stats by
+	// sampling twice with a fixed interval, then diff container vs host CPU time.
+	first := fetchStatsSnapshot(ctx, cli, ids)
+	if len(ids) > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err().Error()
+		case <-time.After(1 * time.Second):
+		}
+	}
+	second := fetchStatsSnapshot(ctx, cli, ids)
+
 	out := make([]ContainerUsageRow, 0, len(list))
 	for _, c := range list {
 		row := ContainerUsageRow{
@@ -187,39 +207,41 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 			Status: c.Status,
 		}
 
-		stats, err := cli.ContainerStatsOneShot(ctx, c.ID)
-		if err == nil {
-			var payload statsJSON
-			body, readErr := io.ReadAll(stats.Body)
-			_ = stats.Body.Close()
-			if readErr == nil && json.Unmarshal(body, &payload) == nil {
-				row.CPUPercent = calculateCPUPercent(payload)
-				memUsage := payload.MemoryStats.Usage
-				if cache := payload.MemoryStats.Stats["cache"]; cache > 0 && memUsage > cache {
-					memUsage -= cache
-				}
-				row.MemUsage = memUsage
-				row.MemLimit = payload.MemoryStats.Limit
-				if row.MemLimit > 0 {
-					row.MemPercent = (float64(row.MemUsage) / float64(row.MemLimit)) * 100
-				}
-				row.MemUsageHuman = formatBytes(int64(row.MemUsage))
-				row.MemLimitHuman = formatBytes(int64(row.MemLimit))
-				for _, net := range payload.Networks {
-					row.NetInput += net.RxBytes
-					row.NetOutput += net.TxBytes
-				}
-				for _, entry := range payload.BlkioStats.IoServiceBytesRecursive {
-					switch strings.ToLower(strings.TrimSpace(entry.Op)) {
-					case "read":
-						row.BlockRead += entry.Value
-					case "write":
-						row.BlockWrite += entry.Value
-					}
-				}
-				row.Pids = payload.PidsStats.Current
+		cur, ok := second[c.ID]
+		if !ok {
+			row.MemUsageHuman = "—"
+			row.MemLimitHuman = "—"
+			row.NetInputHuman = formatBytes(0)
+			row.NetOutputHuman = formatBytes(0)
+			row.BlockReadHuman = formatBytes(0)
+			row.BlockWriteHuman = formatBytes(0)
+			out = append(out, row)
+			continue
+		}
+		if prev, ok := first[c.ID]; ok {
+			row.CPUPercent = cpuPercentBetweenSamples(prev, cur)
+		}
+		memUsage := memoryUsageLikeDockerCLI(cur)
+		row.MemUsage = memUsage
+		row.MemLimit = cur.MemoryStats.Limit
+		if row.MemLimit > 0 {
+			row.MemPercent = (float64(row.MemUsage) / float64(row.MemLimit)) * 100
+		}
+		row.MemUsageHuman = formatBytes(int64(row.MemUsage))
+		row.MemLimitHuman = formatBytes(int64(row.MemLimit))
+		for _, net := range cur.Networks {
+			row.NetInput += net.RxBytes
+			row.NetOutput += net.TxBytes
+		}
+		for _, entry := range cur.BlkioStats.IoServiceBytesRecursive {
+			switch strings.ToLower(strings.TrimSpace(entry.Op)) {
+			case "read":
+				row.BlockRead += entry.Value
+			case "write":
+				row.BlockWrite += entry.Value
 			}
 		}
+		row.Pids = cur.PidsStats.Current
 
 		if row.MemUsageHuman == "" {
 			row.MemUsageHuman = "—"
@@ -306,15 +328,77 @@ func HumanBytes(n uint64) string {
 	return formatBytes(int64(n))
 }
 
-func calculateCPUPercent(s statsJSON) float64 {
-	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(s.CPUStats.SystemUsage) - float64(s.PreCPUStats.SystemUsage)
-	if cpuDelta <= 0 || systemDelta <= 0 {
+func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string) (statsJSON, error) {
+	var out statsJSON
+	stats, err := cli.ContainerStatsOneShot(ctx, id)
+	if err != nil {
+		return out, err
+	}
+	defer stats.Body.Close()
+	body, err := io.ReadAll(stats.Body)
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) map[string]statsJSON {
+	if len(ids) == 0 {
+		return nil
+	}
+	var mu sync.Mutex
+	out := make(map[string]statsJSON, len(ids))
+	eg, gctx := errgroup.WithContext(ctx)
+	eg.SetLimit(12)
+	for _, id := range ids {
+		id := id
+		eg.Go(func() error {
+			j, err := fetchContainerStatsJSON(gctx, cli, id)
+			if err != nil {
+				return nil
+			}
+			mu.Lock()
+			out[id] = j
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = eg.Wait()
+	return out
+}
+
+// memoryUsageLikeDockerCLI aligns with docker stats: subtract reclaimable page cache
+// (cgroup v2: inactive_file; v1: total_inactive_file; legacy: cache).
+func memoryUsageLikeDockerCLI(s statsJSON) uint64 {
+	usage := s.MemoryStats.Usage
+	st := s.MemoryStats.Stats
+	if st == nil {
+		return usage
+	}
+	if v, ok := st["inactive_file"]; ok && usage > v {
+		return usage - v
+	}
+	if v, ok := st["total_inactive_file"]; ok && usage > v {
+		return usage - v
+	}
+	if v, ok := st["cache"]; ok && usage > v {
+		return usage - v
+	}
+	return usage
+}
+
+func cpuPercentBetweenSamples(prev, cur statsJSON) float64 {
+	cpuDelta := float64(cur.CPUStats.CPUUsage.TotalUsage) - float64(prev.CPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(cur.CPUStats.SystemUsage) - float64(prev.CPUStats.SystemUsage)
+	if cpuDelta < 0 || systemDelta <= 0 {
 		return 0
 	}
-	online := float64(s.CPUStats.OnlineCPUs)
+	online := float64(cur.CPUStats.OnlineCPUs)
 	if online <= 0 {
-		online = float64(len(s.CPUStats.CPUUsage.PercpuUsage))
+		online = float64(len(cur.CPUStats.CPUUsage.PercpuUsage))
 	}
 	if online <= 0 {
 		online = 1
