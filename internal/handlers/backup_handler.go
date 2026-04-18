@@ -42,15 +42,17 @@ func validateBackupDestinationConfig(provider string, m map[string]string) error
 	return nil
 }
 
-func parseRequestedVolumeName(raw string) (string, error) {
+// parseRequestedVolumeNames parses a comma/newline separated list into
+// validated, de-duplicated names. Empty input returns nil (auto-detect).
+func parseRequestedVolumeNames(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", nil
+		return nil, nil
 	}
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	raw = strings.ReplaceAll(raw, ",", "\n")
 	parts := strings.Split(raw, "\n")
-	var names []string
+	names := make([]string, 0, len(parts))
 	seen := map[string]struct{}{}
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -58,13 +60,23 @@ func parseRequestedVolumeName(raw string) (string, error) {
 			continue
 		}
 		if !volumex.ValidVolumeName(part) {
-			return "", fmt.Errorf("invalid Docker volume name %q", part)
+			return nil, fmt.Errorf("invalid Docker volume name %q", part)
 		}
 		if _, ok := seen[part]; ok {
 			continue
 		}
 		seen[part] = struct{}{}
 		names = append(names, part)
+	}
+	return names, nil
+}
+
+// parseRequestedVolumeName is the single-name variant used by "volume" type;
+// it rejects multi-name input.
+func parseRequestedVolumeName(raw string) (string, error) {
+	names, err := parseRequestedVolumeNames(raw)
+	if err != nil {
+		return "", err
 	}
 	if len(names) == 0 {
 		return "", nil
@@ -139,7 +151,17 @@ func backupVolumeNameFromHistory(history db.BackupHistory) string {
 	return ""
 }
 
-const manualBackupRetention = 0 // do not auto-delete history rows after manual backups
+const manualBackupRetention = 0
+
+// validBackupType: "volume" = single Docker volume, "app" = workspace files
+// only, "full" = workspace + one or more volumes wrapped in a single .tar.gz.
+func validBackupType(t string) bool {
+	switch t {
+	case "volume", "app", "full":
+		return true
+	}
+	return false
+}
 
 func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	appID := c.Params("id")
@@ -154,15 +176,29 @@ func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	}
 
 	backupType := strings.TrimSpace(c.FormValue("type"))
-	if backupType != "volume" && backupType != "full" {
-		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume' or 'full'"})
+	if !validBackupType(backupType) {
+		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
 	}
-	volumeName, err := parseRequestedVolumeName(c.FormValue("volume_names"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-	}
-	if backupType != "volume" {
-		volumeName = ""
+	rawVolumes := c.FormValue("volume_names")
+	var volumeField string
+	switch backupType {
+	case "volume":
+		name, err := parseRequestedVolumeName(rawVolumes)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		volumeField = name
+	case "full":
+		names, err := parseRequestedVolumeNames(rawVolumes)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if len(names) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "full app backup needs at least one Docker volume name"})
+		}
+		volumeField = strings.Join(names, ",")
+	case "app":
+		volumeField = ""
 	}
 
 	dest, err := p.DB.GetBackupDestination(c.UserContext(), int64(destID))
@@ -175,141 +211,165 @@ func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go p.runBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeName, manualBackupRetention)
+	go p.runBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention)
 
 	return c.JSON(fiber.Map{"message": "backup started", "history_id": historyID})
 }
 
-// runBackupJob runs a backup; retention is max completed rows to keep per app+destination+type (0 = skip retention trim).
-func (p *Panel) runBackupJob(ctx context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeName string, retention int) {
-	var logBuffer strings.Builder
-	logBuffer.WriteString(time.Now().Format(time.RFC3339) + " started\n")
+const backupJobMaxDuration = 6 * time.Hour
+
+// runBackupJob runs a backup. retention = max completed rows to keep per
+// app+destination+type (0 skips the trim). requestedVolumeField is a single
+// name for "volume", empty for "app", comma-separated list for "full".
+func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeField string, retention int) {
+	ctx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
+	defer cancel()
+
+	var logMu strings.Builder
+	logMu.WriteString(time.Now().Format(time.RFC3339) + " started\n")
+
+	defer func() {
+		if r := recover(); r != nil {
+			msg := fmt.Sprintf("backup crashed: %v", r)
+			log.Printf("[backup] %s (id=%d app=%s type=%s)", msg, historyID, appID, backupType)
+			logMu.WriteString("\n" + msg + "\n")
+			_ = p.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed", msg, logMu.String())
+		}
+	}()
+	appendLog := func(s string) {
+		logMu.WriteString(s)
+		if !strings.HasSuffix(s, "\n") {
+			logMu.WriteString("\n")
+		}
+	}
 
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
-		logBuffer.WriteString(fmt.Sprintf("Error: Failed to get app: %v\n", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
+		appendLog(fmt.Sprintf("Error: Failed to get app: %v", err))
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
 	}
 
 	var configMap map[string]string
 	if err := json.Unmarshal([]byte(dest.Config), &configMap); err != nil {
-		logBuffer.WriteString(fmt.Sprintf("Error: Invalid config: %v\n", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "invalid config", logBuffer.String())
+		appendLog(fmt.Sprintf("Error: Invalid config: %v", err))
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "invalid config", logMu.String())
 		return
 	}
 	if err := validateBackupDestinationConfig(dest.Provider, configMap); err != nil {
-		logBuffer.WriteString(fmt.Sprintf("Error: %v\n", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
+		appendLog(fmt.Sprintf("Error: %v", err))
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
 	}
 
-	var remotePath string
-	var size int64
-	var tarPath string
-	var actualVolumeName string
+	var (
+		remotePath       string
+		size             int64
+		tarPath          string
+		volumeFieldStore string
+	)
 	defer func() {
 		if strings.TrimSpace(tarPath) != "" {
 			_ = os.Remove(tarPath)
 		}
 	}()
 
+	fail := func(e error) {
+		appendLog("error: " + e.Error())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", e.Error(), logMu.String())
+	}
+
+	uploadProg := func(snap string) {
+		s := logMu.String() + "\n── upload ──\n" + snap
+		if len(s) > 65536 {
+			s = "…\n" + s[len(s)-65536:]
+		}
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", s)
+	}
+
+	progressLog := func(msg string) {
+		appendLog(msg)
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", logMu.String())
+	}
+
 	switch backupType {
 	case "volume":
-		volumeName, vmsg := p.resolveRequestedBackupVolume(ctx, app, requestedVolumeName)
+		volumeName, vmsg := p.resolveRequestedBackupVolume(ctx, app, requestedVolumeField)
 		if vmsg != "" {
-			logBuffer.WriteString("error: " + vmsg + "\n")
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", vmsg, logBuffer.String())
+			fail(fmt.Errorf("%s", vmsg))
 			return
 		}
-		actualVolumeName = volumeName
-		logBuffer.WriteString("archive " + volumeName + "\n")
-
+		volumeFieldStore = volumeName
+		appendLog("archive " + volumeName)
 		tarPath, err = backup.BackupVolume(ctx, volumeName)
 		if err != nil {
-			logBuffer.WriteString("error: " + err.Error() + "\n")
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
+			fail(err)
 			return
 		}
-		logBuffer.WriteString("tar " + filepath.Base(tarPath) + "\n")
-
+		appendLog("tar " + filepath.Base(tarPath))
 		remotePath = path.Join(app.Name, "volumes", filepath.Base(tarPath))
 
-		uploadProg := func(snap string) {
-			s := logBuffer.String() + "\n── upload ──\n" + snap
-			if len(s) > 65536 {
-				s = "…\n" + s[len(s)-65536:]
-			}
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", s)
-		}
-		var uploadLog string
-		switch dest.Provider {
-		case "gdrive":
-			uploadLog, err = rclone.UploadToGoogleDrive(ctx, configMap["client_id"], configMap["client_secret"],
-				configMap["token"], configMap["folder_id"], tarPath, remotePath, uploadProg)
-		case "r2":
-			uploadLog, err = rclone.UploadToCloudflareR2(ctx, configMap["account_id"], configMap["access_key_id"],
-				configMap["secret_access_key"], configMap["bucket"], tarPath, remotePath, uploadProg)
-		default:
-			err = fmt.Errorf("unsupported provider: %s", dest.Provider)
-		}
-		logBuffer.WriteString(uploadLog)
-
-		if err != nil {
-			logBuffer.WriteString(fmt.Sprintf("Error: Upload failed: %v\n", err))
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
-			return
-		}
-		if st, err := os.Stat(tarPath); err == nil {
-			size = st.Size()
-		}
-
-	case "full":
-		logBuffer.WriteString("full app " + app.Name + "\n")
-
+	case "app":
+		appendLog("app workspace " + app.Name)
 		workspaceRoot := p.composeWorkspaceRoot(ctx, appID)
 		tarPath, err = backup.BackupFullApp(ctx, app.Name, workspaceRoot)
 		if err != nil {
-			logBuffer.WriteString("error: " + err.Error() + "\n")
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
+			fail(err)
 			return
 		}
-		logBuffer.WriteString("tar " + filepath.Base(tarPath) + "\n")
+		appendLog("tar " + filepath.Base(tarPath))
+		remotePath = path.Join(app.Name, "app", filepath.Base(tarPath))
 
+	case "full":
+		volumeNames, parseErr := parseRequestedVolumeNames(requestedVolumeField)
+		if parseErr != nil {
+			fail(parseErr)
+			return
+		}
+		if len(volumeNames) == 0 {
+			fail(fmt.Errorf("full app backup requires one or more Docker volume names"))
+			return
+		}
+		volumeFieldStore = strings.Join(volumeNames, ",")
+		appendLog("full app " + app.Name + " (+" + strconv.Itoa(len(volumeNames)) + " volume(s))")
+		workspaceRoot := p.composeWorkspaceRoot(ctx, appID)
+		tarPath, err = backup.BackupFullWithVolumes(ctx, app.Name, workspaceRoot, volumeNames, progressLog)
+		if err != nil {
+			fail(err)
+			return
+		}
+		appendLog("tar " + filepath.Base(tarPath))
 		remotePath = path.Join(app.Name, "full", filepath.Base(tarPath))
 
-		uploadProg := func(snap string) {
-			s := logBuffer.String() + "\n── upload ──\n" + snap
-			if len(s) > 65536 {
-				s = "…\n" + s[len(s)-65536:]
-			}
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", s)
-		}
-		var uploadLog string
-		switch dest.Provider {
-		case "gdrive":
-			uploadLog, err = rclone.UploadToGoogleDrive(ctx, configMap["client_id"], configMap["client_secret"],
-				configMap["token"], configMap["folder_id"], tarPath, remotePath, uploadProg)
-		case "r2":
-			uploadLog, err = rclone.UploadToCloudflareR2(ctx, configMap["account_id"], configMap["access_key_id"],
-				configMap["secret_access_key"], configMap["bucket"], tarPath, remotePath, uploadProg)
-		default:
-			err = fmt.Errorf("unsupported provider: %s", dest.Provider)
-		}
-		logBuffer.WriteString(uploadLog)
-
-		if err != nil {
-			logBuffer.WriteString(fmt.Sprintf("Error: Upload failed: %v\n", err))
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logBuffer.String())
-			return
-		}
-		if st, err := os.Stat(tarPath); err == nil {
-			size = st.Size()
-		}
+	default:
+		fail(fmt.Errorf("unsupported backup type %q", backupType))
+		return
 	}
 
-	logBuffer.WriteString(time.Now().Format(time.RFC3339) + " completed\n")
-	if err := p.DB.UpdateBackupHistoryCompleted(ctx, historyID, actualVolumeName, remotePath, size, logBuffer.String()); err != nil {
+	var uploadLog string
+	switch dest.Provider {
+	case "gdrive":
+		uploadLog, err = rclone.UploadToGoogleDrive(ctx, configMap["client_id"], configMap["client_secret"],
+			configMap["token"], configMap["folder_id"], tarPath, remotePath, uploadProg)
+	case "r2":
+		uploadLog, err = rclone.UploadToCloudflareR2(ctx, configMap["account_id"], configMap["access_key_id"],
+			configMap["secret_access_key"], configMap["bucket"], tarPath, remotePath, uploadProg)
+	default:
+		err = fmt.Errorf("unsupported provider: %s", dest.Provider)
+	}
+	logMu.WriteString(uploadLog)
+
+	if err != nil {
+		appendLog(fmt.Sprintf("Error: Upload failed: %v", err))
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		return
+	}
+	if st, statErr := os.Stat(tarPath); statErr == nil {
+		size = st.Size()
+	}
+
+	appendLog(time.Now().Format(time.RFC3339) + " completed")
+	if err := p.DB.UpdateBackupHistoryCompleted(ctx, historyID, volumeFieldStore, remotePath, size, logMu.String()); err != nil {
 		log.Printf("backup history complete id=%d: %v", historyID, err)
 		return
 	}
@@ -457,8 +517,19 @@ func (p *Panel) AppBackupRestore(c *fiber.Ctx) error {
 		return c.Status(409).JSON(fiber.Map{"error": "another restore is already running"})
 	}
 	go func() {
-		errMsg := p.runRestoreJob(context.Background(), app, dest, history, configMap)
-		p.finishBackupRestore(app.ID, history.ID, errMsg)
+		appID := app.ID
+		historyIDLocal := history.ID
+		defer func() {
+			if r := recover(); r != nil {
+				msg := fmt.Sprintf("restore crashed: %v", r)
+				log.Printf("[restore] %s (app=%s history=%d)", msg, appID, historyIDLocal)
+				p.finishBackupRestore(appID, historyIDLocal, msg)
+			}
+		}()
+		jobCtx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
+		defer cancel()
+		errMsg := p.runRestoreJob(jobCtx, app, dest, history, configMap)
+		p.finishBackupRestore(appID, historyIDLocal, errMsg)
 	}()
 
 	return c.JSON(fiber.Map{"message": "restore started"})
@@ -517,11 +588,18 @@ func (p *Panel) runRestoreJob(ctx context.Context, app db.App, dest db.BackupDes
 			log.Printf("restore: volume: %v", err)
 			return err.Error()
 		}
-	case "full":
+	case "app":
 		fullComposePath := p.composeFilePath(ctx, app, app.ID)
 		workspaceRoot := p.composeWorkspaceRoot(ctx, app.ID)
 		if err := backup.RestoreFullApp(ctx, app.Name, fullComposePath, workspaceRoot, localPath); err != nil {
-			log.Printf("restore: full app: %v", err)
+			log.Printf("restore: app workspace: %v", err)
+			return err.Error()
+		}
+	case "full":
+		fullComposePath := p.composeFilePath(ctx, app, app.ID)
+		workspaceRoot := p.composeWorkspaceRoot(ctx, app.ID)
+		if err := backup.RestoreFullWithVolumes(ctx, app.Name, fullComposePath, workspaceRoot, localPath, nil); err != nil {
+			log.Printf("restore: full app+volumes: %v", err)
 			return err.Error()
 		}
 	default:
@@ -543,12 +621,12 @@ func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 	}
 
 	backupType := strings.TrimSpace(c.FormValue("type"))
-	volumeName, err := parseRequestedVolumeName(c.FormValue("volume_names"))
+	if !validBackupType(backupType) {
+		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	volumeField, err := normalizeScheduleVolumeField(backupType, c.FormValue("volume_names"))
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-	}
-	if backupType != "volume" {
-		volumeName = ""
 	}
 	cronExpr := strings.TrimSpace(c.FormValue("cron"))
 	retention := 7
@@ -558,10 +636,6 @@ func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 		}
 	}
 
-	if backupType != "volume" && backupType != "full" {
-		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume' or 'full'"})
-	}
-
 	if cronExpr == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "cron expression required"})
 	}
@@ -569,12 +643,39 @@ func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid cron expression"})
 	}
 
-	id, err := p.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeName, cronExpr, retention)
+	id, err := p.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeField, cronExpr, retention)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	return c.JSON(fiber.Map{"id": id, "message": "schedule created"})
+}
+
+// normalizeScheduleVolumeField validates the raw textarea input for the given
+// backup type and returns the string that should be stored in backup_schedules.volume_names.
+//   - "volume": one exact Docker volume name (empty allowed for auto-detect)
+//   - "app":    ignored, stored as ""
+//   - "full":   one or more comma-separated Docker volume names (required)
+func normalizeScheduleVolumeField(backupType, raw string) (string, error) {
+	switch backupType {
+	case "volume":
+		name, err := parseRequestedVolumeName(raw)
+		if err != nil {
+			return "", err
+		}
+		return name, nil
+	case "full":
+		names, err := parseRequestedVolumeNames(raw)
+		if err != nil {
+			return "", err
+		}
+		if len(names) == 0 {
+			return "", errors.New("full app backup needs at least one Docker volume name")
+		}
+		return strings.Join(names, ","), nil
+	default:
+		return "", nil
+	}
 }
 
 func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
@@ -600,12 +701,12 @@ func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 	destID := destIDParsed
 
 	backupType := strings.TrimSpace(c.FormValue("type"))
-	volumeName, err := parseRequestedVolumeName(c.FormValue("volume_names"))
+	if !validBackupType(backupType) {
+		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	volumeField, err := normalizeScheduleVolumeField(backupType, c.FormValue("volume_names"))
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-	}
-	if backupType != "volume" {
-		volumeName = ""
 	}
 	cronExpr := strings.TrimSpace(c.FormValue("cron"))
 	retention := 7
@@ -615,9 +716,6 @@ func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 		}
 	}
 
-	if backupType != "volume" && backupType != "full" {
-		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume' or 'full'"})
-	}
 	if cronExpr == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "cron expression required"})
 	}
@@ -629,7 +727,7 @@ func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
 
-	if err := p.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeName, cronExpr, retention); err != nil {
+	if err := p.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeField, cronExpr, retention); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "schedule not found"})
 		}

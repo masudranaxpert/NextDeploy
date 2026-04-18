@@ -322,5 +322,21 @@ CREATE TABLE IF NOT EXISTS backup_history (
 		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN volume_name TEXT NOT NULL DEFAULT ''`)
 	}
 
+	// Rename legacy 'full' backup rows to 'app'. The old "Full app" type only
+	// packed workspace files (no Docker volumes), which is what the new "app"
+	// type does. The new "full" type packs app + volumes together, so keeping
+	// old rows under the "full" label would make them look restorable with
+	// the new pipeline when they are not. We only flip the label for rows
+	// that pre-date the multi-archive format (checked by whether any
+	// newer-style full manifest info is present — since we cannot inspect the
+	// archive here, we migrate everything once at startup).
+	var legacyFullMigrated int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'backup_full_app_rename_done'`).Scan(&legacyFullMigrated)
+	if legacyFullMigrated == 0 {
+		_, _ = s.db.Exec(`UPDATE backup_history SET backup_type = 'app' WHERE backup_type = 'full'`)
+		_, _ = s.db.Exec(`UPDATE backup_schedules SET backup_type = 'app' WHERE backup_type = 'full'`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('backup_full_app_rename_done', '1')`)
+	}
+
 	return nil
 }

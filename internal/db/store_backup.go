@@ -285,6 +285,29 @@ func (s *Store) DeleteBackupHistoryByID(ctx context.Context, id int64) error {
 	return err
 }
 
+// ResetInFlightBackups marks every 'running' row as 'failed' with the given
+// reason. Called once at startup so crashed jobs don't stay pinned.
+func (s *Store) ResetInFlightBackups(ctx context.Context, reason string) (int64, error) {
+	if reason == "" {
+		reason = "panel restarted while this job was running"
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE backup_history
+		 SET status = 'failed',
+		     error_message = ?,
+		     log = COALESCE(NULLIF(log, ''), '') || CASE WHEN COALESCE(log,'') = '' THEN '' ELSE char(10) END || ?
+		 WHERE status = 'running'`,
+		reason, "interrupted: "+reason)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (s *Store) GetBackupHistory(ctx context.Context, id int64) (BackupHistory, error) {
 	var h BackupHistory
 	var errMsg, log sql.NullString

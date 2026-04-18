@@ -2,14 +2,17 @@ package backup
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,7 +20,37 @@ import (
 	"panel/internal/volumex"
 )
 
-const generatedComposeName = ".nextdeploy.generated.compose.yml"
+const (
+	generatedComposeName  = ".nextdeploy.generated.compose.yml"
+	fullBackupManifestFn  = "MANIFEST.json"
+	fullBackupAppArchive  = "app.tar.gz"
+	fullBackupVolumesDir  = "volumes"
+	fullBackupVersion     = 1
+	fullBackupType        = "full"
+	streamCopyBufferBytes = 64 * 1024
+)
+
+// FullBackupManifest is written as MANIFEST.json inside the wrapper tar so
+// the restore path can rebuild the app without guessing the layout.
+type FullBackupManifest struct {
+	Version    int                      `json:"version"`
+	Type       string                   `json:"type"`
+	AppName    string                   `json:"app_name"`
+	Timestamp  string                   `json:"timestamp"`
+	AppArchive string                   `json:"app_archive,omitempty"`
+	Volumes    []FullBackupVolumeEntry  `json:"volumes,omitempty"`
+}
+
+type FullBackupVolumeEntry struct {
+	Name    string `json:"name"`
+	Archive string `json:"archive"`
+}
+
+type innerArchive struct {
+	name       string
+	localPath  string
+	memberPath string
+}
 
 func backupStagingDir() string {
 	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
@@ -37,11 +70,17 @@ func copyFileContents(srcPath, dstPath string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(dst, src); err != nil {
+	buf := make([]byte, streamCopyBufferBytes)
+	if _, err := io.CopyBuffer(dst, src, buf); err != nil {
 		_ = dst.Close()
 		return err
 	}
 	return dst.Close()
+}
+
+func streamingCopy(dst io.Writer, src io.Reader) (int64, error) {
+	buf := make([]byte, streamCopyBufferBytes)
+	return io.CopyBuffer(dst, src, buf)
 }
 
 func BackupVolume(ctx context.Context, volumeName string) (string, error) {
@@ -53,26 +92,43 @@ func BackupVolume(ctx context.Context, volumeName string) (string, error) {
 	}
 	tmpPath := filepath.Join(staging, backupName)
 
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
+	if err := writeDockerVolumeArchive(ctx, volumeName, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
 	}
-	defer f.Close()
+	return tmpPath, nil
+}
+
+// writeDockerVolumeArchive streams `tar czf -` from an alpine container
+// straight into outPath through a small bufio.Writer (low-RAM path).
+func writeDockerVolumeArchive(ctx context.Context, volumeName, outPath string) error {
+	f, err := os.Create(outPath)
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	bw := bufio.NewWriterSize(f, streamCopyBufferBytes)
 
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 		"-v", fmt.Sprintf("%s:/vol:ro", volumeName),
 		"alpine:3.20", "tar", "czf", "-", "-C", "/vol", ".")
-	cmd.Stdout = f
+	cmd.Stdout = bw
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		os.Remove(tmpPath)
-		return "", fmt.Errorf("backup failed: %s: %w", stderr.String(), err)
+		_ = bw.Flush()
+		_ = f.Close()
+		return fmt.Errorf("backup failed: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
-
-	return tmpPath, nil
+	if err := bw.Flush(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("flush archive: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close archive: %w", err)
+	}
+	return nil
 }
 
 func shouldSkipFullAppEntry(rel string, d fs.DirEntry) bool {
@@ -104,13 +160,18 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 	}
 	defer f.Close()
 
-	gz := gzip.NewWriter(f)
+	bw := bufio.NewWriterSize(f, streamCopyBufferBytes)
+	defer bw.Flush()
+
+	gz := gzip.NewWriter(bw)
 	defer gz.Close()
 
 	tw := tar.NewWriter(gz)
 	defer tw.Close()
 
-	return filepath.WalkDir(sourceDir, func(path string, d fs.DirEntry, walkErr error) error {
+	buf := make([]byte, streamCopyBufferBytes)
+
+	return filepath.WalkDir(sourceDir, func(p string, d fs.DirEntry, walkErr error) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -123,7 +184,7 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 			return walkErr
 		}
 
-		rel, err := filepath.Rel(sourceDir, path)
+		rel, err := filepath.Rel(sourceDir, p)
 		if err != nil {
 			return err
 		}
@@ -151,7 +212,7 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 
 		linkTarget := ""
 		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err = os.Readlink(path)
+			linkTarget, err = os.Readlink(p)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return nil
@@ -174,14 +235,14 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 			return nil
 		}
 
-		src, err := os.Open(path)
+		src, err := os.Open(p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil
 			}
 			return err
 		}
-		_, err = io.Copy(tw, src)
+		_, err = io.CopyBuffer(tw, src, buf)
 		closeErr := src.Close()
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -226,9 +287,10 @@ func firstExistingComposePath(restoreDir string, preferred string) string {
 	return ""
 }
 
+// BackupFullApp writes the "app" backup — a .tar.gz of workspace files only.
 func BackupFullApp(ctx context.Context, appName, sourceDir string) (string, error) {
 	timestamp := time.Now().Format("20060102-150405")
-	backupName := fmt.Sprintf("%s-full-%s.tar.gz", appName, timestamp)
+	backupName := fmt.Sprintf("%s-app-%s.tar.gz", appName, timestamp)
 
 	staging := backupStagingDir()
 	if err := os.MkdirAll(staging, 0700); err != nil {
@@ -272,6 +334,337 @@ func BackupFullApp(ctx context.Context, appName, sourceDir string) (string, erro
 	return finalPath, nil
 }
 
+// FullBackupProgress receives step-level status messages (nil = discard).
+type FullBackupProgress func(msg string)
+
+// BackupFullWithVolumes writes a wrapper .tar.gz containing app.tar.gz, one
+// <name>.tar.gz per volume, and MANIFEST.json. Wrapper uses gzip.NoCompression
+// because inner archives are already gzipped; inner files are deleted right
+// after streaming into the wrapper so peak disk ≈ largest inner + wrapper.
+func BackupFullWithVolumes(ctx context.Context, appName, sourceDir string, volumeNames []string, progress FullBackupProgress) (string, error) {
+	timestamp := time.Now().Format("20060102-150405")
+	backupName := fmt.Sprintf("%s-full-%s.tar.gz", appName, timestamp)
+
+	staging := backupStagingDir()
+	if err := os.MkdirAll(staging, 0700); err != nil {
+		return "", fmt.Errorf("create backup staging dir: %w", err)
+	}
+	workDir := filepath.Join(staging, fmt.Sprintf("full-%s-%d", appName, time.Now().UnixNano()))
+	if err := os.MkdirAll(workDir, 0700); err != nil {
+		return "", fmt.Errorf("create backup work dir: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	if !filepath.IsAbs(sourceDir) {
+		if wd, err := os.Getwd(); err == nil {
+			sourceDir = filepath.Join(wd, sourceDir)
+		}
+	}
+	if st, err := os.Stat(sourceDir); err != nil {
+		return "", fmt.Errorf("workspace not found (%s): %w", sourceDir, err)
+	} else if !st.IsDir() {
+		return "", fmt.Errorf("workspace path is not a directory: %s", sourceDir)
+	}
+
+	emit := func(msg string) {
+		if progress != nil {
+			progress(msg)
+		}
+	}
+
+	appArchivePath := filepath.Join(workDir, fullBackupAppArchive)
+	emit(fmt.Sprintf("packing app workspace → %s", fullBackupAppArchive))
+	if err := writeFullAppArchive(ctx, sourceDir, appArchivePath); err != nil {
+		return "", fmt.Errorf("pack app workspace: %w", err)
+	}
+	if st, err := os.Stat(appArchivePath); err != nil || st.Size() == 0 {
+		if err != nil {
+			return "", fmt.Errorf("pack app workspace: %w", err)
+		}
+		return "", fmt.Errorf("pack app workspace: empty archive")
+	}
+
+	cleanVolumes := make([]string, 0, len(volumeNames))
+	seen := map[string]struct{}{}
+	for _, v := range volumeNames {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		cleanVolumes = append(cleanVolumes, v)
+	}
+
+	manifest := FullBackupManifest{
+		Version:    fullBackupVersion,
+		Type:       fullBackupType,
+		AppName:    appName,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		AppArchive: fullBackupAppArchive,
+	}
+
+	var volArchives []innerArchive
+
+	for _, vol := range cleanVolumes {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		if !volumex.ValidVolumeName(vol) {
+			return "", fmt.Errorf("invalid Docker volume name %q", vol)
+		}
+		if ok, msg := volumex.VolumeExists(ctx, vol); !ok {
+			if strings.TrimSpace(msg) == "" {
+				msg = "Docker volume not found"
+			}
+			return "", fmt.Errorf("volume %s: %s", vol, msg)
+		}
+
+		memberPath := path.Join(fullBackupVolumesDir, vol+".tar.gz")
+		localPath := filepath.Join(workDir, vol+".tar.gz")
+		emit(fmt.Sprintf("packing volume %s → %s", vol, memberPath))
+		if err := writeDockerVolumeArchive(ctx, vol, localPath); err != nil {
+			return "", fmt.Errorf("pack volume %s: %w", vol, err)
+		}
+		if st, err := os.Stat(localPath); err != nil || st.Size() == 0 {
+			if err != nil {
+				return "", fmt.Errorf("pack volume %s: %w", vol, err)
+			}
+			return "", fmt.Errorf("pack volume %s: empty archive", vol)
+		}
+		volArchives = append(volArchives, innerArchive{name: vol, localPath: localPath, memberPath: memberPath})
+		manifest.Volumes = append(manifest.Volumes, FullBackupVolumeEntry{Name: vol, Archive: memberPath})
+	}
+
+	wrapperTmp := filepath.Join(workDir, backupName)
+	emit("writing wrapper archive")
+	if err := writeFullWrapperArchive(ctx, wrapperTmp, appArchivePath, volArchives, manifest); err != nil {
+		return "", fmt.Errorf("wrap archives: %w", err)
+	}
+
+	finalPath := filepath.Join(staging, backupName)
+	if err := os.Rename(wrapperTmp, finalPath); err != nil {
+		if err := copyFileContents(wrapperTmp, finalPath); err != nil {
+			return "", fmt.Errorf("copy backup: %w", err)
+		}
+	}
+
+	// Round-trip the manifest to catch a truncated/corrupt wrapper before upload.
+	emit("verifying wrapper archive")
+	if st, err := os.Stat(finalPath); err != nil || st.Size() == 0 {
+		if err == nil {
+			err = fmt.Errorf("empty wrapper archive")
+		}
+		_ = os.Remove(finalPath)
+		return "", fmt.Errorf("verify wrapper archive: %w", err)
+	}
+	if _, err := ReadFullBackupManifest(finalPath); err != nil {
+		_ = os.Remove(finalPath)
+		return "", fmt.Errorf("verify wrapper archive: %w", err)
+	}
+
+	emit("wrapper archive ready")
+	return finalPath, nil
+}
+
+// writeFullWrapperArchive composes the outer .tar.gz and deletes each inner
+// archive right after streaming it in, keeping staging usage near
+// (one inner archive + wrapper-so-far).
+func writeFullWrapperArchive(ctx context.Context, outPath, appArchivePath string, volArchives []innerArchive, manifest FullBackupManifest) error {
+	out, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	bw := bufio.NewWriterSize(out, streamCopyBufferBytes)
+
+	gz, err := gzip.NewWriterLevel(bw, gzip.NoCompression)
+	if err != nil {
+		return err
+	}
+	tw := tar.NewWriter(gz)
+
+	now := time.Now()
+
+	addInner := func(localPath, memberName string) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		fi, err := os.Stat(localPath)
+		if err != nil {
+			return err
+		}
+		hdr := &tar.Header{
+			Name:    memberName,
+			Mode:    0600,
+			Size:    fi.Size(),
+			ModTime: now,
+			Typeflag: tar.TypeReg,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		f, err := os.Open(localPath)
+		if err != nil {
+			return err
+		}
+		if _, err := streamingCopy(tw, f); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		_ = os.Remove(localPath)
+		return nil
+	}
+
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	hdr := &tar.Header{
+		Name:     fullBackupManifestFn,
+		Mode:     0600,
+		Size:     int64(len(manifestBytes)),
+		ModTime:  now,
+		Typeflag: tar.TypeReg,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := tw.Write(manifestBytes); err != nil {
+		return err
+	}
+
+	if err := addInner(appArchivePath, fullBackupAppArchive); err != nil {
+		return err
+	}
+	for _, v := range volArchives {
+		if err := addInner(v.localPath, v.memberPath); err != nil {
+			return err
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	if err := bw.Flush(); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+// ReadFullBackupManifest extracts only the MANIFEST.json entry from a wrapper
+// .tar.gz without unpacking the full archive. Used before any state-changing
+// restore step so we can validate before touching the live app.
+func ReadFullBackupManifest(archivePath string) (*FullBackupManifest, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil, fmt.Errorf("manifest missing from archive")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if filepath.ToSlash(hdr.Name) != fullBackupManifestFn {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+		if err != nil {
+			return nil, err
+		}
+		var m FullBackupManifest
+		if err := json.Unmarshal(body, &m); err != nil {
+			return nil, fmt.Errorf("parse manifest: %w", err)
+		}
+		return &m, nil
+	}
+}
+
+// extractFullBackupMembers writes the requested wrapper members to workDir as
+// real files and returns their on-disk paths keyed by member name.
+func extractFullBackupMembers(ctx context.Context, archivePath, workDir string, members map[string]string) (map[string]string, error) {
+	if err := volumex.ValidateTarGzPaths(archivePath); err != nil {
+		return nil, fmt.Errorf("archive validation failed: %w", err)
+	}
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+
+	out := make(map[string]string, len(members))
+	buf := make([]byte, streamCopyBufferBytes)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.ToSlash(hdr.Name)
+		dstRel, ok := members[name]
+		if !ok {
+			continue
+		}
+		dstPath := filepath.Join(workDir, dstRel)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0700); err != nil {
+			return nil, err
+		}
+		w, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.CopyBuffer(w, tr, buf); err != nil {
+			_ = w.Close()
+			return nil, err
+		}
+		if err := w.Close(); err != nil {
+			return nil, err
+		}
+		out[name] = dstPath
+	}
+	return out, nil
+}
+
 func RestoreVolume(ctx context.Context, volumeName, backupPath string, force bool) error {
 	if force {
 		if _, err := StopContainersUsingVolume(ctx, volumeName); err != nil {
@@ -286,7 +679,6 @@ func RestoreVolume(ctx context.Context, volumeName, backupPath string, force boo
 }
 
 func RestoreFullApp(ctx context.Context, appName, composePath, restoreDir, backupPath string) error {
-	// Ensure composePath is absolute for reliable directory resolution.
 	if !filepath.IsAbs(composePath) {
 		if wd, err := os.Getwd(); err == nil {
 			composePath = filepath.Join(wd, composePath)
@@ -305,14 +697,11 @@ func RestoreFullApp(ctx context.Context, appName, composePath, restoreDir, backu
 			backupPath = filepath.Join(wd, backupPath)
 		}
 	}
-	// Validate the archive before stopping the app, so a tampered backup cannot
-	// write outside restoreDir or cause downtime before we reject it.
+	// Validate before stopping the app so a tampered archive cannot cause downtime.
 	if err := volumex.ValidateTarGzPaths(backupPath); err != nil {
 		return fmt.Errorf("backup validation failed: %w", err)
 	}
 
-	// Bring the stack down before extracting (best-effort). Prefer the configured
-	// compose path, but fall back to the generated override when the base file is absent.
 	if downComposePath := firstExistingComposePath(restoreDir, composePath); downComposePath != "" {
 		downCmd := exec.CommandContext(ctx, "docker", "compose", "-f", downComposePath, "down")
 		_ = downCmd.Run()
@@ -337,6 +726,83 @@ func RestoreFullApp(ctx context.Context, appName, composePath, restoreDir, backu
 		return fmt.Errorf("rebuild failed: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
 
+	return nil
+}
+
+// RestoreFullWithVolumes restores a wrapper archive by reading its manifest,
+// extracting each member, and delegating to RestoreFullApp / RestoreVolume.
+func RestoreFullWithVolumes(ctx context.Context, appName, composePath, restoreDir, backupPath string, progress FullBackupProgress) error {
+	emit := func(msg string) {
+		if progress != nil {
+			progress(msg)
+		}
+	}
+
+	manifest, err := ReadFullBackupManifest(backupPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	if manifest.Type != fullBackupType {
+		return fmt.Errorf("unexpected manifest type %q", manifest.Type)
+	}
+	if strings.TrimSpace(manifest.AppArchive) == "" {
+		manifest.AppArchive = fullBackupAppArchive
+	}
+
+	staging := backupStagingDir()
+	if err := os.MkdirAll(staging, 0700); err != nil {
+		return fmt.Errorf("create staging dir: %w", err)
+	}
+	workDir := filepath.Join(staging, fmt.Sprintf("restore-%s-%d", appName, time.Now().UnixNano()))
+	if err := os.MkdirAll(workDir, 0700); err != nil {
+		return fmt.Errorf("create restore work dir: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	wanted := map[string]string{
+		manifest.AppArchive: fullBackupAppArchive,
+	}
+	for _, v := range manifest.Volumes {
+		if strings.TrimSpace(v.Archive) == "" || strings.TrimSpace(v.Name) == "" {
+			continue
+		}
+		wanted[v.Archive] = filepath.FromSlash(v.Archive)
+	}
+
+	emit("extracting wrapper archive")
+	paths, err := extractFullBackupMembers(ctx, backupPath, workDir, wanted)
+	if err != nil {
+		return err
+	}
+
+	appArchive, ok := paths[manifest.AppArchive]
+	if !ok {
+		return fmt.Errorf("app archive %q missing from backup", manifest.AppArchive)
+	}
+
+	emit("restoring app workspace")
+	if err := RestoreFullApp(ctx, appName, composePath, restoreDir, appArchive); err != nil {
+		return err
+	}
+
+	for _, v := range manifest.Volumes {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if strings.TrimSpace(v.Name) == "" || strings.TrimSpace(v.Archive) == "" {
+			continue
+		}
+		inner, ok := paths[v.Archive]
+		if !ok {
+			return fmt.Errorf("volume archive %q missing from backup", v.Archive)
+		}
+		emit(fmt.Sprintf("restoring volume %s", v.Name))
+		if err := RestoreVolume(ctx, v.Name, inner, true); err != nil {
+			return fmt.Errorf("restore volume %s: %w", v.Name, err)
+		}
+	}
 	return nil
 }
 

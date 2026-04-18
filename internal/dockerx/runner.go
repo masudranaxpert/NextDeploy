@@ -242,17 +242,64 @@ func DockerLogs(ctx context.Context, container string, tail int) Result {
 	return run(ctx, ".", "docker", "logs", "-t", "--tail", fmt.Sprintf("%d", tail), container)
 }
 
+// PruneOptions controls which resources the scheduled Docker cleanup targets.
+// Running containers are never affected; only unused / dangling resources are
+// pruned. BuildCache uses `docker builder prune -a -f` which can reclaim
+// significant disk at the cost of slower first rebuilds.
+type PruneOptions struct {
+	Containers bool
+	Images     bool
+	BuildCache bool
+}
+
+// DefaultPruneOptions preserves the historical behaviour of DockerPruneUnused
+// (containers + images, no build cache) so callers that haven't opted in keep
+// their current output shape.
+func DefaultPruneOptions() PruneOptions {
+	return PruneOptions{Containers: true, Images: true, BuildCache: false}
+}
+
+// DockerPruneUnused keeps the legacy signature for callers that only want the
+// default container + image sweep.
 func DockerPruneUnused(ctx context.Context) Result {
-	containerRes := run(ctx, ".", "docker", "container", "prune", "-f")
-	imageRes := run(ctx, ".", "docker", "image", "prune", "-a", "-f")
+	return DockerPruneWithOptions(ctx, DefaultPruneOptions())
+}
+
+// DockerPruneWithOptions runs each enabled prune step sequentially so heavy
+// disk I/O does not overlap, then stitches the per-step output into one log
+// body for display in the settings panel.
+func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
+	if !opts.Containers && !opts.Images && !opts.BuildCache {
+		return Result{OK: true, Output: "No cleanup options selected."}
+	}
+
 	var parts []string
-	if strings.TrimSpace(containerRes.Output) != "" {
-		parts = append(parts, "[containers]\n"+containerRes.Output)
+	ok := true
+
+	if opts.Containers {
+		r := run(ctx, ".", "docker", "container", "prune", "-f")
+		if strings.TrimSpace(r.Output) != "" {
+			parts = append(parts, "[containers]\n"+r.Output)
+		}
+		ok = ok && r.OK
 	}
-	if strings.TrimSpace(imageRes.Output) != "" {
-		parts = append(parts, "[images]\n"+imageRes.Output)
+	if opts.Images {
+		r := run(ctx, ".", "docker", "image", "prune", "-a", "-f")
+		if strings.TrimSpace(r.Output) != "" {
+			parts = append(parts, "[images]\n"+r.Output)
+		}
+		ok = ok && r.OK
 	}
-	ok := containerRes.OK && imageRes.OK
+	if opts.BuildCache {
+		// `builder prune -a -f` removes all build cache layers including ones
+		// still referenced by image manifests, matching the "-a" on images.
+		r := run(ctx, ".", "docker", "builder", "prune", "-a", "-f")
+		if strings.TrimSpace(r.Output) != "" {
+			parts = append(parts, "[build cache]\n"+r.Output)
+		}
+		ok = ok && r.OK
+	}
+
 	out := strings.Join(parts, "\n\n")
 	if strings.TrimSpace(out) == "" {
 		out = "No cleanup output."

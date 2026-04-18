@@ -31,6 +31,87 @@ var panelTempPatterns = []string{
 	".nextdeploy-atomic-*",
 }
 
+// Leftover artefacts inside DATA_DIR/backup-staging when a job crashes.
+var backupStagingFilePatterns = []string{
+	"*-app-*.tar.gz",
+	"*-full-*.tar.gz",
+	"*.tar.gz",
+}
+
+var backupStagingDirPatterns = []string{
+	"work-*",
+	"full-*",
+	"restore-*",
+}
+
+// orphanAge is the minimum age before a staging entry is considered safe to
+// delete; anything newer may still belong to an in-flight job.
+const orphanAge = 2 * time.Hour
+
+func backupStagingRoot() string {
+	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
+		return filepath.Join(d, "backup-staging")
+	}
+	return ""
+}
+
+// scanStagingOrphans returns staging files + dirs older than orphanAge.
+func scanStagingOrphans() (files []string, dirs []string, totalBytes int64) {
+	root := backupStagingRoot()
+	if root == "" {
+		return
+	}
+	cutoff := time.Now().Add(-orphanAge)
+	for _, pat := range backupStagingFilePatterns {
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		for _, m := range matches {
+			st, err := os.Stat(m)
+			if err != nil || st.IsDir() {
+				continue
+			}
+			if st.ModTime().After(cutoff) {
+				continue
+			}
+			files = append(files, m)
+			totalBytes += st.Size()
+		}
+	}
+	for _, pat := range backupStagingDirPatterns {
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		for _, m := range matches {
+			st, err := os.Stat(m)
+			if err != nil || !st.IsDir() {
+				continue
+			}
+			if st.ModTime().After(cutoff) {
+				continue
+			}
+			dirs = append(dirs, m)
+			totalBytes += dirSize(m)
+		}
+	}
+	return
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		total += info.Size()
+		return nil
+	})
+	return total
+}
+
 // ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
 func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
 	dirs := []string{os.TempDir(), volumex.HostStagingDir()}
@@ -56,6 +137,24 @@ func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
 			}
 		}
 	}
+	stagingFiles, stagingDirs, stagingBytes := scanStagingOrphans()
+	for _, f := range stagingFiles {
+		if _, ok := seen[f]; ok {
+			continue
+		}
+		seen[f] = struct{}{}
+		count++
+		paths = append(paths, f)
+	}
+	for _, d := range stagingDirs {
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		count++
+		paths = append(paths, d)
+	}
+	totalBytes += stagingBytes
 	return
 }
 
@@ -68,7 +167,16 @@ func CleanPanelTempFiles() (removed int, freedBytes int64) {
 		if err != nil {
 			continue
 		}
-		size := st.Size()
+		var size int64
+		if st.IsDir() {
+			size = dirSize(p)
+			if err := os.RemoveAll(p); err == nil {
+				removed++
+				freedBytes += size
+			}
+			continue
+		}
+		size = st.Size()
 		if err := os.Remove(p); err == nil {
 			removed++
 			freedBytes += size
@@ -92,10 +200,11 @@ func formatBytes(b int64) string {
 }
 
 const (
-	settingCleanupEnabled  = "cleanup_enabled"
-	settingCleanupInterval = "cleanup_interval"
-	settingCleanupLastRun  = "cleanup_last_run"
-	settingCleanupLastLog  = "cleanup_last_log"
+	settingCleanupEnabled         = "cleanup_enabled"
+	settingCleanupInterval        = "cleanup_interval"
+	settingCleanupLastRun         = "cleanup_last_run"
+	settingCleanupLastLog         = "cleanup_last_log"
+	settingCleanupIncludeBuildCache = "cleanup_include_build_cache"
 	settingPanelDomain     = "panel_domain"
 	settingPanelEnableHTTPS = "panel_enable_https"
 	settingPanelEnableWWW  = "panel_enable_www"
@@ -473,17 +582,18 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	cfg, _ := p.DB.GetAllSettings(c.UserContext())
 	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
 	return c.Render("pages/settings", withUser(c, fiber.Map{
-		"Nav":              "settings",
-		"Title":            "Settings",
-		"Flash":            readFlash(c),
-		"CleanupEnabled":   settingBool(cfg[settingCleanupEnabled], true),
-		"CleanupInterval":  normalizeCleanupInterval(cfg[settingCleanupInterval]),
-		"CleanupIntervals": cleanupIntervalOptions(),
-		"CleanupLastRun":   cfg[settingCleanupLastRun],
-		"CleanupLastLog":   cfg[settingCleanupLastLog],
-		"TmpFileCount":     tmpCount,
-		"TmpFileSize":      formatBytes(tmpBytes),
-		"TmpFileSizeRaw":   tmpBytes,
+		"Nav":                        "settings",
+		"Title":                      "Settings",
+		"Flash":                      readFlash(c),
+		"CleanupEnabled":             settingBool(cfg[settingCleanupEnabled], true),
+		"CleanupInterval":            normalizeCleanupInterval(cfg[settingCleanupInterval]),
+		"CleanupIntervals":           cleanupIntervalOptions(),
+		"CleanupLastRun":             cfg[settingCleanupLastRun],
+		"CleanupLastLog":             cfg[settingCleanupLastLog],
+		"CleanupIncludeBuildCache":   settingBool(cfg[settingCleanupIncludeBuildCache], false),
+		"TmpFileCount":               tmpCount,
+		"TmpFileSize":                formatBytes(tmpBytes),
+		"TmpFileSizeRaw":             tmpBytes,
 	}), "layouts/shell")
 }
 
@@ -511,10 +621,14 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	enabled := c.FormValue(settingCleanupEnabled) == "on"
 	interval := normalizeCleanupInterval(c.FormValue(settingCleanupInterval))
+	includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on"
 	if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.DB.SetSetting(ctx, settingCleanupInterval, interval); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.DB.SetSetting(ctx, settingCleanupIncludeBuildCache, boolString(includeBuildCache)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if p.DB.GetSetting(ctx, settingCleanupLastRun) == "" {
@@ -664,11 +778,19 @@ func (p *Panel) ManualCleanupRun(c *fiber.Ctx) error {
 	return c.Redirect("/settings")
 }
 
+// currentPruneOptions reads the live cleanup settings so scheduled and manual
+// runs pick up the newest "Include build cache" toggle without a restart.
+func (p *Panel) currentPruneOptions(ctx context.Context) dockerx.PruneOptions {
+	opts := dockerx.DefaultPruneOptions()
+	opts.BuildCache = settingBool(p.DB.GetSetting(ctx, settingCleanupIncludeBuildCache), false)
+	return opts
+}
+
 func (p *Panel) runScheduledCleanupForce() {
 	ctx := context.Background()
 	runCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
-	res := dockerx.DockerPruneUnused(runCtx)
+	res := dockerx.DockerPruneWithOptions(runCtx, p.currentPruneOptions(ctx))
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))
 	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, runutil.StatusText(runutil.Result{OK: res.OK, Output: res.Output}))
@@ -679,6 +801,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.cleanupLoop()
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
+	go p.orphanStagingSweepLoop()
 	go p.StartBackupWorker()
 }
 
@@ -696,6 +819,28 @@ func (p *Panel) cleanOrphanTempFiles() {
 		msg := fmt.Sprintf("[startup] Removed %d orphaned temp file(s), freed %s.", removed, formatBytes(freed))
 		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_log", msg)
+	}
+}
+
+// orphanStagingSweepLoop hourly removes staging entries older than orphanAge,
+// catching crashes that prevented the in-process `defer` from running.
+func (p *Panel) orphanStagingSweepLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[staging-sweep] panic: %v", r)
+		}
+	}()
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		files, dirs, _ := scanStagingOrphans()
+		for _, f := range files {
+			_ = os.Remove(f)
+		}
+		for _, d := range dirs {
+			_ = os.RemoveAll(d)
+		}
+		<-ticker.C
 	}
 }
 
@@ -742,7 +887,9 @@ func (p *Panel) runScheduledCleanup() {
 	}
 	runCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
-	res := dockerx.DockerPruneUnused(runCtx)
+	opts := dockerx.DefaultPruneOptions()
+	opts.BuildCache = settingBool(cfg[settingCleanupIncludeBuildCache], false)
+	res := dockerx.DockerPruneWithOptions(runCtx, opts)
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))
 	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, runutil.StatusText(runutil.Result{OK: res.OK, Output: res.Output}))

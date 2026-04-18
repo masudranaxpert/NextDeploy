@@ -15,8 +15,21 @@ import (
 var backupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 func (p *Panel) StartBackupWorker() {
+	if n, err := p.DB.ResetInFlightBackups(context.Background(), "panel restarted while this backup was running"); err != nil {
+		log.Printf("[backup] reset in-flight rows: %v", err)
+	} else if n > 0 {
+		log.Printf("[backup] reset %d in-flight backup row(s) to failed", n)
+	}
+
 	go func() {
-		p.processScheduledBackups()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[backup-worker] recovered from panic: %v — restarting", r)
+				go p.StartBackupWorker()
+			}
+		}()
+
+		p.safeProcessScheduledBackups()
 		firstWait := time.Until(time.Now().Truncate(time.Minute).Add(time.Minute))
 		if firstWait > 0 {
 			timer := time.NewTimer(firstWait)
@@ -26,11 +39,20 @@ func (p *Panel) StartBackupWorker() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			p.processScheduledBackups()
+			p.safeProcessScheduledBackups()
 		}
 	}()
 
 	log.Println("Backup worker started")
+}
+
+func (p *Panel) safeProcessScheduledBackups() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[backup-worker] tick panic: %v", r)
+		}
+	}()
+	p.processScheduledBackups()
 }
 
 func (p *Panel) processScheduledBackups() {

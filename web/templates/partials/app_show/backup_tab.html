@@ -13,6 +13,7 @@
         </select>
         <select id="backup-type" class="input w-full">
           <option value="volume">Volume only</option>
+          <option value="app">App only</option>
           <option value="full">Full app</option>
         </select>
         <button type="button" id="backup-start-btn" onclick="startManualBackup()" class="btn-primary min-h-11 px-4 sm:min-h-10">
@@ -54,15 +55,39 @@
           </div>
         </div>
       </div>
-      <div id="backup-full-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-4 py-3 text-xs leading-relaxed text-sky-100">
-        <p><span class="font-medium">Full app</span> backs up the app workspace files and environment. Use <span class="font-medium">Volume only</span> when you need one exact Docker volume snapshot.</p>
-        {{if .AppVolumes}}
-          <div class="mt-3 flex flex-wrap gap-2">
-            {{range .AppVolumes}}
-              <span class="rounded-full border border-sky-400/20 bg-sky-950/20 px-3 py-1 font-mono text-[11px] text-sky-100/90">{{.}}</span>
-            {{end}}
+      <div id="backup-app-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-4 py-3 text-xs leading-relaxed text-sky-100">
+        <p><span class="font-medium">App only</span> backs up the app workspace files and environment (no Docker volumes). Use <span class="font-medium">Full app</span> if you need both app files and its data volumes together.</p>
+      </div>
+      <div id="backup-full-panel" class="hidden rounded-2xl border border-border/60 bg-muted/10 p-4 sm:p-5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-foreground">Full app targets</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">App workspace plus every Docker volume you list, archived separately, then streamed into a single wrapped <span class="font-mono">.tar.gz</span>.</p>
           </div>
-        {{end}}
+          <span class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-sky-500/25 bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-200">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/></svg>
+            Streaming · low RAM
+          </span>
+        </div>
+
+        <textarea id="backup-full-volumes" rows="3" class="input mt-4 w-full font-mono text-sm" placeholder="app_data, app_cache&#10;or one name per line"></textarea>
+        <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">Comma or newline separated. At least one Docker volume name is required.</p>
+
+        <div class="mt-4 border-t border-border/40 pt-3">
+          <p class="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">Detected volumes <span class="font-normal normal-case tracking-normal text-muted-foreground/60">(click to add)</span></p>
+          {{if .AppVolumes}}
+            <div class="flex flex-wrap gap-1.5">
+              {{range .AppVolumes}}
+                <button type="button" class="group inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/40 px-3 py-1.5 text-[11px] font-mono text-foreground transition hover:border-primary/50 hover:bg-primary/8 hover:text-primary" data-volume-append="backup-full-volumes" data-volume-name="{{.}}">
+                  <svg class="h-3 w-3 text-muted-foreground/60 transition group-hover:text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                  {{.}}
+                </button>
+              {{end}}
+            </div>
+          {{else}}
+            <p class="text-xs text-muted-foreground">No detected volumes yet. You can still type exact Docker volume names above.</p>
+          {{end}}
+        </div>
       </div>
       <p id="backup-manual-msg" class="mt-2 hidden text-xs text-emerald-400" role="status"></p>
     </div>
@@ -117,6 +142,7 @@
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Backup Type</label>
         <select name="type" required class="input w-full" id="schedule-type">
           <option value="volume">Volume only</option>
+          <option value="app">App only</option>
           <option value="full">Full app</option>
         </select>
       </div>
@@ -137,15 +163,37 @@
           {{end}}
         </div>
       </div>
-      <div id="schedule-full-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-3.5 py-3 text-[11px] leading-relaxed text-sky-100">
-        <p>Full app schedules back up the app workspace files and environment. Use <span class="font-medium">Volume only</span> if you want to pin one specific Docker volume.</p>
-        {{if .AppVolumes}}
-          <div class="mt-3 flex flex-wrap gap-2">
-            {{range .AppVolumes}}
-              <span class="rounded-full border border-sky-400/20 bg-sky-950/20 px-3 py-1 font-mono text-[11px] text-sky-100/90">{{.}}</span>
-            {{end}}
+      <div id="schedule-app-note" class="hidden rounded-xl border border-sky-500/20 bg-sky-500/8 px-3.5 py-3 text-[11px] leading-relaxed text-sky-100">
+        <p><span class="font-medium">App only</span> schedules pack the app workspace files and environment only. Pick <span class="font-medium">Full app</span> to include Docker volumes too.</p>
+      </div>
+      <div id="schedule-full-panel" class="hidden rounded-xl border border-border/60 bg-muted/15 p-3.5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-xs font-semibold text-foreground">Full app targets</p>
+            <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">App workspace plus every Docker volume you list, archived separately, then streamed into a single wrapped <span class="font-mono">.tar.gz</span>.</p>
           </div>
-        {{end}}
+          <span class="shrink-0 inline-flex items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200">
+            <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/></svg>
+            Streaming · low RAM
+          </span>
+        </div>
+        <textarea name="volume_names_full" id="schedule-full-volumes" rows="3" class="input mt-3 w-full font-mono text-sm" placeholder="app_data, app_cache&#10;or one name per line"></textarea>
+        <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Comma or newline separated. At least one Docker volume name is required.</p>
+        <div class="mt-3 border-t border-border/40 pt-3">
+          <p class="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">Detected volumes <span class="font-normal normal-case tracking-normal text-muted-foreground/60">(click to add)</span></p>
+          {{if .AppVolumes}}
+            <div class="flex flex-wrap gap-1.5">
+              {{range .AppVolumes}}
+                <button type="button" class="group inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/40 px-3 py-1.5 text-[11px] font-mono text-foreground transition hover:border-primary/50 hover:bg-primary/8 hover:text-primary" data-volume-append="schedule-full-volumes" data-volume-name="{{.}}">
+                  <svg class="h-3 w-3 text-muted-foreground/60 transition group-hover:text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                  {{.}}
+                </button>
+              {{end}}
+            </div>
+          {{else}}
+            <p class="text-xs text-muted-foreground">No detected volumes right now. You can still type exact Docker volume names above.</p>
+          {{end}}
+        </div>
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Schedule</label>
@@ -365,17 +413,21 @@ function escapeHtmlAttr(s) {
 function syncBackupTypeUI() {
   var type = (document.getElementById('backup-type') || {}).value || 'volume';
   var volumePanel = document.getElementById('backup-volume-panel');
-  var fullNote = document.getElementById('backup-full-note');
+  var appNote = document.getElementById('backup-app-note');
+  var fullPanel = document.getElementById('backup-full-panel');
   if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
-  if (fullNote) fullNote.classList.toggle('hidden', type !== 'full');
+  if (appNote) appNote.classList.toggle('hidden', type !== 'app');
+  if (fullPanel) fullPanel.classList.toggle('hidden', type !== 'full');
 }
 
 function syncScheduleTypeUI() {
   var type = (document.getElementById('schedule-type') || {}).value || 'volume';
   var volumePanel = document.getElementById('schedule-volume-panel');
-  var fullNote = document.getElementById('schedule-full-note');
+  var appNote = document.getElementById('schedule-app-note');
+  var fullPanel = document.getElementById('schedule-full-panel');
   if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
-  if (fullNote) fullNote.classList.toggle('hidden', type !== 'full');
+  if (appNote) appNote.classList.toggle('hidden', type !== 'app');
+  if (fullPanel) fullPanel.classList.toggle('hidden', type !== 'full');
 }
 
 function showBackupManualMsg(text, isErr) {
@@ -426,6 +478,15 @@ function startManualBackup() {
   if (type === 'volume') {
     var volumeName = (document.getElementById('backup-volume-name') || {}).value || '';
     formData.append('volume_names', volumeName);
+  } else if (type === 'full') {
+    var fullVols = (document.getElementById('backup-full-volumes') || {}).value || '';
+    if (!fullVols.replace(/[\s,]+/g, '')) {
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      showBackupManualMsg('Full app backup needs at least one Docker volume name.', true);
+      return;
+    }
+    formData.append('volume_names', fullVols);
   }
   fetch('/apps/' + appID + '/backup/' + destID, {
     method: 'POST',
@@ -515,7 +576,18 @@ function loadBackupHistory(page) {
         var statusExtra = isRestoring ? ' <span class="text-sky-400 font-medium">· Restoring…</span>' : '';
         var rel = formatRelativeTime(h.CreatedAt);
         var fullAt = String(h.CreatedAt || '').replace(/"/g, '&quot;');
-        var volumeLine = h.VolumeName ? '<p class="text-xs text-muted-foreground/90 mt-1">Volume: <span class="font-mono text-foreground/90">' + escapeHtmlAttr(h.VolumeName) + '</span></p>' : '';
+        var volumeLine = '';
+        if (h.VolumeName) {
+          var volNames = String(h.VolumeName).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+          if (volNames.length > 1) {
+            var chips = volNames.map(function(n) {
+              return '<span class="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-foreground/90">' + escapeHtmlAttr(n) + '</span>';
+            }).join(' ');
+            volumeLine = '<div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground/90"><span class="text-muted-foreground/70">Volumes:</span>' + chips + '</div>';
+          } else {
+            volumeLine = '<p class="text-xs text-muted-foreground/90 mt-1">Volume: <span class="font-mono text-foreground/90">' + escapeHtmlAttr(h.VolumeName) + '</span></p>';
+          }
+        }
 
         var timeBadge = '<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 bg-muted/60 ring-border/50 text-muted-foreground" title="' + fullAt + '">' +
           '<svg class="h-2.5 w-2.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"/></svg>' +
@@ -643,9 +715,15 @@ function openRestoreConfirm(historyID, backupType, remotePath) {
   restorePendingHistoryID = historyID;
   var typeEl = document.getElementById('restore-confirm-type');
   if (typeEl) {
-    typeEl.textContent = (backupType === 'full')
-      ? 'Full app — workspace files and environment'
-      : 'Volume only — application data volume';
+    var label;
+    if (backupType === 'full') {
+      label = 'Full app — workspace files + Docker volumes';
+    } else if (backupType === 'app') {
+      label = 'App only — workspace files and environment';
+    } else {
+      label = 'Volume only — application data volume';
+    }
+    typeEl.textContent = label;
   }
   var wrap = document.getElementById('restore-confirm-path-wrap');
   var pathEl = document.getElementById('restore-confirm-path');
@@ -724,6 +802,14 @@ function loadBackupSchedules() {
         var volumeLine = '';
         if (s.BackupType === 'volume') {
           volumeLine = '<p class="text-xs text-muted-foreground mt-1">Target volume: ' + (s.VolumeNames ? '<span class="font-mono text-foreground/90">' + escapeHtmlAttr(s.VolumeNames) + '</span>' : '<span class="text-emerald-300/90">Auto detect</span>') + '</p>';
+        } else if (s.BackupType === 'full') {
+          var fullNames = String(s.VolumeNames || '').split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+          if (fullNames.length > 0) {
+            var fullChips = fullNames.map(function(n) {
+              return '<span class="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-foreground/90">' + escapeHtmlAttr(n) + '</span>';
+            }).join(' ');
+            volumeLine = '<div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"><span class="text-muted-foreground/70">Volumes:</span>' + fullChips + '</div>';
+          }
         }
         return '<div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">' +
           '<div class="flex-1 min-w-0"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + '</p>' +
@@ -752,6 +838,8 @@ function showAddScheduleModal() {
   if (ret) ret.value = '7';
   var vol = document.getElementById('schedule-volume-name');
   if (vol) vol.value = '';
+  var fullVol = document.getElementById('schedule-full-volumes');
+  if (fullVol) fullVol.value = '';
   syncScheduleTypeUI();
   document.getElementById('schedule-modal').classList.remove('hidden');
 }
@@ -766,9 +854,12 @@ function openEditSchedule(scheduleID, destinationID, backupType, volumeName, cro
   var dest = document.getElementById('schedule-destination');
   if (dest) dest.value = String(destinationID);
   var typeSel = document.querySelector('#schedule-form select[name="type"]');
-  if (typeSel) typeSel.value = backupType === 'full' ? 'full' : 'volume';
+  var normType = (backupType === 'full' || backupType === 'app') ? backupType : 'volume';
+  if (typeSel) typeSel.value = normType;
   var volIn = document.getElementById('schedule-volume-name');
-  if (volIn) volIn.value = volumeName || '';
+  var fullIn = document.getElementById('schedule-full-volumes');
+  if (volIn) volIn.value = (normType === 'volume') ? (volumeName || '') : '';
+  if (fullIn) fullIn.value = (normType === 'full') ? (volumeName || '') : '';
   var cron = document.getElementById('cron-input');
   if (cron) cron.value = cronExpr || '';
   var retIn = document.querySelector('#schedule-form input[name="retention"]');
@@ -784,8 +875,24 @@ function hideScheduleModal() {
 document.getElementById('schedule-form').addEventListener('submit', function(e) {
   e.preventDefault();
   var formData = new FormData(e.target);
-  if ((formData.get('type') || '') !== 'volume') {
+  var selectedType = formData.get('type') || 'volume';
+  // The schedule form has both a single-volume input and a multi-volume textarea.
+  // Only send the one that matches the chosen backup type so the server gets
+  // exactly one value under "volume_names".
+  if (selectedType === 'full') {
+    var fullVols = (document.getElementById('schedule-full-volumes') || {}).value || '';
+    if (!fullVols.replace(/[\s,]+/g, '')) {
+      showBackupManualMsg('Full app schedules need at least one Docker volume name.', true);
+      return;
+    }
     formData.delete('volume_names');
+    formData.delete('volume_names_full');
+    formData.append('volume_names', fullVols);
+  } else if (selectedType === 'app') {
+    formData.delete('volume_names');
+    formData.delete('volume_names_full');
+  } else {
+    formData.delete('volume_names_full');
   }
   var destID = formData.get('destination');
   if (!destID) {
@@ -934,6 +1041,25 @@ document.addEventListener('click', function(e) {
     input.value = value;
     input.focus();
   }
+});
+
+// Multi-volume textarea: clicking a detected-volume chip appends the name to
+// the current textarea (dedup + comma separator) so users can build up a full
+// backup target list without retyping.
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-volume-append]');
+  if (!btn) return;
+  e.preventDefault();
+  var target = btn.getAttribute('data-volume-append');
+  var value = (btn.getAttribute('data-volume-name') || '').trim();
+  var ta = document.getElementById(target);
+  if (!ta || !value) return;
+  var parts = String(ta.value || '').split(/[\s,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+  if (parts.indexOf(value) === -1) {
+    parts.push(value);
+  }
+  ta.value = parts.join(', ');
+  ta.focus();
 });
 
 var backupTypeSel = document.getElementById('backup-type');

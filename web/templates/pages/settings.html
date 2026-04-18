@@ -82,7 +82,7 @@
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
       <div class="min-w-0">
         <h2 class="text-sm font-semibold text-foreground">Docker Cleanup</h2>
-        <p class="mt-0.5 text-xs text-muted-foreground">Removes unused containers and images. Running containers are never touched.</p>
+        <p class="mt-0.5 text-xs text-muted-foreground">Removes unused containers and images{{if .CleanupIncludeBuildCache}}, and build cache{{end}}. Running containers are never touched.</p>
       </div>
       <form method="post" action="/settings/cleanup/run" class="w-full shrink-0 sm:w-auto">
         <button type="submit" class="btn-secondary h-11 w-full px-3 text-xs text-amber-400 hover:border-amber-500/40 hover:bg-amber-950/30 hover:text-amber-300 sm:h-9 sm:w-auto">
@@ -103,6 +103,23 @@
         <div class="flex shrink-0 items-center justify-end">
           <label class="relative inline-flex cursor-pointer items-center" for="cleanup-enabled-toggle">
             <input type="checkbox" id="cleanup-enabled-toggle" name="cleanup_enabled" value="on" class="peer sr-only" {{if .CleanupEnabled}}checked{{end}} aria-labelledby="cleanup-enabled-label">
+            <span aria-hidden="true" class="relative h-7 w-11 shrink-0 rounded-full bg-muted-foreground/25 shadow-inner transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-checked:bg-primary after:pointer-events-none after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-md after:transition-transform peer-checked:after:translate-x-5"></span>
+          </label>
+        </div>
+      </div>
+      <div class="flex flex-col gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+        <div class="min-w-0 flex-1">
+          <p id="cleanup-buildcache-label" class="flex items-center gap-2 text-sm font-medium text-foreground">
+            <svg class="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+            </svg>
+            Also prune Docker build cache
+          </p>
+          <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Runs <span class="font-mono">docker builder prune -a -f</span> alongside the container and image sweep. Frees significant disk when you rebuild often; the next build after a prune will be slower because cached layers are discarded.</p>
+        </div>
+        <div class="flex shrink-0 items-center justify-end">
+          <label class="relative inline-flex cursor-pointer items-center" for="cleanup-buildcache-toggle">
+            <input type="checkbox" id="cleanup-buildcache-toggle" name="cleanup_include_build_cache" value="on" class="peer sr-only" {{if .CleanupIncludeBuildCache}}checked{{end}} aria-labelledby="cleanup-buildcache-label">
             <span aria-hidden="true" class="relative h-7 w-11 shrink-0 rounded-full bg-muted-foreground/25 shadow-inner transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-checked:bg-primary after:pointer-events-none after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-md after:transition-transform peer-checked:after:translate-x-5"></span>
           </label>
         </div>
