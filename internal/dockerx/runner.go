@@ -11,8 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"panel/internal/dockerapi"
+	"panel/internal/perflog"
 	"panel/internal/runutil"
 )
 
@@ -164,6 +166,7 @@ func ComposeLogs(ctx context.Context, projectDir string, composeFiles []string, 
 
 func ComposePS(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string) ([]ComposePsRow, Result) {
 	project = strings.TrimSpace(project)
+	psStart := time.Now()
 	if project != "" {
 		sdkRows, err := dockerapi.ComposePS(ctx, project)
 		if err == nil {
@@ -177,18 +180,23 @@ func ComposePS(ctx context.Context, projectDir string, composeFiles []string, pr
 					WorkingDir: sr.WorkingDir,
 				})
 			}
+			perflog.ComposePS(project, "sdk", time.Since(psStart), len(rows), true, "")
 			return rows, Result{OK: true, Output: ""}
 		}
+		perflog.ComposePS(project, "sdk", time.Since(psStart), 0, false, err.Error())
+		psStart = time.Now()
 	}
 
 	r := run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "ps", "-a", "--format", "json")...)
 	if !r.OK {
+		perflog.ComposePS(project, "cli", time.Since(psStart), 0, false, strings.TrimSpace(r.Output))
 		return nil, r
 	}
 	trimmed := strings.TrimSpace(r.Output)
 	if strings.HasPrefix(trimmed, "[") {
 		var batch []ComposePsRow
 		if err := json.Unmarshal([]byte(trimmed), &batch); err == nil {
+			perflog.ComposePS(project, "cli", time.Since(psStart), len(batch), true, "")
 			return batch, Result{OK: true, Output: ""}
 		}
 	}
@@ -207,6 +215,7 @@ func ComposePS(ctx context.Context, projectDir string, composeFiles []string, pr
 			rows = append(rows, row)
 		}
 	}
+	perflog.ComposePS(project, "cli", time.Since(psStart), len(rows), true, "")
 	return rows, Result{OK: true, Output: ""}
 }
 
