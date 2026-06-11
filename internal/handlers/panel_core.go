@@ -76,6 +76,13 @@ type Panel struct {
 	BackupRestoreState map[string]BackupRestoreState // app id -> current/last restore state
 
 	GitSyncer GitSyncer
+
+	cgroupMu         sync.Mutex
+	cgroupChecked    bool
+	cgroupModeVal    string   // "systemd", "cgroupfs", or "" (unsupported)
+	userSliceApplied sync.Map // user id (int64) -> "memMB:cpus" last applied
+
+	appStorage sync.Map // app id (string) -> appStorageEntry
 }
 
 type BackupRestoreState struct {
@@ -258,10 +265,13 @@ func composeProjectSuffixedLegacy(app db.App, id string) string {
 	return slug + "_" + composeNameSuffixFromAppID(id)
 }
 
-// composeProjectName is the canonical Docker Compose project name: sanitizeProjectName(app.Name) only.
-// Apps without a slug cannot be created (CreateApp); empty slug here means legacy or invalid DB rows.
+// composeProjectName is the canonical Docker Compose project name. It is derived from the app ID
+// (slug + random suffix, e.g. "blog-c66b") so two users with same-named apps can never collide on
+// one Docker project. Plain app-name slugs remain as legacy candidates for stacks deployed earlier.
 func (p *Panel) composeProjectName(app db.App, id string) string {
-	_ = id // kept for call-site consistency with other helpers
+	if proj := sanitizeProjectName(id); proj != "" {
+		return proj
+	}
 	return sanitizeProjectName(app.Name)
 }
 
@@ -346,7 +356,9 @@ func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 		seen[s] = struct{}{}
 		out = append(out, s)
 	}
-	// Older panel used slug_id8; probe that first so activeComposeProjectName finds running stacks.
+	// Canonical (app-ID based, unique) first: fast path for stacks deployed after the rename.
+	add(p.composeProjectName(app, id))
+	// Older panels used slug_id8 and the plain name slug; probe those so existing stacks are found.
 	if suf := composeProjectSuffixedLegacy(app, id); suf != "" {
 		add(suf)
 	}
@@ -354,6 +366,53 @@ func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 		add(slug)
 	}
 	return out
+}
+
+// ComposeRowsBelongToApp is the exported wrapper for composeRowsBelongToApp.
+func (p *Panel) ComposeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) bool {
+	return p.composeRowsBelongToApp(id, rows)
+}
+
+// ProjectNameSharedWithOtherApp reports whether any other app resolves to the same compose
+// project name. Used to decide if cleanup of a legacy (slug-based) project name is safe.
+func (p *Panel) ProjectNameSharedWithOtherApp(ctx context.Context, appID, project string) bool {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return false
+	}
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return false
+	}
+	for _, a := range apps {
+		if a.ID == appID {
+			continue
+		}
+		if sanitizeProjectName(a.Name) == project || sanitizeProjectName(a.ID) == project {
+			return true
+		}
+	}
+	return false
+}
+
+// composeRowsBelongToApp verifies that a probed compose project actually belongs to this app by
+// checking the compose working_dir label against the app workspace. Prevents an app whose legacy
+// slug collides with another user's project (e.g. both named "blog") from claiming that stack.
+// Rows without a WorkingDir (CLI fallback) are accepted for backwards compatibility.
+func (p *Panel) composeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) bool {
+	appRoot := filepath.Clean(p.Store.Path(id))
+	sawWorkDir := false
+	for _, row := range rows {
+		wd := strings.TrimSpace(row.WorkingDir)
+		if wd == "" {
+			continue
+		}
+		sawWorkDir = true
+		if composeWorkspaceDirContainedInApp(appRoot, wd) {
+			return true
+		}
+	}
+	return !sawWorkDir
 }
 
 // composeProjectAndPS resolves the active compose project name and returns Compose PS rows in at most
@@ -374,14 +433,14 @@ func (p *Panel) ComposeProjectAndPS(ctx context.Context, app db.App, id string) 
 	var lastRes dockerx.Result
 	for i, proj := range names {
 		lastRows, lastRes = dockerx.ComposePS(ctx, root, paths, proj, envFiles)
-		if lastRes.OK && len(lastRows) > 0 {
+		if lastRes.OK && len(lastRows) > 0 && p.composeRowsBelongToApp(id, lastRows) {
 			return proj, lastRows, lastRes
 		}
 		if i == len(names)-1 {
-			return canonical, lastRows, lastRes
+			return canonical, nil, lastRes
 		}
 	}
-	return canonical, lastRows, lastRes
+	return canonical, nil, lastRes
 }
 
 func (p *Panel) composeProjectAndPS(ctx context.Context, app db.App, id string) (project string, rows []dockerx.ComposePsRow, res dockerx.Result) {
@@ -405,14 +464,14 @@ func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id stri
 	var lastRes dockerx.Result
 	for i, proj := range names {
 		lastRows, lastRes = dockerx.ComposePS(ctx, root, paths, proj, envFiles)
-		if lastRes.OK && len(lastRows) > 0 {
+		if lastRes.OK && len(lastRows) > 0 && p.composeRowsBelongToApp(id, lastRows) {
 			return proj, lastRows, lastRes
 		}
 		if i == len(names)-1 {
-			return canonical, lastRows, lastRes
+			return canonical, nil, lastRes
 		}
 	}
-	return canonical, lastRows, lastRes
+	return canonical, nil, lastRes
 }
 
 func (p *Panel) ActiveComposeProjectName(ctx context.Context, app db.App, id string) string {
@@ -438,6 +497,12 @@ func (p *Panel) StopOtherComposeStacks(ctx context.Context, app db.App, id, acti
 	for _, proj := range p.composeProjectCandidates(ctx, app, id) {
 		proj = strings.TrimSpace(proj)
 		if proj == "" || proj == activeProject {
+			continue
+		}
+		// Legacy slug candidates can collide with another user's project (same app name).
+		// Only down a candidate when its containers were deployed from this app's workspace.
+		rows, res := dockerx.ComposePS(ctx, dir, paths, proj, envFiles)
+		if !res.OK || len(rows) == 0 || !p.composeRowsBelongToApp(id, rows) {
 			continue
 		}
 		_ = dockerx.ComposeDown(ctx, dir, paths, proj, nil, envFiles)

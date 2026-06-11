@@ -64,7 +64,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	sourcePath := p.composeWorkspaceRoot(reqCtx, id)
 	hasDF := false
 	if tab == "overview" || tab == "files" || !htmxTabPartial {
-		hasDF, _ = p.Store.HasDockerArtifacts(sourcePath)
+		hasDF, _ = p.Store.HasDockerArtifacts(id)
 	}
 
 	composePath := p.composeFilePath(reqCtx, app, id)
@@ -75,6 +75,11 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		hasComp = true
 		composeName = composeDisplay
 	}
+	hasGenerated := false
+	if st, err := os.Stat(p.composeOverridePath(reqCtx, id)); err == nil && !st.IsDir() {
+		hasGenerated = true
+	}
+	stackReady := hasComp || hasGenerated
 
 	storagePath := filepath.ToSlash(sourcePath)
 
@@ -85,7 +90,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 
 	var composeRows []dockerx.ComposePsRow
 	var composePsMsg string
-	if hasComp && appShowTabNeedsCompose(tab) {
+	if stackReady && appShowTabNeedsCompose(tab) {
 		_, rows, pr := p.composeProjectAndPS(reqCtx, app, id)
 		if pr.OK {
 			composeRows = rows
@@ -112,7 +117,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	}
 	if tab == "volumes" || tab == "backup" {
 		volProjects := p.composeProjectCandidates(reqCtx, app, id)
-		if hasComp {
+		if stackReady {
 			if active, _, pr := p.composeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
 				volProjects = dedupeStringsPreserveOrder(append([]string{active}, volProjects...))
 			}
@@ -132,7 +137,12 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		panelDomain = p.DB.GetSetting(reqCtx, settingPanelDomain)
 	}
 	if tab == "git" {
-		gitProviders, _ = p.DB.ListGitProviders(reqCtx)
+		var userID *int64
+		if u, ok := currentUser(c); ok && u.Role != db.RoleAdmin {
+			val := u.ID
+			userID = &val
+		}
+		gitProviders, _ = p.DB.ListGitProviders(reqCtx, userID)
 		gitHubDetails, _ := p.DB.ListGitHubProviderDetails(reqCtx)
 		for _, detail := range gitHubDetails {
 			gitHubProviderMap[detail.ProviderID] = detail
@@ -163,7 +173,12 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	var backupAutoVolumeName string
 	var backupAutoVolumeErr string
 	if tab == "backup" {
-		backupDestinations, _ = p.DB.ListBackupDestinations(reqCtx)
+		var userID *int64
+		if u, ok := currentUser(c); ok && u.Role != db.RoleAdmin {
+			val := u.ID
+			userID = &val
+		}
+		backupDestinations, _ = p.DB.ListBackupDestinations(reqCtx, userID)
 		backupSchedules, _ = p.DB.ListBackupSchedules(reqCtx, id)
 		backupHistory, _ = p.DB.ListBackupHistory(reqCtx, id, 50)
 		backupAutoVolumeName, backupAutoVolumeErr = p.resolveRequestedBackupVolume(reqCtx, app, "")
@@ -219,6 +234,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"PanelDomain":            panelDomain,
 		"AppWebhookURL":          appWebhookURL,
 		"HasCompose":             hasComp,
+		"HasStack":               stackReady,
 		"ComposeFile":            composeName,
 		"ComposeFileSetting":     composeDisplay,
 		"ID":                     id,
@@ -244,6 +260,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"DeployQueueBusy":        deployBusy,
 		"AppDomains":             appDomains,
 		"DomainServices":         domainServices,
+		"ShowDomainFileServer":   p.userCanDomainFileServer(c),
 		"DomainSaved":            appShowFlash == "domainSaved" || c.Query("domainSaved") == "1",
 		"GitSaved":               gitSaved,
 		"GitSynced":              gitSynced,
@@ -397,6 +414,23 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 
 	if targetUser.ID == app.OwnerID {
 		utils.SetFlash(c, "Error: User is already the owner.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	collabs, err := p.DB.ListCollaborators(ctx, appID)
+	if err != nil {
+		utils.SetFlash(c, "Error loading collaborators.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+	isCollab := false
+	for _, cb := range collabs {
+		if cb.UserID == targetUser.ID {
+			isCollab = true
+			break
+		}
+	}
+	if !isCollab {
+		utils.SetFlash(c, "Error: Target user must be a collaborator of this app first.")
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
 	}
 

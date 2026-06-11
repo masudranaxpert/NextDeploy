@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strconv"
@@ -185,6 +186,20 @@ func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
 	if pid := strings.TrimSpace(c.FormValue("git_provider_id")); pid != "" {
 		if parsed, err := strconv.ParseInt(pid, 10, 64); err == nil && parsed > 0 {
 			cfg.GitProviderID = parsed
+		}
+	}
+	if cfg.GitProviderID > 0 {
+		u, ok := handlers.CurrentUser(c)
+		if !ok {
+			return c.Status(401).SendString("unauthorized")
+		}
+		provider, perr := h.p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
+		if perr != nil {
+			h.p.SetGitTabErrorCookie(c, appID, "Selected Git provider not found")
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+		}
+		if u.Role != db.RoleAdmin && (provider.UserID == nil || *provider.UserID != u.ID) {
+			return c.Status(403).SendString("forbidden")
 		}
 	}
 	old, oldCfgErr := h.p.DB.GetAppGitConfig(c.UserContext(), appID)
@@ -495,6 +510,10 @@ func (h *Handler) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID str
 }
 
 func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
 	appID := c.Params("id")
 	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
@@ -506,6 +525,9 @@ func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
 	provider, err := h.p.DB.GetGitProvider(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	if u.Role != db.RoleAdmin && (provider.UserID == nil || *provider.UserID != u.ID) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 	if provider.Provider == "gitlab" {
 		return h.AppGitLabProviderRepos(c)
@@ -539,6 +561,10 @@ func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
 }
 
 func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
 	appID := c.Params("id")
 	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
@@ -550,6 +576,9 @@ func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
 	provider, err := h.p.DB.GetGitProvider(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
+	}
+	if u.Role != db.RoleAdmin && (provider.UserID == nil || *provider.UserID != u.ID) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 	if provider.Provider == "gitlab" {
 		return h.AppGitLabProviderBranches(c)

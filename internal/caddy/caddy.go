@@ -310,7 +310,9 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 // GenerateMergedCompose returns a merged compose YAML with normalized volumes, Caddy labels,
 // and NextDeploy network. When panelEnv is non-empty, ".env" is added to every service's
 // env_file so panel-managed variables reach containers regardless of source type.
-func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string) ([]byte, error) {
+// When cgroupParent is non-empty it is forced onto every service so all of the owner's
+// containers run under a single cgroup with a shared, kernel-enforced resource limit.
+func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -333,6 +335,17 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 				continue
 			}
 			injectEnvFile(svc, ".env")
+			services[svcKey] = svc
+		}
+	}
+
+	if cg := strings.TrimSpace(cgroupParent); cg != "" {
+		for svcKey, rawSvc := range services {
+			svc, ok := toStringMap(rawSvc)
+			if !ok {
+				continue
+			}
+			svc["cgroup_parent"] = cg
 			services[svcKey] = svc
 		}
 	}

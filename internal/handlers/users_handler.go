@@ -40,13 +40,29 @@ func (p *Panel) UsersPage(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+
+	// Per-user workspace storage usage (sizes come from a short-TTL cache).
+	storageByUser := make(map[int64]string, len(users))
+	if apps, aerr := p.DB.ListApps(c.UserContext()); aerr == nil {
+		usage := make(map[int64]int64)
+		for _, app := range apps {
+			if app.OwnerID > 0 {
+				usage[app.OwnerID] += p.AppStorageBytes(app.ID)
+			}
+		}
+		for _, u := range users {
+			storageByUser[u.ID] = HumanStorage(usage[u.ID])
+		}
+	}
+
 	return c.Render("pages/users", fiber.Map{
-		"Nav":         "users",
-		"Title":       "Users",
-		"Users":       users,
-		"CurrentUser": user,
-		"Flash":       utils.ReadFlash(c),
-		"Error":       utils.ReadFlashError(c),
+		"Nav":           "users",
+		"Title":         "Users",
+		"Users":         users,
+		"StorageByUser": storageByUser,
+		"CurrentUser":   user,
+		"Flash":         utils.ReadFlash(c),
+		"Error":         utils.ReadFlashError(c),
 	}, "layouts/shell")
 }
 
@@ -258,13 +274,12 @@ func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 
 	if status == db.UserStatusSuspended {
 		ctx := c.UserContext()
+		_ = p.DB.DeleteUserSessions(ctx, id)
 		apps, err := p.DB.ListAppsForUser(ctx, id)
 		if err == nil {
 			for _, app := range apps {
 				_ = p.DB.UpdateAppStatus(ctx, app.ID, db.AppStatusSuspended)
-				overridePath := p.composeOverridePath(ctx, app.ID)
-				basePath := p.composeFilePath(ctx, app, app.ID)
-				files := []string{basePath, overridePath}
+				files := p.EffectiveComposePaths(ctx, app, app.ID)
 				dir := p.AppSourcePath(ctx, app.ID)
 				project := p.ActiveComposeProjectName(ctx, app, app.ID)
 				var logW io.Writer
@@ -292,16 +307,28 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	maxApps, _ := strconv.Atoi(c.FormValue("max_apps"))
 	maxMemory, _ := strconv.Atoi(c.FormValue("max_memory_mb"))
 	maxCPUs, _ := strconv.ParseFloat(c.FormValue("max_cpus"), 64)
+	maxStorage, _ := strconv.Atoi(c.FormValue("max_storage_mb"))
 
-	if maxApps <= 0 || maxMemory <= 0 || maxCPUs <= 0 {
+	if maxApps <= 0 || maxMemory <= 0 || maxCPUs <= 0 || maxStorage <= 0 {
 		utils.SetFlashError(c, "Invalid limits")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
-	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs); err != nil {
+	allowFileServer := c.FormValue("allow_domain_file_server") == "on"
+	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs, maxStorage, allowFileServer); err != nil {
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
+
+	// Push the new limits onto the user's cgroup slice so already-running
+	// containers are re-limited immediately (kernel applies it live).
+	if target, terr := p.DB.GetUserByID(c.UserContext(), id); terr == nil && target.Role != db.RoleAdmin && p.UserSliceSupported(c.UserContext()) {
+		if serr := p.EnsureUserSliceLimits(c.UserContext(), id, maxMemory, maxCPUs); serr != nil {
+			utils.SetFlash(c, "Limits saved, but applying the cgroup limit failed: "+serr.Error())
+			return c.Redirect("/users/" + idStr + "/edit")
+		}
+	}
+
 	utils.SetFlash(c, "Limits updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }
@@ -327,12 +354,25 @@ func (p *Panel) UserEditPage(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 
+	usedBytes := p.UserStorageBytes(c.UserContext(), target.ID)
+	maxBytes := int64(target.MaxStorageMB) * 1024 * 1024
+	var storagePct float64
+	if maxBytes > 0 {
+		storagePct = (float64(usedBytes) / float64(maxBytes)) * 100.0
+		if storagePct > 100 {
+			storagePct = 100
+		}
+	}
+
 	return c.Render("pages/user_edit", fiber.Map{
-		"Nav":         "users",
-		"Title":       "Edit User",
-		"TargetUser":  target,
-		"CurrentUser": current,
-		"Flash":       utils.ReadFlash(c),
-		"Error":       utils.ReadFlashError(c),
+		"Nav":            "users",
+		"Title":          "Edit User",
+		"TargetUser":     target,
+		"CurrentUser":    current,
+		"StorageUsed":    HumanStorage(usedBytes),
+		"StorageMax":     HumanStorage(maxBytes),
+		"StoragePercent": storagePct,
+		"Flash":          utils.ReadFlash(c),
+		"Error":          utils.ReadFlashError(c),
 	}, "layouts/shell")
 }

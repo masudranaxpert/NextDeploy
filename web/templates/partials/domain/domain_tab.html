@@ -170,7 +170,7 @@
     </div>
     <form id="add-domain-form" method="POST" action="/apps/{{.ID}}/domains" class="px-5 py-4 sm:px-6 sm:py-5">
       <div id="add-domain-error" class="mb-4 hidden rounded-lg border border-rose-500/25 bg-rose-500/[0.08] px-3 py-2.5 text-xs text-rose-300"></div>
-      {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-add")}}
+      {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-add" "ShowDomainFileServer" .ShowDomainFileServer)}}
       <div class="mt-6 flex flex-col-reverse gap-2 border-t border-border/50 pt-4 sm:flex-row sm:justify-end sm:gap-3">
         <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">Cancel</button>
         <button type="submit" id="add-domain-submit" class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Add domain</button>
@@ -192,7 +192,7 @@
     </div>
     <form id="edit-domain-form" method="POST" action="" class="px-5 py-4 sm:px-6 sm:py-5">
       <div id="edit-domain-error" class="mb-4 hidden rounded-lg border border-rose-500/25 bg-rose-500/[0.08] px-3 py-2.5 text-xs text-rose-300"></div>
-      {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-edit")}}
+      {{template "partials/domain/domain_form" (dict "Services" .Services "FormIDSuffix" "-edit" "ShowDomainFileServer" .ShowDomainFileServer)}}
       <div class="mt-6 flex flex-col-reverse gap-2 border-t border-border/50 pt-4 sm:flex-row sm:justify-end sm:gap-3">
         <button type="button" onclick="document.getElementById('edit-domain-modal').classList.add('hidden')" class="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">Cancel</button>
         <button type="submit" id="edit-domain-submit" class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">Save</button>

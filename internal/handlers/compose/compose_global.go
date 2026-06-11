@@ -316,14 +316,7 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
 		hasDockerfile, hasCompose := h.P.Store.HasDockerArtifacts(id)
-		if hasDockerfile && !hasCompose {
-			defaultCompose := []byte("services:\n  app:\n    build: .\n    restart: unless-stopped\n")
-			if werr := os.WriteFile(cp, defaultCompose, 0644); werr != nil {
-				msg := "[error]\nFailed to generate default compose file from Dockerfile: " + werr.Error()
-				_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-				return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
-			}
-		} else {
+		if !hasDockerfile || hasCompose {
 			msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
 			_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))

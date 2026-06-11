@@ -22,6 +22,7 @@
   </div>
 
   <!-- Stats grid -->
+  {{if .IsAdmin}}
   <div class="grid gap-4 grid-cols-2 xl:grid-cols-4">
 
     <!-- Memory -->
@@ -100,7 +101,185 @@
         <span class="text-[11px] text-emerald-400 font-medium">Panel running</span>
       </div>
     </div>
+
+    <!-- Total Apps (Admin) -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Total Apps</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.AppCount}}<span class="text-sm font-normal text-muted-foreground"> Apps</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">created in system</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Total Containers (Admin) -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Containers</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.TotalContainers}}<span class="text-sm font-normal text-muted-foreground"> Total</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">active &amp; stopped</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
+          <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Total Images (Admin) -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Docker Images</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.TotalImages}}<span class="text-sm font-normal text-muted-foreground"> Images</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">pulled on host engine</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-pink-500/10 ring-1 ring-pink-500/20">
+          <svg class="h-4 w-4 text-pink-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Total Volumes (Admin) -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Volumes</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.TotalVolumes}}<span class="text-sm font-normal text-muted-foreground"> Volumes</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">created on host</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20">
+          <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
   </div>
+  {{else}}
+  <div class="grid gap-4 grid-cols-2 xl:grid-cols-3">
+
+    <!-- User Memory (RAM) live usage -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">RAM Usage <span class="text-emerald-400/80 normal-case tracking-normal">· live</span></p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.UsedMemHuman}}</p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">of {{printf "%.1f" .MaxMemoryGB}} GB limit &middot; {{printf "%.0f" .UsedMemPercent}}%</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 ring-1 ring-blue-500/20">
+          <svg class="h-4 w-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v4H6V6zm0 6h12v4H6v-4z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="mt-3 progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-blue-600 to-blue-400" style="width: {{printf "%.0f" .UsedMemPercent}}%"></div>
+      </div>
+    </div>
+
+    <!-- User CPU live usage -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">CPU Usage <span class="text-emerald-400/80 normal-case tracking-normal">· live</span></p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{printf "%.2f" .UsedCPUs}}<span class="text-sm font-normal text-muted-foreground"> Cores</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">of {{printf "%.1f" .MaxCPUs}} Cores limit &middot; {{printf "%.0f" .UsedCPUPercent}}%</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+          <svg class="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+          </svg>
+        </div>
+      </div>
+      <div class="mt-3 progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-emerald-600 to-emerald-400" style="width: {{printf "%.0f" .UsedCPUPercent}}%"></div>
+      </div>
+    </div>
+
+    <!-- User Apps Quota -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Apps Created</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.AppCount}} <span class="text-sm font-normal text-muted-foreground">Apps</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">of {{.MaxApps}} Apps &middot; {{printf "%.0f" .AppPercent}}%</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="mt-3 progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-orange-600 to-orange-400" style="width: {{printf "%.0f" .AppPercent}}%"></div>
+      </div>
+    </div>
+
+    <!-- User Running Containers -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Running Containers</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.TotalContainers}}<span class="text-sm font-normal text-muted-foreground"> Containers</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">active inside compose stacks</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
+          <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Volumes Created -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Volumes Created</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.TotalVolumes}}<span class="text-sm font-normal text-muted-foreground"> Volumes</span></p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">persistent docker volumes</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20">
+          <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Storage Used -->
+    <div class="stat-card group col-span-1">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Storage Used</p>
+          <p class="mt-1.5 text-xl font-bold tabular-nums text-foreground leading-none">{{.StorageUsed}}</p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">of {{.StorageMax}} &middot; {{printf "%.0f" .StoragePercent}}%</p>
+        </div>
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 8a3 3 0 016 0v8a3 3 0 01-6 0V8zm8 0a3 3 0 016 0v8a3 3 0 01-6 0V8z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="mt-3 progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-orange-600 to-orange-400" style="width: {{printf "%.0f" .StoragePercent}}%"></div>
+      </div>
+    </div>
+
+  </div>
+  {{end}}
 
   <!-- Info note -->
   <div class="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground flex items-start gap-2.5">
@@ -131,7 +310,6 @@
       </svg>
     </a>
 
-    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
     <!-- Containers -->
     <a href="/containers" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-stone-500/40 hover:bg-stone-500/5">
       <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-500/10 ring-1 ring-stone-500/20 group-hover:bg-stone-500/15 transition-colors">
@@ -180,6 +358,7 @@
       </svg>
     </a>
 
+    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
     <!-- Proxy -->
     <a href="/nextdeploy" class="group panel-card flex items-center gap-4 p-5 transition-all hover:border-orange-500/40 hover:bg-orange-500/5">
       <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20 group-hover:bg-orange-500/15 transition-colors">

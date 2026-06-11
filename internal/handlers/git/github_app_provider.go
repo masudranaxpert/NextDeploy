@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
@@ -320,9 +321,16 @@ func (h *Handler) GitHubAppManifestCallback(c *fiber.Ctx) error {
 		return c.Redirect("/git")
 	}
 
-	providerID, err := h.p.DB.CreateGitProvider(c.UserContext(), providerName, "github", "", "GitHub App")
+	var userID *int64
+	u, ok := handlers.CurrentUser(c)
+	if ok && u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
+
+	providerID, err := h.p.DB.CreateGitProvider(c.UserContext(), userID, providerName, "github", "", "GitHub App")
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
-		providers, listErr := h.p.DB.ListGitProviders(c.UserContext())
+		providers, listErr := h.p.DB.ListGitProviders(c.UserContext(), userID)
 		if listErr == nil {
 			for _, gp := range providers {
 				if strings.EqualFold(strings.TrimSpace(gp.Name), providerName) {
@@ -365,6 +373,10 @@ func (h *Handler) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
 }
 
 func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
 	id, err := strconv.ParseInt(c.Params("pid"), 10, 64)
 	if err != nil {
 		utils.SetFlashError(c, "Invalid provider ID")
@@ -374,6 +386,9 @@ func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
 	if err != nil {
 		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
+	}
+	if u.Role != db.RoleAdmin && (provider.UserID == nil || *provider.UserID != u.ID) {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	if provider.Provider != "github" {
 		utils.SetFlashError(c, "This provider is not GitHub")

@@ -16,11 +16,26 @@ import (
 
 	"panel/internal/backup"
 	"panel/internal/db"
+	"panel/internal/handlers"
 	"panel/internal/rclone"
 	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// canUseBackupDestination reports whether the current user may target dest.
+// Global destinations (UserID == nil) are shared; private ones are usable only
+// by their owner or an admin. Prevents IDOR via guessed destination IDs.
+func canUseBackupDestination(c *fiber.Ctx, dest db.BackupDestination) bool {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return false
+	}
+	if u.Role == db.RoleAdmin {
+		return true
+	}
+	return dest.UserID == nil || *dest.UserID == u.ID
+}
 
 func validateBackupDestinationConfig(provider string, m map[string]string) error {
 	switch provider {
@@ -190,13 +205,18 @@ func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
+	if !canUseBackupDestination(c, dest) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
 
 	historyID, err := h.P.DB.CreateBackupHistory(c.UserContext(), app.ID, dest.ID, backupType, "", "running", "", 0)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go h.runBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention)
+	go h.runBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention, pauseContainers)
 
 	return c.JSON(fiber.Map{"message": "backup started", "history_id": historyID})
 }
@@ -206,7 +226,7 @@ const backupJobMaxDuration = 6 * time.Hour
 // runBackupJob runs a backup. retention = max completed rows to keep per
 // app+destination+type (0 skips the trim). requestedVolumeField is a single
 // name for "volume", empty for "app", comma-separated list for "full".
-func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeField string, retention int) {
+func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeField string, retention int, pauseContainers bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
 	defer cancel()
 
@@ -286,7 +306,10 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 		}
 		volumeFieldStore = volumeName
 		appendLog("archive " + volumeName)
-		tarPath, err = backup.BackupVolume(ctx, volumeName)
+		if pauseContainers {
+			appendLog("consistent mode: containers using the volume will be paused during snapshot")
+		}
+		tarPath, err = backup.BackupVolumeWithOptions(ctx, volumeName, pauseContainers, progressLog)
 		if err != nil {
 			fail(err)
 			return
@@ -317,8 +340,11 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 		}
 		volumeFieldStore = strings.Join(volumeNames, ",")
 		appendLog("full app " + app.Name + " (+" + strconv.Itoa(len(volumeNames)) + " volume(s))")
+		if pauseContainers {
+			appendLog("consistent mode: containers will be paused per volume during snapshot")
+		}
 		workspaceRoot := h.P.ComposeWorkspaceRoot(ctx, appID)
-		tarPath, err = backup.BackupFullWithVolumes(ctx, app.Name, workspaceRoot, volumeNames, progressLog)
+		tarPath, err = backup.BackupFullWithVolumesOptions(ctx, app.Name, workspaceRoot, volumeNames, pauseContainers, progressLog)
 		if err != nil {
 			fail(err)
 			return
@@ -628,7 +654,17 @@ func (h *Handler) AppBackupScheduleCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid cron expression"})
 	}
 
-	id, err := h.P.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeField, cronExpr, retention)
+	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), int64(destID))
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
+	}
+	if !canUseBackupDestination(c, dest) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
+
+	id, err := h.P.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeField, cronExpr, retention, pauseContainers)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -708,11 +744,17 @@ func (h *Handler) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid cron expression"})
 	}
 
-	if _, err := h.P.DB.GetBackupDestination(c.UserContext(), destID); err != nil {
+	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), destID)
+	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
+	if !canUseBackupDestination(c, dest) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
 
-	if err := h.P.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeField, cronExpr, retention); err != nil {
+	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
+
+	if err := h.P.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeField, cronExpr, retention, pauseContainers); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "schedule not found"})
 		}

@@ -89,7 +89,7 @@ func (h *Handler) processScheduledBackups() {
 				if retention < 1 {
 					retention = 5
 				}
-				go h.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention)
+				go h.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention, schedule.PauseContainers)
 
 				_ = h.P.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID)
 			}

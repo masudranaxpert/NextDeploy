@@ -77,27 +77,33 @@
     if (vtermReconnectBtn) vtermReconnectBtn.textContent = (state === 'connected') ? 'Reconnect' : 'Connect';
   }
 
-  window.vterm = new SharedTerminal('vterm-host', {
-    wsUrl: function () {
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return proto + '//' + location.host + '/terminal/ws';
-    },
-    reconnect: true,
-    reconnectDelay: 1200,
-    fontSize: 13,
-    fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
-    scrollback: 5000,
-    onStatus: setStatus,
-  });
+  function initVTerm() {
+    window.vterm = new SharedTerminal('vterm-host', {
+      wsUrl: function () {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return proto + '//' + location.host + '/terminal/ws';
+      },
+      reconnect: true,
+      reconnectDelay: 1200,
+      fontSize: 13,
+      fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
+      scrollback: 2000,
+      onStatus: setStatus,
+    });
 
-  SharedTerminal.setupResize(window.vterm);
+    SharedTerminal.setupResize(window.vterm);
 
-  window.vtermConnect = function () { window.vterm.connect(); };
-  window.vtermDisconnect = function () { window.vterm.disconnect(); };
-  window.vtermClear = function () { window.vterm.clear(); };
+    window.vtermConnect = function () { window.vterm.connect(); };
+    window.vtermDisconnect = function () { window.vterm.disconnect(); };
+    window.vtermClear = function () { window.vterm.clear(); };
 
-  document.addEventListener('DOMContentLoaded', function () {
     setTimeout(function () { window.vterm.connect(); }, 150);
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVTerm);
+  } else {
+    initVTerm();
+  }
 })();
 </script>

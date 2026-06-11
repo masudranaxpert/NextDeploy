@@ -108,6 +108,10 @@ func currentUser(c *fiber.Ctx) (db.User, bool) {
 	return u, ok
 }
 
+func CurrentUser(c *fiber.Ctx) (db.User, bool) {
+	return currentUser(c)
+}
+
 func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok || u.Role != db.RoleAdmin {

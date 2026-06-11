@@ -28,6 +28,8 @@ type appListItem struct {
 	ExitedCount    int
 	PausedCount    int
 	ContainerCount int
+	OwnerName      string
+	OwnerIsAdmin   bool
 }
 
 const (
@@ -136,10 +138,31 @@ func (p *Panel) AppsPage(c *fiber.Ctx) error {
 
 	_ = eg.Wait()
 
+	isAdmin := u.Role == db.RoleAdmin
+	if isAdmin {
+		if users, uerr := p.DB.ListUsers(listCtx); uerr == nil {
+			type ownerInfo struct {
+				name    string
+				isAdmin bool
+			}
+			byID := make(map[int64]ownerInfo, len(users))
+			for _, usr := range users {
+				byID[usr.ID] = ownerInfo{name: usr.Username, isAdmin: usr.Role == db.RoleAdmin}
+			}
+			for i := range items {
+				if info, ok := byID[items[i].OwnerID]; ok {
+					items[i].OwnerName = info.name
+					items[i].OwnerIsAdmin = info.isAdmin
+				}
+			}
+		}
+	}
+
 	return c.Render("pages/apps", withUser(c, fiber.Map{
-		"Nav":   "apps",
-		"Title": "Apps",
-		"Apps":  items,
+		"Nav":     "apps",
+		"Title":   "Apps",
+		"Apps":    items,
+		"IsAdmin": isAdmin,
 	}), "layouts/shell")
 }
 
@@ -256,10 +279,12 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 	if st, err := os.Stat(composePath); err == nil && !st.IsDir() {
 		hasComp = true
 	}
+	hasDF, _ := p.Store.HasDockerArtifacts(id)
 	return c.Render(utils.TmplPartialComposeFileCard, fiber.Map{
 		"ID":                 id,
 		"ComposeFileSetting": composeDisplay,
 		"HasCompose":         hasComp,
+		"HasDockerfile":      hasDF,
 		"ComposePathSaved":   saved,
 	})
 }

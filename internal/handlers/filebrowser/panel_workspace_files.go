@@ -67,9 +67,18 @@ func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 		relPath = destDir + "/" + filename
 	}
 
+	var incoming int64
+	if resp.ContentLength > 0 {
+		incoming = resp.ContentLength
+	}
+	if err := h.p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+
 	if _, err := h.p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save file: %v", err)})
 	}
+	h.p.InvalidateAppStorageCache(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Downloaded to server."})
 }
@@ -94,6 +103,14 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "No files uploaded"})
 	}
 
+	var incoming int64
+	for _, file := range files {
+		incoming += file.Size
+	}
+	if err := h.p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+
 	for _, file := range files {
 		relPath := file.Filename
 		if destDir != "" {
@@ -110,6 +127,7 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save %s: %v", file.Filename, err)})
 		}
 	}
+	h.p.InvalidateAppStorageCache(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Files uploaded successfully"})
 }
@@ -339,6 +357,12 @@ func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
 	defer f.Close()
 
 	stat, _ := f.Stat()
+	if stat != nil {
+		if err := h.p.CheckStorageQuota(c.UserContext(), id, stat.Size()); err != nil {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
+		}
+	}
+	defer h.p.InvalidateAppStorageCache(id)
 	if err := h.p.Store.ExtractZip(id, f, stat.Size()); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": "Extract failed: " + err.Error()})
 	}

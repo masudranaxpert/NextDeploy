@@ -57,11 +57,12 @@ type ImageRow struct {
 }
 
 type ContainerUsageRow struct {
-	ID            string
-	Name          string
-	Image         string
-	State         string
-	Status        string
+	ID             string
+	Name           string
+	Image          string
+	State          string
+	Status         string
+	ComposeProject string
 	CPUPercent    float64
 	MemUsage      uint64
 	MemLimit      uint64
@@ -168,15 +169,40 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 }
 
 func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
+	return listContainerUsageFiltered(ctx, nil)
+}
+
+// ListContainerUsageForProjects returns live stats only for containers whose
+// compose project label is in the given set. Stats are fetched only for the
+// matching containers, so this stays fast on busy hosts.
+func ListContainerUsageForProjects(ctx context.Context, projects map[string]bool) ([]ContainerUsageRow, string) {
+	if len(projects) == 0 {
+		return nil, ""
+	}
+	return listContainerUsageFiltered(ctx, func(c types.Container) bool {
+		return projects[c.Labels[composeProjectLabel]]
+	})
+}
+
+func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) bool) ([]ContainerUsageRow, string) {
 	cli, err := newAPIClient()
 	if err != nil {
 		return nil, err.Error()
 	}
 	defer cli.Close()
 
-	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	all, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err.Error()
+	}
+	list := all
+	if keep != nil {
+		list = list[:0]
+		for _, c := range all {
+			if keep(c) {
+				list = append(list, c)
+			}
+		}
 	}
 
 	ids := make([]string, 0, len(list))
@@ -189,11 +215,12 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 	out := make([]ContainerUsageRow, 0, len(list))
 	for _, c := range list {
 		row := ContainerUsageRow{
-			ID:     c.ID[:12],
-			Name:   containerName(c),
-			Image:  c.Image,
-			State:  c.State,
-			Status: c.Status,
+			ID:             c.ID[:12],
+			Name:           containerName(c),
+			Image:          c.Image,
+			State:          c.State,
+			Status:         c.Status,
+			ComposeProject: c.Labels[composeProjectLabel],
 		}
 
 		cur, ok := statsMap[c.ID]
@@ -754,10 +781,11 @@ func containerName(c types.Container) string {
 }
 
 type ComposePsRow struct {
-	Name    string
-	Service string
-	State   string
-	Status  string
+	Name       string
+	Service    string
+	State      string
+	Status     string
+	WorkingDir string
 }
 
 func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
@@ -787,10 +815,11 @@ func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
 			name = c.ID[:12]
 		}
 		out = append(out, ComposePsRow{
-			Name:    name,
-			Service: service,
-			State:   c.State,
-			Status:  c.Status,
+			Name:       name,
+			Service:    service,
+			State:      c.State,
+			Status:     c.Status,
+			WorkingDir: c.Labels["com.docker.compose.project.working_dir"],
 		})
 	}
 	return out, nil

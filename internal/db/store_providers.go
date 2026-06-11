@@ -2,11 +2,20 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
-func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers ORDER BY id ASC`)
+func (s *Store) ListGitProviders(ctx context.Context, userID *int64) ([]GitProvider, error) {
+	var query string
+	var args []interface{}
+	if userID != nil {
+		query = `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE user_id IS NULL OR user_id = ? ORDER BY id ASC`
+		args = append(args, *userID)
+	} else {
+		query = `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers ORDER BY id ASC`
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -15,8 +24,13 @@ func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
 	for rows.Next() {
 		var p GitProvider
 		var ca, ua string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua); err != nil {
+		var uid sql.NullInt64
+		if err := rows.Scan(&p.ID, &uid, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua); err != nil {
 			return nil, err
+		}
+		if uid.Valid {
+			val := uid.Int64
+			p.UserID = &val
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, ca)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
@@ -28,32 +42,45 @@ func (s *Store) ListGitProviders(ctx context.Context) ([]GitProvider, error) {
 func (s *Store) GetGitProvider(ctx context.Context, id int64) (GitProvider, error) {
 	var p GitProvider
 	var ca, ua string
-	err := s.db.QueryRowContext(ctx, `SELECT id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE id=?`, id).
-		Scan(&p.ID, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua)
+	var uid sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE id=?`, id).
+		Scan(&p.ID, &uid, &p.Name, &p.Provider, &p.Token, &p.RefreshToken, &p.ExpiresAt, &p.Notes, &ca, &ua)
 	if err != nil {
 		return GitProvider{}, err
+	}
+	if uid.Valid {
+		val := uid.Int64
+		p.UserID = &val
 	}
 	p.CreatedAt, _ = time.Parse(time.RFC3339, ca)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
 	return p, nil
 }
 
-func (s *Store) CreateGitProvider(ctx context.Context, name, provider, token, notes string) (int64, error) {
+func (s *Store) CreateGitProvider(ctx context.Context, userID *int64, name, provider, token, notes string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	var uid interface{}
+	if userID != nil {
+		uid = *userID
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO git_providers(name,provider,token,notes,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
-		name, provider, token, notes, now, now)
+		`INSERT INTO git_providers(user_id,name,provider,token,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
+		uid, name, provider, token, notes, now, now)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) CreateGitProviderWithRefresh(ctx context.Context, name, provider, token, refreshToken string, expiresAt int64, notes string) (int64, error) {
+func (s *Store) CreateGitProviderWithRefresh(ctx context.Context, userID *int64, name, provider, token, refreshToken string, expiresAt int64, notes string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	var uid interface{}
+	if userID != nil {
+		uid = *userID
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO git_providers(name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-		name, provider, token, refreshToken, expiresAt, notes, now, now)
+		`INSERT INTO git_providers(user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		uid, name, provider, token, refreshToken, expiresAt, notes, now, now)
 	if err != nil {
 		return 0, err
 	}

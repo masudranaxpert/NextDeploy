@@ -10,33 +10,46 @@ import (
 
 func (p *Panel) ContainerBelongsToApp(ctx context.Context, appID, containerName string) bool {
 	containerName = strings.TrimSpace(containerName)
+	containerName = strings.TrimPrefix(containerName, "/")
 	if containerName == "" {
 		return false
 	}
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
-		return strings.Contains(containerName, appID)
-	}
-	candidates := p.composeProjectCandidates(ctx, app, appID)
-	for _, project := range candidates {
-		if project != "" && strings.Contains(containerName, project) {
-			return true
-		}
-	}
-	proj, workDir, ierr := dockerx.ContainerComposeLabels(ctx, containerName)
-	if ierr != nil {
 		return false
 	}
-	appRoot := filepath.Clean(p.AppSourcePath(ctx, appID))
-	if composeWorkspaceDirContainedInApp(appRoot, workDir) {
-		return true
-	}
-	for _, c := range candidates {
-		if proj != "" && proj == c {
-			return true
+	candidates := p.composeProjectCandidates(ctx, app, appID)
+	prefixMatch := false
+	for _, project := range candidates {
+		// Compose names containers "<project>-<service>-<n>" (v1: underscores).
+		// Prefix match instead of substring so project "app" cannot claim "myapp-web-1".
+		if project != "" && (containerName == project ||
+			strings.HasPrefix(containerName, project+"-") ||
+			strings.HasPrefix(containerName, project+"_")) {
+			prefixMatch = true
+			break
 		}
 	}
-	return false
+
+	proj, workDir, ierr := dockerx.ContainerComposeLabels(ctx, containerName)
+	if ierr != nil {
+		// Container not inspectable; fall back to the name prefix heuristic.
+		return prefixMatch
+	}
+	// Compose always records the deploy directory; that label is authoritative, so a
+	// legacy slug collision (two users with same-named apps) cannot cross workspaces.
+	if strings.TrimSpace(workDir) != "" {
+		return composeWorkspaceDirContainedInApp(filepath.Clean(p.Store.Path(appID)), workDir)
+	}
+	if proj != "" {
+		for _, c := range candidates {
+			if proj == c {
+				return true
+			}
+		}
+		return false
+	}
+	return prefixMatch
 }
 
 func (p *Panel) containerBelongsToApp(ctx context.Context, appID, containerName string) bool {

@@ -3,6 +3,8 @@ package backup
 import (
 	"encoding/json"
 	"fmt"
+	"panel/internal/db"
+	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"strings"
 
@@ -12,59 +14,78 @@ import (
 )
 
 func (h *Handler) BackupDestinationsList(c *fiber.Ctx) error {
-	dests, err := h.P.DB.ListBackupDestinations(c.UserContext())
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	var userID *int64
+	if u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
+	dests, err := h.P.DB.ListBackupDestinations(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
+	// Credentials (client_secret, token, access keys) stay server-side; the
+	// JSON response only carries display fields the UI actually renders.
 	for i := range dests {
-		if dests[i].Provider != "gdrive" {
-			continue
-		}
 		var configMap map[string]string
 		if err := json.Unmarshal([]byte(dests[i].Config), &configMap); err != nil {
-			continue
-		}
-		token, hasToken := configMap["token"]
-		if !hasToken || token == "" {
+			dests[i].Config = "{}"
 			continue
 		}
 
-		// Proactively refresh token if it is expired or close to expiry
-		if rclone.IsTokenExpired(token) {
-			if newToken, refreshErr := rclone.RefreshGoogleDriveToken(
-				c.UserContext(),
-				configMap["client_id"],
-				configMap["client_secret"],
-				token,
-			); refreshErr == nil {
-				token = newToken
-				configMap["token"] = newToken
-				updatedConfig := string(mustMarshal(configMap))
-				_ = h.P.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, updatedConfig)
-				dests[i].Config = updatedConfig
-			}
-		}
-
-		aboutInfo, aboutErr := rclone.GetGoogleDriveAboutInfo(c.UserContext(), token)
-		if aboutErr != nil {
-			// Attach error hint so UI can show reconnect prompt
+		switch dests[i].Provider {
+		case "r2":
 			dests[i].Config = string(mustMarshal(map[string]interface{}{
-				"client_id":     configMap["client_id"],
-				"client_secret": configMap["client_secret"],
-				"folder_id":     configMap["folder_id"],
-				"info_error":    aboutErr.Error(),
+				"account_id": configMap["account_id"],
+				"bucket":     configMap["bucket"],
 			}))
-			continue
+
+		case "gdrive":
+			token, hasToken := configMap["token"]
+			if !hasToken || token == "" {
+				dests[i].Config = string(mustMarshal(map[string]interface{}{
+					"folder_id": configMap["folder_id"],
+				}))
+				continue
+			}
+
+			// Proactively refresh token if it is expired or close to expiry
+			if rclone.IsTokenExpired(token) {
+				if newToken, refreshErr := rclone.RefreshGoogleDriveToken(
+					c.UserContext(),
+					configMap["client_id"],
+					configMap["client_secret"],
+					token,
+				); refreshErr == nil {
+					token = newToken
+					configMap["token"] = newToken
+					_ = h.P.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
+				}
+			}
+
+			aboutInfo, aboutErr := rclone.GetGoogleDriveAboutInfo(c.UserContext(), token)
+			if aboutErr != nil {
+				// Attach error hint so UI can show reconnect prompt
+				dests[i].Config = string(mustMarshal(map[string]interface{}{
+					"folder_id":  configMap["folder_id"],
+					"info_error": aboutErr.Error(),
+				}))
+				continue
+			}
+			dests[i].Config = string(mustMarshal(map[string]interface{}{
+				"folder_id":     configMap["folder_id"],
+				"email":         aboutInfo.User.EmailAddress,
+				"display_name":  aboutInfo.User.DisplayName,
+				"storage_limit": aboutInfo.StorageQuota.Limit,
+				"storage_used":  aboutInfo.StorageQuota.Usage,
+			}))
+
+		default:
+			dests[i].Config = "{}"
 		}
-		dests[i].Config = string(mustMarshal(map[string]interface{}{
-			"client_id":     configMap["client_id"],
-			"client_secret": configMap["client_secret"],
-			"folder_id":     configMap["folder_id"],
-			"email":         aboutInfo.User.EmailAddress,
-			"display_name":  aboutInfo.User.DisplayName,
-			"storage_limit": aboutInfo.StorageQuota.Limit,
-			"storage_used":  aboutInfo.StorageQuota.Usage,
-		}))
 	}
 
 	return c.JSON(fiber.Map{"destinations": dests})
@@ -76,6 +97,15 @@ func mustMarshal(v interface{}) []byte {
 }
 
 func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	var userID *int64
+	if u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
 	provider := strings.TrimSpace(c.FormValue("provider"))
 	name := strings.TrimSpace(c.FormValue("name"))
 
@@ -125,7 +155,7 @@ func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "unsupported provider"})
 	}
 
-	id, err := h.P.DB.CreateBackupDestination(c.UserContext(), name, provider, string(config))
+	id, err := h.P.DB.CreateBackupDestination(c.UserContext(), userID, name, provider, string(config))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -134,9 +164,22 @@ func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
 }
 
 func (h *Handler) BackupDestinationDelete(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
 	id, err := c.ParamsInt("id")
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	existing, err := h.P.DB.GetBackupDestination(c.UserContext(), int64(id))
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
+	}
+
+	if u.Role != db.RoleAdmin && (existing.UserID == nil || *existing.UserID != u.ID) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 
 	if err := h.P.DB.DeleteBackupDestination(c.UserContext(), int64(id)); err != nil {
@@ -209,7 +252,13 @@ func (h *Handler) BackupGDriveCallback(c *fiber.Ctx) error {
 	})
 
 	name := fmt.Sprintf("Google Drive %s", utils.RandomState()[:6])
-	_, err = h.P.DB.CreateBackupDestination(c.UserContext(), name, "gdrive", string(config))
+	u, ok := handlers.CurrentUser(c)
+	var userID *int64
+	if ok && u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
+	_, err = h.P.DB.CreateBackupDestination(c.UserContext(), userID, name, "gdrive", string(config))
 	if err != nil {
 		utils.SetFlashError(c, "Failed to save destination: "+err.Error())
 		return c.Redirect("/backup")

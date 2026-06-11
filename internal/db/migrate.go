@@ -162,6 +162,11 @@ CREATE TABLE IF NOT EXISTS git_providers (
 			return err
 		}
 	}
+	if _, err := s.db.Exec(`ALTER TABLE git_providers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS github_provider_details (
   provider_id INTEGER PRIMARY KEY,
@@ -222,6 +227,11 @@ CREATE TABLE IF NOT EXISTS backup_destinations (
   updated_at TEXT NOT NULL
 );`); err != nil {
 		return err
+	}
+	if _, err := s.db.Exec(`ALTER TABLE backup_destinations ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
 	}
 
 	if _, err := s.db.Exec(`
@@ -321,6 +331,11 @@ CREATE TABLE IF NOT EXISTS backup_history (
 	if hasBackupVolumeName == 0 {
 		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN volume_name TEXT NOT NULL DEFAULT ''`)
 	}
+	var hasSchedulePause int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_schedules') WHERE name = 'pause_containers'`).Scan(&hasSchedulePause)
+	if hasSchedulePause == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_schedules ADD COLUMN pause_containers INTEGER NOT NULL DEFAULT 0`)
+	}
 
 	// Rename legacy 'full' backup rows to 'app'. The old "Full app" type only
 	// packed workspace files (no Docker volumes), which is what the new "app"
@@ -384,6 +399,16 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 		}
 	}
 	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_storage_mb INTEGER NOT NULL DEFAULT 5120`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN allow_domain_file_server INTEGER NOT NULL DEFAULT 0`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
 		}

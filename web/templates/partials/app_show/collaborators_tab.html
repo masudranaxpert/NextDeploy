@@ -37,14 +37,13 @@
         </div>
       </div>
 
-      <!-- Transfer Ownership Form (Only for Owner or Admin) -->
       {{if or (eq .CurrentUser.Role "admin") (eq .App.OwnerID .CurrentUser.ID)}}
       <form method="post" action="/apps/{{.App.ID}}/transfer" onsubmit="return confirm('Are you absolutely sure you want to transfer ownership? You might lose administrative access to this app.')" class="flex flex-wrap items-center gap-2">
         <select name="username" required class="input py-1.5 px-3 text-xs w-full sm:w-48">
           <option value="" disabled selected>Select new owner...</option>
-          {{range .AllUsers}}
-            {{if ne .ID $.App.OwnerID}}
-              <option value="{{.Username}}">{{.Username}} ({{.Role}})</option>
+          {{range .Collaborators}}
+            {{if ne .UserID $.App.OwnerID}}
+              <option value="{{.Username}}">{{.Username}}</option>
             {{end}}
           {{end}}
         </select>

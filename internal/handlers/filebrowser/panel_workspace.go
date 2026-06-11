@@ -40,16 +40,30 @@ func (h *Handler) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
 
 func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 	id := c.Params("id")
+	wantJSON := strings.EqualFold(c.Query("format"), "json")
+	respond := func(status int, ok bool, message string) error {
+		if wantJSON {
+			return c.Status(status).JSON(fiber.Map{"ok": ok, "message": message})
+		}
+		if status >= 400 && status != 404 {
+			return c.Redirect("/apps/" + id + "?tab=files")
+		}
+		if status == 404 {
+			return c.Status(404).SendString(message)
+		}
+		return c.Redirect("/apps/" + id + "?tab=files")
+	}
+
 	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("not found")
+		return respond(404, false, "not found")
 	}
 	if h.p.IsGitApp(c.UserContext(), id) {
-		return c.Status(400).SendString("files creation is disabled for git-backed apps")
+		return respond(400, false, "file creation is disabled for git-backed apps")
 	}
 
 	name := strings.TrimSpace(c.FormValue("filename"))
 	if name == "" {
-		return c.Redirect("/apps/" + id + "?tab=files")
+		return respond(400, false, "filename required")
 	}
 
 	rel := filepath.ToSlash(name)
@@ -59,17 +73,23 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 
 	full, err := h.p.Store.SafeFilePath(id, rel)
 	if err != nil {
-		return c.Redirect("/apps/" + id + "?tab=files")
+		return respond(400, false, "invalid path")
 	}
 
 	if strings.HasSuffix(name, "/") {
-		_ = os.MkdirAll(full, 0750)
-		return c.Redirect("/apps/" + id + "?tab=files")
+		if err := os.MkdirAll(full, 0750); err != nil {
+			return respond(500, false, err.Error())
+		}
+		return respond(200, true, "Folder created")
 	}
 
-	_ = os.MkdirAll(filepath.Dir(full), 0750)
-	_ = os.WriteFile(full, nil, 0640)
-	return c.Redirect("/apps/" + id + "?tab=files")
+	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+		return respond(500, false, err.Error())
+	}
+	if err := os.WriteFile(full, nil, 0640); err != nil {
+		return respond(500, false, err.Error())
+	}
+	return respond(200, true, "File created")
 }
 
 func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
@@ -106,6 +126,7 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 			errs = append(errs, fmt.Sprintf("%s: %v", pth, err))
 		}
 	}
+	h.p.InvalidateAppStorageCache(id)
 	if wantJSON {
 		if len(errs) > 0 {
 			return c.JSON(fiber.Map{"ok": false, "message": strings.Join(errs, "; ")})

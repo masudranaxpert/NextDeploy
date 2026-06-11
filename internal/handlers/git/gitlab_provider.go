@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
@@ -28,7 +29,7 @@ func (h *Handler) uniqueGitLabProviderName(ctx context.Context, base string) str
 	if base == "" {
 		base = "GitLab"
 	}
-	providers, err := h.p.DB.ListGitProviders(ctx)
+	providers, err := h.p.DB.ListGitProviders(ctx, nil)
 	if err != nil {
 		return base
 	}
@@ -123,7 +124,14 @@ func (h *Handler) GitLabOAuthCallback(c *fiber.Ctx) error {
 
 	expiresAt := time.Now().Unix() + int64(tokenResp.ExpiresIn)
 
-	providers, _ := h.p.DB.ListGitProviders(c.UserContext())
+	var userID *int64
+	u, ok := handlers.CurrentUser(c)
+	if ok && u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
+
+	providers, _ := h.p.DB.ListGitProviders(c.UserContext(), userID)
 	var existingID int64
 	for _, gp := range providers {
 		if strings.EqualFold(strings.TrimSpace(gp.Name), name) && gp.Provider == "gitlab" {
@@ -142,7 +150,7 @@ func (h *Handler) GitLabOAuthCallback(c *fiber.Ctx) error {
 			return c.Redirect("/git")
 		}
 	} else {
-		providerID, err := h.p.DB.CreateGitProviderWithRefresh(c.UserContext(), name, "gitlab", tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt, "GitLab OAuth App")
+		providerID, err := h.p.DB.CreateGitProviderWithRefresh(c.UserContext(), userID, name, "gitlab", tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt, "GitLab OAuth App")
 		if err != nil {
 			utils.SetFlashError(c, err.Error())
 			return c.Redirect("/git")

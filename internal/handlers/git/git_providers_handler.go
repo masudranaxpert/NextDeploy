@@ -13,7 +13,16 @@ import (
 
 // GitProvidersPage renders the global Git providers settings page.
 func (h *Handler) GitProvidersPage(c *fiber.Ctx) error {
-	providers, err := h.p.DB.ListGitProviders(c.UserContext())
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
+	var userID *int64
+	if u.Role != db.RoleAdmin {
+		val := u.ID
+		userID = &val
+	}
+	providers, err := h.p.DB.ListGitProviders(c.UserContext(), userID)
 	if err != nil {
 		providers = nil
 	}
@@ -43,6 +52,10 @@ func (h *Handler) GitProvidersPage(c *fiber.Ctx) error {
 
 // GitProviderUpdate updates an existing global Git provider credential.
 func (h *Handler) GitProviderUpdate(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -54,6 +67,10 @@ func (h *Handler) GitProviderUpdate(c *fiber.Ctx) error {
 	if err != nil {
 		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
+	}
+
+	if u.Role != db.RoleAdmin && (existing.UserID == nil || *existing.UserID != u.ID) {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 
 	name := strings.TrimSpace(c.FormValue("name"))
@@ -86,11 +103,23 @@ func (h *Handler) GitProviderUpdate(c *fiber.Ctx) error {
 
 // GitProviderDelete deletes a global Git provider credential.
 func (h *Handler) GitProviderDelete(c *fiber.Ctx) error {
+	u, ok := handlers.CurrentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		utils.SetFlashError(c, "Invalid ID")
 		return c.Redirect("/git")
+	}
+	existing, err := h.p.DB.GetGitProvider(c.UserContext(), id)
+	if err != nil {
+		utils.SetFlashError(c, "Provider not found")
+		return c.Redirect("/git")
+	}
+	if u.Role != db.RoleAdmin && (existing.UserID == nil || *existing.UserID != u.ID) {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	if err := h.p.DB.DeleteGitProvider(c.UserContext(), id); err != nil {
 		utils.SetFlashError(c, err.Error())

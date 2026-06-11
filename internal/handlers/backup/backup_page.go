@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"strings"
 
@@ -19,5 +20,5 @@ func (h *Handler) BackupPage(c *fiber.Ctx) error {
 		"Error":       utils.ReadFlashError(c),
 		"RedirectURL": redirectURL,
 	}
-	return c.Render("pages/backup", data, "layouts/shell")
+	return c.Render("pages/backup", handlers.WithUser(c, data), "layouts/shell")
 }

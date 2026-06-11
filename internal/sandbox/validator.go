@@ -174,6 +174,11 @@ func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB i
 		if _, ok := svc["cap_drop"]; ok {
 			return nil, fmt.Errorf("capabilities attributes (cap_drop) are blocked on service %q", svcName)
 		}
+		// cgroup_parent is managed by NextDeploy (per-user resource group); a
+		// user-supplied value could escape the owner's aggregate resource limits.
+		if _, ok := svc["cgroup_parent"]; ok {
+			return nil, fmt.Errorf("cgroup_parent is blocked on service %q; it is managed automatically by NextDeploy", svcName)
+		}
 
 		if netMode, ok := svc["network_mode"].(string); ok && netMode != "" {
 			return nil, fmt.Errorf("custom network_mode %q is blocked on service %q", netMode, svcName)
@@ -366,3 +371,117 @@ func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB i
 
 	return clampedBytes, nil
 }
+
+// GetComposeResources parses the compose YAML and returns the sum of memory limits (in MB) and CPU limits of all services.
+func GetComposeResources(composeBytes []byte) (int, float64, error) {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(composeBytes, &doc); err != nil {
+		return 0, 0, err
+	}
+	if doc == nil {
+		return 0, 0, nil
+	}
+	servicesRaw, ok := doc["services"]
+	if !ok {
+		return 0, 0, nil
+	}
+	services, ok := servicesRaw.(map[string]interface{})
+	if !ok {
+		if rawMap, ok2 := servicesRaw.(map[interface{}]interface{}); ok2 {
+			converted := make(map[string]interface{})
+			for k, v := range rawMap {
+				if ks, ok3 := k.(string); ok3 {
+					converted[ks] = v
+				}
+			}
+			services = converted
+		} else {
+			return 0, 0, nil
+		}
+	}
+	var totalMem int
+	var totalCPU float64
+	for _, svcRaw := range services {
+		svc, ok := svcRaw.(map[string]interface{})
+		if !ok {
+			if rawMap, ok2 := svcRaw.(map[interface{}]interface{}); ok2 {
+				converted := make(map[string]interface{})
+				for k, v := range rawMap {
+					if ks, ok3 := k.(string); ok3 {
+						converted[ks] = v
+					}
+				}
+				svc = converted
+			} else {
+				continue
+			}
+		}
+		deployRaw, hasDeploy := svc["deploy"]
+		var deploy map[string]interface{}
+		if hasDeploy {
+			if m, ok2 := deployRaw.(map[string]interface{}); ok2 {
+				deploy = m
+			} else if m2, ok2 := deployRaw.(map[interface{}]interface{}); ok2 {
+				deploy = make(map[string]interface{})
+				for k, v := range m2 {
+					if ks, ok3 := k.(string); ok3 {
+						deploy[ks] = v
+					}
+				}
+			}
+		}
+		if deploy == nil {
+			continue
+		}
+		resourcesRaw, hasResources := deploy["resources"]
+		var resources map[string]interface{}
+		if hasResources {
+			if m, ok2 := resourcesRaw.(map[string]interface{}); ok2 {
+				resources = m
+			} else if m2, ok2 := resourcesRaw.(map[interface{}]interface{}); ok2 {
+				resources = make(map[string]interface{})
+				for k, v := range m2 {
+					if ks, ok3 := k.(string); ok3 {
+						resources[ks] = v
+					}
+				}
+			}
+		}
+		if resources == nil {
+			continue
+		}
+		limitsRaw, hasLimits := resources["limits"]
+		var limits map[string]interface{}
+		if hasLimits {
+			if m, ok2 := limitsRaw.(map[string]interface{}); ok2 {
+				limits = m
+			} else if m2, ok2 := limitsRaw.(map[interface{}]interface{}); ok2 {
+				limits = make(map[string]interface{})
+				for k, v := range m2 {
+					if ks, ok3 := k.(string); ok3 {
+						limits[ks] = v
+					}
+				}
+			}
+		}
+		if limits == nil {
+			continue
+		}
+		if cpuRaw, exists := limits["cpus"]; exists {
+			userCPUs, err := parseCPUs(cpuRaw)
+			if err == nil {
+				totalCPU += userCPUs
+			}
+		}
+		if memRaw, exists := limits["memory"]; exists {
+			if memStr, ok3 := memRaw.(string); ok3 {
+				userMem, err := parseMemoryToMB(memStr)
+				if err == nil {
+					totalMem += userMem
+				}
+			}
+		}
+	}
+	return totalMem, totalCPU, nil
+}
+

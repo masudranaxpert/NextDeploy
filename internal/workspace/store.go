@@ -199,17 +199,20 @@ type FileEntry struct {
 }
 
 func (s *Store) HasDockerArtifacts(wsID string) (hasDockerfile, hasCompose bool) {
-	base := s.Path(wsID)
-	for _, n := range []string{"Dockerfile", "dockerfile"} {
-		if st, err := os.Stat(filepath.Join(base, n)); err == nil && !st.IsDir() {
-			hasDockerfile = true
-			break
-		}
+	dirs := []string{
+		s.Path(wsID),
+		filepath.Join(s.ReservedPath(wsID), "repo"),
 	}
-	for _, n := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
-		if st, err := os.Stat(filepath.Join(base, n)); err == nil && !st.IsDir() {
-			hasCompose = true
-			break
+	for _, base := range dirs {
+		for _, n := range []string{"Dockerfile", "dockerfile"} {
+			if st, err := os.Stat(filepath.Join(base, n)); err == nil && !st.IsDir() {
+				hasDockerfile = true
+			}
+		}
+		for _, n := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
+			if st, err := os.Stat(filepath.Join(base, n)); err == nil && !st.IsDir() {
+				hasCompose = true
+			}
 		}
 	}
 	return hasDockerfile, hasCompose

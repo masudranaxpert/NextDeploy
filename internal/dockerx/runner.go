@@ -23,6 +23,8 @@ type ComposePsRow struct {
 	Service string `json:"Service"`
 	State   string `json:"State"`
 	Status  string `json:"Status"`
+	// WorkingDir is com.docker.compose.project.working_dir (SDK path only; empty from CLI fallback).
+	WorkingDir string `json:"-"`
 }
 
 func run(ctx context.Context, dir string, args ...string) runutil.Result {
@@ -168,10 +170,11 @@ func ComposePS(ctx context.Context, projectDir string, composeFiles []string, pr
 			rows := make([]ComposePsRow, 0, len(sdkRows))
 			for _, sr := range sdkRows {
 				rows = append(rows, ComposePsRow{
-					Name:    sr.Name,
-					Service: sr.Service,
-					State:   sr.State,
-					Status:  sr.Status,
+					Name:       sr.Name,
+					Service:    sr.Service,
+					State:      sr.State,
+					Status:     sr.Status,
+					WorkingDir: sr.WorkingDir,
 				})
 			}
 			return rows, Result{OK: true, Output: ""}

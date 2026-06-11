@@ -66,103 +66,141 @@
       <!-- Compose file config -->
       {{template "partials/components/compose_file_card" .}}
 
-      <!-- Status badges -->
-      <div class="flex flex-wrap gap-2 text-xs">
+      <!-- Build source & runtime status -->
+      <div class="grid gap-3 lg:grid-cols-2">
+
+        <!-- Build source tile (dynamic: compose vs dockerfile vs none) -->
         {{if .HasCompose}}
-          <span class="badge badge-success">
-            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-            compose ready
-          </span>
-          {{if .ComposeFile}}<code class="rounded-lg bg-muted px-2.5 py-1 font-mono text-muted-foreground">{{.ComposeFile}}</code>{{end}}
+        <div class="flex items-start gap-3.5 rounded-xl border border-sky-500/20 bg-sky-500/[0.06] p-4">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 ring-1 ring-sky-500/25">
+            <svg class="h-5 w-5 text-sky-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-foreground">Docker Compose</p>
+              <span class="inline-flex items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200">multi-service stack</span>
+            </div>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Deploys exactly the services defined in your compose file.</p>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              {{if .ComposeFile}}<code class="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-foreground/90">{{.ComposeFile}}</code>{{end}}
+              {{if .HasDockerfile}}
+                <span class="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                  <svg class="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+                  Dockerfile present
+                </span>
+              {{end}}
+            </div>
+          </div>
+        </div>
+        {{else if .HasDockerfile}}
+        <div class="flex items-start gap-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25">
+            <svg class="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75L16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-foreground">Dockerfile</p>
+              <span class="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-200">single service</span>
+            </div>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">NextDeploy auto-generates a compose file from your <code class="rounded bg-muted/60 px-1 py-0.5 font-mono text-[10px]">Dockerfile</code> on deploy, with your resource limits applied.</p>
+          </div>
+        </div>
         {{else}}
-          <span class="badge badge-paused">
-            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
-            add compose in Files
-          </span>
+        <div class="flex items-start gap-3.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/25">
+            <svg class="h-5 w-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-foreground">No build source yet</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Add a <code class="rounded bg-muted/60 px-1 py-0.5 font-mono text-[10px]">Dockerfile</code> or <code class="rounded bg-muted/60 px-1 py-0.5 font-mono text-[10px]">docker-compose.yml</code> in the <a href="/apps/{{.ID}}?tab=files" class="font-medium text-primary underline underline-offset-2 hover:text-primary/90">Files</a> tab to deploy.</p>
+          </div>
+        </div>
         {{end}}
-        {{if .HasDockerfile}}
-          <span class="badge badge-success">
-            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-            Dockerfile
-          </span>
-        {{else}}
-          <span class="badge badge-stopped">no Dockerfile</span>
-        {{end}}
+
+        <!-- Runtime status tile -->
         {{if gt (len .ComposeRows) 0}}
           {{if eq .RunningCount (len .ComposeRows)}}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]"></span>
-              all running
-            </span>
+          <div class="flex items-start gap-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25">
+              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(52,211,153,0.55)] animate-pulse"></span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-emerald-300">All containers running</p>
+              <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{len .ComposeRows}} of {{len .ComposeRows}} containers healthy in this stack.</p>
+            </div>
+          </div>
           {{else if gt .RunningCount 0}}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-300 ring-1 ring-amber-500/25">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span>
-              {{.RunningCount}} / {{len .ComposeRows}} running
-            </span>
+          <div class="flex items-start gap-3.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/25">
+              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-amber-300">Partially running</p>
+              <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{.RunningCount}} of {{len .ComposeRows}} containers running. One-off services that exited with code 0 count as OK.</p>
+            </div>
+          </div>
           {{else if or (gt .ExitedCount 0) (gt .DeadCount 0)}}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-2.5 py-1 text-[11px] font-medium text-rose-300 ring-1 ring-rose-500/25">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-rose-400"></span>
-              failed / stopped
-            </span>
+          <div class="flex items-start gap-3.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 ring-1 ring-rose-500/25">
+              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-rose-400"></span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-rose-300">Stack unhealthy</p>
+              <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Containers exited unexpectedly. Check the <a href="/apps/{{.ID}}?tab=logs" class="font-medium text-primary underline underline-offset-2 hover:text-primary/90">Logs</a> and <a href="/apps/{{.ID}}?tab=deployment" class="font-medium text-primary underline underline-offset-2 hover:text-primary/90">Deploy</a> tabs.</p>
+            </div>
+          </div>
           {{else}}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-500/15 px-2.5 py-1 text-[11px] font-medium text-slate-300 ring-1 ring-slate-500/25">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-slate-400"></span>
-              containers detected
-            </span>
+          <div class="flex items-start gap-3.5 rounded-xl border border-border/50 bg-muted/15 p-4">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/40 ring-1 ring-border/60">
+              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-slate-400"></span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-foreground">Containers detected</p>
+              <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Runtime state is unclear — try a restart or check logs.</p>
+            </div>
+          </div>
           {{end}}
+        {{else}}
+        <div class="flex items-start gap-3.5 rounded-xl border border-border/50 bg-muted/15 p-4">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/40 ring-1 ring-border/60">
+            <span class="inline-flex h-2.5 w-2.5 rounded-full bg-slate-500"></span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-foreground">Not deployed yet</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">No containers exist for this app. Hit <span class="font-medium text-foreground/80">Deploy</span> below to build and start the stack.</p>
+          </div>
+        </div>
         {{end}}
       </div>
 
       <!-- Compose actions -->
       <div>
         <h3 class="mb-3 text-sm font-semibold text-foreground">Compose actions</h3>
-        {{if gt (len .ComposeRows) 0}}
-          {{if eq .RunningCount (len .ComposeRows)}}
-            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
-              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.5)] animate-pulse"></span>
-              <p class="text-sm font-medium text-emerald-300">All {{len .ComposeRows}} containers running — stack is healthy.</p>
-            </div>
-          {{else if gt .RunningCount 0}}
-            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
-              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400"></span>
-              <p class="text-sm text-amber-200">{{.RunningCount}} / {{len .ComposeRows}} containers running. One-off services (migrate, init) that exited with code 0 are counted as OK.</p>
-            </div>
-          {{else if or (gt .ExitedCount 0) (gt .DeadCount 0)}}
-            <div class="mb-3 flex items-center gap-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">
-              <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-rose-400"></span>
-              <p class="text-sm text-rose-200">Stack looks unhealthy. Review <strong>Deploy</strong> output and container logs.</p>
-            </div>
-          {{else}}
-            <div class="mb-3 rounded-xl border border-border/50 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
-              Compose containers exist, but current runtime state is unclear.
-            </div>
-          {{end}}
-        {{end}}
         <div class="flex flex-wrap gap-2">
           <form method="post" action="/apps/{{.ID}}/compose/up">
             <button type="submit" class="btn-deploy text-sm"
-                    {{if not .HasCompose}}disabled{{end}}
-                    {{if not .HasCompose}}title="Upload the compose file in Files first"{{end}}>
+                    {{if and (not .HasCompose) (not .HasDockerfile)}}disabled{{end}}
+                    {{if and (not .HasCompose) (not .HasDockerfile)}}title="Upload docker-compose.yml or Dockerfile first"{{end}}>
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
               Deploy
             </button>
           </form>
           <form method="post" action="/apps/{{.ID}}/compose/redeploy">
             <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 active:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    {{if not .HasCompose}}disabled{{end}}
-                    {{if not .HasCompose}}title="Upload the compose file in Files first"{{end}}>
+                    {{if and (not .HasCompose) (not .HasDockerfile)}}disabled{{end}}
+                    {{if and (not .HasCompose) (not .HasDockerfile)}}title="Upload docker-compose.yml or Dockerfile first"{{end}}>
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
               Redeploy
             </button>
           </form>
           <form method="post" action="/apps/{{.ID}}/compose/restart">
-            <button type="submit" class="btn-restart text-sm" {{if not .HasCompose}}disabled{{end}}>
+            <button type="submit" class="btn-restart text-sm" {{if not .HasStack}}disabled{{end}}>
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
               Restart
             </button>
           </form>
           <form method="post" action="/apps/{{.ID}}/compose/down">
-            <button type="submit" class="btn-stop text-sm" {{if not .HasCompose}}disabled{{end}}>
+            <button type="submit" class="btn-stop text-sm" {{if not .HasStack}}disabled{{end}}>
               <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
               Stop
             </button>

@@ -9,12 +9,14 @@
   <link rel="shortcut icon" href="/static/nextdeploy.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" crossorigin="anonymous">
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js" crossorigin="anonymous"></script>
-  <script src="/static/js/terminal-component.js"></script>
+  <!-- Non-render-blocking font load: page stays interactive even if the CDN is unreachable -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet"></noscript>
+  <script defer src="/static/vendor/htmx.min.js"></script>
+  <link rel="stylesheet" href="/static/vendor/xterm.min.css">
+  <script defer src="/static/vendor/xterm.min.js"></script>
+  <script defer src="/static/vendor/xterm-addon-fit.min.js"></script>
+  <script defer src="/static/js/terminal-component.js"></script>
   <script>
     (function () {
       function scrollDeployPreToBottom() {
@@ -216,6 +218,13 @@
         initLogWrap(document);
         scrollDeployPreToBottom();
       });
+      document.addEventListener('htmx:beforeSwap', function (event) {
+        var tgt = event.detail && event.detail.target;
+        if (tgt && tgt.id === 'app-tab-panel' && window.containerTerm) {
+          window.containerTerm.destroy();
+          window.containerTerm = null;
+        }
+      });
       document.addEventListener('htmx:afterSwap', function (event) {
         initLogWrap(event.target || document);
         scrollDeployPreToBottom();
@@ -246,7 +255,7 @@
       window.scrollDeployPreToBottom = scrollDeployPreToBottom;
     })();
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <script defer src="/static/vendor/alpine.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body class="min-h-full bg-background text-foreground antialiased" style="font-family: 'Inter', system-ui, sans-serif;">
@@ -425,7 +434,6 @@
     Apps
   </a>
 
-  {{if eq .CurrentUser.Role "admin"}}
   <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Docker</p>
 
   <a href="/containers" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "containers"}}sidebar-link-active{{end}}">
@@ -449,6 +457,7 @@
     Volumes
   </a>
 
+  {{if eq .CurrentUser.Role "admin"}}
   <a href="/terminal" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "terminal"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
@@ -459,14 +468,12 @@
 
   <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Source</p>
 
-  {{if eq .CurrentUser.Role "admin"}}
   <a href="/git" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "git"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/>
     </svg>
     Git Providers
   </a>
-  {{end}}
 
   <a href="/registries" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "registries"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -475,8 +482,17 @@
     Registries
   </a>
 
+  <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Backups</p>
+
+  <a href="/backup" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "backup"}}sidebar-link-active{{end}}">
+    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"/>
+    </svg>
+    Backup
+  </a>
+
   {{if eq .CurrentUser.Role "admin"}}
-  <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Proxy</p>
+  <p class="mb-1 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">System</p>
 
   <a href="/caddy" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "nextdeploy"}}sidebar-link-active{{end}}">
     <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -497,13 +513,6 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638" />
     </svg>
     Audit Logs
-  </a>
-
-  <a href="/backup" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "backup"}}sidebar-link-active{{end}}">
-    <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3"/>
-    </svg>
-    Backup
   </a>
 
   <a href="/users" @click="$dispatch('nav-close')" class="sidebar-link {{if eq .Nav "users"}}sidebar-link-active{{end}}">

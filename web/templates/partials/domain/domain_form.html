@@ -46,6 +46,7 @@
     </label>
   </div>
 
+  {{if .ShowDomainFileServer}}
   <div
     class="relative overflow-visible rounded-2xl border border-border/55 bg-gradient-to-b from-muted/[0.12] via-background/80 to-background p-4 shadow-sm ring-1 ring-border/30 md:p-5"
     data-caddy-form-suf="{{$suf}}">
@@ -130,4 +131,5 @@
       </div>
     </div>
   </div>
+  {{end}}
 </div>

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"panel/internal/handlers/utils"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/sandbox"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
 
@@ -17,11 +19,189 @@ import (
 
 
 func (p *Panel) Overview(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
+
 	si := sysinfo.Collect(c.UserContext())
+
+	var appCount int
+	var allocatedMemMB int
+	var allocatedCPUs float64
+	var maxApps int
+	var maxMemoryMB int
+	var maxCPUs float64
+	var appPercent, memPercent, cpuPercent float64
+
+	var totalContainers int
+	var totalImages int
+	var totalVolumes int
+	var storageUsed, storageMax string
+	var storagePercent float64
+	var usedMemBytes int64
+	var usedCPUs float64
+	var usedMemPercent, usedCPUPercent float64
+
+	ctx := c.UserContext()
+
+	if u.Role == db.RoleAdmin {
+		apps, err := p.DB.ListApps(ctx)
+		if err == nil {
+			appCount = len(apps)
+		}
+		if rows, rerr := dockerapi.ListContainers(ctx); rerr == "" {
+			totalContainers = len(rows)
+		}
+		if vols, rerr := volumex.List(ctx); rerr == "" {
+			totalVolumes = len(vols)
+		}
+		if imgs, rerr := dockerapi.ListImages(ctx); rerr == "" {
+			totalImages = len(imgs)
+		}
+	} else {
+		maxApps = u.MaxApps
+		maxMemoryMB = u.MaxMemoryMB
+		maxCPUs = u.MaxCPUs
+
+		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
+		if err == nil {
+			appCount = len(apps)
+			if maxApps > 0 {
+				appPercent = (float64(appCount) / float64(maxApps)) * 100.0
+			}
+
+			// Compose project names are app-name slugs (plus legacy variants),
+			// not app IDs — match containers through the candidate set.
+			projectToApp := make(map[string]string)
+			candidatesByApp := make(map[string][]string)
+			for _, app := range apps {
+				cands := p.ComposeProjectCandidates(ctx, app, app.ID)
+				candidatesByApp[app.ID] = cands
+				for _, proj := range cands {
+					projectToApp[proj] = app.ID
+				}
+			}
+
+			runningApps := make(map[string]bool)
+			seenImages := make(map[string]bool)
+			if rows, rerr := dockerapi.ListContainers(ctx); rerr == "" {
+				for _, row := range rows {
+					if appID, ok := projectToApp[row.ComposeProject]; ok {
+						totalContainers++
+						if row.Image != "" {
+							seenImages[row.Image] = true
+						}
+						state := strings.ToLower(row.State)
+						if state == "running" || state == "restarting" {
+							runningApps[appID] = true
+						}
+					}
+				}
+			}
+			totalImages = len(seenImages)
+
+			for _, app := range apps {
+				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, candidatesByApp[app.ID]...)
+				appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
+				totalVolumes += len(appVols)
+
+				if runningApps[app.ID] {
+					composePath := p.composeOverridePath(ctx, app.ID)
+					if _, serr := os.Stat(composePath); serr != nil {
+						composePath = p.composeFilePath(ctx, app, app.ID)
+					}
+					if data, rerr := os.ReadFile(composePath); rerr == nil {
+						memLimit, cpuLimit, perr := sandbox.GetComposeResources(data)
+						if perr == nil {
+							allocatedMemMB += memLimit
+							allocatedCPUs += cpuLimit
+						}
+					}
+				}
+			}
+
+
+			if maxMemoryMB > 0 && allocatedMemMB > maxMemoryMB {
+				allocatedMemMB = maxMemoryMB
+			}
+			if maxCPUs > 0 && allocatedCPUs > maxCPUs {
+				allocatedCPUs = maxCPUs
+			}
+			if maxMemoryMB > 0 {
+				memPercent = (float64(allocatedMemMB) / float64(maxMemoryMB)) * 100.0
+			}
+			if maxCPUs > 0 {
+				cpuPercent = (allocatedCPUs / maxCPUs) * 100.0
+			}
+
+			// Live usage from docker stats, scoped to this user's containers.
+			projectSet := make(map[string]bool, len(projectToApp))
+			for proj := range projectToApp {
+				projectSet[proj] = true
+			}
+			if usage, uerr := dockerapi.ListContainerUsageForProjects(ctx, projectSet); uerr == "" {
+				for _, row := range usage {
+					if strings.ToLower(row.State) != "running" {
+						continue
+					}
+					usedMemBytes += int64(row.MemUsage)
+					usedCPUs += row.CPUPercent / 100.0
+				}
+			}
+			if maxMemoryMB > 0 {
+				usedMemPercent = (float64(usedMemBytes) / (float64(maxMemoryMB) * 1024 * 1024)) * 100.0
+				if usedMemPercent > 100 {
+					usedMemPercent = 100
+				}
+			}
+			if maxCPUs > 0 {
+				usedCPUPercent = (usedCPUs / maxCPUs) * 100.0
+				if usedCPUPercent > 100 {
+					usedCPUPercent = 100
+				}
+			}
+
+			var usedBytes int64
+			for _, app := range apps {
+				usedBytes += p.AppStorageBytes(app.ID)
+			}
+			maxBytes := int64(u.MaxStorageMB) * 1024 * 1024
+			storageUsed = HumanStorage(usedBytes)
+			storageMax = HumanStorage(maxBytes)
+			if maxBytes > 0 {
+				storagePercent = (float64(usedBytes) / float64(maxBytes)) * 100.0
+				if storagePercent > 100 {
+					storagePercent = 100
+				}
+			}
+		}
+	}
+
 	return c.Render("pages/overview", WithUser(c, fiber.Map{
-		"Nav":   "overview",
-		"Title": "Overview",
-		"Sys":   si,
+		"Nav":             "overview",
+		"Title":           "Overview",
+		"Sys":             si,
+		"IsAdmin":         u.Role == db.RoleAdmin,
+		"AppCount":        appCount,
+		"MaxApps":         maxApps,
+		"AppPercent":      appPercent,
+		"AllocatedMemGB":  float64(allocatedMemMB) / 1024.0,
+		"MaxMemoryGB":     float64(maxMemoryMB) / 1024.0,
+		"MemPercent":      memPercent,
+		"AllocatedCPUs":   allocatedCPUs,
+		"MaxCPUs":         maxCPUs,
+		"CPUPercent":      cpuPercent,
+		"UsedMemHuman":    HumanStorage(usedMemBytes),
+		"UsedMemPercent":  usedMemPercent,
+		"UsedCPUs":        usedCPUs,
+		"UsedCPUPercent":  usedCPUPercent,
+		"TotalContainers": totalContainers,
+		"TotalImages":     totalImages,
+		"TotalVolumes":    totalVolumes,
+		"StorageUsed":     storageUsed,
+		"StorageMax":      storageMax,
+		"StoragePercent":  storagePercent,
 	}), "layouts/shell")
 }
 
@@ -103,17 +283,67 @@ func (p *Panel) MonitorPartial(c *fiber.Ctx) error {
 	})
 }
 
+// ResourceOwner identifies which panel user owns a Docker resource (via the
+// owning app's compose project). Used by admin views of containers/images/volumes.
+type ResourceOwner struct {
+	Name  string
+	Admin bool
+}
+
+// ownersByUserID maps panel user ids to display info for owner badges.
+func (p *Panel) ownersByUserID(ctx context.Context) map[int64]ResourceOwner {
+	users, err := p.DB.ListUsers(ctx)
+	if err != nil {
+		return nil
+	}
+	m := make(map[int64]ResourceOwner, len(users))
+	for _, usr := range users {
+		m[usr.ID] = ResourceOwner{Name: usr.Username, Admin: usr.Role == db.RoleAdmin}
+	}
+	return m
+}
+
+// ownersByProject maps compose project names to the owning panel user.
+func (p *Panel) ownersByProject(ctx context.Context) map[string]ResourceOwner {
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return nil
+	}
+	byUser := p.ownersByUserID(ctx)
+	byProject := make(map[string]ResourceOwner)
+	for _, app := range apps {
+		owner, ok := byUser[app.OwnerID]
+		if !ok {
+			continue
+		}
+		for _, proj := range p.ComposeProjectCandidates(ctx, app, app.ID) {
+			if _, exists := byProject[proj]; !exists {
+				byProject[proj] = owner
+			}
+		}
+	}
+	return byProject
+}
+
 func (p *Panel) Containers(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, _ := currentUser(c)
 	rows, errMsg := dockerapi.ListContainers(ctx)
+	isAdmin := u.Role == db.RoleAdmin
 
-	if u.Role != db.RoleAdmin {
+	ownerByProject := map[string]ResourceOwner{}
+	if isAdmin {
+		if m := p.ownersByProject(ctx); m != nil {
+			ownerByProject = m
+		}
+	} else {
 		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 		if err == nil {
 			allowedProjects := make(map[string]bool)
 			for _, app := range apps {
-				allowedProjects[app.ID] = true
+				for _, proj := range p.ComposeProjectCandidates(ctx, app, app.ID) {
+					allowedProjects[proj] = true
+				}
 			}
 			var filtered []dockerapi.ContainerRow
 			for _, row := range rows {
@@ -128,75 +358,127 @@ func (p *Panel) Containers(c *fiber.Ctx) error {
 	}
 
 	return c.Render("pages/containers", WithUser(c, fiber.Map{
-		"Nav":         "containers",
-		"Title":       "Containers",
-		"Containers":  rows,
-		"DockerError": errMsg,
+		"Nav":            "containers",
+		"Title":          "Containers",
+		"Containers":     rows,
+		"DockerError":    errMsg,
+		"IsAdmin":        isAdmin,
+		"OwnerByProject": ownerByProject,
 	}), "layouts/shell")
+}
+
+type imageListItem struct {
+	dockerapi.ImageRow
+	Owner ResourceOwner
+}
+
+
+func imageMatchesApp(img dockerapi.ImageRow, projects []string, imageProjects map[string]string, projectSet map[string]bool) bool {
+	for imgName, proj := range imageProjects {
+		if projectSet[proj] && imgName != "" && strings.Contains(img.Tags, imgName) {
+			return true
+		}
+	}
+	for _, proj := range projects {
+		proj = strings.TrimSpace(proj)
+		if proj == "" {
+			continue
+		}
+		alt := strings.ReplaceAll(proj, "-", "_")
+		for _, t := range img.RepoTags {
+			if t == "" || t == "<none>" {
+				continue
+			}
+			repo := imageRepoBase(t)
+			if repo == proj || repo == alt || strings.HasPrefix(repo, proj+"_") || strings.HasPrefix(repo, alt+"_") || strings.HasPrefix(repo, proj+"-") || strings.HasPrefix(repo, alt+"-") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, _ := currentUser(c)
 	rows, errMsg := dockerapi.ListImages(ctx)
+	isAdmin := u.Role == db.RoleAdmin
 
-	if u.Role != db.RoleAdmin {
+	allContainers, _ := dockerapi.ListContainers(ctx)
+	// image name -> compose project using it (for ownership attribution)
+	imageProjects := make(map[string]string)
+	for _, cRow := range allContainers {
+		img := strings.TrimSpace(cRow.Image)
+		if img != "" && cRow.ComposeProject != "" {
+			imageProjects[img] = cRow.ComposeProject
+		}
+	}
+
+	items := make([]imageListItem, 0, len(rows))
+
+	if isAdmin {
+		apps, _ := p.DB.ListApps(ctx)
+		byUser := p.ownersByUserID(ctx)
+		type appMatch struct {
+			projects   []string
+			projectSet map[string]bool
+			owner      ResourceOwner
+		}
+		matches := make([]appMatch, 0, len(apps))
+		for _, app := range apps {
+			cands := p.ComposeProjectCandidates(ctx, app, app.ID)
+			projects := append([]string{app.ID}, cands...)
+			set := make(map[string]bool, len(projects))
+			for _, proj := range projects {
+				set[proj] = true
+			}
+			matches = append(matches, appMatch{projects: projects, projectSet: set, owner: byUser[app.OwnerID]})
+		}
+		for _, img := range rows {
+			item := imageListItem{ImageRow: img}
+			for _, m := range matches {
+				if imageMatchesApp(img, m.projects, imageProjects, m.projectSet) {
+					item.Owner = m.owner
+					break
+				}
+			}
+			items = append(items, item)
+		}
+	} else {
 		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 		if err == nil {
-			allContainers, _ := dockerapi.ListContainers(ctx)
-			allowedProjectIDs := make(map[string]bool)
-			usedImageNames := make(map[string]bool)
 			for _, app := range apps {
-				allowedProjectIDs[app.ID] = true
-			}
-			for _, cRow := range allContainers {
-				if allowedProjectIDs[cRow.ComposeProject] {
-					usedImageNames[strings.TrimSpace(cRow.Image)] = true
+				cands := p.ComposeProjectCandidates(ctx, app, app.ID)
+				projects := append([]string{app.ID}, cands...)
+				set := make(map[string]bool, len(projects))
+				for _, proj := range projects {
+					set[proj] = true
 				}
-			}
-
-			var filtered []dockerapi.ImageRow
-			for _, img := range rows {
-				owned := false
-				for tag := range usedImageNames {
-					if strings.Contains(img.Tags, tag) {
-						owned = true
-						break
+				for _, img := range rows {
+					if imageMatchesApp(img, projects, imageProjects, set) {
+						items = append(items, imageListItem{ImageRow: img})
 					}
 				}
-				if !owned {
-					for _, proj := range apps {
-						alt := strings.ReplaceAll(proj.ID, "-", "_")
-						for _, t := range img.RepoTags {
-							if t == "" || t == "<none>" {
-								continue
-							}
-							repo := imageRepoBase(t)
-							if repo == proj.ID || repo == alt || strings.HasPrefix(repo, proj.ID+"_") || strings.HasPrefix(repo, alt+"_") {
-								owned = true
-								break
-							}
-						}
-						if owned {
-							break
-						}
-					}
-				}
-				if owned {
-					filtered = append(filtered, img)
+			}
+			// de-duplicate images matched by multiple apps
+			seen := make(map[string]bool, len(items))
+			deduped := items[:0]
+			for _, it := range items {
+				if !seen[it.ID] {
+					seen[it.ID] = true
+					deduped = append(deduped, it)
 				}
 			}
-			rows = filtered
-		} else {
-			rows = nil
+			items = deduped
 		}
 	}
 
 	return c.Render("pages/images", WithUser(c, fiber.Map{
 		"Nav":         "images",
 		"Title":       "Images",
-		"Images":      rows,
+		"Images":      items,
 		"DockerError": errMsg,
+		"IsAdmin":     isAdmin,
 	}), "layouts/shell")
 }
 
@@ -204,14 +486,42 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, _ := currentUser(c)
 	names, errMsg := volumex.List(ctx)
+	isAdmin := u.Role == db.RoleAdmin
 
-	if u.Role != db.RoleAdmin {
+	ownerByVolume := map[string]ResourceOwner{}
+	if isAdmin {
+		apps, _ := p.DB.ListApps(ctx)
+		byUser := p.ownersByUserID(ctx)
+		for _, app := range apps {
+			owner, ok := byUser[app.OwnerID]
+			if !ok {
+				continue
+			}
+			projects := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+			for _, n := range names {
+				if _, taken := ownerByVolume[n]; taken {
+					continue
+				}
+				for _, proj := range projects {
+					proj = strings.TrimSpace(proj)
+					if proj == "" {
+						continue
+					}
+					alt := strings.ReplaceAll(proj, "-", "_")
+					if n == proj || n == alt || strings.HasPrefix(n, proj+"_") || strings.HasPrefix(n, alt+"_") {
+						ownerByVolume[n] = owner
+						break
+					}
+				}
+			}
+		}
+	} else {
 		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 		if err == nil {
 			var filtered []string
 			seen := make(map[string]bool)
 			for _, app := range apps {
-				projCandidates := []string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}
+				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
 				appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
 				for _, v := range appVols {
 					if !seen[v] {
@@ -228,10 +538,12 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 	}
 
 	return c.Render("pages/volumes", WithUser(c, fiber.Map{
-		"Nav":         "volumes",
-		"Title":       "Volumes",
-		"Volumes":     names,
-		"VolumeError": errMsg,
+		"Nav":           "volumes",
+		"Title":         "Volumes",
+		"Volumes":       names,
+		"VolumeError":   errMsg,
+		"IsAdmin":       isAdmin,
+		"OwnerByVolume": ownerByVolume,
 	}), "layouts/shell")
 }
 

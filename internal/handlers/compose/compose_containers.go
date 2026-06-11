@@ -94,11 +94,15 @@ func (h *Handler) renderComposeTable(c *fiber.Ctx, id string) error {
 	dir := h.P.AppSourcePath(c.UserContext(), id)
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
-		return c.Render("partials/compose/compose_table", fiber.Map{
-			"ID":           id,
-			"ComposeRows":  []dockerx.ComposePsRow(nil),
-			"ComposePsMsg": "Compose file not found. Set the filename on Overview or upload it in Files.",
-		})
+		// Dockerfile-only apps run from the auto-generated merged compose.
+		hasDockerfile, hasCompose := h.P.Store.HasDockerArtifacts(id)
+		if !hasDockerfile || hasCompose {
+			return c.Render("partials/compose/compose_table", fiber.Map{
+				"ID":           id,
+				"ComposeRows":  []dockerx.ComposePsRow(nil),
+				"ComposePsMsg": "Compose file not found. Set the filename on Overview or upload it in Files.",
+			})
+		}
 	}
 	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
 		return c.Render("partials/compose/compose_table", fiber.Map{

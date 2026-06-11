@@ -816,7 +816,7 @@
         var fullPath = state.currentPath ? state.currentPath + '/' + name : name;
         setLoading(true);
         apiPost('/apps/' + cfg.appId + '/files/create', { filename: fullPath })
-          .then(function (x) { flash('File created.', false); loadRoot(); })
+          .then(function (x) { if (x.j.ok) { flash('File created.', false); loadRoot(); } else flash(x.j.message || 'Create failed.', true); })
           .catch(function () { flash('Network error.', true); }).finally(function () { setLoading(false); });
       });
     }

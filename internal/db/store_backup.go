@@ -5,19 +5,30 @@ import (
 	"database/sql"
 )
 
-func (s *Store) CreateBackupDestination(ctx context.Context, name, provider, config string) (int64, error) {
+func (s *Store) CreateBackupDestination(ctx context.Context, userID *int64, name, provider, config string) (int64, error) {
+	var uid interface{}
+	if userID != nil {
+		uid = *userID
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO backup_destinations (name, provider, config, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
-		name, provider, config)
+		`INSERT INTO backup_destinations (user_id, name, provider, config, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+		uid, name, provider, config)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) ListBackupDestinations(ctx context.Context) ([]BackupDestination, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, provider, config, created_at FROM backup_destinations ORDER BY created_at DESC`)
+func (s *Store) ListBackupDestinations(ctx context.Context, userID *int64) ([]BackupDestination, error) {
+	var query string
+	var args []interface{}
+	if userID != nil {
+		query = `SELECT id, user_id, name, provider, config, created_at FROM backup_destinations WHERE user_id IS NULL OR user_id = ? ORDER BY created_at DESC`
+		args = append(args, *userID)
+	} else {
+		query = `SELECT id, user_id, name, provider, config, created_at FROM backup_destinations ORDER BY created_at DESC`
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +37,13 @@ func (s *Store) ListBackupDestinations(ctx context.Context) ([]BackupDestination
 	var dests []BackupDestination
 	for rows.Next() {
 		var d BackupDestination
-		if err := rows.Scan(&d.ID, &d.Name, &d.Provider, &d.Config, &d.CreatedAt); err != nil {
+		var uid sql.NullInt64
+		if err := rows.Scan(&d.ID, &uid, &d.Name, &d.Provider, &d.Config, &d.CreatedAt); err != nil {
 			return nil, err
+		}
+		if uid.Valid {
+			val := uid.Int64
+			d.UserID = &val
 		}
 		dests = append(dests, d)
 	}
@@ -36,11 +52,16 @@ func (s *Store) ListBackupDestinations(ctx context.Context) ([]BackupDestination
 
 func (s *Store) GetBackupDestination(ctx context.Context, id int64) (BackupDestination, error) {
 	var d BackupDestination
+	var uid sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, provider, config, created_at FROM backup_destinations WHERE id = ?`, id).
-		Scan(&d.ID, &d.Name, &d.Provider, &d.Config, &d.CreatedAt)
+		`SELECT id, user_id, name, provider, config, created_at FROM backup_destinations WHERE id = ?`, id).
+		Scan(&d.ID, &uid, &d.Name, &d.Provider, &d.Config, &d.CreatedAt)
 	if err != nil {
 		return BackupDestination{}, err
+	}
+	if uid.Valid {
+		val := uid.Int64
+		d.UserID = &val
 	}
 	return d, nil
 }
@@ -57,11 +78,11 @@ func (s *Store) UpdateBackupDestinationConfig(ctx context.Context, id int64, con
 	return err
 }
 
-func (s *Store) CreateBackupSchedule(ctx context.Context, appID string, destID int64, backupType, volumeNames, cronExpr string, retention int) (int64, error) {
+func (s *Store) CreateBackupSchedule(ctx context.Context, appID string, destID int64, backupType, volumeNames, cronExpr string, retention int, pauseContainers bool) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO backup_schedules (app_id, destination_id, backup_type, volume_names, cron_schedule, retention_count, enabled, created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
-		appID, destID, backupType, volumeNames, cronExpr, retention)
+		`INSERT INTO backup_schedules (app_id, destination_id, backup_type, volume_names, cron_schedule, retention_count, enabled, pause_containers, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+		appID, destID, backupType, volumeNames, cronExpr, retention, pauseContainers)
 	if err != nil {
 		return 0, err
 	}
@@ -70,7 +91,7 @@ func (s *Store) CreateBackupSchedule(ctx context.Context, appID string, destID i
 
 func (s *Store) ListBackupSchedules(ctx context.Context, appID string) ([]BackupSchedule, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, app_id, destination_id, backup_type, volume_names, cron_schedule, retention_count, enabled, last_run_at, created_at 
+		`SELECT id, app_id, destination_id, backup_type, volume_names, cron_schedule, retention_count, enabled, pause_containers, last_run_at, created_at 
 		FROM backup_schedules WHERE app_id = ? ORDER BY created_at DESC`, appID)
 	if err != nil {
 		return nil, err
@@ -81,7 +102,7 @@ func (s *Store) ListBackupSchedules(ctx context.Context, appID string) ([]Backup
 	for rows.Next() {
 		var s BackupSchedule
 		var lastRun sql.NullString
-		if err := rows.Scan(&s.ID, &s.AppID, &s.DestinationID, &s.BackupType, &s.VolumeNames, &s.CronExpression, &s.RetentionCount, &s.Enabled, &lastRun, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.AppID, &s.DestinationID, &s.BackupType, &s.VolumeNames, &s.CronExpression, &s.RetentionCount, &s.Enabled, &s.PauseContainers, &lastRun, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		s.LastRun = lastRun.String
@@ -90,10 +111,10 @@ func (s *Store) ListBackupSchedules(ctx context.Context, appID string) ([]Backup
 	return schedules, rows.Err()
 }
 
-func (s *Store) UpdateBackupSchedule(ctx context.Context, scheduleID int64, appID string, destID int64, backupType, volumeNames, cronExpr string, retention int) error {
+func (s *Store) UpdateBackupSchedule(ctx context.Context, scheduleID int64, appID string, destID int64, backupType, volumeNames, cronExpr string, retention int, pauseContainers bool) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE backup_schedules SET destination_id = ?, backup_type = ?, volume_names = ?, cron_schedule = ?, retention_count = ?, updated_at = datetime('now') WHERE id = ? AND app_id = ?`,
-		destID, backupType, volumeNames, cronExpr, retention, scheduleID, appID)
+		`UPDATE backup_schedules SET destination_id = ?, backup_type = ?, volume_names = ?, cron_schedule = ?, retention_count = ?, pause_containers = ?, updated_at = datetime('now') WHERE id = ? AND app_id = ?`,
+		destID, backupType, volumeNames, cronExpr, retention, pauseContainers, scheduleID, appID)
 	if err != nil {
 		return err
 	}

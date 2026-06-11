@@ -105,6 +105,7 @@ func main() {
 		return strings.ToUpper(s[:1])
 	})
 	engine.AddFunc("lower", strings.ToLower)
+	engine.AddFunc("sub", func(a, b int) int { return a - b })
 
 	app := fiber.New(fiber.Config{
 		AppName:      "NextDeploy",
@@ -136,6 +137,7 @@ func main() {
 		log.Printf("nextdeploy root compose sync skipped: %v", err)
 	}
 	p.StartBackgroundJobs()
+	go p.ReapplyUserCgroupLimitsOnStart()
 
 	gitH := git.New(p)
 	fbH := filebrowser.New(p)
@@ -162,8 +164,6 @@ func main() {
 	app.Use("/terminal", p.RequireAdminMiddleware)
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
-	app.Use("/git", p.RequireAdminMiddleware)
-	app.Use("/backup", p.RequireAdminMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")

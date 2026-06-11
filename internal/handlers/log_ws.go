@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/logview"
 
@@ -64,13 +65,22 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	defer logReader.Close()
 
 	go func() {
-		tick := time.NewTicker(45 * time.Second)
+		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				u, uOk := c.Locals(contextUserKey).(db.User)
+				if uOk {
+					dbUser, err := p.DB.GetUserByID(ctx, u.ID)
+					if err != nil || dbUser.Status == db.UserStatusSuspended {
+						cancel()
+						_ = c.Close()
+						return
+					}
+				}
 				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
 					return
 				}

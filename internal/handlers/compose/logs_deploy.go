@@ -136,8 +136,34 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 	candidates := h.P.ComposeProjectCandidates(ctx, app, id)
 	paths := h.P.EffectiveComposePaths(ctx, app, id)
 	envFiles := h.P.ComposeEnvFiles(ctx, id)
+	// Legacy slug-based project names can be shared with another user's same-named app.
+	// Only clean up a candidate when its running stack belongs to this app's workspace, or
+	// when no other app could claim the name.
+	safeCandidates := make([]string, 0, len(candidates))
+	for _, project := range candidates {
+		rows, res := dockerx.ComposePS(ctx, dir, paths, project, envFiles)
+		if res.OK && len(rows) > 0 {
+			if h.P.ComposeRowsBelongToApp(id, rows) {
+				safeCandidates = append(safeCandidates, project)
+			}
+			continue
+		}
+		if !h.P.ProjectNameSharedWithOtherApp(ctx, id, project) {
+			safeCandidates = append(safeCandidates, project)
+		}
+	}
+	candidates = safeCandidates
 	var cleanupErrs []string
+	composeAvailable := false
 	if _, err := os.Stat(cp); err == nil {
+		composeAvailable = true
+	} else if len(paths) > 0 {
+		// Dockerfile-only apps only have the generated merged compose.
+		if _, err := os.Stat(paths[0]); err == nil {
+			composeAvailable = true
+		}
+	}
+	if composeAvailable {
 		for _, project := range candidates {
 			if res := dockerx.ComposeDownDeleteProject(ctx, dir, paths, project, nil, envFiles); !res.OK && strings.TrimSpace(res.Output) != "" && !strings.Contains(strings.ToLower(res.Output), "no resource found") {
 				cleanupErrs = append(cleanupErrs, res.Output)

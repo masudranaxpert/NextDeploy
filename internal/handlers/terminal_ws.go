@@ -82,13 +82,22 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	defer sess.Close()
 
 	go func() {
-		tick := time.NewTicker(45 * time.Second)
+		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				u, uOk := c.Locals(contextUserKey).(db.User)
+				if uOk {
+					dbUser, err := p.DB.GetUserByID(ctx, u.ID)
+					if err != nil || dbUser.Status == db.UserStatusSuspended {
+						cancel()
+						_ = c.Close()
+						return
+					}
+				}
 				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
 					return
 				}
@@ -205,13 +214,22 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	vpsCtx, vpsCancel := context.WithCancel(context.Background())
 	defer vpsCancel()
 	go func() {
-		tick := time.NewTicker(45 * time.Second)
+		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
 			case <-vpsCtx.Done():
 				return
 			case <-tick.C:
+				u, uOk := c.Locals(contextUserKey).(db.User)
+				if uOk {
+					dbUser, err := p.DB.GetUserByID(vpsCtx, u.ID)
+					if err != nil || dbUser.Status == db.UserStatusSuspended || dbUser.Role != db.RoleAdmin {
+						vpsCancel()
+						_ = c.Close()
+						return
+					}
+				}
 				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
 					return
 				}

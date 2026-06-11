@@ -12,7 +12,7 @@
         </div>
         <div class="min-w-0">
           <h1 class="page-title">Audit Logs</h1>
-          <p class="page-subtitle">Historical records of all panel updates and user actions. Retained for 7 days.</p>
+          <p class="page-subtitle">Historical records of all panel updates and user actions. Retained for 7 days · {{.PageSize}} per page</p>
         </div>
       </div>
     </div>
@@ -94,6 +94,60 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Pagination -->
+    {{if gt .TotalLogs .PageSize}}
+    <div class="flex flex-col items-center justify-between gap-3 border-t border-border/50 bg-muted/10 px-4 py-3 sm:flex-row">
+      <p class="text-xs text-muted-foreground">
+        Showing <span class="font-medium tabular-nums text-foreground">{{.ShowFrom}}–{{.ShowTo}}</span> of
+        <span class="font-medium tabular-nums text-foreground">{{.TotalLogs}}</span> entries
+      </p>
+      <nav class="flex items-center gap-1" aria-label="Pagination">
+        {{if .HasPrev}}
+          <a href="/settings/audit-logs?page={{.PrevPage}}" class="inline-flex h-8 items-center gap-1 rounded-lg border border-border/60 bg-muted/20 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+            Prev
+          </a>
+        {{else}}
+          <span class="inline-flex h-8 cursor-not-allowed items-center gap-1 rounded-lg border border-border/40 px-2.5 text-xs font-medium text-muted-foreground/40">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+            Prev
+          </span>
+        {{end}}
+
+        {{if gt .FirstInWin 1}}
+          <a href="/settings/audit-logs?page=1" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-muted/20 text-xs font-medium tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">1</a>
+          {{if gt .FirstInWin 2}}<span class="px-1 text-xs text-muted-foreground/50">…</span>{{end}}
+        {{end}}
+
+        {{$cur := .Page}}
+        {{range .Pages}}
+          {{if eq . $cur}}
+            <span aria-current="page" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-primary/40 bg-primary/15 text-xs font-semibold tabular-nums text-primary">{{.}}</span>
+          {{else}}
+            <a href="/settings/audit-logs?page={{.}}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-muted/20 text-xs font-medium tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">{{.}}</a>
+          {{end}}
+        {{end}}
+
+        {{if lt .LastInWin .TotalPages}}
+          {{if lt .LastInWin (sub .TotalPages 1)}}<span class="px-1 text-xs text-muted-foreground/50">…</span>{{end}}
+          <a href="/settings/audit-logs?page={{.TotalPages}}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-muted/20 text-xs font-medium tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">{{.TotalPages}}</a>
+        {{end}}
+
+        {{if .HasNext}}
+          <a href="/settings/audit-logs?page={{.NextPage}}" class="inline-flex h-8 items-center gap-1 rounded-lg border border-border/60 bg-muted/20 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+            Next
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+          </a>
+        {{else}}
+          <span class="inline-flex h-8 cursor-not-allowed items-center gap-1 rounded-lg border border-border/40 px-2.5 text-xs font-medium text-muted-foreground/40">
+            Next
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+          </span>
+        {{end}}
+      </nav>
+    </div>
+    {{end}}
   </div>
 </div>
 

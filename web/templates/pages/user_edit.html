@@ -71,6 +71,20 @@
 
   <div class="grid grid-cols-1 gap-6">
 
+    <!-- ── Storage Usage ─────────────────────────────────────── -->
+    <div class="panel-card p-5">
+      <div class="mb-3 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-foreground">Storage Usage</h2>
+          <p class="text-xs text-muted-foreground">Workspace files across all apps owned by this user.</p>
+        </div>
+        <span class="text-sm font-semibold tabular-nums text-foreground">{{.StorageUsed}} <span class="text-xs font-normal text-muted-foreground">of {{.StorageMax}}</span></span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-amber-600 to-amber-400" style="width: {{printf "%.0f" .StoragePercent}}%"></div>
+      </div>
+    </div>
+
     <!-- ── Quota & Limits (Admin Only) ───────────────────────── -->
     {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID)}}
     <div class="panel-card p-5">
@@ -78,8 +92,8 @@
         <h2 class="text-sm font-semibold text-foreground">Resource Limits</h2>
         <p class="text-xs text-muted-foreground">Adjust maximum containers, RAM and CPU allocation for this user.</p>
       </div>
-      <form method="post" action="/users/{{.TargetUser.ID}}/limits" class="space-y-4 max-w-md">
-        <div class="grid grid-cols-3 gap-4">
+      <form method="post" action="/users/{{.TargetUser.ID}}/limits" class="space-y-4 max-w-xl">
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_apps">Max Apps</label>
             <input id="max_apps" type="number" name="max_apps" value="{{.TargetUser.MaxApps}}" class="input w-full" required min="1">
@@ -92,7 +106,18 @@
             <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_cpus">Max CPUs</label>
             <input id="max_cpus" type="number" name="max_cpus" value="{{.TargetUser.MaxCPUs}}" step="0.1" class="input w-full" required min="0.1">
           </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_storage_mb">Max Storage (MB)</label>
+            <input id="max_storage_mb" type="number" name="max_storage_mb" value="{{.TargetUser.MaxStorageMB}}" class="input w-full" required min="128">
+          </div>
         </div>
+        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-muted/10 p-3.5 transition-colors hover:bg-muted/20">
+          <input type="checkbox" name="allow_domain_file_server" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30" {{if .TargetUser.AllowDomainFileServer}}checked{{end}}>
+          <div class="min-w-0 space-y-0.5">
+            <p class="text-sm font-medium text-foreground">Domain static/media roots</p>
+            <p class="text-xs text-muted-foreground">Allow this user to configure Caddy file_server paths when adding app domains.</p>
+          </div>
+        </label>
         <div class="flex justify-end">
           <button type="submit" class="btn-primary px-4 py-2 text-xs">Save Limits</button>
         </div>

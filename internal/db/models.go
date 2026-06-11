@@ -40,7 +40,9 @@ type User struct {
 	MaxApps      int
 	MaxMemoryMB  int
 	MaxCPUs      float64
-	Status       string
+	MaxStorageMB           int
+	Status                 string
+	AllowDomainFileServer  bool
 }
 
 type App struct {
@@ -91,6 +93,7 @@ type AppGitConfig struct {
 // GitProvider holds a named global Git credential (token) for a provider.
 type GitProvider struct {
 	ID           int64
+	UserID       *int64
 	Name         string
 	Provider     string
 	Token        string
@@ -256,6 +259,7 @@ type DeployLog struct {
 // BackupDestination represents a cloud storage destination for backups
 type BackupDestination struct {
 	ID        int64
+	UserID    *int64
 	Name      string
 	Provider  string
 	Config    string
@@ -264,16 +268,17 @@ type BackupDestination struct {
 
 // BackupSchedule represents a scheduled backup configuration
 type BackupSchedule struct {
-	ID             int64
-	AppID          string
-	DestinationID  int64
-	BackupType     string
-	VolumeNames    string
-	CronExpression string
-	RetentionCount int
-	Enabled        bool
-	LastRun        string
-	CreatedAt      string
+	ID              int64
+	AppID           string
+	DestinationID   int64
+	BackupType      string
+	VolumeNames     string
+	CronExpression  string
+	RetentionCount  int
+	Enabled         bool
+	PauseContainers bool
+	LastRun         string
+	CreatedAt       string
 }
 
 // BackupHistory represents a completed backup

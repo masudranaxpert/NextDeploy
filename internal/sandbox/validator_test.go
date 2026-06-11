@@ -205,3 +205,33 @@ services:
 	}
 }
 
+func TestGetComposeResources(t *testing.T) {
+	composeYAML := `
+services:
+  web:
+    image: nginx:alpine
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: "512M"
+  db:
+    image: postgres:alpine
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+`
+	mem, cpu, err := GetComposeResources([]byte(composeYAML))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if mem != 768 {
+		t.Errorf("Expected 768M RAM, got %d", mem)
+	}
+	if cpu != 2.0 {
+		t.Errorf("Expected 2.0 CPUs, got %.2f", cpu)
+	}
+}
+
