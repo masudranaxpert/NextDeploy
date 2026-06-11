@@ -2,9 +2,9 @@
 
 FROM node:22-alpine AS assets
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --no-audit --no-fund
+    npm ci --no-audit --no-fund
 COPY tailwind.config.js ./
 COPY web ./web
 RUN npm run build:css
