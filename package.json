@@ -1,4 +1,5 @@
 {
+  "name": "nextdeploy",
   "private": true,
   "scripts": {
     "build:css": "tailwindcss -i ./web/static/src/input.css -o ./web/static/css/app.css --minify"
