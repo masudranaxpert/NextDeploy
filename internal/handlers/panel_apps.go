@@ -183,6 +183,7 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			}
 		}
 	}
+	p.RecordAuditLog(c, "create_app", "app", id, "Created app: "+name+" with source: "+sourceType)
 	return c.Redirect(fmt.Sprintf("/apps/%s", id))
 }
 

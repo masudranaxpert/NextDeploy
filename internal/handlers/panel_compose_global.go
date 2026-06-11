@@ -38,6 +38,7 @@ func (p *Panel) GlobalImageRemove(c *fiber.Ctx) error {
 	if imageID == "" {
 		return c.Status(400).SendString("image_id required")
 	}
+	p.RecordAuditLog(c, "remove_image", "image", imageID, "Removed Docker image")
 	if err := dockerapi.RemoveImageByID(c.UserContext(), imageID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -49,6 +50,7 @@ func (p *Panel) GlobalContainerRemove(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
+	p.RecordAuditLog(c, "remove_container", "container", name, "Removed Docker container")
 	if err := dockerapi.RemoveContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -70,6 +72,7 @@ func (p *Panel) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 		return c.Status(400).SendString("no containers selected")
 	}
 	ctx := c.UserContext()
+	p.RecordAuditLog(c, "remove_selected_containers", "container", strings.Join(names, ", "), "Removed selected containers")
 	for _, name := range names {
 		_ = dockerapi.RemoveContainerByName(ctx, name)
 	}
@@ -81,6 +84,7 @@ func (p *Panel) GlobalContainerRestart(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
+	p.RecordAuditLog(c, "restart_container", "container", name, "Restarted Docker container")
 	if err := dockerapi.RestartContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -92,6 +96,7 @@ func (p *Panel) GlobalVolumeRemove(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
+	p.RecordAuditLog(c, "remove_volume", "volume", name, "Removed Docker volume")
 	if err := dockerapi.RemoveVolumeByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -100,6 +105,7 @@ func (p *Panel) GlobalVolumeRemove(c *fiber.Ctx) error {
 
 // GlobalImagePrune removes all unused (dangling) images.
 func (p *Panel) GlobalImagePrune(c *fiber.Ctx) error {
+	p.RecordAuditLog(c, "prune_images", "system", "docker", "Pruned unused Docker images")
 	if err := dockerapi.PruneImages(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -108,6 +114,7 @@ func (p *Panel) GlobalImagePrune(c *fiber.Ctx) error {
 
 // GlobalContainerPrune removes all stopped containers.
 func (p *Panel) GlobalContainerPrune(c *fiber.Ctx) error {
+	p.RecordAuditLog(c, "prune_containers", "system", "docker", "Pruned stopped Docker containers")
 	if err := dockerapi.PruneContainers(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -174,6 +181,7 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 		p.stopOtherComposeStacks(downCtx, app, id, project)
 		downCancel()
 	}
+	p.RecordAuditLog(c, "compose_"+strings.ToLower(strings.ReplaceAll(action, " ", "_")), "app", id, "Triggered compose action: "+action)
 	if err := p.startComposeJob(id, project, p.effectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment&busy=1", id))
 	}

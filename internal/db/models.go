@@ -275,3 +275,16 @@ func ParseRemoteCheckedAt(s string) (time.Time, error) {
 	}
 	return time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
 }
+
+type AuditLog struct {
+	ID         int64
+	UserID     int64
+	Username   string
+	Action     string
+	TargetType string
+	TargetID   string
+	IPAddress  string
+	UserAgent  string
+	Details    string
+	CreatedAt  time.Time
+}

@@ -168,6 +168,7 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 		return c.Redirect("/setup")
 	}
 
+	p.RecordAuditLog(c, "setup_complete", "system", username, "First-time setup completed, admin user created")
 	// Auto-login after setup
 	return p.createSessionAndRedirect(c, userID, "/overview")
 }
@@ -195,6 +196,7 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
+		p.RecordAuditLog(c, "login_failed", "user", username, "Failed login attempt")
 		setFlashError(c, "Invalid username or password")
 		// Keep ?next= in URL so the login form can re-submit to the right destination.
 		if next != "" && next != "/" {
@@ -203,11 +205,16 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 
+	c.Locals(contextUserKey, user)
+	p.RecordAuditLog(c, "login_success", "user", user.Username, "Successfully logged in")
 	return p.createSessionAndRedirect(c, user.ID, next)
 }
 
 // Logout destroys the session and redirects to login.
 func (p *Panel) Logout(c *fiber.Ctx) error {
+	if u, ok := currentUser(c); ok {
+		p.RecordAuditLog(c, "logout", "user", u.Username, "User logged out")
+	}
 	token := c.Cookies(sessionCookie)
 	if token != "" {
 		_ = p.DB.DeleteSession(c.UserContext(), token)

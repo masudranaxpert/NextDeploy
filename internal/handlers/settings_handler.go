@@ -803,6 +803,17 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.cleanOrphanTempFiles()
 	go p.orphanStagingSweepLoop()
 	go p.StartBackupWorker()
+	go p.auditLogPruneLoop()
+}
+
+func (p *Panel) auditLogPruneLoop() {
+	_ = p.DB.PruneAuditLogs(context.Background(), 7)
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		_ = p.DB.PruneAuditLogs(context.Background(), 7)
+	}
 }
 
 func (p *Panel) prePullAlpineImage() {

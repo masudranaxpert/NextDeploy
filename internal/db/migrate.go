@@ -338,5 +338,24 @@ CREATE TABLE IF NOT EXISTS backup_history (
 		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('backup_full_app_rename_done', '1')`)
 	}
 
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  username TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  details TEXT,
+  created_at TEXT NOT NULL
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);`); err != nil {
+		return err
+	}
+
 	return nil
 }

@@ -177,6 +177,7 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(err.Error())
 	}
+	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
 	if err := os.RemoveAll(dir); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
