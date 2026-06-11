@@ -39,6 +39,41 @@ func (p *Panel) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
 	})
 }
 
+func (p *Panel) BrowseCreate(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).SendString("not found")
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("files creation is disabled for git-backed apps")
+	}
+
+	name := strings.TrimSpace(c.FormValue("filename"))
+	if name == "" {
+		return c.Redirect("/apps/" + id + "?tab=files")
+	}
+
+	// Always create from root for simplicity in this form
+	rel := filepath.ToSlash(name)
+	if strings.HasSuffix(name, "/") {
+		rel += "/"
+	}
+
+	full, err := p.Store.SafeFilePath(id, rel)
+	if err != nil {
+		return c.Redirect("/apps/" + id + "?tab=files")
+	}
+
+	if strings.HasSuffix(name, "/") {
+		_ = os.MkdirAll(full, 0750)
+		return c.Redirect("/apps/" + id + "?tab=files")
+	}
+
+	_ = os.MkdirAll(filepath.Dir(full), 0750)
+	_ = os.WriteFile(full, nil, 0640)
+	return c.Redirect("/apps/" + id + "?tab=files")
+}
+
 func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
@@ -251,4 +286,40 @@ func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
 		"PreviewCT":      ct,
 		"PreviewBinary":  !isText,
 	})
+}
+
+func (p *Panel) BrowseRename(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
+	}
+	if p.isGitApp(c.UserContext(), id) {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "files renaming is disabled for git-backed apps"})
+	}
+	oldPath := strings.TrimSpace(c.FormValue("old_path"))
+	newPath := strings.TrimSpace(c.FormValue("new_path"))
+	if oldPath == "" || newPath == "" {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "both old_path and new_path are required"})
+	}
+	oldFull, err := p.Store.SafeFilePath(id, oldPath)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid old path"})
+	}
+	newFull, err := p.Store.SafeFilePath(id, newPath)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid new path"})
+	}
+	if _, err := os.Stat(oldFull); os.IsNotExist(err) {
+		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "file or folder not found"})
+	}
+	if _, err := os.Stat(newFull); err == nil {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "destination path already exists"})
+	}
+	if err := os.MkdirAll(filepath.Dir(newFull), 0750); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	if err := os.Rename(oldFull, newFull); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	return c.JSON(fiber.Map{"ok": true, "message": "renamed successfully"})
 }

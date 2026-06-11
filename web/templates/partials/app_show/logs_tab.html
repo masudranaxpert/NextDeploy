@@ -1,4 +1,4 @@
-﻿    <div class="panel-card space-y-4 p-5">
+    <div class="panel-card space-y-4 p-5">
       <div>
         <h2 class="text-base font-semibold text-foreground">Container logs</h2>
         <p class="mt-0.5 text-sm text-muted-foreground">Choose a container and how many lines to tail. Colors are heuristic (errors, warnings, HTTP status, etc.).</p>
@@ -312,6 +312,79 @@
           if (e.detail && e.detail.target && e.detail.target.id === 'log-view') {
             state.buffer = '';
             connectSocket();
+            
+            var wrap = logView.querySelector('.log-view-wrap');
+            if (wrap) {
+              var activeFilterBtn = logView.querySelector('.log-filter-active');
+              if (activeFilterBtn) {
+                 wrap.dataset.logFilter = activeFilterBtn.dataset.filter || 'all';
+              }
+            }
+          }
+        });
+
+        logView.addEventListener('click', function(e) {
+          var filterBtn = e.target.closest('.log-filter-btn');
+          if (filterBtn) {
+            var filter = filterBtn.dataset.filter || 'all';
+            var wrap = logView.querySelector('.log-view-wrap');
+            if (wrap) wrap.dataset.logFilter = filter;
+            
+            logView.querySelectorAll('.log-filter-btn').forEach(function(btn) {
+              btn.classList.remove('log-filter-active', 'bg-primary/12', 'text-primary');
+            });
+            filterBtn.classList.add('log-filter-active', 'bg-primary/12', 'text-primary');
+            
+            var viewport = logView.querySelector('.log-viewport');
+            if (viewport) {
+              var lines = viewport.querySelectorAll('.log-line, .log-line-spacer');
+              lines.forEach(function(el) {
+                if (el.classList.contains('log-line-spacer')) {
+                  el.style.display = (filter !== 'all') ? 'none' : '';
+                } else {
+                  el.style.display = elementMatchesFilter(el, filter) ? '' : 'none';
+                }
+              });
+              viewport.scrollTop = viewport.scrollHeight;
+            }
+            return;
+          }
+
+          var tsToggle = e.target.closest('.log-ts-toggle');
+          if (tsToggle) {
+            var viewport = logView.querySelector('.log-viewport');
+            if (viewport) {
+              viewport.classList.toggle('hide-timestamps');
+            }
+            return;
+          }
+
+          var dlBtn = e.target.closest('.log-download-btn');
+          if (dlBtn) {
+            var viewport = logView.querySelector('.log-viewport');
+            if (viewport) {
+              var clone = viewport.cloneNode(true);
+              if (viewport.classList.contains('hide-timestamps')) {
+                clone.querySelectorAll('.log-ts').forEach(function(n) { n.remove(); });
+              }
+              var lines = Array.from(clone.childNodes).map(function(n) {
+                if (n.nodeType === Node.TEXT_NODE) return n.textContent;
+                if (n.classList && n.classList.contains('log-line-spacer')) return '';
+                return n.innerText || n.textContent;
+              });
+              var text = lines.join('\n');
+              var blob = new Blob([text], { type: 'text/plain' });
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              var containerName = getSelectedContainer().split(' ')[0] || 'logs';
+              a.download = containerName + '-logs.txt';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            }
+            return;
           }
         });
 

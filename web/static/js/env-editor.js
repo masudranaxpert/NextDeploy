@@ -5,40 +5,18 @@
 (function (global) {
   'use strict';
 
-  var MONACO_VER = '0.53.0';
-  var monacoBase = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/' + MONACO_VER + '/min/vs';
+  var MONACO_VER = '0.52.2';
+  var monacoBase = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
+  var monacoBaseFallback = 'https://unpkg.com/monaco-editor@0.52.2/min/vs';
   var monacoWorkerAsset = {
-    editor: '/assets/editor.worker.50c051c0.min.js',
-    json: '/assets/json.worker.32db31cb.min.js',
-    css: '/assets/css.worker.4040859e.min.js',
-    html: '/assets/html.worker.1a3caaf3.min.js',
-    ts: '/assets/ts.worker.77b7bdc2.min.js'
+    editor: '/editor/editor.worker.js',
+    json: '/language/json/json.worker.js',
+    css: '/language/css/css.worker.js',
+    html: '/language/html/html.worker.js',
+    ts: '/language/typescript/ts.worker.js'
   };
 
-  function monacoWorkerBlobUrl(rel) {
-    var u = monacoBase + rel;
-    var body = "importScripts('" + u.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "');";
-    try {
-      return URL.createObjectURL(new Blob([body], { type: 'application/javascript' }));
-    } catch (e) {
-      return u;
-    }
-  }
-
-  function setupMonacoEnvironment() {
-    global.MonacoEnvironment = {
-      getWorkerUrl: function (_workerId, label) {
-        if (label === 'json') return monacoWorkerBlobUrl(monacoWorkerAsset.json);
-        if (label === 'css' || label === 'scss' || label === 'less') return monacoWorkerBlobUrl(monacoWorkerAsset.css);
-        if (label === 'html' || label === 'handlebars' || label === 'razor') return monacoWorkerBlobUrl(monacoWorkerAsset.html);
-        if (label === 'typescript' || label === 'javascript') return monacoWorkerBlobUrl(monacoWorkerAsset.ts);
-        return monacoWorkerBlobUrl(monacoWorkerAsset.editor);
-      }
-    };
-  }
-
   function loadMonaco(cb) {
-    setupMonacoEnvironment();
     if (global.monaco && global.monaco.editor) {
       cb(true);
       return;
@@ -49,25 +27,49 @@
       });
       return;
     }
+    
     global.__panelMonacoPromise = new Promise(function (resolve) {
-      var s = document.createElement('script');
-      s.src = monacoBase + '/loader.js';
-      s.async = true;
-      s.onload = function () {
-        try {
-          require.config({ paths: { vs: monacoBase } });
-          require(['vs/editor/editor.main'], function () {
+      function tryLoad(base, fallback) {
+        global.MonacoEnvironment = {
+          getWorkerUrl: function (_workerId, label) {
+            var rel = monacoWorkerAsset[label] || monacoWorkerAsset.editor;
+            var u = base + rel;
+            var body = "importScripts('" + u.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "');";
+            try {
+              return URL.createObjectURL(new Blob([body], { type: 'application/javascript' }));
+            } catch (e) {
+              return u;
+            }
+          }
+        };
+
+        var s = document.createElement('script');
+        s.src = base + '/loader.js';
+        s.async = true;
+        s.onload = function () {
+          try {
+            require.config({ paths: { vs: base } });
+            require(['vs/editor/editor.main'], function () {
+              resolve();
+            });
+          } catch (e) {
             resolve();
-          });
-        } catch (e) {
-          resolve();
-        }
-      };
-      s.onerror = function () {
-        resolve();
-      };
-      document.head.appendChild(s);
+          }
+        };
+        s.onerror = function () {
+          document.head.removeChild(s);
+          if (fallback) {
+            tryLoad(fallback, null);
+          } else {
+            resolve();
+          }
+        };
+        document.head.appendChild(s);
+      }
+
+      tryLoad(monacoBase, monacoBaseFallback);
     });
+
     global.__panelMonacoPromise.then(function () {
       cb(!!(global.monaco && global.monaco.editor));
     });

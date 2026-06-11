@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+
+	"panel/internal/dockerapi"
 )
 
 // ContainerComposeLabels reads com.docker.compose.project and com.docker.compose.project.working_dir
@@ -16,6 +18,12 @@ func ContainerComposeLabels(ctx context.Context, container string) (project, wor
 	if container == "" {
 		return "", "", errors.New("empty container")
 	}
+
+	proj, workDir, sdkErr := dockerapi.ContainerComposeLabels(ctx, container)
+	if sdkErr == nil {
+		return proj, workDir, nil
+	}
+
 	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{json .Config.Labels}}", container)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

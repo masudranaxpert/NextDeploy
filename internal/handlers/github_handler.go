@@ -289,6 +289,9 @@ func (p *Panel) syncGitAppSource(ctx context.Context, appID string) (string, err
 		return "", err
 	}
 	repoDir := p.appCheckoutPath(appID)
+
+	_ = os.Remove(filepath.Join(repoDir, ".git", "index.lock"))
+
 	token, err := p.resolveGitAuthToken(ctx, cfg)
 	if err != nil {
 		return "", err
@@ -301,6 +304,16 @@ func (p *Panel) syncGitAppSource(ctx context.Context, appID string) (string, err
 		res = gitx.Clone(ctx, repoDir, cfg.RepoURL, cfg.Branch, cfg.AuthMode, token)
 	}
 	if !res.OK {
+		out := res.Output
+		lowerOut := strings.ToLower(out)
+		if strings.Contains(lowerOut, "could not read username") ||
+			strings.Contains(lowerOut, "authentication failed") ||
+			strings.Contains(lowerOut, "not found") ||
+			strings.Contains(lowerOut, "terminal prompts disabled") {
+			
+			friendly := fmt.Sprintf("Repository sync failed. This repository appears to be private or requires authorization. Please configure the correct 'Access mode' (e.g. GitHub App or Access Token) instead of 'Public', or verify your credentials. Git error:\n%s", out)
+			return out, errors.New(friendly)
+		}
 		return res.Output, errors.New(res.Output)
 	}
 	// Restore workspace .env from the panel DB after clone/pull so git checkout/clean cannot drop or replace it
@@ -861,10 +874,19 @@ func (p *Panel) GitRepoTree(c *fiber.Ctx) error {
 		RelPath string `json:"rel_path"`
 		IsDir   bool   `json:"is_dir"`
 		Size    int64  `json:"size"`
+		ModTime int64  `json:"mod_ts"`
+		Perms   string `json:"perms"`
 	}
 	out := make([]row, 0, len(children))
 	for _, ch := range children {
-		out = append(out, row{Name: ch.Name, RelPath: ch.RelPath, IsDir: ch.IsDir, Size: ch.Size})
+		out = append(out, row{
+			Name:    ch.Name,
+			RelPath: ch.RelPath,
+			IsDir:   ch.IsDir,
+			Size:    ch.Size,
+			ModTime: ch.ModTime.Unix() * 1000,
+			Perms:   ch.Perms,
+		})
 	}
 	parent := p.Store.ParentRel(rel)
 	return c.JSON(fiber.Map{
@@ -902,12 +924,12 @@ func (p *Panel) GitRepoBlob(c *fiber.Ctx) error {
 	rawURL := fmt.Sprintf("/apps/%s/git/raw?path=%s", appID, url.QueryEscape(rel))
 	if st.Size() > maxGitRepoBlobJSON {
 		return c.JSON(fiber.Map{
-			"path":       rel,
-			"name":       name,
-			"size":       st.Size(),
-			"too_large":  true,
-			"max_bytes":  maxGitRepoBlobJSON,
-			"raw_url":    rawURL,
+			"path":         rel,
+			"name":         name,
+			"size":         st.Size(),
+			"too_large":    true,
+			"max_bytes":    maxGitRepoBlobJSON,
+			"raw_url":      rawURL,
 			"download_url": rawURL + "&download=1",
 		})
 	}
@@ -1001,4 +1023,3 @@ func (p *Panel) GitRepoRaw(c *fiber.Ctx) error {
 	c.Type(ct)
 	return c.Send(buf)
 }
-

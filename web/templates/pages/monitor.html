@@ -39,6 +39,7 @@
   var ws = null;
   var retryTimer = 0;
   var shouldReconnect = true;
+  var lastPayload = null;
 
   function escHtml(s) {
     return String(s == null ? '' : s)
@@ -46,6 +47,78 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function getPinned() {
+    try {
+      return JSON.parse(localStorage.getItem('pinned_containers') || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function savePinned(arr) {
+    localStorage.setItem('pinned_containers', JSON.stringify(arr));
+  }
+
+  window.togglePin = function(name) {
+    var pinned = getPinned();
+    var idx = pinned.indexOf(name);
+    if (idx >= 0) {
+      pinned.splice(idx, 1);
+      savePinned(pinned);
+    } else {
+      if (pinned.length >= 3) {
+        alert("You can only pin up to 3 containers.");
+        return;
+      }
+      pinned.push(name);
+      savePinned(pinned);
+    }
+    if (lastPayload) {
+      renderMonitor(lastPayload);
+    } else {
+      triggerSort();
+    }
+  };
+
+  function triggerSort() {
+    var tbody = document.querySelector('#monitor-root tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('.container-row'));
+    if (rows.length === 0) return;
+    
+    var pinned = getPinned();
+    
+    rows.forEach(function (row) {
+      var name = row.getAttribute('data-name');
+      var isPinned = pinned.indexOf(name) >= 0;
+      var svg = row.querySelector('.pin-icon');
+      if (svg) {
+        if (isPinned) {
+          svg.setAttribute('class', 'h-3.5 w-3.5 text-primary rotate-45 shrink-0 transform transition-transform pin-icon');
+          svg.setAttribute('fill', 'currentColor');
+        } else {
+          svg.setAttribute('class', 'h-3.5 w-3.5 text-muted-foreground/30 hover:text-primary hover:scale-110 shrink-0 transform transition-all pin-icon');
+          svg.setAttribute('fill', 'none');
+        }
+      }
+    });
+
+    rows.sort(function (a, b) {
+      var nameA = a.getAttribute('data-name');
+      var nameB = b.getAttribute('data-name');
+      var pinA = pinned.indexOf(nameA) >= 0;
+      var pinB = pinned.indexOf(nameB) >= 0;
+      if (pinA !== pinB) {
+        return pinA ? -1 : 1;
+      }
+      return 0;
+    });
+    
+    rows.forEach(function (row) {
+      tbody.appendChild(row);
+    });
   }
 
   function setLiveState(kind, text) {
@@ -68,20 +141,51 @@
     if (!rows || !rows.length) {
       return '<tr><td colspan="6" class="px-4 py-10 text-center text-sm text-muted-foreground">No containers found on this Docker engine.</td></tr>';
     }
-    return rows.map(function (row) {
+    var pinned = getPinned();
+    
+    var sortedRows = rows.slice().sort(function (a, b) {
+      var pinA = pinned.indexOf(a.Name) >= 0;
+      var pinB = pinned.indexOf(b.Name) >= 0;
+      if (pinA !== pinB) {
+        return pinA ? -1 : 1;
+      }
+      if (a.State === b.State) {
+        if (a.CPUPercent === b.CPUPercent) {
+          return a.Name < b.Name ? -1 : 1;
+        }
+        return b.CPUPercent - a.CPUPercent;
+      }
+      if (a.State === 'running') return -1;
+      if (b.State === 'running') return 1;
+      return a.Name < b.Name ? -1 : 1;
+    });
+
+    return sortedRows.map(function (row) {
+      var isPinned = pinned.indexOf(row.Name) >= 0;
       var stateDot = 'bg-slate-500';
       if (row.State === 'running') stateDot = 'bg-emerald-400';
       else if (row.State === 'exited') stateDot = 'bg-amber-400';
+      
+      var pinClass = isPinned ? 'text-primary rotate-45 shrink-0 transform transition-transform pin-icon' : 'text-muted-foreground/30 hover:text-primary hover:scale-110 shrink-0 transform transition-all pin-icon';
+      var pinFill = isPinned ? 'currentColor' : 'none';
+
       return '' +
-        '<tr class="bg-background/30 align-top">' +
+        '<tr class="bg-background/30 align-top container-row" data-name="' + escHtml(row.Name) + '">' +
           '<td class="px-4 py-3">' +
-            '<div class="flex items-start gap-3">' +
-              '<span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full ' + stateDot + '"></span>' +
-              '<div class="min-w-0 max-w-full sm:max-w-md">' +
-                '<p class="font-mono text-[13px] font-semibold text-foreground">' + escHtml(row.Name) + '</p>' +
-                '<p class="mt-0.5 text-xs text-muted-foreground">' + escHtml(row.Image) + '</p>' +
-                '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +
+            '<div class="flex items-start justify-between gap-2">' +
+              '<div class="flex items-start gap-3 min-w-0">' +
+                '<span class="mt-1.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full ' + stateDot + '"></span>' +
+                '<div class="min-w-0 max-w-full sm:max-w-md">' +
+                  '<p class="font-mono text-[13px] font-semibold text-foreground truncate">' + escHtml(row.Name) + '</p>' +
+                  '<p class="mt-0.5 text-xs text-muted-foreground truncate">' + escHtml(row.Image) + '</p>' +
+                  '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +
+                '</div>' +
               '</div>' +
+              '<button type="button" class="pin-btn p-1 rounded hover:bg-muted/50 transition-all shrink-0" onclick="togglePin(\'' + escHtml(row.Name) + '\')" title="Pin container to top">' +
+                '<svg class="h-3.5 w-3.5 ' + pinClass + '" fill="' + pinFill + '" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">' +
+                  '<path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>' +
+                '</svg>' +
+              '</button>' +
             '</div>' +
           '</td>' +
           '<td class="px-4 py-3"><p class="font-semibold tabular-nums text-foreground">' + escHtml((row.CPUPercent || 0).toFixed(1)) + '%</p></td>' +
@@ -90,8 +194,8 @@
             '<p class="mt-0.5 text-[11px] text-muted-foreground">' + escHtml((row.MemPercent || 0).toFixed(1)) + '% of ' + escHtml(row.MemLimitHuman || '—') + '</p>' +
           '</td>' +
           '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
-            '<p>DL ' + escHtml(row.NetInputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetDLRateHuman || '—') + ')</span></p>' +
-            '<p>UL ' + escHtml(row.NetOutputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetULRateHuman || '—') + ')</span></p>' +
+            '<p>RX ' + escHtml(row.NetInputHuman || '0 B') + '</p>' +
+            '<p>TX ' + escHtml(row.NetOutputHuman || '0 B') + '</p>' +
           '</td>' +
           '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
             '<p>Read ' + escHtml(row.BlockReadHuman || '0 B') + '</p>' +
@@ -103,6 +207,7 @@
   }
 
   function renderMonitor(data) {
+    lastPayload = data;
     var sys = data.sys || {};
     if (data.dockerError) {
       root.innerHTML = '<div class="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">' + escHtml(data.dockerError) + '</div>';
@@ -185,7 +290,7 @@
       setLiveState('connecting', 'Reconnecting…');
       retryTimer = setTimeout(connect, 1500);
     };
-  };
+  }
 
   window.__monitorReconnect = function () {
     shouldReconnect = true;
@@ -197,6 +302,8 @@
     closeSocket();
   });
 
+  // Initial sort on page load for SSR rows
+  triggerSort();
   connect();
 })();
 </script>

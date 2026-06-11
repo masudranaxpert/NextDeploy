@@ -95,7 +95,7 @@ func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
 		}
 		return fetch
 	}
-	checkout := run(ctx, repoDir, env, "git", "checkout", "-B", branch, "FETCH_HEAD")
+	checkout := run(ctx, repoDir, env, "git", "checkout", "-f", "-B", branch, "FETCH_HEAD")
 	if !checkout.OK {
 		if authURL != "" && authURL != safeURL {
 			checkout.Output = strings.ReplaceAll(checkout.Output, authURL, safeURL)

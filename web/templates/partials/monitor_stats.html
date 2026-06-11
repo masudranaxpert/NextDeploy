@@ -75,15 +75,22 @@
           <tbody class="divide-y divide-border/40">
             {{if .UsageRows}}
             {{range .UsageRows}}
-            <tr class="bg-background/30 align-top">
+            <tr class="bg-background/30 align-top container-row" data-name="{{.Name}}">
               <td class="px-4 py-3">
-                <div class="flex items-start gap-3">
-                  <span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full {{if eq .State "running"}}bg-emerald-400{{else if eq .State "exited"}}bg-amber-400{{else}}bg-slate-500{{end}}"></span>
-                  <div class="min-w-0 max-w-full sm:max-w-md">
-                    <p class="font-mono text-[13px] font-semibold text-foreground">{{.Name}}</p>
-                    <p class="mt-0.5 text-xs text-muted-foreground">{{.Image}}</p>
-                    <p class="mt-1 text-[11px] text-muted-foreground">{{.Status}}</p>
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex items-start gap-3 min-w-0">
+                    <span class="mt-1.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full {{if eq .State "running"}}bg-emerald-400{{else if eq .State "exited"}}bg-amber-400{{else}}bg-slate-500{{end}}"></span>
+                    <div class="min-w-0 max-w-full sm:max-w-md">
+                      <p class="font-mono text-[13px] font-semibold text-foreground truncate">{{.Name}}</p>
+                      <p class="mt-0.5 text-xs text-muted-foreground truncate">{{.Image}}</p>
+                      <p class="mt-1 text-[11px] text-muted-foreground">{{.Status}}</p>
+                    </div>
                   </div>
+                  <button type="button" class="pin-btn p-1 rounded hover:bg-muted/50 transition-all text-muted-foreground/30 hover:text-primary shrink-0" onclick="togglePin('{{.Name}}')" title="Pin container to top">
+                    <svg class="h-3.5 w-3.5 transform transition-all duration-200 pin-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                    </svg>
+                  </button>
                 </div>
               </td>
               <td class="px-4 py-3">

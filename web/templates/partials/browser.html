@@ -7,13 +7,21 @@
   <div class="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200" role="status">{{.BrowseFlash}}</div>
   {{end}}
 
-  <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-    <span class="font-medium text-foreground">Path</span>
-    <code class="rounded-md bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-foreground">{{if .Path}}{{.Path}}{{else}}(root){{end}}</code>
-    {{if .ParentPath}}
-    <a class="rounded-md border border-border/60 bg-muted/20 px-2 py-1 font-medium text-primary hover:bg-muted/40"
-       href="/apps/{{.ID}}/partials/browser?path={{urlquery .ParentPath}}">Up</a>
-    {{end}}
+  <div class="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 pb-4">
+    <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <span class="font-medium text-foreground">Path</span>
+      <code class="rounded-md bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-foreground">{{if .Path}}{{.Path}}{{else}}(root){{end}}</code>
+      {{if .ParentPath}}
+      <a class="rounded-md border border-border/60 bg-muted/20 px-2 py-1 font-medium text-primary hover:bg-muted/40"
+         href="/apps/{{.ID}}/partials/browser?path={{urlquery .ParentPath}}">Up</a>
+      {{end}}
+    </div>
+
+    <form method="post" action="/apps/{{.ID}}/files/create" class="flex items-center gap-2">
+      <input type="hidden" name="path" value="{{.Path}}">
+      <input type="text" name="filename" placeholder="newfile.txt or folder/" required class="h-7 w-48 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary">
+      <button type="submit" class="rounded-md bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">Create</button>
+    </form>
   </div>
 
   {{if not .Children}}

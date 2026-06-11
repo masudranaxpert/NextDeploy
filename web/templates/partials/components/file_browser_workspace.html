@@ -1,109 +1,280 @@
 {{/*
-  file-browser.js: Git branch = tree + inline Monaco (preview-monaco). Workspace branch = tree only;
-  data-file-preview-modal opens the file in a modal (no side preview column). Reuse the same partial
-  by switching .IsGitApp and optional data attributes on the root div.
+file-browser.js: Git branch = tree + inline Monaco (preview-monaco). Workspace branch = tree only;
+data-file-preview-modal opens the file in a modal (no side preview column). Reuse the same partial
+by switching .IsGitApp and optional data attributes on the root div.
 */}}
 {{if .IsGitApp}}
-<div class="flex min-h-0 w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-0 lg:divide-x lg:divide-border/60"
-     data-panel-file-browser
-     data-tree-base="/apps/{{.ID}}/git/tree"
-     data-blob-base="/apps/{{.ID}}/git/blob"
-     data-refresh-button-id="git-browser-refresh"
-     data-empty-root="This repository root is empty.">
-  <div class="flex min-w-0 flex-col min-h-[200px] lg:w-[min(100%,440px)] lg:max-w-[440px] lg:shrink-0 lg:pr-5">
-    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Explorer</span>
-      <div class="flex flex-wrap items-center gap-2">
-        <button type="button" data-fb="collapse" class="rounded-md border border-border/50 bg-muted/15 px-2 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/35 hover:text-foreground min-h-[36px] sm:min-h-0">Collapse all</button>
-      </div>
+<div class="flex min-h-[500px] w-full min-w-0 flex-col relative rounded-2xl border border-border/50 overflow-hidden" id="fb-drop-zone-git" data-panel-file-browser
+  data-tree-base="/apps/{{.ID}}/git/tree" data-blob-base="/apps/{{.ID}}/git/blob"
+  data-app-id="{{.ID}}" data-file-preview-modal="1" data-read-only="1"
+  data-zip-url="/apps/{{.ID}}/files/zip"
+  data-empty-root="This repository root is empty.">
+
+  <!-- Loading Overlay -->
+  <div data-fb="loading"
+    class="absolute inset-0 z-40 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[2px]">
+    <span class="inline-flex items-center gap-2 bg-card border border-border/50 shadow-2xl px-4 py-2 rounded-xl">
+      <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+      </svg>
+      Loading…
+    </span>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/30 bg-muted/10 px-3 py-2 sm:px-4">
+    <div class="flex flex-wrap items-center gap-1.5">
+       <span class="text-xs font-semibold text-muted-foreground bg-muted/20 px-2.5 py-1.5 rounded-lg border border-border/30 flex items-center gap-2">
+         <svg class="h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+         Read-only Repository
+       </span>
     </div>
-    <div data-fb="error" class="mb-2 hidden rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert"></div>
-    <div class="relative flex flex-col overflow-visible rounded-2xl border border-border/50 bg-muted/[0.06] shadow-sm ring-1 ring-border/35">
-      <div data-fb="loading" class="absolute inset-0 z-10 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[1px]">
-        <span class="inline-flex items-center gap-2">
-          <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-          Loading…
-        </span>
+
+    <div class="flex items-center gap-1.5">
+      <div class="relative mr-1">
+        <input type="text" id="fb-search-git" placeholder="Search files..."
+          class="h-8 w-28 sm:w-48 rounded-lg border border-border/50 bg-background/50 px-3 pl-8 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/45 focus:outline-none focus:ring-1 focus:ring-primary/30">
+        <svg class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/60" fill="none" stroke="currentColor"
+          stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
       </div>
-      <ul data-fb="tree"
-          class="fb-file-tree m-0 list-none space-y-0.5 overflow-x-hidden p-2 sm:p-2.5"
-          data-app-id="{{.ID}}"
-          role="tree"
-          aria-label="Repository files"
-          tabindex="-1"></ul>
+      <div class="flex items-center rounded-lg border border-border/50 bg-background/50 p-0.5">
+        <button data-view="list" class="rounded-[5px] p-1.5 text-muted-foreground hover:text-foreground transition-colors" title="List View">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12m-12 5.25h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+        </button>
+        <button data-view="grid" class="rounded-[5px] p-1.5 text-muted-foreground hover:text-foreground transition-colors" title="Grid View">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+          </svg>
+        </button>
+      </div>
+      <button data-fb="reload" id="git-browser-refresh"
+        class="inline-flex h-8 items-center justify-center rounded-lg border border-border/50 bg-background/50 px-2 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        title="Refresh folder">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+        </svg>
+      </button>
     </div>
   </div>
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col min-h-[min(42vh,360px)] lg:min-h-0 lg:pl-5">
-    <div class="mb-2 flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-border/40 pb-2">
-      <div data-fb="preview-title" class="min-w-0 flex-1 break-all font-mono text-xs font-medium text-foreground">Select a file</div>
-      <div data-fb="preview-actions" class="hidden shrink-0 items-center gap-2">
-        <a data-fb="preview-dl" href="#" class="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary shadow-sm hover:bg-primary/15 sm:min-h-0">Download</a>
+
+  <!-- Breadcrumbs & Bulk Context Bar -->
+  <div class="relative border-b border-border/25 bg-[hsl(222_18%_10%)]/50 px-3.5 py-2">
+    <div id="fb-breadcrumbs" class="flex flex-wrap items-center gap-1.5 text-[11px] font-mono text-muted-foreground/90 select-none"></div>
+
+    <!-- Bulk Action Overlay -->
+    <div data-fb="bulk-bar" class="absolute inset-0 z-10 hidden items-center justify-between bg-[hsl(220_14%_9%)]/95 px-3.5 backdrop-blur-md">
+      <div class="flex items-center gap-3">
+        <button data-fb-action="clear-sel" class="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors" title="Clear selection">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+        <span data-fb="bulk-count" class="text-xs font-semibold text-primary tracking-wide">0 selected</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button data-fb-action="copy-selected" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Copy</button>
+        <button data-fb-action="zip-selected" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Compress</button>
+        <button data-fb-action="dl-selected" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Download ZIP</button>
       </div>
     </div>
-    <div data-fb="preview-meta" class="mb-2 min-h-[1rem] shrink-0 text-[11px] text-muted-foreground"></div>
-    <div data-fb="preview-stage" class="relative min-h-[min(38vh,320px)] flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/45 bg-[#05070c] shadow-inner ring-1 ring-border/40 lg:min-h-0">
-      <div data-fb="preview-empty" class="absolute inset-0 z-[1] flex items-center justify-center px-4 text-center text-xs text-muted-foreground">Select a file in the explorer tree</div>
-      <pre data-fb="preview-body" class="absolute inset-0 z-[2] hidden overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-foreground/90 sm:text-xs" tabindex="0"></pre>
-      <div data-fb="preview-monaco" class="absolute inset-0 z-[2] hidden min-h-0 w-full" aria-hidden="true"></div>
-    </div>
+  </div>
+
+  <!-- Main File Area -->
+  <div class="relative flex-1 min-h-0 overflow-y-auto w-full bg-[hsl(222_18%_10%)]/20">
+    <table class="w-full border-collapse text-left">
+      <thead class="sticky top-0 z-10 bg-black/60 backdrop-blur-md shadow-sm">
+        <tr class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border/20">
+          <th class="py-2.5 px-3.5 w-8">
+            <input type="checkbox" id="fb-select-all" class="h-3.5 w-3.5 rounded border-border/50 bg-muted/20 text-primary focus:ring-primary/40 focus:ring-offset-0 transition-colors">
+          </th>
+          <th class="py-2.5 px-2 cursor-pointer hover:text-foreground transition-colors" data-fb-sort="name">Name</th>
+          <th class="py-2.5 px-3.5 text-right w-24 cursor-pointer hover:text-foreground transition-colors" data-fb-sort="size">Size</th>
+          <th class="py-2.5 px-3.5 text-right w-40 hidden sm:table-cell cursor-pointer hover:text-foreground transition-colors" data-fb-sort="date">Modified</th>
+          <th class="py-2.5 px-3.5 text-right w-20 hidden md:table-cell">Perms</th>
+          <th class="py-2.5 px-3.5 text-right w-40">Actions</th>
+        </tr>
+      </thead>
+      <tbody data-fb="tree" class="divide-y divide-border/10 font-mono text-[11px] leading-relaxed text-foreground" role="tree" tabindex="-1">
+      </tbody>
+    </table>
   </div>
 </div>
 {{else}}
-<div class="flex min-h-0 w-full min-w-0 flex-col gap-4"
-     data-panel-file-browser
-     data-tree-base="/apps/{{.ID}}/files/tree"
-     data-blob-base="/apps/{{.ID}}/files/blob"
-     data-delete-url="/apps/{{.ID}}/files/delete"
-     data-file-preview-modal="1"
-     data-empty-root="No files in this project yet. Upload a ZIP or single files above.">
-  <div class="flex w-full min-w-0 flex-col gap-3 min-h-[200px] rounded-2xl border border-border/40 bg-gradient-to-b from-[hsl(220_16%_11%)]/95 to-[hsl(220_14%_9%)]/90 p-3 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.04)] ring-1 ring-black/20 sm:p-4">
-    <div data-fb="flash" class="hidden rounded-xl border px-3 py-2.5 text-xs border-border/45 bg-card/60 text-muted-foreground shadow-sm" role="status"></div>
-    <div data-fb="delete-toolbar" class="hidden flex-col gap-2 rounded-xl border border-rose-500/20 bg-gradient-to-r from-rose-950/25 to-transparent px-3 py-2.5 ring-1 ring-rose-500/10 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <p class="order-2 text-[11px] leading-snug text-muted-foreground sm:order-1 sm:min-w-0 sm:flex-1">Permanent delete for checked files and folders. This cannot be undone.</p>
-      <button type="button" data-fb="delete-selected" class="btn-delete order-1 h-9 shrink-0 justify-center gap-1.5 px-3 text-xs sm:order-2">
-        <svg class="h-3.5 w-3.5 opacity-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-        Delete selected
+<div class="flex min-h-[600px] w-full min-w-0 flex-col relative" id="fb-drop-zone" data-panel-file-browser
+  data-tree-base="/apps/{{.ID}}/files/tree" data-blob-base="/apps/{{.ID}}/files/blob"
+  data-delete-url="/apps/{{.ID}}/files/delete" data-upload-url="/apps/{{.ID}}/files/upload"
+  data-save-url-base="/apps/{{.ID}}/files/save" data-zip-url="/apps/{{.ID}}/files/zip"
+  data-unzip-url="/apps/{{.ID}}/files/unzip" data-rename-url="/apps/{{.ID}}/files/rename"
+  data-move-url="/apps/{{.ID}}/files/move" data-copy-url="/apps/{{.ID}}/files/copy"
+  data-mkdir-url="/apps/{{.ID}}/files/mkdir" data-chmod-url="/apps/{{.ID}}/files/chmod"
+  data-url-upload-url="/apps/{{.ID}}/files/url-upload" data-app-id="{{.ID}}" data-file-preview-modal="1"
+  data-empty-root="No files in this directory.">
+
+  <!-- Flash Messages -->
+  <div data-fb="flash" class="absolute top-4 left-1/2 -translate-x-1/2 z-50 hidden" role="status"></div>
+
+  <!-- Loading Overlay -->
+  <div data-fb="loading"
+    class="absolute inset-0 z-40 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[2px]">
+    <span class="inline-flex items-center gap-2 bg-card border border-border/50 shadow-2xl px-4 py-2 rounded-xl">
+      <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+      </svg>
+      Loading…
+    </span>
+  </div>
+
+  <!-- Toolbar -->
+  <div
+    class="flex flex-wrap items-center justify-between gap-2 border-b border-border/30 bg-muted/10 px-3 py-2 sm:px-4">
+    <div class="flex flex-wrap items-center gap-1.5">
+      <button data-fb-action="newfile"
+        class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-background/50 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
+        title="Create new file">
+        <svg class="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        <span class="hidden sm:inline">File</span>
+      </button>
+      <button data-fb-action="mkdir"
+        class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-background/50 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
+        title="Create new folder">
+        <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span class="hidden sm:inline">Folder</span>
+      </button>
+      <div class="mx-1 h-5 w-px bg-border/40"></div>
+
+      <label
+        class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary shadow-sm transition-colors hover:bg-primary/20 hover:text-primary">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+        <span class="hidden sm:inline">Upload</span>
+        <input type="file" id="fb-file-picker" multiple class="hidden">
+      </label>
+      <button data-fb-action="url-upload"
+        class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-background/50 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
+        title="Upload from URL">
+        <svg class="h-4 w-4 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+        </svg>
+      </button>
+
+
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <div class="relative mr-1">
+        <input type="text" id="fb-search" placeholder="Search files..."
+          class="h-8 w-28 sm:w-48 rounded-lg border border-border/50 bg-background/50 px-3 pl-8 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/45 focus:outline-none focus:ring-1 focus:ring-primary/30">
+        <svg class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/60" fill="none" stroke="currentColor"
+          stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+      </div>
+      <div class="flex items-center rounded-lg border border-border/50 bg-background/50 p-0.5">
+        <button data-view="list"
+          class="rounded-[5px] p-1.5 text-muted-foreground hover:text-foreground transition-colors" title="List View">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M8.25 6.75h12m-12 5.25h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+        </button>
+        <button data-view="grid"
+          class="rounded-[5px] p-1.5 text-muted-foreground hover:text-foreground transition-colors" title="Grid View">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+          </svg>
+        </button>
+      </div>
+      <button data-fb="reload"
+        class="inline-flex h-8 items-center justify-center rounded-lg border border-border/50 bg-background/50 px-2 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        title="Refresh folder">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+        </svg>
       </button>
     </div>
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/35 bg-[hsl(222_22%_8%)]/90 px-3 py-2.5 shadow-sm ring-1 ring-inset ring-white/[0.03]">
-      <div class="flex min-w-0 items-center gap-2">
-        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/12 ring-1 ring-accent/25" aria-hidden="true">
-          <svg class="h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5V6a.75.75 0 01.75-.75h4.5A2.25 2.25 0 0110.5 7.5v9A2.25 2.25 0 018.25 18.75h-4.5a.75.75 0 01-.75-.75v-1.5M15 12h6m0 0l-2.25-2.25M21 12l-2.25 2.25"/></svg>
-        </span>
-        <span class="text-[11px] font-semibold uppercase tracking-wider text-foreground/90">Explorer</span>
+  </div>
+
+  <!-- Breadcrumbs & Bulk Context Bar -->
+  <div class="relative border-b border-border/25 bg-[hsl(222_18%_10%)]/50 px-3.5 py-2">
+    <div id="fb-breadcrumbs"
+      class="flex flex-wrap items-center gap-1.5 text-[11px] font-mono text-muted-foreground/90 select-none">
+      <!-- Generated dynamically in JS -->
+    </div>
+
+    <!-- Bulk Action Overlay -->
+    <div data-fb="bulk-bar"
+      class="absolute inset-0 z-10 hidden items-center justify-between bg-[hsl(220_14%_9%)]/95 px-3.5 backdrop-blur-md">
+      <div class="flex items-center gap-3">
+        <button data-fb-action="clear-sel"
+          class="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors" title="Clear selection">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <span data-fb="bulk-count" class="text-xs font-semibold text-primary tracking-wide">0 selected</span>
       </div>
-      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-        <button type="button" id="fb-bulk-select-toggle" class="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/10 hover:text-primary sm:min-h-0" title="Show checkboxes for bulk delete and ZIP">
-          <svg class="h-3.5 w-3.5 shrink-0 opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span data-fb-bulk-label>Bulk select</span>
-        </button>
-        <label id="fb-select-all-wrap" class="hidden cursor-pointer items-center gap-2 rounded-lg border border-border/40 bg-background/30 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border/60 hover:bg-background/50 hover:text-foreground">
-          <input type="checkbox" id="fb-select-all" class="rounded border-border text-primary focus:ring-primary/40">
-          Select all
-        </label>
-        <button type="button" id="fb-download-zip" class="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-foreground/90 shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary sm:min-h-0" title="Download selected (or all) as ZIP">
-          <svg class="h-3.5 w-3.5 shrink-0 opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-          Download ZIP
-        </button>
-        <button type="button" data-fb="reload" class="inline-flex min-h-[36px] items-center rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/30 hover:text-foreground sm:min-h-0">Refresh</button>
-        <button type="button" data-fb="collapse" class="inline-flex min-h-[36px] items-center rounded-lg border border-border/45 bg-background/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/30 hover:text-foreground sm:min-h-0">Collapse all</button>
+      <div class="flex items-center gap-2">
+        <button data-fb-action="copy-selected"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Copy</button>
+        <button data-fb-action="move-selected"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Move</button>
+        <button data-fb-action="zip-selected"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Compress</button>
+        <button data-fb-action="dl-selected"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] font-medium text-foreground shadow-sm hover:bg-muted/60 transition-colors">Download ZIP</button>
+        <div class="mx-1.5 h-4 w-px bg-border/40"></div>
+        <button data-fb="delete-selected"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 text-[11px] font-semibold text-rose-400 shadow-sm hover:bg-rose-500/20 hover:text-rose-300 transition-colors">Delete</button>
       </div>
     </div>
-    <div data-fb="error" class="hidden rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert"></div>
-    <div class="relative flex flex-col overflow-visible rounded-xl border border-slate-700/40 bg-[hsl(222_26%_6%)] shadow-inner ring-1 ring-black/30">
-      <div data-fb="loading" class="absolute inset-0 z-10 hidden items-center justify-center bg-background/80 text-sm text-muted-foreground backdrop-blur-[1px]">
-        <span class="inline-flex items-center gap-2">
-          <svg class="h-4 w-4 animate-spin text-primary" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-          Loading…
-        </span>
-      </div>
-      <ul data-fb="tree"
-          class="fb-file-tree m-0 list-none space-y-0.5 overflow-x-hidden p-2 sm:p-2.5"
-          data-app-id="{{.ID}}"
-          role="tree"
-          aria-label="Project files"
-          tabindex="-1"></ul>
-    </div>
+  </div>
+
+  <!-- Upload Progress Bar -->
+  <div id="fb-upload-progress" class="hidden h-1 w-full bg-muted/30">
+    <div id="fb-upload-pct" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+  </div>
+
+  <!-- Main File Area -->
+  <div class="relative flex-1 min-h-0 overflow-y-auto w-full">
+    <table class="w-full border-collapse text-left">
+      <thead class="sticky top-0 z-10 bg-black/40 backdrop-blur-sm shadow-sm">
+        <tr class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border/20">
+          <th class="py-2.5 px-3.5 w-8">
+            <input type="checkbox" id="fb-select-all"
+              class="h-3.5 w-3.5 rounded border-border/50 bg-muted/20 text-primary focus:ring-primary/40 focus:ring-offset-0 transition-colors">
+          </th>
+          <th class="py-2.5 px-2 cursor-pointer hover:text-foreground transition-colors" data-fb-sort="name">Name</th>
+          <th class="py-2.5 px-3.5 text-right w-24 cursor-pointer hover:text-foreground transition-colors"
+            data-fb-sort="size">Size</th>
+          <th
+            class="py-2.5 px-3.5 text-right w-40 hidden sm:table-cell cursor-pointer hover:text-foreground transition-colors"
+            data-fb-sort="date">Modified</th>
+          <th class="py-2.5 px-3.5 text-right w-20 hidden md:table-cell">Perms</th>
+          <th class="py-2.5 px-3.5 text-right w-40">Actions</th>
+        </tr>
+      </thead>
+      <tbody data-fb="tree" class="divide-y divide-border/10 font-mono text-[11px] leading-relaxed text-foreground"
+        role="tree" tabindex="-1">
+      </tbody>
+    </table>
   </div>
 </div>
 {{end}}

@@ -1,4 +1,4 @@
-﻿  <!-- App header -->
+  <!-- App header -->
   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
     <div class="min-w-0">
       <a href="/apps" class="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors">
@@ -59,12 +59,12 @@
       Git
     </a>
     {{else}}
-    <a href="/apps/{{.App.ID}}?tab=files&amp;path={{urlquery .Path}}"
+    <a href="/apps/{{.App.ID}}?tab=files{{if .Path}}&amp;path={{urlquery .Path}}{{end}}"
        class="app-tab {{if eq .Tab "files"}}app-tab-active{{else}}app-tab-inactive{{end}}"
-       hx-get="/apps/{{.App.ID}}?tab=files&amp;path={{urlquery .Path}}&amp;partial=tab"
+       hx-get="/apps/{{.App.ID}}?tab=files{{if .Path}}&amp;path={{urlquery .Path}}{{end}}&amp;partial=tab"
        hx-target="#app-tab-panel"
        hx-swap="innerHTML"
-       hx-push-url="/apps/{{.App.ID}}?tab=files&amp;path={{urlquery .Path}}">
+       hx-push-url="/apps/{{.App.ID}}?tab=files{{if .Path}}&amp;path={{urlquery .Path}}{{end}}">
       <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
       Files
     </a>

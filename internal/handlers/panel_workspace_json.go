@@ -64,10 +64,19 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 		RelPath string `json:"rel_path"`
 		IsDir   bool   `json:"is_dir"`
 		Size    int64  `json:"size"`
+		ModTime int64  `json:"mod_ts"`
+		Perms   string `json:"perms"`
 	}
 	out := make([]row, 0, len(children))
 	for _, ch := range children {
-		out = append(out, row{Name: ch.Name, RelPath: ch.RelPath, IsDir: ch.IsDir, Size: ch.Size})
+		out = append(out, row{
+			Name:    ch.Name,
+			RelPath: ch.RelPath,
+			IsDir:   ch.IsDir,
+			Size:    ch.Size,
+			ModTime: ch.ModTime.Unix() * 1000,
+			Perms:   ch.Perms,
+		})
 	}
 	parent := p.Store.ParentRel(rel)
 	return c.JSON(fiber.Map{

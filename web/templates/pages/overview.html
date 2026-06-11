@@ -103,9 +103,13 @@
   </div>
 
   <!-- Info note -->
-  <div class="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-    <span class="font-medium text-foreground/70">Disk (/):</span> Linux root filesystem inside the panel container — on Docker Desktop for Windows this is the WSL2/VM backing store.
-    <span class="ml-3 font-medium text-foreground/70">Apps &amp; DB:</span> stored in the Compose volume at <code class="rounded bg-muted px-1">/data</code> (SQLite <code class="rounded bg-muted px-1">panel.db</code> and workspaces under <code class="rounded bg-muted px-1">/data/workspaces</code>).
+  <div class="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground flex items-start gap-2.5">
+    <svg class="h-4 w-4 shrink-0 text-muted-foreground/60 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 111.063.852l-.708 2.836a.75.75 0 001.063.852l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+    </svg>
+    <div>
+      <span class="font-medium text-foreground/70">Storage & Volume:</span> The database and workspace configurations are securely stored in the <code class="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-[11px]">/data</code> volume. The root filesystem runs inside the container environment.
+    </div>
   </div>
 
   <!-- Quick actions + links grid -->

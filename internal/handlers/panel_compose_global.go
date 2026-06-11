@@ -147,9 +147,19 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 	}
 	cp := p.composeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
-		msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
-		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+		hasDockerfile, hasCompose := p.Store.HasDockerArtifacts(id)
+		if hasDockerfile && !hasCompose {
+			defaultCompose := []byte("services:\n  app:\n    build: .\n    restart: unless-stopped\n")
+			if werr := os.WriteFile(cp, defaultCompose, 0644); werr != nil {
+				msg := "[error]\nFailed to generate default compose file from Dockerfile: " + werr.Error()
+				_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+				return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+			}
+		} else {
+			msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
+			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+		}
 	}
 	if err := p.syncAppCaddyOverride(c, id); err != nil {
 		msg := "[error]\n" + err.Error()

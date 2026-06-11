@@ -275,7 +275,14 @@ func (p *Panel) UploadFile(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 	defer src.Close()
-	if _, err := p.Store.SaveUploadedFile(id, file.Filename, src); err != nil {
+	targetPath := file.Filename
+	if pfx := c.FormValue("path"); pfx != "" {
+		pfx = strings.Trim(strings.ReplaceAll(pfx, "\\", "/"), "/")
+		if pfx != "" {
+			targetPath = pfx + "/" + file.Filename
+		}
+	}
+	if _, err := p.Store.SaveUploadedFile(id, targetPath, src); err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))

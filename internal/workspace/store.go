@@ -195,6 +195,7 @@ type FileEntry struct {
 	Size    int64
 	ModTime time.Time
 	IsDir   bool
+	Perms   string
 }
 
 func (s *Store) HasDockerArtifacts(wsID string) (hasDockerfile, hasCompose bool) {

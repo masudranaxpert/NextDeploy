@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +20,11 @@ import (
 // appListItem holds per-app state for the apps list page.
 type appListItem struct {
 	db.App
-	State            string
-	RunningCount     int
-	ExitedCount      int
-	PausedCount      int
-	ContainerCount   int
+	State          string
+	RunningCount   int
+	ExitedCount    int
+	PausedCount    int
+	ContainerCount int
 }
 
 const (
@@ -156,10 +155,6 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			return c.Status(400).SendString(err.Error())
 		}
 		return c.Status(500).SendString(err.Error())
-	}
-	appRow := db.App{ID: id, Name: name, ComposeFile: "docker-compose.yml"}
-	if err := p.seedComposeProjectNameInPanelEnv(c.UserContext(), id, appRow); err != nil {
-		log.Printf("seed COMPOSE_PROJECT_NAME for app %s: %v", id, err)
 	}
 	sourceType := strings.TrimSpace(c.FormValue("source_type"))
 	if sourceType == "github" || sourceType == "git" {
