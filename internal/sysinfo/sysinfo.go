@@ -26,7 +26,7 @@ func Collect(ctx context.Context) Snapshot {
 	s := Snapshot{
 		GoVersion: runtime.Version(),
 		NumCPU:    runtime.NumCPU(),
-		HostNote:  "Values reflect what this process sees (often the container). On Docker Desktop, RAM/disk are limited by container/WSL.",
+		HostNote:  "Docker Container (" + runtime.GOOS + "/" + runtime.GOARCH + ")",
 	}
 	if v, err := mem.VirtualMemoryWithContext(ctx); err == nil && v != nil {
 		s.MemTotalGB = float64(v.Total) / (1024 * 1024 * 1024)

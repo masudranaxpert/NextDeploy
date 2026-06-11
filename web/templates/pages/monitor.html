@@ -39,6 +39,7 @@
   var ws = null;
   var retryTimer = 0;
   var shouldReconnect = true;
+  var lastPayload = null;
 
   function escHtml(s) {
     return String(s == null ? '' : s)
@@ -46,6 +47,78 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function getPinned() {
+    try {
+      return JSON.parse(localStorage.getItem('pinned_containers') || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function savePinned(arr) {
+    localStorage.setItem('pinned_containers', JSON.stringify(arr));
+  }
+
+  window.togglePin = function(name) {
+    var pinned = getPinned();
+    var idx = pinned.indexOf(name);
+    if (idx >= 0) {
+      pinned.splice(idx, 1);
+      savePinned(pinned);
+    } else {
+      if (pinned.length >= 5) {
+        alert("You can only pin up to 5 containers.");
+        return;
+      }
+      pinned.push(name);
+      savePinned(pinned);
+    }
+    if (lastPayload) {
+      renderMonitor(lastPayload);
+    } else {
+      triggerSort();
+    }
+  };
+
+  function triggerSort() {
+    var tbody = document.querySelector('#monitor-root tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('.container-row'));
+    if (rows.length === 0) return;
+    
+    var pinned = getPinned();
+    
+    rows.forEach(function (row) {
+      var name = row.getAttribute('data-name');
+      var isPinned = pinned.indexOf(name) >= 0;
+      var svg = row.querySelector('.pin-icon');
+      if (svg) {
+        if (isPinned) {
+          svg.setAttribute('class', 'h-3.5 w-3.5 text-primary rotate-45 shrink-0 transform transition-transform pin-icon');
+          svg.setAttribute('fill', 'currentColor');
+        } else {
+          svg.setAttribute('class', 'h-3.5 w-3.5 text-muted-foreground/30 hover:text-primary hover:scale-110 shrink-0 transform transition-all pin-icon');
+          svg.setAttribute('fill', 'none');
+        }
+      }
+    });
+
+    rows.sort(function (a, b) {
+      var nameA = a.getAttribute('data-name');
+      var nameB = b.getAttribute('data-name');
+      var pinA = pinned.indexOf(nameA) >= 0;
+      var pinB = pinned.indexOf(nameB) >= 0;
+      if (pinA !== pinB) {
+        return pinA ? -1 : 1;
+      }
+      return 0;
+    });
+    
+    rows.forEach(function (row) {
+      tbody.appendChild(row);
+    });
   }
 
   function setLiveState(kind, text) {
@@ -68,20 +141,51 @@
     if (!rows || !rows.length) {
       return '<tr><td colspan="6" class="px-4 py-10 text-center text-sm text-muted-foreground">No containers found on this Docker engine.</td></tr>';
     }
-    return rows.map(function (row) {
+    var pinned = getPinned();
+    
+    var sortedRows = rows.slice().sort(function (a, b) {
+      var pinA = pinned.indexOf(a.Name) >= 0;
+      var pinB = pinned.indexOf(b.Name) >= 0;
+      if (pinA !== pinB) {
+        return pinA ? -1 : 1;
+      }
+      if (a.State === b.State) {
+        if (a.CPUPercent === b.CPUPercent) {
+          return a.Name < b.Name ? -1 : 1;
+        }
+        return b.CPUPercent - a.CPUPercent;
+      }
+      if (a.State === 'running') return -1;
+      if (b.State === 'running') return 1;
+      return a.Name < b.Name ? -1 : 1;
+    });
+
+    return sortedRows.map(function (row) {
+      var isPinned = pinned.indexOf(row.Name) >= 0;
       var stateDot = 'bg-slate-500';
       if (row.State === 'running') stateDot = 'bg-emerald-400';
       else if (row.State === 'exited') stateDot = 'bg-amber-400';
+      
+      var pinClass = isPinned ? 'text-primary rotate-45 shrink-0 transform transition-transform pin-icon' : 'text-muted-foreground/30 hover:text-primary hover:scale-110 shrink-0 transform transition-all pin-icon';
+      var pinFill = isPinned ? 'currentColor' : 'none';
+
       return '' +
-        '<tr class="bg-background/30 align-top">' +
+        '<tr class="bg-background/30 align-top container-row" data-name="' + escHtml(row.Name) + '">' +
           '<td class="px-4 py-3">' +
-            '<div class="flex items-start gap-3">' +
-              '<span class="mt-1 inline-flex h-2.5 w-2.5 rounded-full ' + stateDot + '"></span>' +
-              '<div class="min-w-0 max-w-full sm:max-w-md">' +
-                '<p class="font-mono text-[13px] font-semibold text-foreground">' + escHtml(row.Name) + '</p>' +
-                '<p class="mt-0.5 text-xs text-muted-foreground">' + escHtml(row.Image) + '</p>' +
-                '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +
+            '<div class="flex items-start justify-between gap-2">' +
+              '<div class="flex items-start gap-3 min-w-0">' +
+                '<span class="mt-1.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full ' + stateDot + '"></span>' +
+                '<div class="min-w-0 max-w-full sm:max-w-md">' +
+                  '<p class="font-mono text-[13px] font-semibold text-foreground truncate">' + escHtml(row.Name) + '</p>' +
+                  '<p class="mt-0.5 text-xs text-muted-foreground truncate">' + escHtml(row.Image) + '</p>' +
+                  '<p class="mt-1 text-[11px] text-muted-foreground">' + escHtml(row.Status) + '</p>' +
+                '</div>' +
               '</div>' +
+              '<button type="button" class="pin-btn p-1 rounded hover:bg-muted/50 transition-all shrink-0" onclick="togglePin(\'' + escHtml(row.Name) + '\')" title="Pin container to top">' +
+                '<svg class="h-3.5 w-3.5 ' + pinClass + '" fill="' + pinFill + '" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">' +
+                  '<path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>' +
+                '</svg>' +
+              '</button>' +
             '</div>' +
           '</td>' +
           '<td class="px-4 py-3"><p class="font-semibold tabular-nums text-foreground">' + escHtml((row.CPUPercent || 0).toFixed(1)) + '%</p></td>' +
@@ -90,8 +194,8 @@
             '<p class="mt-0.5 text-[11px] text-muted-foreground">' + escHtml((row.MemPercent || 0).toFixed(1)) + '% of ' + escHtml(row.MemLimitHuman || '—') + '</p>' +
           '</td>' +
           '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
-            '<p>DL ' + escHtml(row.NetInputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetDLRateHuman || '—') + ')</span></p>' +
-            '<p>UL ' + escHtml(row.NetOutputHuman || '0 B') + ' <span class="text-muted-foreground/60">(' + escHtml(row.NetULRateHuman || '—') + ')</span></p>' +
+            '<p>RX ' + escHtml(row.NetInputHuman || '0 B') + '</p>' +
+            '<p>TX ' + escHtml(row.NetOutputHuman || '0 B') + '</p>' +
           '</td>' +
           '<td class="px-4 py-3 text-[11px] text-muted-foreground">' +
             '<p>Read ' + escHtml(row.BlockReadHuman || '0 B') + '</p>' +
@@ -103,11 +207,42 @@
   }
 
   function renderMonitor(data) {
+    lastPayload = data;
     var sys = data.sys || {};
     if (data.dockerError) {
       root.innerHTML = '<div class="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">' + escHtml(data.dockerError) + '</div>';
       return;
     }
+
+    var totalAllocatedMemoryGB = data.totalAllocatedMemoryGB || 0;
+    var totalAllocatedCPUs = data.totalAllocatedCPUs || 0;
+    var memoryAllocatedPct = data.memoryAllocatedPct || 0;
+    var cpuAllocatedPct = data.cpuAllocatedPct || 0;
+    var limitedUserCount = data.limitedUserCount || 0;
+    var usedMemoryGB = data.usedMemoryGB || 0;
+    var usedMemoryPct = data.usedMemoryPct || 0;
+    var usedCPUs = data.usedCPUs || 0;
+    var usedCPUPct = data.usedCPUPct || 0;
+
+    // Limits are caps, not reservations — overcommit is normal in a shared pool.
+    // Bars track *live* usage; severity colors follow what is actually consumed.
+    function usageBarClass(pct) {
+      if (pct > 85) return 'bg-gradient-to-r from-rose-600 to-rose-400';
+      if (pct > 60) return 'bg-gradient-to-r from-amber-600 to-amber-400';
+      return 'bg-gradient-to-r from-emerald-600 to-emerald-400';
+    }
+    function overcommitBadge(pct) {
+      if (pct <= 100) return '';
+      var ratio = (pct / 100).toFixed(1);
+      return '<span class="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300 ring-1 ring-violet-500/25" title="Limits are burst caps, not reservations — users share the pool and rarely peak together. The kernel still enforces each user\'s cap.">' +
+        '<svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>' +
+        ratio + '\u00d7 overcommitted</span>';
+    }
+    var memBarClass = usageBarClass(usedMemoryPct);
+    var cpuBarClass = usageBarClass(usedCPUPct);
+    var memAllocMarker = Math.max(0, Math.min(100, memoryAllocatedPct));
+    var cpuAllocMarker = Math.max(0, Math.min(100, cpuAllocatedPct));
+
     root.innerHTML = '' +
       '<div class="space-y-5">' +
         '<div class="grid gap-4 md:grid-cols-3">' +
@@ -130,6 +265,42 @@
               '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Visible Runtime</p><p class="mt-1.5 text-sm font-semibold text-foreground">' + escHtml(sys.GoVersion || '') + '</p><p class="mt-1 text-xs text-muted-foreground">' + escHtml(sys.HostNote || '') + '</p></div>' +
               '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20"><svg class="h-5 w-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>' +
             '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid gap-4 md:grid-cols-2">' +
+          '<div class="panel-card p-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">User Pool RAM <span class="normal-case tracking-normal text-emerald-400/80">\u00b7 live</span></p>' +
+                '<p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">' + escHtml(usedMemoryGB.toFixed(1)) + '<span class="text-sm font-normal text-muted-foreground"> GB used</span></p>' +
+                '<p class="mt-1 text-xs text-muted-foreground">of ' + escHtml((sys.MemTotalGB || 0).toFixed(1)) + ' GB host \u00b7 ' + escHtml(totalAllocatedMemoryGB.toFixed(1)) + ' GB limits across ' + escHtml(String(limitedUserCount)) + ' user' + (limitedUserCount === 1 ? '' : 's') + '</p>' +
+              '</div>' +
+              '<div class="flex flex-col items-end gap-1.5">' +
+                '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20"><svg class="h-5 w-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" /></svg></div>' +
+                overcommitBadge(memoryAllocatedPct) +
+              '</div>' +
+            '</div>' +
+            '<div class="relative mt-4 h-2 overflow-hidden rounded-full bg-muted/40">' +
+              '<div class="h-full rounded-full ' + memBarClass + '" style="width: ' + escHtml(String(Math.max(0, Math.min(100, usedMemoryPct)))) + '%"></div>' +
+              (memoryAllocatedPct < 100 ? '<div class="absolute inset-y-0 w-px bg-foreground/40" title="Total allocated limits" style="left: ' + escHtml(String(memAllocMarker)) + '%"></div>' : '') +
+            '</div>' +
+            '<div class="mt-1.5 flex items-center justify-between text-[10px] font-medium text-muted-foreground"><span>' + escHtml(usedMemoryPct.toFixed(0)) + '% of host in use</span><span>' + escHtml(memoryAllocatedPct.toFixed(0)) + '% allocated as caps</span></div>' +
+          '</div>' +
+          '<div class="panel-card p-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<div><p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">User Pool CPU <span class="normal-case tracking-normal text-emerald-400/80">\u00b7 live</span></p>' +
+                '<p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">' + escHtml(usedCPUs.toFixed(1)) + '<span class="text-sm font-normal text-muted-foreground"> cores used</span></p>' +
+                '<p class="mt-1 text-xs text-muted-foreground">of ' + escHtml(String(sys.NumCPU || 0)) + ' host cores \u00b7 ' + escHtml(totalAllocatedCPUs.toFixed(1)) + ' cores allocated as limits</p>' +
+              '</div>' +
+              '<div class="flex flex-col items-end gap-1.5">' +
+                '<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20"><svg class="h-5 w-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21M6.75 6.75l.75.75m9-3l-.75.75m-9 12l.75-.75m9 3l-.75-.75" /></svg></div>' +
+                overcommitBadge(cpuAllocatedPct) +
+              '</div>' +
+            '</div>' +
+            '<div class="relative mt-4 h-2 overflow-hidden rounded-full bg-muted/40">' +
+              '<div class="h-full rounded-full ' + cpuBarClass + '" style="width: ' + escHtml(String(Math.max(0, Math.min(100, usedCPUPct)))) + '%"></div>' +
+              (cpuAllocatedPct < 100 ? '<div class="absolute inset-y-0 w-px bg-foreground/40" title="Total allocated limits" style="left: ' + escHtml(String(cpuAllocMarker)) + '%"></div>' : '') +
+            '</div>' +
+            '<div class="mt-1.5 flex items-center justify-between text-[10px] font-medium text-muted-foreground"><span>' + escHtml(usedCPUPct.toFixed(0)) + '% of host in use</span><span>' + escHtml(cpuAllocatedPct.toFixed(0)) + '% allocated as caps</span></div>' +
           '</div>' +
         '</div>' +
         '<div class="panel-card overflow-hidden">' +
@@ -185,7 +356,7 @@
       setLiveState('connecting', 'Reconnecting…');
       retryTimer = setTimeout(connect, 1500);
     };
-  };
+  }
 
   window.__monitorReconnect = function () {
     shouldReconnect = true;
@@ -197,6 +368,8 @@
     closeSocket();
   });
 
+  // Initial sort on page load for SSR rows
+  triggerSort();
   connect();
 })();
 </script>

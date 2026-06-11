@@ -89,6 +89,23 @@
           {{end}}
         </div>
       </div>
+      <div id="backup-pause-wrap" class="rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5">
+        <div class="flex items-start gap-3">
+          <input type="checkbox" id="backup-pause-containers" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-violet-500">
+          <div class="min-w-0 flex-1">
+            <p class="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+              <label for="backup-pause-containers" class="cursor-pointer select-none">Consistent snapshot</label>
+              <span class="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-300">DB safe</span>
+              <button type="button" onclick="document.getElementById('backup-pause-help').classList.toggle('hidden')"
+                class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-bold leading-none text-muted-foreground transition hover:border-violet-400 hover:text-violet-300"
+                aria-label="What does this do?" title="What does this do?">?</button>
+            </p>
+            <p id="backup-pause-help" class="mt-1.5 hidden rounded-lg border border-violet-500/20 bg-violet-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-violet-100/90">
+              Containers using this volume are frozen for about <span class="font-semibold">3–5 seconds</span> while the snapshot is taken, then resume automatically. This makes the copy an exact point-in-time snapshot, so database backups (Postgres/MySQL) restore without errors — even if data was being written during the backup.
+            </p>
+          </div>
+        </div>
+      </div>
       <p id="backup-manual-msg" class="mt-2 hidden text-xs text-emerald-400" role="status"></p>
     </div>
   </div>
@@ -213,6 +230,23 @@
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Keep Last N Backups</label>
         <input type="number" name="retention" value="7" min="1" required class="input w-full">
+      </div>
+      <div id="schedule-pause-wrap" class="rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5">
+        <div class="flex items-start gap-3">
+          <input type="checkbox" name="pause_containers" id="schedule-pause-containers" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-violet-500">
+          <div class="min-w-0 flex-1">
+            <p class="flex flex-wrap items-center gap-2 text-xs font-semibold text-foreground">
+              <label for="schedule-pause-containers" class="cursor-pointer select-none">Consistent snapshot</label>
+              <span class="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-300">DB safe</span>
+              <button type="button" onclick="document.getElementById('schedule-pause-help').classList.toggle('hidden')"
+                class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-bold leading-none text-muted-foreground transition hover:border-violet-400 hover:text-violet-300"
+                aria-label="What does this do?" title="What does this do?">?</button>
+            </p>
+            <p id="schedule-pause-help" class="mt-1.5 hidden rounded-lg border border-violet-500/20 bg-violet-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-violet-100/90">
+              Containers using each volume are frozen for about <span class="font-semibold">3–5 seconds</span> during the snapshot, then resume automatically. This makes database backups restore without errors.
+            </p>
+          </div>
+        </div>
       </div>
       <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" onclick="hideScheduleModal()" class="btn-secondary w-full sm:w-auto min-h-10 px-4">Cancel</button>
@@ -415,9 +449,11 @@ function syncBackupTypeUI() {
   var volumePanel = document.getElementById('backup-volume-panel');
   var appNote = document.getElementById('backup-app-note');
   var fullPanel = document.getElementById('backup-full-panel');
+  var pauseWrap = document.getElementById('backup-pause-wrap');
   if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
   if (appNote) appNote.classList.toggle('hidden', type !== 'app');
   if (fullPanel) fullPanel.classList.toggle('hidden', type !== 'full');
+  if (pauseWrap) pauseWrap.classList.toggle('hidden', type === 'app');
 }
 
 function syncScheduleTypeUI() {
@@ -425,9 +461,11 @@ function syncScheduleTypeUI() {
   var volumePanel = document.getElementById('schedule-volume-panel');
   var appNote = document.getElementById('schedule-app-note');
   var fullPanel = document.getElementById('schedule-full-panel');
+  var pauseWrap = document.getElementById('schedule-pause-wrap');
   if (volumePanel) volumePanel.classList.toggle('hidden', type !== 'volume');
   if (appNote) appNote.classList.toggle('hidden', type !== 'app');
   if (fullPanel) fullPanel.classList.toggle('hidden', type !== 'full');
+  if (pauseWrap) pauseWrap.classList.toggle('hidden', type === 'app');
 }
 
 function showBackupManualMsg(text, isErr) {
@@ -487,6 +525,10 @@ function startManualBackup() {
       return;
     }
     formData.append('volume_names', fullVols);
+  }
+  if (type !== 'app') {
+    var pauseCb = document.getElementById('backup-pause-containers');
+    if (pauseCb && pauseCb.checked) formData.append('pause_containers', 'on');
   }
   fetch('/apps/' + appID + '/backup/' + destID, {
     method: 'POST',
@@ -785,7 +827,7 @@ function loadBackupSchedules() {
         return;
       }
       list.innerHTML = d.schedules.map(function(s) {
-        var editBtn = '<button type="button" class="btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 js-edit-schedule" title="Edit schedule" data-sid="' + s.ID + '" data-did="' + s.DestinationID + '" data-btype="' + escapeHtmlAttr(s.BackupType || 'volume') + '" data-vname="' + escapeHtmlAttr(s.VolumeNames || '') + '" data-cron="' + escapeHtmlAttr(s.CronExpression || '') + '" data-ret="' + s.RetentionCount + '">' +
+        var editBtn = '<button type="button" class="btn-secondary h-8 px-3 text-xs inline-flex items-center gap-1.5 js-edit-schedule" title="Edit schedule" data-sid="' + s.ID + '" data-did="' + s.DestinationID + '" data-btype="' + escapeHtmlAttr(s.BackupType || 'volume') + '" data-vname="' + escapeHtmlAttr(s.VolumeNames || '') + '" data-cron="' + escapeHtmlAttr(s.CronExpression || '') + '" data-ret="' + s.RetentionCount + '" data-pause="' + (s.PauseContainers ? '1' : '0') + '">' +
           '<svg class="h-3.5 w-3.5 opacity-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg> Edit</button>';
         var toggleBtn = '<button type="button" onclick="toggleSchedule(' + s.ID + ', ' + !s.Enabled + ')" class="btn-secondary h-8 px-3 text-xs">' +
           (s.Enabled ? 'Disable' : 'Enable') + '</button>';
@@ -811,8 +853,11 @@ function loadBackupSchedules() {
             volumeLine = '<div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"><span class="text-muted-foreground/70">Volumes:</span>' + fullChips + '</div>';
           }
         }
+        var pauseBadge = s.PauseContainers
+          ? ' <span class="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300">consistent snapshot</span>'
+          : '';
         return '<div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">' +
-          '<div class="flex-1 min-w-0"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + '</p>' +
+          '<div class="flex-1 min-w-0"><p class="text-sm font-medium text-foreground">' + s.BackupType + ' • ' + s.CronExpression + pauseBadge + '</p>' +
           '<p class="text-xs text-muted-foreground">Keep last ' + s.RetentionCount + ' backups</p>' +
           nextLine + volumeLine + '</div>' +
           '<div class="flex flex-wrap gap-2 shrink-0 sm:justify-end">' + editBtn + toggleBtn + deleteBtn + '</div></div>';
@@ -844,7 +889,7 @@ function showAddScheduleModal() {
   document.getElementById('schedule-modal').classList.remove('hidden');
 }
 
-function openEditSchedule(scheduleID, destinationID, backupType, volumeName, cronExpr, retention) {
+function openEditSchedule(scheduleID, destinationID, backupType, volumeName, cronExpr, retention, pauseContainers) {
   var hid = document.getElementById('schedule-edit-id');
   if (hid) hid.value = String(scheduleID);
   var title = document.getElementById('schedule-modal-title');
@@ -864,6 +909,8 @@ function openEditSchedule(scheduleID, destinationID, backupType, volumeName, cro
   if (cron) cron.value = cronExpr || '';
   var retIn = document.querySelector('#schedule-form input[name="retention"]');
   if (retIn) retIn.value = String(retention != null ? retention : 7);
+  var pauseCb = document.getElementById('schedule-pause-containers');
+  if (pauseCb) pauseCb.checked = !!pauseContainers;
   syncScheduleTypeUI();
   document.getElementById('schedule-modal').classList.remove('hidden');
 }
@@ -1024,7 +1071,8 @@ function setSchedule(cronExpr) {
         btn.getAttribute('data-btype') || 'volume',
         btn.getAttribute('data-vname') || '',
         btn.getAttribute('data-cron') || '',
-        parseInt(btn.getAttribute('data-ret'), 10) || 7
+        parseInt(btn.getAttribute('data-ret'), 10) || 7,
+        btn.getAttribute('data-pause') === '1'
       );
     });
   }

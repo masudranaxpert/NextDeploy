@@ -1,0 +1,214 @@
+{{/* Edit user profile and permissions. Layout: layouts/shell. */}}
+<div class="page-shell max-w-3xl">
+
+  <!-- Breadcrumbs / Back button -->
+  <div class="mb-4">
+    {{if eq .CurrentUser.Role "admin"}}
+    <a href="/users" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+      </svg>
+      Back to Users
+    </a>
+    {{else}}
+    <a href="/overview" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+      </svg>
+      Back to Overview
+    </a>
+    {{end}}
+  </div>
+
+  <!-- Page header -->
+  <div class="section-header">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl 
+        {{if eq .TargetUser.Role "admin"}}bg-amber-500/15 ring-1 ring-amber-500/25 text-amber-300
+        {{else}}bg-primary/10 ring-1 ring-primary/20 text-primary{{end}}
+        text-sm font-bold uppercase select-none">
+        {{initials .TargetUser.Username}}
+      </div>
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <h1 class="page-title">{{.TargetUser.Username}}</h1>
+          {{if eq .TargetUser.Role "admin"}}
+            <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-500/25">admin</span>
+          {{else}}
+            <span class="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">user</span>
+          {{end}}
+          {{if eq .TargetUser.Status "suspended"}}
+            <span class="inline-flex items-center rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300 ring-1 ring-rose-500/25">suspended</span>
+          {{else}}
+            <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">active</span>
+          {{end}}
+          {{if eq .TargetUser.ID .CurrentUser.ID}}
+            <span class="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-primary/25">you</span>
+          {{end}}
+        </div>
+        <p class="page-subtitle">Joined {{.TargetUser.CreatedAt.Format "Jan 02, 2006"}} | User ID: {{.TargetUser.ID}}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flash / Error alerts -->
+  {{if .Flash}}
+  <div class="mb-5 flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">{{.Flash}}</p>
+  </div>
+  {{end}}
+  {{if .Error}}
+  <div class="mb-5 flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3" role="alert">
+    <svg class="h-4 w-4 shrink-0 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+    </svg>
+    <p class="text-sm text-rose-300">{{.Error}}</p>
+  </div>
+  {{end}}
+
+  <div class="grid grid-cols-1 gap-6">
+
+    <!-- ── Storage Usage ─────────────────────────────────────── -->
+    <div class="panel-card p-5">
+      <div class="mb-3 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-foreground">Storage Usage</h2>
+          <p class="text-xs text-muted-foreground">Workspace files across all apps owned by this user.</p>
+        </div>
+        <span class="text-sm font-semibold tabular-nums text-foreground">{{.StorageUsed}} <span class="text-xs font-normal text-muted-foreground">of {{.StorageMax}}</span></span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill bg-gradient-to-r from-amber-600 to-amber-400" style="width: {{printf "%.0f" .StoragePercent}}%"></div>
+      </div>
+    </div>
+
+    <!-- ── Quota & Limits (Admin Only) ───────────────────────── -->
+    {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID)}}
+    <div class="panel-card p-5">
+      <div class="mb-4 border-b border-border/50 pb-3">
+        <h2 class="text-sm font-semibold text-foreground">Resource Limits</h2>
+        <p class="text-xs text-muted-foreground">Adjust maximum containers, RAM and CPU allocation for this user.</p>
+      </div>
+      <form method="post" action="/users/{{.TargetUser.ID}}/limits" class="space-y-4 max-w-xl">
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_apps">Max Apps</label>
+            <input id="max_apps" type="number" name="max_apps" value="{{.TargetUser.MaxApps}}" class="input w-full" required min="1">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_memory_mb">Max RAM (MB)</label>
+            <input id="max_memory_mb" type="number" name="max_memory_mb" value="{{.TargetUser.MaxMemoryMB}}" class="input w-full" required min="128">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_cpus">Max CPUs</label>
+            <input id="max_cpus" type="number" name="max_cpus" value="{{.TargetUser.MaxCPUs}}" step="0.1" class="input w-full" required min="0.1">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-foreground" for="max_storage_mb">Max Storage (MB)</label>
+            <input id="max_storage_mb" type="number" name="max_storage_mb" value="{{.TargetUser.MaxStorageMB}}" class="input w-full" required min="128">
+          </div>
+        </div>
+        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-muted/10 p-3.5 transition-colors hover:bg-muted/20">
+          <input type="checkbox" name="allow_domain_file_server" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30" {{if .TargetUser.AllowDomainFileServer}}checked{{end}}>
+          <div class="min-w-0 space-y-0.5">
+            <p class="text-sm font-medium text-foreground">Domain static/media roots</p>
+            <p class="text-xs text-muted-foreground">Allow this user to configure Caddy file_server paths when adding app domains.</p>
+          </div>
+        </label>
+        <div class="flex justify-end">
+          <button type="submit" class="btn-primary px-4 py-2 text-xs">Save Limits</button>
+        </div>
+      </form>
+    </div>
+    {{end}}
+
+    <!-- ── Role and Status (Admin Only, Not Self) ────────────── -->
+    {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID)}}
+    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <!-- Role -->
+      <div class="panel-card p-5">
+        <div class="mb-4 border-b border-border/50 pb-3">
+          <h2 class="text-sm font-semibold text-foreground">Access Role</h2>
+          <p class="text-xs text-muted-foreground">Grant admin or user access level.</p>
+        </div>
+        <form method="post" action="/users/{{.TargetUser.ID}}/role" class="space-y-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="role-select">Select Role</label>
+            <select id="role-select" name="role" class="input w-full">
+              <option value="user" {{if eq .TargetUser.Role "user"}}selected{{end}}>User (Standard access)</option>
+              <option value="admin" {{if eq .TargetUser.Role "admin"}}selected{{end}}>Admin (Full control)</option>
+            </select>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="btn-primary px-4 py-2 text-xs">Update Role</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Status -->
+      <div class="panel-card p-5">
+        <div class="mb-4 border-b border-border/50 pb-3">
+          <h2 class="text-sm font-semibold text-foreground">Account Status</h2>
+          <p class="text-xs text-muted-foreground">Suspend account and stop all their running apps.</p>
+        </div>
+        <form method="post" action="/users/{{.TargetUser.ID}}/status" class="space-y-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="status-select">Select Status</label>
+            <select id="status-select" name="status" class="input w-full">
+              <option value="active" {{if eq .TargetUser.Status "active"}}selected{{end}}>Active</option>
+              <option value="suspended" {{if eq .TargetUser.Status "suspended"}}selected{{end}}>Suspended</option>
+            </select>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="btn-primary px-4 py-2 text-xs">Update Status</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {{end}}
+
+    <!-- ── Change Password (Admin or Self) ───────────────────── -->
+    <div class="panel-card p-5">
+      <div class="mb-4 border-b border-border/50 pb-3">
+        <h2 class="text-sm font-semibold text-foreground">Change Password</h2>
+        <p class="text-xs text-muted-foreground">Update password credentials for this account.</p>
+      </div>
+      <form method="post" action="/users/{{.TargetUser.ID}}/password" class="space-y-4 max-w-md">
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-foreground" for="new_password">New Password</label>
+          <input id="new_password" type="password" name="password" class="input w-full" placeholder="Min 8 characters" required minlength="8" autocomplete="new-password">
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-foreground" for="confirm_password">Confirm New Password</label>
+          <input id="confirm_password" type="password" name="confirm" class="input w-full" placeholder="Repeat new password" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="flex justify-end">
+          <button type="submit" class="btn-primary px-4 py-2 text-xs">Update Password</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ── Danger Zone (Admin Only, Not Self) ────────────────── -->
+    {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID)}}
+    <div class="panel-card border-rose-500/20 bg-rose-500/5 p-5">
+      <div class="mb-4 border-b border-rose-500/10 pb-3">
+        <h2 class="text-sm font-semibold text-rose-400">Danger Zone</h2>
+        <p class="text-xs text-rose-300/70">Permanently delete this user account. This cannot be undone.</p>
+      </div>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-rose-300">Delete Account</p>
+          <p class="text-[11px] text-rose-300/60">Delete user, workspaces, and configurations.</p>
+        </div>
+        <form method="post" action="/users/{{.TargetUser.ID}}/delete" onsubmit="return confirm('Permanently delete {{.TargetUser.Username}}? This cannot be undone.');">
+          <button type="submit" class="btn-delete px-4 py-2 text-xs">Delete User</button>
+        </form>
+      </div>
+    </div>
+    {{end}}
+
+  </div>
+</div>

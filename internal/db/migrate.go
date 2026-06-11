@@ -162,6 +162,11 @@ CREATE TABLE IF NOT EXISTS git_providers (
 			return err
 		}
 	}
+	if _, err := s.db.Exec(`ALTER TABLE git_providers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS github_provider_details (
   provider_id INTEGER PRIMARY KEY,
@@ -222,6 +227,11 @@ CREATE TABLE IF NOT EXISTS backup_destinations (
   updated_at TEXT NOT NULL
 );`); err != nil {
 		return err
+	}
+	if _, err := s.db.Exec(`ALTER TABLE backup_destinations ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
 	}
 
 	if _, err := s.db.Exec(`
@@ -321,6 +331,11 @@ CREATE TABLE IF NOT EXISTS backup_history (
 	if hasBackupVolumeName == 0 {
 		_, _ = s.db.Exec(`ALTER TABLE backup_history ADD COLUMN volume_name TEXT NOT NULL DEFAULT ''`)
 	}
+	var hasSchedulePause int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_schedules') WHERE name = 'pause_containers'`).Scan(&hasSchedulePause)
+	if hasSchedulePause == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE backup_schedules ADD COLUMN pause_containers INTEGER NOT NULL DEFAULT 0`)
+	}
 
 	// Rename legacy 'full' backup rows to 'app'. The old "Full app" type only
 	// packed workspace files (no Docker volumes), which is what the new "app"
@@ -338,5 +353,101 @@ CREATE TABLE IF NOT EXISTS backup_history (
 		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('backup_full_app_rename_done', '1')`)
 	}
 
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  username TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  details TEXT,
+  created_at TEXT NOT NULL
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);`); err != nil {
+		return err
+	}
+
+	// Multi-user & sandboxing schema migrations
+	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_apps INTEGER NOT NULL DEFAULT 5`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_memory_mb INTEGER NOT NULL DEFAULT 2048`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_cpus REAL NOT NULL DEFAULT 2.0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_storage_mb INTEGER NOT NULL DEFAULT 5120`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN allow_domain_file_server INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS app_collaborators (
+  app_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'developer',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (app_id, user_id),
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS private_registries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  name TEXT NOT NULL,
+  server_address TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+
+	var legacyOwnerMigrated int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'apps_owner_migration_done'`).Scan(&legacyOwnerMigrated)
+	if legacyOwnerMigrated == 0 {
+		_, _ = s.db.Exec(`UPDATE apps SET owner_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1) WHERE owner_id IS NULL`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('apps_owner_migration_done', '1')`)
+	}
+
 	return nil
 }
+

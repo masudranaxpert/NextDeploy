@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"panel/internal/db"
 	"panel/internal/dockerapi"
 
 	"github.com/fasthttp/websocket"
@@ -81,13 +82,22 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	defer sess.Close()
 
 	go func() {
-		tick := time.NewTicker(45 * time.Second)
+		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				u, uOk := c.Locals(contextUserKey).(db.User)
+				if uOk {
+					dbUser, err := p.DB.GetUserByID(ctx, u.ID)
+					if err != nil || dbUser.Status == db.UserStatusSuspended {
+						cancel()
+						_ = c.Close()
+						return
+					}
+				}
 				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
 					return
 				}
@@ -149,7 +159,11 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 
 // VPSTerminalPage renders the standalone VPS terminal page.
 func (p *Panel) VPSTerminalPage(c *fiber.Ctx) error {
-	return c.Render("pages/vps_terminal", withUser(c, fiber.Map{
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
+	return c.Render("pages/vps_terminal", WithUser(c, fiber.Map{
 		"Nav":   "terminal",
 		"Title": "Server Terminal",
 	}), "layouts/shell")
@@ -158,6 +172,12 @@ func (p *Panel) VPSTerminalPage(c *fiber.Ctx) error {
 // VPSTerminalWebSocket streams a local shell (/bin/sh) to the browser.
 // This runs inside the panel container, giving full Docker CLI access.
 func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
+	u, ok := c.Locals(contextUserKey).(db.User)
+	if !ok || u.Role != db.RoleAdmin {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden"))
+		_ = c.Close()
+		return
+	}
 	cols := parseDim(c.Query("cols"), 80)
 	rows := parseDim(c.Query("rows"), 24)
 
@@ -194,13 +214,22 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	vpsCtx, vpsCancel := context.WithCancel(context.Background())
 	defer vpsCancel()
 	go func() {
-		tick := time.NewTicker(45 * time.Second)
+		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
 			case <-vpsCtx.Done():
 				return
 			case <-tick.C:
+				u, uOk := c.Locals(contextUserKey).(db.User)
+				if uOk {
+					dbUser, err := p.DB.GetUserByID(vpsCtx, u.ID)
+					if err != nil || dbUser.Status == db.UserStatusSuspended || dbUser.Role != db.RoleAdmin {
+						vpsCancel()
+						_ = c.Close()
+						return
+					}
+				}
 				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(8*time.Second)); err != nil {
 					return
 				}

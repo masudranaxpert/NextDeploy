@@ -199,6 +199,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 			Size:    info.Size(),
 			ModTime: info.ModTime(),
 			IsDir:   e.IsDir(),
+			Perms:   info.Mode().Perm().String(),
 		})
 	}
 	sort.Slice(list, func(i, j int) bool {
@@ -278,6 +279,7 @@ func (s *Store) ListGitRepoChildren(wsID, rel string) ([]FileEntry, error) {
 			Size:    info.Size(),
 			ModTime: info.ModTime(),
 			IsDir:   e.IsDir(),
+			Perms:   info.Mode().Perm().String(),
 		})
 	}
 	sort.Slice(list, func(i, j int) bool {

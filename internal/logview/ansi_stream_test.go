@@ -18,16 +18,15 @@ func TestStripDockerLogChunk_wholeLine(t *testing.T) {
 }
 
 func TestStripDockerLogChunk_splitEscape(t *testing.T) {
-	var accum []byte
 	out1, accum := StripDockerLogChunk(nil, []byte("pre \x1b[3"))
 	if string(out1) != "pre " {
 		t.Fatalf("expected first out %q, got %q", "pre ", out1)
 	}
-	if string(accum) != "pre \x1b[3" {
-		t.Fatalf("accum: got %q", accum)
+	if string(accum) != "\x1b[3" {
+		t.Fatalf("accum: got %q want %q", accum, "\x1b[3")
 	}
 	out2, accum := StripDockerLogChunk(accum, []byte("2mok\n"))
-	want := []byte("pre ok\n")
+	want := []byte("ok\n")
 	if !bytes.Equal(out2, want) {
 		t.Fatalf("second out: got %q want %q", out2, want)
 	}

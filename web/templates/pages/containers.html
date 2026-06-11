@@ -67,6 +67,9 @@
             </th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">ID</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
+            {{if .IsAdmin}}
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Owner</th>
+            {{end}}
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Image</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">State</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ports</th>
@@ -85,6 +88,26 @@
                 </td>
                 <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.ID}}</td>
                 <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+                {{if $.IsAdmin}}
+                  <td class="px-4 py-3">
+                    {{$owner := index $.OwnerByProject .ComposeProject}}
+                    {{if $owner.Name}}
+                      {{if $owner.Admin}}
+                        <span class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-violet-500/25 bg-violet-500/10 py-0.5 pl-1 pr-2.5 text-[11px] font-medium text-violet-200">
+                          <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-500/25 text-[9px] font-bold uppercase text-violet-200">{{initials $owner.Name}}</span>
+                          <span class="truncate">{{$owner.Name}}</span>
+                        </span>
+                      {{else}}
+                        <span class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-sky-500/25 bg-sky-500/10 py-0.5 pl-1 pr-2.5 text-[11px] font-medium text-sky-200">
+                          <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-500/25 text-[9px] font-bold uppercase text-sky-200">{{initials $owner.Name}}</span>
+                          <span class="truncate">{{$owner.Name}}</span>
+                        </span>
+                      {{end}}
+                    {{else}}
+                      <span class="inline-flex items-center rounded-full border border-border/60 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">system</span>
+                    {{end}}
+                  </td>
+                {{end}}
                 <td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[200px]">{{.Image}}</td>
                 <td class="px-4 py-3">
                   {{$state := .State}}
@@ -144,7 +167,7 @@
             {{end}}
           {{else}}
             <tr>
-              <td colspan="7" class="px-4 py-16 text-center">
+              <td colspan="{{if .IsAdmin}}8{{else}}7{{end}}" class="px-4 py-16 text-center">
                 <div class="flex flex-col items-center gap-3">
                   <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
                     <svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">

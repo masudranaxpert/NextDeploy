@@ -2,10 +2,10 @@
       <div>
         <h2 class="text-base font-semibold text-foreground">Terminal</h2>
       </div>
-      {{if not .HasCompose}}
+      {{if not .HasStack}}
         <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
           <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-          <p class="text-sm text-amber-200">Upload <code class="rounded bg-muted px-1">docker-compose.yml</code> and deploy from Overview first.</p>
+          <p class="text-sm text-amber-200">Add a <code class="rounded bg-muted px-1">Dockerfile</code> or <code class="rounded bg-muted px-1">docker-compose.yml</code> and deploy from Overview first.</p>
         </div>
       {{else if not .ComposeRows}}
         <p class="text-sm text-muted-foreground">No compose containers yet. Deploy the stack, then open this tab again.</p>
@@ -42,6 +42,7 @@
           var statusDot = document.getElementById('term-status-dot');
           var host = document.getElementById('xterm-host');
           var appId = host ? (host.getAttribute('data-app-id') || '').trim() : '';
+          var connected = false;
 
           function setStatus(t, state) {
             statusEl.textContent = t || '';
@@ -65,26 +66,82 @@
             return proto + '//' + location.host + '/apps/' + appId + '/ws/terminal?' + q;
           }
 
-          window.containerTerm = new SharedTerminal('xterm-host', {
-            wsUrl: wsURL,
-            reconnect: false,
-            fontSize: 14,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-            theme: {
-              background: '#0a0a0a',
-              foreground: '#e2e8f0',
-              cursor: '#a78bfa',
-              selectionBackground: '#4c1d95',
-            },
-            onStatus: setStatus,
+          function destroyTerm() {
+            if (window.containerTerm) {
+              window.containerTerm.destroy();
+              window.containerTerm = null;
+            }
+            connected = false;
+          }
+
+          if (window._termSwapCleanup) {
+            document.removeEventListener('htmx:beforeSwap', window._termSwapCleanup);
+          }
+          window._termSwapCleanup = function (e) {
+            var tgt = e.detail && e.detail.target;
+            if (tgt && tgt.id === 'app-tab-panel') destroyTerm();
+          };
+          document.addEventListener('htmx:beforeSwap', window._termSwapCleanup);
+
+          function ensureTerm() {
+            if (window.containerTerm) return window.containerTerm;
+            window.containerTerm = new SharedTerminal('xterm-host', {
+              wsUrl: wsURL,
+              reconnect: false,
+              scrollback: 1000,
+              fontSize: 14,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              theme: {
+                background: '#0a0a0a',
+                foreground: '#e2e8f0',
+                cursor: '#a78bfa',
+                selectionBackground: '#4c1d95',
+              },
+              onStatus: setStatus,
+            });
+            SharedTerminal.setupResize(window.containerTerm);
+            return window.containerTerm;
+          }
+
+          function connectTerm() {
+            if (!host || connected) return;
+            connected = true;
+            (function waitLibs() {
+              if (typeof SharedTerminal === 'undefined' || typeof Terminal === 'undefined') {
+                setTimeout(waitLibs, 50);
+                return;
+              }
+              requestAnimationFrame(function () {
+                ensureTerm().connect();
+              });
+            })();
+          }
+
+          pick.addEventListener('change', function () {
+            if (window.containerTerm) window.containerTerm.connect();
+            else connectTerm();
           });
 
-          SharedTerminal.setupResize(window.containerTerm);
+          document.addEventListener('visibilitychange', function () {
+            if (!window.containerTerm) return;
+            if (document.hidden) window.containerTerm.disconnect();
+            else if (connected) window.containerTerm.connect();
+          });
 
-          pick.addEventListener('change', function () { window.containerTerm.connect(); });
-          window.addEventListener('pagehide', function () { window.containerTerm.disconnect(); });
-          window.addEventListener('beforeunload', function () { window.containerTerm.disconnect(); });
-          window.containerTerm.connect();
+          window.addEventListener('pagehide', destroyTerm);
+          window.addEventListener('beforeunload', destroyTerm);
+
+          if (host && typeof IntersectionObserver !== 'undefined') {
+            var io = new IntersectionObserver(function (entries) {
+              entries.forEach(function (entry) {
+                if (entry.isIntersecting) connectTerm();
+                else if (window.containerTerm) window.containerTerm.disconnect();
+              });
+            }, { threshold: 0.1 });
+            io.observe(host);
+          } else {
+            connectTerm();
+          }
         })();
         </script>
       {{end}}

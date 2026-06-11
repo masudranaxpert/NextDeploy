@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"panel/internal/handlers/utils"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +23,13 @@ import (
 // appListItem holds per-app state for the apps list page.
 type appListItem struct {
 	db.App
-	State            string
-	RunningCount     int
-	ExitedCount      int
-	PausedCount      int
-	ContainerCount   int
+	State          string
+	RunningCount   int
+	ExitedCount    int
+	PausedCount    int
+	ContainerCount int
+	OwnerName      string
+	OwnerIsAdmin   bool
 }
 
 const (
@@ -93,7 +97,17 @@ func (p *Panel) fetchAppStateForAppsList(ctx context.Context, app db.App, hint d
 // failing/slow app does not cancel others; goroutines always return nil and errors show as
 // "not deployed" via fetchAppStateForAppsList.
 func (p *Panel) AppsPage(c *fiber.Ctx) error {
-	list, err := p.DB.ListApps(c.UserContext())
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
+	var list []db.App
+	var err error
+	if u.Role == db.RoleAdmin {
+		list, err = p.DB.ListApps(c.UserContext())
+	} else {
+		list, err = p.DB.ListAppsForUser(c.UserContext(), u.ID)
+	}
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -124,25 +138,73 @@ func (p *Panel) AppsPage(c *fiber.Ctx) error {
 
 	_ = eg.Wait()
 
+	isAdmin := u.Role == db.RoleAdmin
+	if isAdmin {
+		if users, uerr := p.DB.ListUsers(listCtx); uerr == nil {
+			type ownerInfo struct {
+				name    string
+				isAdmin bool
+			}
+			byID := make(map[int64]ownerInfo, len(users))
+			for _, usr := range users {
+				byID[usr.ID] = ownerInfo{name: usr.Username, isAdmin: usr.Role == db.RoleAdmin}
+			}
+			for i := range items {
+				if info, ok := byID[items[i].OwnerID]; ok {
+					items[i].OwnerName = info.name
+					items[i].OwnerIsAdmin = info.isAdmin
+				}
+			}
+		}
+	}
+
 	return c.Render("pages/apps", withUser(c, fiber.Map{
-		"Nav":   "apps",
-		"Title": "Apps",
-		"Apps":  items,
+		"Nav":     "apps",
+		"Title":   "Apps",
+		"Apps":    items,
+		"IsAdmin": isAdmin,
 	}), "layouts/shell")
+}
+
+func randomAppSuffix() string {
+	buf := make([]byte, 2)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%04x", time.Now().UnixNano()%65536)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(401).SendString("unauthorized")
+	}
 	slug, err := validateAppSlug(c.FormValue("name"))
 	if err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
-	if _, err := p.DB.GetApp(ctx, slug); err == nil {
-		return c.Status(400).SendString("an app with this name already exists")
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	exists, err := p.DB.AppNameExistsForUser(ctx, slug, u.ID)
+	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	id := slug
+	if exists {
+		return c.Status(400).SendString("an app with this name already exists")
+	}
+	if u.Role != db.RoleAdmin {
+		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
+		if err == nil && len(apps) >= u.MaxApps {
+			return c.Status(400).SendString("maximum app limit reached")
+		}
+	}
+	var id string
+	for {
+		suffix := randomAppSuffix()
+		id = fmt.Sprintf("%s-%s", slug, suffix)
+		if _, err := p.DB.GetApp(ctx, id); errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+	}
 	name := slug
 	if err := os.MkdirAll(p.Store.Path(id), 0750); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -150,16 +212,12 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	if err := p.Store.WriteMeta(id, name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.DB.CreateApp(c.UserContext(), id, name); err != nil {
+	if err := p.DB.CreateApp(ctx, id, name, u.ID); err != nil {
 		_ = os.RemoveAll(p.Store.Path(id))
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return c.Status(400).SendString(err.Error())
 		}
 		return c.Status(500).SendString(err.Error())
-	}
-	appRow := db.App{ID: id, Name: name, ComposeFile: "docker-compose.yml"}
-	if err := p.seedComposeProjectNameInPanelEnv(c.UserContext(), id, appRow); err != nil {
-		log.Printf("seed COMPOSE_PROJECT_NAME for app %s: %v", id, err)
 	}
 	sourceType := strings.TrimSpace(c.FormValue("source_type"))
 	if sourceType == "github" || sourceType == "git" {
@@ -169,12 +227,12 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			cfg := db.AppGitConfig{
 				AppID:         id,
 				Provider:      "github",
-				RepoURL:       normalizeRepoURL(repoURL),
-				RepoFullName:  repoFullNameFromURL(repoURL),
-				Branch:        normalizeBranch(c.FormValue("branch")),
+				RepoURL:       utils.NormalizeRepoURL(repoURL),
+				RepoFullName:  utils.RepoFullNameFromURL(repoURL),
+				Branch:        utils.NormalizeBranch(c.FormValue("branch")),
 				AuthMode:      strings.TrimSpace(c.FormValue("auth_mode")),
 				Token:         strings.TrimSpace(c.FormValue("token")),
-				WebhookSecret: randomSecret(),
+				WebhookSecret: utils.RandomSecret(),
 				AutoDeploy:    true,
 			}
 			if cfg.AuthMode == "" {
@@ -188,13 +246,14 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			}
 		}
 	}
+	p.RecordAuditLog(c, "create_app", "app", id, "Created app: "+name+" with source: "+sourceType)
 	return c.Redirect(fmt.Sprintf("/apps/%s", id))
 }
 
 func (p *Panel) SaveAppCompose(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	raw := workspace.NormalizeComposeRel(c.FormValue("compose_file"))
 	if err := p.DB.UpdateComposeFile(c.UserContext(), id, raw); err != nil {
@@ -220,10 +279,12 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 	if st, err := os.Stat(composePath); err == nil && !st.IsDir() {
 		hasComp = true
 	}
-	return c.Render(tmplPartialComposeFileCard, fiber.Map{
+	hasDF, _ := p.Store.HasDockerArtifacts(id)
+	return c.Render(utils.TmplPartialComposeFileCard, fiber.Map{
 		"ID":                 id,
 		"ComposeFileSetting": composeDisplay,
 		"HasCompose":         hasComp,
+		"HasDockerfile":      hasDF,
 		"ComposePathSaved":   saved,
 	})
 }
@@ -231,14 +292,14 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	content := c.FormValue("env")
 	if err := p.DB.UpdatePanelEnv(c.UserContext(), id, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	root := p.composeWorkspaceRoot(c.UserContext(), id)
-	if err := p.syncWorkspaceEnvFromPanel(id, root, content); err != nil {
+	if err := p.SyncWorkspaceEnvFromPanel(id, root, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	_ = p.syncAppCaddyOverride(c, id)

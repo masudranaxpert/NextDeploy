@@ -2,32 +2,82 @@
 <div class="page-shell max-w-[1440px]">
 
   <!-- ── Page header ──────────────────────────────────────── -->
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div class="min-w-0">
-      <h1 class="page-title">NextDeploy</h1>
-      <p class="page-subtitle">Shared proxy, panel domain, and root stack settings for this installation.</p>
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+        <svg class="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h1 class="page-title">NextDeploy</h1>
+        <p class="page-subtitle">Shared proxy, panel domain, and root stack settings for this installation.</p>
+      </div>
     </div>
-    <div class="flex shrink-0 flex-wrap items-center gap-2">
-      {{if .CaddyRunning}}
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
-          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Caddy running
-        </span>
-      {{else}}
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-500/10 px-2.5 py-1 text-[11px] font-semibold text-slate-400 ring-1 ring-slate-500/20">
-          <span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>Caddy stopped
-        </span>
-      {{end}}
-      {{if .CaddyUp}}
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-400 ring-1 ring-blue-500/20">
-          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
-          Admin API reachable
-        </span>
-      {{else}}
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-400 ring-1 ring-amber-500/20">
-          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-          Admin API check failed
-        </span>
-      {{end}}
+    <a id="panel-domain-link-header"
+      {{if .PanelDomain}}href="{{if .PanelEnableHTTPS}}https://{{else}}http://{{end}}{{.PanelDomain}}"{{else}}href="#"{{end}}
+      target="_blank" rel="noopener noreferrer"
+      class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-3 text-xs font-medium text-primary/90 transition-all hover:border-primary/40 hover:bg-primary/15 hover:text-primary"
+      {{if not .PanelDomain}}style="display:none"{{end}}>
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3"/></svg>
+      <span id="panel-domain-link-text">{{.PanelDomain}}</span>
+      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+    </a>
+  </div>
+
+  <!-- ── Status overview strip ────────────────────────────── -->
+  <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+    <div class="panel-card flex items-center gap-3 px-4 py-3.5">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{if .CaddyRunning}}bg-emerald-500/10 ring-1 ring-emerald-500/20{{else}}bg-slate-500/10 ring-1 ring-slate-500/20{{end}}">
+        <svg class="h-4 w-4 {{if .CaddyRunning}}text-emerald-400{{else}}text-slate-400{{end}}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7"/></svg>
+      </div>
+      <div class="min-w-0">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Caddy Proxy</p>
+        {{if .CaddyRunning}}
+          <p class="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-400"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Running</p>
+        {{else}}
+          <p class="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>Stopped</p>
+        {{end}}
+      </div>
+    </div>
+    <div class="panel-card flex items-center gap-3 px-4 py-3.5">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{if .CaddyUp}}bg-blue-500/10 ring-1 ring-blue-500/20{{else}}bg-amber-500/10 ring-1 ring-amber-500/20{{end}}">
+        <svg class="h-4 w-4 {{if .CaddyUp}}text-blue-400{{else}}text-amber-400{{end}}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+      </div>
+      <div class="min-w-0">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Admin API</p>
+        {{if .CaddyUp}}
+          <p class="mt-0.5 text-sm font-semibold text-blue-400">Reachable</p>
+        {{else}}
+          <p class="mt-0.5 text-sm font-semibold text-amber-400">Unreachable</p>
+        {{end}}
+      </div>
+    </div>
+    <div class="panel-card flex items-center gap-3 px-4 py-3.5">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+        <svg class="h-4 w-4 text-primary/80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3"/></svg>
+      </div>
+      <div class="min-w-0">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Panel Domain</p>
+        {{if .PanelDomain}}
+          <p class="mt-0.5 truncate text-sm font-semibold text-foreground" title="{{.PanelDomain}}">{{.PanelDomain}}</p>
+        {{else}}
+          <p class="mt-0.5 text-sm font-medium italic text-muted-foreground/60">Not set</p>
+        {{end}}
+      </div>
+    </div>
+    <div class="panel-card flex items-center gap-3 px-4 py-3.5">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-500/20">
+        <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+      </div>
+      <div class="min-w-0">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">ACME Email</p>
+        {{if .Email}}
+          <p class="mt-0.5 truncate text-sm font-semibold text-foreground" title="{{.Email}}">{{.Email}}</p>
+        {{else}}
+          <p class="mt-0.5 text-sm font-medium italic text-muted-foreground/60">Optional</p>
+        {{end}}
+      </div>
     </div>
   </div>
 
@@ -64,38 +114,35 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/>
               </svg>
             </div>
-            <h2 class="text-sm font-semibold text-foreground">Panel Domain</h2>
+            <div>
+              <h2 class="text-sm font-semibold text-foreground">Panel Domain</h2>
+              <p class="text-[11px] text-muted-foreground/70">Route this dashboard through Caddy on a custom domain</p>
+            </div>
           </div>
-          <a id="panel-domain-link-header"
-            {{if .PanelDomain}}href="{{if .PanelEnableHTTPS}}https://{{else}}http://{{end}}{{.PanelDomain}}"{{else}}href="#"{{end}}
-            target="_blank" rel="noopener noreferrer"
-            class="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary/80 transition-all hover:border-primary/40 hover:bg-primary/15 hover:text-primary"
-            {{if not .PanelDomain}}style="display:none"{{end}}>
-            <span id="panel-domain-link-text">{{.PanelDomain}}</span>
-            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-          </a>
         </div>
         <form id="panel-domain-form" method="POST" action="/nextdeploy/panel" class="px-5 py-5 space-y-4">
-          <div class="grid gap-4 sm:grid-cols-[1fr_auto_auto]">
+          <div class="space-y-4">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="panel_domain">Panel domain</label>
-              <input id="panel_domain" name="panel_domain" type="text" class="input w-full" value="{{.PanelDomain}}" placeholder="panel.example.com" autocomplete="off">
+              <input id="panel_domain" name="panel_domain" type="text" class="input h-11 w-full font-mono text-sm" value="{{.PanelDomain}}" placeholder="panel.example.com" autocomplete="off">
               <p class="mt-1.5 text-[11px] text-muted-foreground/70">When saved, NextDeploy updates the root <code class="font-mono">docker-compose.yml</code> so the <code class="font-mono">panel</code> service is routed by Caddy.</p>
             </div>
-            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30 min-w-[160px]">
-              <input id="panel_enable_https" type="checkbox" name="panel_enable_https" class="mt-0.5 rounded border-border accent-primary" {{if .PanelEnableHTTPS}}checked{{end}}>
-              <div>
-                <p class="text-xs font-medium text-foreground">Enable HTTPS</p>
-                <p class="mt-1 text-[11px] text-muted-foreground/80">Caddy serves over HTTPS and redirects HTTP.</p>
-              </div>
-            </label>
-            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30 min-w-[140px]">
-              <input type="checkbox" name="panel_enable_www" class="mt-0.5 rounded border-border accent-primary" {{if .PanelEnableWWW}}checked{{end}}>
-              <div>
-                <p class="text-xs font-medium text-foreground">Also route <code class="font-mono">www</code></p>
-                <p class="mt-1 text-[11px] text-muted-foreground/80">Adds <code class="font-mono text-[10px]">www.domain</code> to the panel route.</p>
-              </div>
-            </label>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3.5 transition-colors hover:bg-muted/30 has-[:checked]:border-primary/30 has-[:checked]:bg-primary/5">
+                <input id="panel_enable_https" type="checkbox" name="panel_enable_https" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary" {{if .PanelEnableHTTPS}}checked{{end}}>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-foreground">Enable HTTPS</p>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">Caddy serves over HTTPS and redirects HTTP.</p>
+                </div>
+              </label>
+              <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3.5 transition-colors hover:bg-muted/30 has-[:checked]:border-primary/30 has-[:checked]:bg-primary/5">
+                <input type="checkbox" name="panel_enable_www" class="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary" {{if .PanelEnableWWW}}checked{{end}}>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-foreground">Also route <code class="font-mono text-xs">www</code></p>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">Adds <code class="font-mono text-[10px]">www.domain</code> to the panel route.</p>
+                </div>
+              </label>
+            </div>
           </div>
           <div class="flex justify-end">
             <button id="panel-save-btn" type="submit" class="btn-primary h-9 px-4 text-sm gap-2">
@@ -115,7 +162,10 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
               </svg>
             </div>
-            <h2 class="text-sm font-semibold text-foreground">Caddy shared volumes</h2>
+            <div>
+              <h2 class="text-sm font-semibold text-foreground">Caddy Shared Volumes</h2>
+              <p class="text-[11px] text-muted-foreground/70">Mount named volumes read-only into the proxy <span id="shvol-count" class="text-foreground/70"></span></p>
+            </div>
           </div>
           <a href="/volumes" class="text-[11px] font-medium text-primary hover:underline underline-offset-2">Browse volumes →</a>
         </div>
@@ -128,12 +178,18 @@
               value="{{.CaddySharedMountPrefix}}" placeholder="/mnt/shared" autocomplete="off">
           </div>
           <div>
-            <p class="mb-2 text-xs font-medium text-muted-foreground">Docker volumes</p>
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <p class="text-xs font-medium text-muted-foreground">Docker volumes</p>
+              {{if .DockerVolumeNames}}
+              <input id="shvol-search" type="text" placeholder="Filter volumes…" autocomplete="off"
+                class="input h-8 w-full max-w-[200px] px-2.5 text-[11px]">
+              {{end}}
+            </div>
             <div class="max-h-48 overflow-y-auto rounded-xl border border-border/50 bg-muted/10 p-3">
               {{if .DockerVolumeNames}}
               <ul class="grid gap-1.5 sm:grid-cols-2">
                 {{range $i, $v := .DockerVolumeNames}}
-                <li>
+                <li class="shvol-item" data-name="{{lower $v}}">
                   <label for="caddy-shvol-{{$i}}" class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-muted/40 {{if index $.CaddySharedVolumeSelected $v}}bg-primary/5 ring-1 ring-primary/15{{end}}">
                     <input id="caddy-shvol-{{$i}}" type="checkbox" name="caddy_shared_volumes" value="{{$v}}"
                       class="rounded border-border accent-primary shrink-0"
@@ -168,7 +224,10 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z"/>
             </svg>
           </div>
-          <h2 class="text-sm font-semibold text-foreground">Proxy Control</h2>
+          <div>
+            <h2 class="text-sm font-semibold text-foreground">Proxy Control</h2>
+            <p class="text-[11px] text-muted-foreground/70">Caddy container lifecycle, admin API and ACME settings</p>
+          </div>
         </div>
 
         <!-- Proxy settings form -->
@@ -215,7 +274,7 @@
             <form method="POST" action="/caddy/container" onsubmit="return confirm('Stop the Caddy proxy container?')">
               <input type="hidden" name="action" value="stop">
               <button type="submit" class="btn-stop-sm h-9 px-3 text-xs gap-1.5 disabled:opacity-40" {{if not .CaddyRunning}}disabled{{end}}>
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/></svg>
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="5.5" width="13" height="13" rx="1.5" /></svg>
                 Stop
               </button>
             </form>
@@ -287,10 +346,16 @@
             </svg>
           </div>
           <h2 class="text-sm font-semibold text-foreground">Panel Labels Preview</h2>
+          {{if .PanelLabelsYAML}}
+          <button type="button" onclick="copyPre(this, 'panel-labels-pre')" class="ml-auto inline-flex h-7 items-center gap-1 rounded-md bg-muted/40 px-2 text-[10px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+            <span>Copy</span>
+          </button>
+          {{end}}
         </div>
         <div class="px-5 py-4">
           {{if .PanelLabelsYAML}}
-            <pre class="max-h-72 overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.PanelLabelsYAML}}</pre>
+            <pre id="panel-labels-pre" class="max-h-72 overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.PanelLabelsYAML}}</pre>
           {{else}}
             <div class="flex items-center gap-2.5 rounded-xl border border-border/40 bg-muted/10 px-4 py-3">
               <svg class="h-4 w-4 shrink-0 text-muted-foreground/50" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
@@ -315,6 +380,12 @@
                 <code class="text-[10px] text-muted-foreground/60 font-mono">{{.RootComposePath}}</code>
               </div>
             </div>
+            {{if .RootCompose}}
+            <button type="button" onclick="copyPre(this, 'root-compose-pre')" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-muted/40 px-2 text-[10px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+              <span>Copy</span>
+            </button>
+            {{end}}
           </div>
           {{if .RootComposeApplyPath}}
             <p class="mt-2 text-[11px] text-muted-foreground/70">Host apply target: <code class="font-mono text-foreground/70 break-all">{{.RootComposeApplyPath}}</code></p>
@@ -339,7 +410,7 @@
               <p class="text-[11px] text-amber-200 leading-relaxed">{{.RootComposePreviewNote}}</p>
             </div>
           {{end}}
-          <pre class="max-h-[32rem] overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}{{if not .RootComposeReadErr}}Root compose preview unavailable.{{end}}{{end}}</pre>
+          <pre id="root-compose-pre" class="max-h-[32rem] overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{if .RootCompose}}{{.RootCompose}}{{else}}{{if not .RootComposeReadErr}}Root compose preview unavailable.{{end}}{{end}}</pre>
         </div>
       </div>
 
@@ -356,9 +427,13 @@
           <span class="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
             <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>live
           </span>
+          <button type="button" onclick="copyPre(this, 'live-config-pre')" class="inline-flex h-7 items-center gap-1 rounded-md bg-muted/40 px-2 text-[10px] font-medium text-muted-foreground ring-1 ring-border transition-all hover:text-foreground">
+            <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+            <span>Copy</span>
+          </button>
         </div>
         <div class="px-5 py-4">
-          <pre class="max-h-72 overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.LiveConfig}}</pre>
+          <pre id="live-config-pre" class="max-h-72 overflow-auto rounded-xl border border-border/30 bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{.LiveConfig}}</pre>
         </div>
       </div>
       {{end}}
@@ -672,5 +747,60 @@
   function escHtml(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+})();
+
+/* ── Copy-to-clipboard for code panes ── */
+window.copyPre = function (btn, preId) {
+  var pre = document.getElementById(preId);
+  if (!pre) return;
+  var text = pre.innerText || pre.textContent || '';
+  var done = function () {
+    var label = btn.querySelector('span');
+    if (!label) return;
+    var orig = label.textContent;
+    label.textContent = 'Copied!';
+    btn.classList.add('text-emerald-400');
+    setTimeout(function () {
+      label.textContent = orig;
+      btn.classList.remove('text-emerald-400');
+    }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function () {});
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+};
+
+/* ── Shared volumes: filter + selected count ── */
+(function () {
+  var search = document.getElementById('shvol-search');
+  var countEl = document.getElementById('shvol-count');
+
+  function updateCount() {
+    if (!countEl) return;
+    var boxes = document.querySelectorAll('input[name="caddy_shared_volumes"]');
+    var checked = 0;
+    boxes.forEach(function (b) { if (b.checked) checked++; });
+    countEl.textContent = boxes.length ? '· ' + checked + ' of ' + boxes.length + ' selected' : '';
+  }
+
+  if (search) {
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      document.querySelectorAll('.shvol-item').forEach(function (li) {
+        li.style.display = (li.getAttribute('data-name') || '').indexOf(q) >= 0 ? '' : 'none';
+      });
+    });
+  }
+  document.querySelectorAll('input[name="caddy_shared_volumes"]').forEach(function (b) {
+    b.addEventListener('change', updateCount);
+  });
+  updateCount();
 })();
 </script>

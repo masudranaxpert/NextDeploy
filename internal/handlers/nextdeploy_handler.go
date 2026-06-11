@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"panel/internal/db"
+	"panel/internal/handlers/utils"
 	"context"
 	"fmt"
 	"os"
@@ -17,8 +19,12 @@ import (
 )
 
 func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
-	nextDeployFlash := readFlash(c) // read once; cookie is cleared after this call
+	nextDeployFlash := utils.ReadFlash(c) // read once; cookie is cleared after this call
 	cfg, _ := p.DB.GetAllSettings(ctx)
 	panelSite := nextDeployPanelDomain(cfg)
 	labels := caddy.GenerateLabels(panelSite)
@@ -99,7 +105,7 @@ func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
 		"PanelEnableHTTPS": panelSite.EnableHTTPS,
 		"PanelEnableWWW":  panelSite.EnableWWW,
 		"PanelLabelsYAML": strings.TrimSpace(labelYAML),
-		// readFlash is called once; legacy ?panelSaved=1 / ?volumesSaved=1 still accepted.
+		// utils.ReadFlash is called once; legacy ?panelSaved=1 / ?volumesSaved=1 still accepted.
 		"PanelSaved":   nextDeployFlash == "panelSaved" || c.Query("panelSaved") == "1",
 		"VolumesSaved": nextDeployFlash == "volumesSaved" || c.Query("volumesSaved") == "1",
 		"RootApplyStatus": func() string {

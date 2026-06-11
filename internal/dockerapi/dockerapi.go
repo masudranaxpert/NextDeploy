@@ -37,13 +37,14 @@ func newAPIClient() (*client.Client, error) {
 }
 
 type ContainerRow struct {
-	ID      string
-	Name    string
-	Image   string
-	State   string
-	Status  string
-	Ports   string
-	Created time.Time
+	ID             string
+	Name           string
+	Image          string
+	State          string
+	Status         string
+	Ports          string
+	Created        time.Time
+	ComposeProject string
 }
 
 type ImageRow struct {
@@ -56,11 +57,12 @@ type ImageRow struct {
 }
 
 type ContainerUsageRow struct {
-	ID            string
-	Name          string
-	Image         string
-	State         string
-	Status        string
+	ID             string
+	Name           string
+	Image          string
+	State          string
+	Status         string
+	ComposeProject string
 	CPUPercent    float64
 	MemUsage      uint64
 	MemLimit      uint64
@@ -130,20 +132,19 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 	for _, c := range list {
 		ports := formatPorts(c.Ports)
 		out = append(out, ContainerRow{
-			ID:      c.ID[:12],
-			Name:    containerName(c),
-			Image:   c.Image,
-			State:   c.State,
-			Status:  c.Status,
-			Ports:   ports,
-			Created: time.Unix(c.Created, 0).UTC(),
+			ID:             c.ID[:12],
+			Name:           containerName(c),
+			Image:          c.Image,
+			State:          c.State,
+			Status:         c.Status,
+			Ports:          ports,
+			Created:        time.Unix(c.Created, 0).UTC(),
+			ComposeProject: c.Labels[composeProjectLabel],
 		})
 	}
 	return out, ""
 }
 
-// ContainerComposeProjectAndMountSource returns the compose project label and the
-// host source path for a specific mount destination on a container.
 func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, mountDestination string) (project, source string, err error) {
 	cli, err := newAPIClient()
 	if err != nil {
@@ -168,15 +169,40 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 }
 
 func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
+	return listContainerUsageFiltered(ctx, nil)
+}
+
+// ListContainerUsageForProjects returns live stats only for containers whose
+// compose project label is in the given set. Stats are fetched only for the
+// matching containers, so this stays fast on busy hosts.
+func ListContainerUsageForProjects(ctx context.Context, projects map[string]bool) ([]ContainerUsageRow, string) {
+	if len(projects) == 0 {
+		return nil, ""
+	}
+	return listContainerUsageFiltered(ctx, func(c types.Container) bool {
+		return projects[c.Labels[composeProjectLabel]]
+	})
+}
+
+func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) bool) ([]ContainerUsageRow, string) {
 	cli, err := newAPIClient()
 	if err != nil {
 		return nil, err.Error()
 	}
 	defer cli.Close()
 
-	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	all, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err.Error()
+	}
+	list := all
+	if keep != nil {
+		list = list[:0]
+		for _, c := range all {
+			if keep(c) {
+				list = append(list, c)
+			}
+		}
 	}
 
 	ids := make([]string, 0, len(list))
@@ -184,30 +210,20 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 		ids = append(ids, c.ID)
 	}
 
-	// CPU % from a single ContainerStats JSON is unreliable: precpu_stats may be only
-	// microseconds before cpu_stats when we burst one-shot reads. Match docker stats by
-	// sampling twice with a fixed interval, then diff container vs host CPU time.
-	first := fetchStatsSnapshot(ctx, cli, ids)
-	if len(ids) > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err().Error()
-		case <-time.After(1 * time.Second):
-		}
-	}
-	second := fetchStatsSnapshot(ctx, cli, ids)
+	statsMap := fetchStatsSnapshot(ctx, cli, ids)
 
 	out := make([]ContainerUsageRow, 0, len(list))
 	for _, c := range list {
 		row := ContainerUsageRow{
-			ID:     c.ID[:12],
-			Name:   containerName(c),
-			Image:  c.Image,
-			State:  c.State,
-			Status: c.Status,
+			ID:             c.ID[:12],
+			Name:           containerName(c),
+			Image:          c.Image,
+			State:          c.State,
+			Status:         c.Status,
+			ComposeProject: c.Labels[composeProjectLabel],
 		}
 
-		cur, ok := second[c.ID]
+		cur, ok := statsMap[c.ID]
 		if !ok {
 			row.MemUsageHuman = "—"
 			row.MemLimitHuman = "—"
@@ -218,9 +234,7 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 			out = append(out, row)
 			continue
 		}
-		if prev, ok := first[c.ID]; ok {
-			row.CPUPercent = cpuPercentBetweenSamples(prev, cur)
-		}
+		row.CPUPercent = cpuPercentSingleSample(cur)
 		memUsage := memoryUsageLikeDockerCLI(cur)
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit
@@ -272,6 +286,22 @@ func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
 		return out[i].Name < out[j].Name
 	})
 	return out, ""
+}
+
+func cpuPercentSingleSample(cur statsJSON) float64 {
+	cpuDelta := float64(cur.CPUStats.CPUUsage.TotalUsage) - float64(cur.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(cur.CPUStats.SystemUsage) - float64(cur.PreCPUStats.SystemUsage)
+	if cpuDelta < 0 || systemDelta <= 0 {
+		return 0
+	}
+	online := float64(cur.CPUStats.OnlineCPUs)
+	if online <= 0 {
+		online = float64(len(cur.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if online <= 0 {
+		online = 1
+	}
+	return (cpuDelta / systemDelta) * online * 100
 }
 
 func ListImages(ctx context.Context) ([]ImageRow, string) {
@@ -370,8 +400,6 @@ func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) m
 	return out
 }
 
-// memoryUsageLikeDockerCLI aligns with docker stats: subtract reclaimable page cache
-// (cgroup v2: inactive_file; v1: total_inactive_file; legacy: cache).
 func memoryUsageLikeDockerCLI(s statsJSON) uint64 {
 	usage := s.MemoryStats.Usage
 	st := s.MemoryStats.Stats
@@ -444,7 +472,6 @@ func imageIDsMatch(a, b string) bool {
 	return false
 }
 
-// removeContainersUsingImage force-removes any container (running or stopped) that uses the given image ID.
 func removeContainersUsingImage(ctx context.Context, cli *client.Client, imageID string) []string {
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
@@ -475,8 +502,6 @@ func imageRepoBase(repo string) string {
 	return repo
 }
 
-// imageTagLooksOwnedByComposeProject matches compose-built local names without substring false positives:
-// project "a" must not match image "a-longer-name:1".
 func imageTagLooksOwnedByComposeProject(tag, projectID string) bool {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -490,15 +515,12 @@ func imageTagLooksOwnedByComposeProject(tag, projectID string) bool {
 	if repo == projectID || repo == alt {
 		return true
 	}
-	// Safe prefixes: project_service, project-service (only when next rune is _ so "proj_extra" differs from "proj-extra")
 	if strings.HasPrefix(repo, projectID+"_") || strings.HasPrefix(repo, alt+"_") {
 		return true
 	}
 	return false
 }
 
-// RemoveAppImages removes images whose repo tags clearly belong to this compose project.
-// Avoids strings.Contains(projectID) which matches longer project names and unrelated images.
 func RemoveAppImages(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -547,8 +569,6 @@ func RemoveAppImages(ctx context.Context, projectID string) []string {
 	return errs
 }
 
-// RemoveContainersByComposeProject force-removes containers with com.docker.compose.project=<projectID>.
-// Custom container_name stacks often need this because name-based removal does not see the project string.
 func RemoveContainersByComposeProject(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -574,9 +594,6 @@ func RemoveContainersByComposeProject(ctx context.Context, projectID string) []s
 	return errs
 }
 
-// RemoveAppContainers removes containers that belong to projectID.
-// Never uses strings.Contains on the container name: a project "ma-masud" must not match
-// "ma-masud-now-..." (another app's compose project) or unrelated names like the panel container.
 func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -608,8 +625,6 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 		if lbl != "" {
 			continue
 		}
-		// Unlabeled orphan: only safe patterns (underscore form). Hyphen form "proj-svc-1" is
-		// ambiguous when another project is "proj-extra" (prefix + hyphen).
 		n := strings.TrimPrefix(name, "/")
 		if n == projectID || strings.HasPrefix(n, projectID+"_") {
 			if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
@@ -620,7 +635,6 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	return errs
 }
 
-// RemoveAppNetworks removes compose-managed networks for this project (label com.docker.compose.project).
 func RemoveAppNetworks(ctx context.Context, projectID string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -739,7 +753,6 @@ func RemoveVolumeByName(ctx context.Context, name string) error {
 	return cli.VolumeRemove(ctx, name, false)
 }
 
-// PruneImages removes all unused (dangling) images.
 func PruneImages(ctx context.Context) error {
 	cli, err := newAPIClient()
 	if err != nil {
@@ -750,7 +763,6 @@ func PruneImages(ctx context.Context) error {
 	return err
 }
 
-// PruneContainers removes all stopped containers.
 func PruneContainers(ctx context.Context) error {
 	cli, err := newAPIClient()
 	if err != nil {
@@ -766,4 +778,70 @@ func containerName(c types.Container) string {
 		return strings.TrimPrefix(c.Names[0], "/")
 	}
 	return ""
+}
+
+type ComposePsRow struct {
+	Name       string
+	Service    string
+	State      string
+	Status     string
+	WorkingDir string
+}
+
+func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		return nil, fmt.Errorf("empty project name")
+	}
+	cli, err := newAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
+
+	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+project))
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true, Filters: fl})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ComposePsRow, 0, len(list))
+	for _, c := range list {
+		service := c.Labels["com.docker.compose.service"]
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		} else {
+			name = c.ID[:12]
+		}
+		out = append(out, ComposePsRow{
+			Name:       name,
+			Service:    service,
+			State:      c.State,
+			Status:     c.Status,
+			WorkingDir: c.Labels["com.docker.compose.project.working_dir"],
+		})
+	}
+	return out, nil
+}
+
+func ContainerComposeLabels(ctx context.Context, containerName string) (project, workingDir string, err error) {
+	containerName = strings.TrimSpace(containerName)
+	if containerName == "" {
+		return "", "", fmt.Errorf("empty container name")
+	}
+	cli, err := newAPIClient()
+	if err != nil {
+		return "", "", err
+	}
+	defer cli.Close()
+
+	insp, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return "", "", err
+	}
+	if insp.Config == nil || insp.Config.Labels == nil {
+		return "", "", nil
+	}
+	return insp.Config.Labels[composeProjectLabel], insp.Config.Labels["com.docker.compose.project.working_dir"], nil
 }

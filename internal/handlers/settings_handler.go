@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/runutil"
+	"panel/internal/sandbox"
 	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
@@ -579,12 +581,18 @@ func (p *Panel) SyncRootStackComposeOnStart() error {
 }
 
 func (p *Panel) SettingsPage(c *fiber.Ctx) error {
-	cfg, _ := p.DB.GetAllSettings(c.UserContext())
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
+	ctx := c.UserContext()
+	cfg, _ := p.DB.GetAllSettings(ctx)
 	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
-	return c.Render("pages/settings", withUser(c, fiber.Map{
+
+	return c.Render("pages/settings", WithUser(c, fiber.Map{
 		"Nav":                        "settings",
 		"Title":                      "Settings",
-		"Flash":                      readFlash(c),
+		"Flash":                      utils.ReadFlash(c),
 		"CleanupEnabled":             settingBool(cfg[settingCleanupEnabled], true),
 		"CleanupInterval":            normalizeCleanupInterval(cfg[settingCleanupInterval]),
 		"CleanupIntervals":           cleanupIntervalOptions(),
@@ -599,16 +607,24 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 
 // TempCleanupRun deletes orphaned NextDeploy temp files immediately.
 func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	removed, freed := CleanPanelTempFiles()
 	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
-	setFlash(c, "tmp_cleaned")
+	utils.SetFlash(c, "tmp_cleaned")
 	return c.Redirect("/settings")
 }
 
 // TempCleanupInfo returns live temp file info as JSON (for AJAX refresh).
 func (p *Panel) TempCleanupInfo(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	count, totalBytes, _ := ScanPanelTempFiles()
 	return c.JSON(fiber.Map{
 		"count": count,
@@ -618,6 +634,10 @@ func (p *Panel) TempCleanupInfo(c *fiber.Ctx) error {
 }
 
 func (p *Panel) SettingsSave(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	enabled := c.FormValue(settingCleanupEnabled) == "on"
 	interval := normalizeCleanupInterval(c.FormValue(settingCleanupInterval))
@@ -638,6 +658,10 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 }
 
 func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
 
@@ -673,7 +697,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		setFlash(c, "panelSaved")
+		utils.SetFlash(c, "panelSaved")
 		return c.Redirect("/nextdeploy")
 	}
 
@@ -681,13 +705,17 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	setFlash(c, "panelSaved")
+	utils.SetFlash(c, "panelSaved")
 	return c.Redirect("/nextdeploy")
 }
 
 // SaveNextDeploySharedVolumes persists Caddy shared volume mounts (prefix + selected Docker volume names)
 // and syncs the root compose file. Separate from panel domain so each form only updates its own settings.
 func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
 
@@ -736,7 +764,7 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		setFlash(c, "volumesSaved")
+		utils.SetFlash(c, "volumesSaved")
 		return c.Redirect("/nextdeploy")
 	}
 
@@ -744,13 +772,17 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	setFlash(c, "volumesSaved")
+	utils.SetFlash(c, "volumesSaved")
 	return c.Redirect("/nextdeploy")
 }
 
 // NextDeployApplyStatus returns the current root-stack compose apply status as JSON.
 // Used by the frontend to poll for live apply progress without a page reload.
 func (p *Panel) NextDeployApplyStatus(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	status := strings.TrimSpace(p.DB.GetSetting(ctx, settingRootApplyStatus))
 	done := status == "" ||
@@ -773,8 +805,12 @@ func boolString(v bool) string {
 
 // ManualCleanupRun triggers an immediate Docker cleanup regardless of schedule.
 func (p *Panel) ManualCleanupRun(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	go p.runScheduledCleanupForce()
-	setFlash(c, "cleanup_started")
+	utils.SetFlash(c, "cleanup_started")
 	return c.Redirect("/settings")
 }
 
@@ -802,7 +838,17 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
 	go p.orphanStagingSweepLoop()
-	go p.StartBackupWorker()
+	go p.auditLogPruneLoop()
+}
+
+func (p *Panel) auditLogPruneLoop() {
+	_ = p.DB.PruneAuditLogs(context.Background(), 7)
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		_ = p.DB.PruneAuditLogs(context.Background(), 7)
+	}
 }
 
 func (p *Panel) prePullAlpineImage() {
@@ -902,4 +948,105 @@ func nextDeployPanelDomain(cfg map[string]string) db.AppDomain {
 		EnableHTTPS: settingBool(cfg[settingPanelEnableHTTPS], true),
 		EnableWWW:   settingBool(cfg[settingPanelEnableWWW], false),
 	}
+}
+
+func (p *Panel) RegistriesPage(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, _ := c.Locals("auth_user").(db.User)
+	var registries []db.PrivateRegistry
+	var rerr error
+	if u.Role == db.RoleAdmin {
+		registries, rerr = p.DB.ListPrivateRegistries(ctx, nil)
+	} else {
+		registries, rerr = p.DB.ListPrivateRegistries(ctx, &u.ID)
+	}
+	if rerr != nil {
+		log.Printf("error listing private registries: %v", rerr)
+	}
+
+	return c.Render("pages/registries", WithUser(c, fiber.Map{
+		"Nav":        "registries",
+		"Title":      "Registries",
+		"Flash":      utils.ReadFlash(c),
+		"Registries": registries,
+	}), "layouts/shell")
+}
+
+func (p *Panel) AddRegistry(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	name := strings.TrimSpace(c.FormValue("name"))
+	serverAddress := strings.TrimSpace(c.FormValue("server_address"))
+	username := strings.TrimSpace(c.FormValue("username"))
+	password := c.FormValue("password")
+
+	if name == "" || serverAddress == "" || username == "" || password == "" {
+		utils.SetFlash(c, "Error: All fields are required.")
+		return c.Redirect("/registries")
+	}
+
+	encPassword, err := sandbox.Encrypt(password)
+	if err != nil {
+		utils.SetFlash(c, "Error encrypting password: "+err.Error())
+		return c.Redirect("/registries")
+	}
+
+	reg := db.PrivateRegistry{
+		Name:              name,
+		ServerAddress:     serverAddress,
+		Username:          username,
+		PasswordEncrypted: encPassword,
+	}
+
+	isGlobal := c.FormValue("is_global") == "on" && u.Role == db.RoleAdmin
+	if !isGlobal {
+		reg.UserID = &u.ID
+	}
+
+	_, err = p.DB.AddPrivateRegistry(ctx, reg)
+	if err != nil {
+		utils.SetFlash(c, "Error adding registry: "+err.Error())
+		return c.Redirect("/registries")
+	}
+
+	p.RecordAuditLog(c, "add_private_registry", "registry", name, fmt.Sprintf("Added registry %s (Global: %v)", name, isGlobal))
+	utils.SetFlash(c, "Registry added successfully.")
+	return c.Redirect("/registries")
+}
+
+func (p *Panel) DeleteRegistry(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("Invalid ID")
+	}
+
+	reg, err := p.DB.GetPrivateRegistry(ctx, int64(id))
+	if err != nil {
+		utils.SetFlash(c, "Registry not found.")
+		return c.Redirect("/registries")
+	}
+
+	if u.Role != db.RoleAdmin && (reg.UserID == nil || *reg.UserID != u.ID) {
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
+	}
+
+	err = p.DB.DeletePrivateRegistry(ctx, int64(id))
+	if err != nil {
+		utils.SetFlash(c, "Error deleting registry: "+err.Error())
+		return c.Redirect("/registries")
+	}
+
+	p.RecordAuditLog(c, "delete_private_registry", "registry", reg.Name, fmt.Sprintf("Deleted registry %s", reg.Name))
+	utils.SetFlash(c, "Registry deleted successfully.")
+	return c.Redirect("/registries")
 }

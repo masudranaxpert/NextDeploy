@@ -12,18 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	"panel/internal/dockerapi"
 	"panel/internal/runutil"
 )
 
-// Result is an alias to the shared runutil.Result for backward compatibility.
 type Result = runutil.Result
 
-// ComposePsRow matches `docker compose ps --format json` line objects (Compose V2).
 type ComposePsRow struct {
 	Name    string `json:"Name"`
 	Service string `json:"Service"`
 	State   string `json:"State"`
 	Status  string `json:"Status"`
+	// WorkingDir is com.docker.compose.project.working_dir (SDK path only; empty from CLI fallback).
+	WorkingDir string `json:"-"`
 }
 
 func run(ctx context.Context, dir string, args ...string) runutil.Result {
@@ -35,6 +36,9 @@ func runCompose(ctx context.Context, projectDir string, composeFiles []string, p
 	args := composeBin(projectDir, composeFiles, project, envFiles, rest...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = projectDir
+	if configDir, ok := ctx.Value("docker_config").(string); ok && configDir != "" {
+		cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+configDir)
+	}
 	var buf bytes.Buffer
 	out := io.Writer(&buf)
 	if logW != nil {
@@ -63,8 +67,6 @@ func composeFileArg(projectDir, composeFile string) string {
 	return filepath.ToSlash(rel)
 }
 
-// composeBin builds a docker compose argv. --project-directory makes host paths in volumes
-// (e.g. ./nginx.conf) resolve from project root on the daemon, not only from the compose file path.
 func composeBin(projectDir string, composeFiles []string, projectName string, envFiles []string, rest ...string) []string {
 	pd := filepath.Clean(projectDir)
 	a := []string{
@@ -88,7 +90,6 @@ func composeBin(projectDir string, composeFiles []string, projectName string, en
 	return append(a, rest...)
 }
 
-// fixLineEndings normalizes CRLF to LF in top-level *.sh under projectDir so Docker/Linux entrypoints run.
 func fixLineEndings(projectDir string) {
 	matches, err := filepath.Glob(filepath.Join(projectDir, "*.sh"))
 	if err != nil {
@@ -111,20 +112,15 @@ func fixLineEndings(projectDir string) {
 	}
 }
 
-// logW receives a live copy of stdout+stderr; nil disables streaming.
 func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
-// ComposeApply runs `docker compose up -d` (no rebuild) — used to apply label/config
-// changes without rebuilding images, e.g. after a domain add/edit/delete.
 func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	return ComposeApplyServices(ctx, projectDir, composeFiles, project, logW, envFiles)
 }
 
-// ComposeApplyServices runs `docker compose up -d` for zero or more service names.
-// With no services, all services defined in the compose files are reconciled.
 func ComposeApplyServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
 	fixLineEndings(projectDir)
 	args := append([]string{"up", "-d"}, services...)
@@ -167,6 +163,24 @@ func ComposeLogs(ctx context.Context, projectDir string, composeFiles []string, 
 }
 
 func ComposePS(ctx context.Context, projectDir string, composeFiles []string, project string, envFiles []string) ([]ComposePsRow, Result) {
+	project = strings.TrimSpace(project)
+	if project != "" {
+		sdkRows, err := dockerapi.ComposePS(ctx, project)
+		if err == nil {
+			rows := make([]ComposePsRow, 0, len(sdkRows))
+			for _, sr := range sdkRows {
+				rows = append(rows, ComposePsRow{
+					Name:       sr.Name,
+					Service:    sr.Service,
+					State:      sr.State,
+					Status:     sr.Status,
+					WorkingDir: sr.WorkingDir,
+				})
+			}
+			return rows, Result{OK: true, Output: ""}
+		}
+	}
+
 	r := run(ctx, projectDir, composeBin(projectDir, composeFiles, project, envFiles, "ps", "-a", "--format", "json")...)
 	if !r.OK {
 		return nil, r
@@ -201,6 +215,9 @@ func ContainerRestart(ctx context.Context, name string) Result {
 	if name == "" {
 		return Result{OK: false, Output: "no container name"}
 	}
+	if err := dockerapi.RestartContainerByName(ctx, name); err == nil {
+		return Result{OK: true, Output: ""}
+	}
 	return run(ctx, ".", "docker", "restart", name)
 }
 
@@ -209,6 +226,9 @@ func ContainerStart(ctx context.Context, name string) Result {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Result{OK: false, Output: "no container name"}
+	}
+	if err := dockerapi.StartContainerByName(ctx, name); err == nil {
+		return Result{OK: true, Output: ""}
 	}
 	return run(ctx, ".", "docker", "start", name)
 }
@@ -219,6 +239,9 @@ func ContainerStop(ctx context.Context, name string) Result {
 	if name == "" {
 		return Result{OK: false, Output: "no container name"}
 	}
+	if err := dockerapi.StopContainerByName(ctx, name); err == nil {
+		return Result{OK: true, Output: ""}
+	}
 	return run(ctx, ".", "docker", "stop", "-t", "10", name)
 }
 
@@ -226,6 +249,9 @@ func ContainerRemove(ctx context.Context, name string) Result {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Result{OK: false, Output: "no container name"}
+	}
+	if err := dockerapi.RemoveContainerByName(ctx, name); err == nil {
+		return Result{OK: true, Output: ""}
 	}
 	return run(ctx, ".", "docker", "rm", "-f", name)
 }
@@ -237,37 +263,23 @@ func DockerLogs(ctx context.Context, container string, tail int) Result {
 	if strings.TrimSpace(container) == "" {
 		return Result{OK: false, Output: "no container selected"}
 	}
-	// Keep Docker timestamps so the browser toggle has a stable source.
-	// No --no-color so ANSI from apps is preserved for browser rendering.
 	return run(ctx, ".", "docker", "logs", "-t", "--tail", fmt.Sprintf("%d", tail), container)
 }
 
-// PruneOptions controls which resources the scheduled Docker cleanup targets.
-// Running containers are never affected; only unused / dangling resources are
-// pruned. BuildCache uses `docker builder prune -a -f` which can reclaim
-// significant disk at the cost of slower first rebuilds.
 type PruneOptions struct {
 	Containers bool
 	Images     bool
 	BuildCache bool
 }
 
-// DefaultPruneOptions preserves the historical behaviour of DockerPruneUnused
-// (containers + images, no build cache) so callers that haven't opted in keep
-// their current output shape.
 func DefaultPruneOptions() PruneOptions {
 	return PruneOptions{Containers: true, Images: true, BuildCache: false}
 }
 
-// DockerPruneUnused keeps the legacy signature for callers that only want the
-// default container + image sweep.
 func DockerPruneUnused(ctx context.Context) Result {
 	return DockerPruneWithOptions(ctx, DefaultPruneOptions())
 }
 
-// DockerPruneWithOptions runs each enabled prune step sequentially so heavy
-// disk I/O does not overlap, then stitches the per-step output into one log
-// body for display in the settings panel.
 func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	if !opts.Containers && !opts.Images && !opts.BuildCache {
 		return Result{OK: true, Output: "No cleanup options selected."}
@@ -307,8 +319,6 @@ func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	return Result{OK: ok, Output: out}
 }
 
-// DockerExec runs a non-interactive shell command inside a running container (sh -c).
-// Falls back to direct execution if the container doesn't have a shell.
 func DockerExec(ctx context.Context, container, shellCmd string) Result {
 	container = strings.TrimSpace(container)
 	shellCmd = strings.TrimSpace(shellCmd)

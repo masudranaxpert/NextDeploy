@@ -31,7 +31,7 @@ func clearPanelCookie(c *fiber.Ctx, name string) {
 }
 
 // consumeGitTabFlash reads and clears one-time flash cookies after Git save/sync redirects.
-func (p *Panel) consumeGitTabFlash(c *fiber.Ctx, appID string) (saved, synced bool, errMsg string) {
+func (p *Panel) ConsumeGitTabFlash(c *fiber.Ctx, appID string) (saved, synced bool, errMsg string) {
 	fn := gitFlashCookieName(appID)
 	flash := c.Cookies(fn)
 	if flash != "" {
@@ -56,7 +56,7 @@ func (p *Panel) consumeGitTabFlash(c *fiber.Ctx, appID string) (saved, synced bo
 	return
 }
 
-func (p *Panel) setGitTabFlashCookie(c *fiber.Ctx, appID, flash string) {
+func (p *Panel) SetGitTabFlashCookie(c *fiber.Ctx, appID, flash string) {
 	c.Cookie(&fiber.Cookie{
 		Name:     gitFlashCookieName(appID),
 		Value:    flash,
@@ -67,7 +67,7 @@ func (p *Panel) setGitTabFlashCookie(c *fiber.Ctx, appID, flash string) {
 	})
 }
 
-func (p *Panel) setGitTabErrorCookie(c *fiber.Ctx, appID, msg string) {
+func (p *Panel) SetGitTabErrorCookie(c *fiber.Ctx, appID, msg string) {
 	if msg == "" {
 		return
 	}

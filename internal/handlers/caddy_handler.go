@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,6 +20,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/sandbox"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -26,6 +31,30 @@ func sanitizeDomainRecord(d *db.AppDomain) {
 	}
 	d.Domain = caddy.CleanQuotedValue(d.Domain)
 	d.Service = caddy.CleanQuotedValue(d.Service)
+}
+
+func (p *Panel) userCanDomainFileServer(c *fiber.Ctx) bool {
+	u, ok := currentUser(c)
+	if !ok {
+		return false
+	}
+	if u.Role == db.RoleAdmin {
+		return true
+	}
+	fresh, err := p.DB.GetUserByID(c.UserContext(), u.ID)
+	if err != nil {
+		return false
+	}
+	return fresh.AllowDomainFileServer
+}
+
+func stripDomainFileServing(d *db.AppDomain) {
+	d.ServeStatic = false
+	d.StaticPath = ""
+	d.StaticURLPrefix = ""
+	d.ServeMedia = false
+	d.MediaPath = ""
+	d.MediaURLPrefix = ""
 }
 
 func (p *Panel) appDomainForRequest(c *fiber.Ctx) (db.AppDomain, error) {
@@ -44,13 +73,30 @@ func (p *Panel) appDomainForRequest(c *fiber.Ctx) (db.AppDomain, error) {
 	return d, nil
 }
 
-func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
-	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
+func (p *Panel) SyncAppCaddyOverride(c *fiber.Ctx, appID string) error {
+	return p.SyncAppCaddyOverrideCtx(c.UserContext(), appID)
 }
 
-// syncAppCaddyOverrideCtx writes the merged Caddy compose override file.
+func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
+	return p.SyncAppCaddyOverride(c, appID)
+}
+
+const defaultDockerfileCompose = "services:\n  app:\n    build: .\n    restart: unless-stopped\n"
+
+func (p *Panel) EffectiveBaseCompose(ctx context.Context, app db.App, appID string) (content []byte, onDisk bool, ok bool) {
+	basePath := p.composeFilePath(ctx, app, appID)
+	if data, err := os.ReadFile(basePath); err == nil {
+		return data, true, true
+	}
+	if hasDockerfile, hasCompose := p.Store.HasDockerArtifacts(appID); hasDockerfile && !hasCompose {
+		return []byte(defaultDockerfileCompose), false, true
+	}
+	return nil, false, false
+}
+
+// SyncAppCaddyOverrideCtx writes the merged Caddy compose override file.
 // It passes the panel env so GenerateMergedCompose can inject env_file into every service.
-func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
+func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return err
@@ -61,21 +107,46 @@ func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	}
 	overridePath := p.composeOverridePath(ctx, appID)
 	basePath := p.composeFilePath(ctx, app, appID)
-	base, err := os.ReadFile(basePath)
+	base, baseOnDisk, ok := p.EffectiveBaseCompose(ctx, app, appID)
+	if !ok {
+		if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+
+	owner, err := p.DB.GetUserByID(ctx, app.OwnerID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+		owner = db.User{
+			ID:          app.OwnerID,
+			Role:        db.RoleUser,
+			MaxCPUs:     2.0,
+			MaxMemoryMB: 2048,
+		}
+	}
+	if owner.Role != db.RoleAdmin {
+		clamped, err := sandbox.ValidateAndClampCompose(base, owner.MaxCPUs, owner.MaxMemoryMB)
+		if err != nil {
+			return fmt.Errorf("security sandbox error: %w", err)
+		}
+		base = clamped
+		if baseOnDisk {
+			if err := os.WriteFile(basePath, base, 0640); err != nil {
 				return err
 			}
-			return nil
 		}
-		return err
 	}
+	cgroupParent := p.UserCgroupParent(ctx, owner)
+
+	if err := p.WriteDockerRegistryConfig(ctx, appID, app.OwnerID); err != nil {
+		log.Printf("failed to write docker registry config for app %s: %v", appID, err)
+	}
+
 	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv)
+	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
@@ -108,11 +179,19 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 // ── Caddy global page ─────────────────────────────────────────────────────────
 
 func (p *Panel) CaddyPage(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	return c.Redirect("/nextdeploy", fiber.StatusFound)
 }
 
 // POST /caddy/config — save global caddy settings
 func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	fields := map[string]string{
 		"admin_api":   strings.TrimSpace(c.FormValue("admin_api")),
@@ -131,6 +210,10 @@ func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
 }
 
 func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	action := strings.TrimSpace(c.FormValue("action"))
 	ctx := c.UserContext()
 	var err error
@@ -161,9 +244,10 @@ func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
 	}
 	services := p.loadComposeServices(c.UserContext(), id)
 	return c.Render("partials/domain/domain_tab", fiber.Map{
-		"ID":       id,
-		"Domains":  domains,
-		"Services": services,
+		"ID":                    id,
+		"Domains":               domains,
+		"Services":              services,
+		"ShowDomainFileServer":  p.userCanDomainFileServer(c),
 	})
 }
 
@@ -195,6 +279,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
 	}
+	if !p.userCanDomainFileServer(c) {
+		stripDomainFileServing(&d)
+	}
 	if err := db.ValidateAppDomainFileServing(&d); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
@@ -204,7 +291,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
@@ -221,7 +308,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
@@ -258,6 +345,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
 	}
+	if !p.userCanDomainFileServer(c) {
+		stripDomainFileServing(&d)
+	}
 	if err := db.ValidateAppDomainFileServing(&d); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
@@ -267,7 +357,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
@@ -351,6 +441,10 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 
 // GET /caddy/logs — return caddy container logs as JSON lines
 func (p *Panel) CaddyLogs(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	tail, _ := strconv.Atoi(c.Query("tail", "300"))
 	if tail <= 0 || tail > 2000 {
 		tail = 300
@@ -383,9 +477,8 @@ func (p *Panel) loadComposeServices(ctx context.Context, appID string) []string 
 	if err != nil {
 		return nil
 	}
-	cfPath := p.composeFilePath(ctx, app, appID)
-	data, err := os.ReadFile(cfPath)
-	if err != nil {
+	data, _, ok := p.EffectiveBaseCompose(ctx, app, appID)
+	if !ok {
 		return nil
 	}
 	return parseComposeServiceNames(data)
@@ -423,5 +516,54 @@ func parseComposeServiceNames(data []byte) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func (p *Panel) WriteDockerRegistryConfig(ctx context.Context, appID string, ownerID int64) error {
+	regs, err := p.DB.ListPrivateRegistries(ctx, &ownerID)
+	if err != nil {
+		return err
+	}
+
+	if len(regs) == 0 {
+		dockerDir := filepath.Join(p.Store.ReservedPath(appID), ".docker")
+		_ = os.Remove(filepath.Join(dockerDir, "config.json"))
+		return nil
+	}
+
+	type DockerAuth struct {
+		Auth string `json:"auth"`
+	}
+	type DockerConfig struct {
+		Auths map[string]DockerAuth `json:"auths"`
+	}
+
+	cfg := DockerConfig{
+		Auths: make(map[string]DockerAuth),
+	}
+
+	for _, r := range regs {
+		pwd, err := sandbox.Decrypt(r.PasswordEncrypted)
+		if err != nil {
+			continue
+		}
+		authStr := base64.StdEncoding.EncodeToString([]byte(r.Username + ":" + pwd))
+		serverAddr := strings.TrimSpace(r.ServerAddress)
+		if serverAddr == "" {
+			serverAddr = "https://index.docker.io/v1/"
+		}
+		cfg.Auths[serverAddr] = DockerAuth{Auth: authStr}
+	}
+
+	dockerDir := filepath.Join(p.Store.ReservedPath(appID), ".docker")
+	if err := os.MkdirAll(dockerDir, 0750); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return atomicWriteFile(filepath.Join(dockerDir, "config.json"), data, 0600)
 }
 

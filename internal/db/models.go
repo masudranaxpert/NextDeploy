@@ -12,6 +12,24 @@ const (
 	RoleUser  = "user"
 )
 
+// User statuses
+const (
+	UserStatusActive    = "active"
+	UserStatusSuspended = "suspended"
+)
+
+// App statuses
+const (
+	AppStatusActive    = "active"
+	AppStatusSuspended = "suspended"
+)
+
+// Collaborator roles
+const (
+	CollabRoleDeveloper = "developer"
+	CollabRoleViewer    = "viewer"
+)
+
 // User represents a panel user account.
 type User struct {
 	ID           int64
@@ -19,6 +37,12 @@ type User struct {
 	PasswordHash string
 	Role         string
 	CreatedAt    time.Time
+	MaxApps      int
+	MaxMemoryMB  int
+	MaxCPUs      float64
+	MaxStorageMB           int
+	Status                 string
+	AllowDomainFileServer  bool
 }
 
 type App struct {
@@ -26,6 +50,25 @@ type App struct {
 	Name        string
 	CreatedAt   time.Time
 	ComposeFile string
+	OwnerID     int64
+	Status      string
+}
+
+type AppCollaborator struct {
+	AppID     string
+	UserID    int64
+	Role      string
+	CreatedAt time.Time
+}
+
+type PrivateRegistry struct {
+	ID                int64
+	UserID            *int64
+	Name              string
+	ServerAddress     string
+	Username          string
+	PasswordEncrypted string
+	CreatedAt         time.Time
 }
 
 type AppGitConfig struct {
@@ -50,6 +93,7 @@ type AppGitConfig struct {
 // GitProvider holds a named global Git credential (token) for a provider.
 type GitProvider struct {
 	ID           int64
+	UserID       *int64
 	Name         string
 	Provider     string
 	Token        string
@@ -78,21 +122,21 @@ type GitHubProviderDetail struct {
 
 // AppDomain is a domain entry attached to an app with caddy routing config.
 type AppDomain struct {
-	ID             int64
-	AppID          string
-	Domain         string
-	Service        string
-	Port           int
-	EnableHTTPS    bool
-	EnableWWW      bool
-	ServeStatic       bool
-	StaticPath        string
-	StaticURLPrefix   string
-	ServeMedia        bool
-	MediaPath         string
-	MediaURLPrefix    string
-	RouteRulesJSON    string
-	CreatedAt         time.Time
+	ID              int64
+	AppID           string
+	Domain          string
+	Service         string
+	Port            int
+	EnableHTTPS     bool
+	EnableWWW       bool
+	ServeStatic     bool
+	StaticPath      string
+	StaticURLPrefix string
+	ServeMedia      bool
+	MediaPath       string
+	MediaURLPrefix  string
+	RouteRulesJSON  string
+	CreatedAt       time.Time
 }
 
 // NormalizeCaddyPathMatcherFromURLPrefix builds a Caddy path matcher from a user-defined public prefix (e.g. /assets, files/uploads). No defaults.
@@ -166,6 +210,7 @@ func ValidateAppDomainFileServing(d *AppDomain) error {
 	}
 	return nil
 }
+
 type AppDomainRoute struct {
 	Priority int    `json:"priority"`
 	Path     string `json:"path"`
@@ -214,6 +259,7 @@ type DeployLog struct {
 // BackupDestination represents a cloud storage destination for backups
 type BackupDestination struct {
 	ID        int64
+	UserID    *int64
 	Name      string
 	Provider  string
 	Config    string
@@ -230,6 +276,7 @@ type BackupSchedule struct {
 	CronExpression  string
 	RetentionCount  int
 	Enabled         bool
+	PauseContainers bool
 	LastRun         string
 	CreatedAt       string
 }
@@ -274,4 +321,17 @@ func ParseRemoteCheckedAt(s string) (time.Time, error) {
 		return time.Time{}, errors.New("empty remote_checked_at")
 	}
 	return time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
+}
+
+type AuditLog struct {
+	ID         int64
+	UserID     int64
+	Username   string
+	Action     string
+	TargetType string
+	TargetID   string
+	IPAddress  string
+	UserAgent  string
+	Details    string
+	CreatedAt  time.Time
 }

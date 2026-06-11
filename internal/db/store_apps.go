@@ -8,20 +8,36 @@ import (
 	"time"
 )
 
-func (s *Store) CreateApp(ctx context.Context, id, name string) error {
+func (s *Store) CreateApp(ctx context.Context, id, name string, ownerID int64) error {
 	if id == "" || name == "" {
 		return errors.New("invalid app")
 	}
-	exists, err := s.AppNameExists(ctx, name)
+	exists, err := s.AppNameExistsForUser(ctx, name, ownerID)
 	if err != nil {
 		return err
 	}
 	if exists {
 		return errors.New("app name already exists")
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO apps (id, name, created_at, compose_file) VALUES (?, ?, ?, ?)`,
-		id, name, time.Now().UTC().Format(time.RFC3339), "docker-compose.yml")
+	_, err = s.db.ExecContext(ctx, `INSERT INTO apps (id, name, created_at, compose_file, owner_id, status) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, name, time.Now().UTC().Format(time.RFC3339), "docker-compose.yml", ownerID, "active")
 	return err
+}
+
+func (s *Store) AppNameExistsForUser(ctx context.Context, name string, ownerID int64) (bool, error) {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return false, nil
+	}
+	var found string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ? LIMIT 1`, name, ownerID).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return found != "", nil
 }
 
 func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
@@ -41,7 +57,7 @@ func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,'') FROM apps ORDER BY datetime(created_at) DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps ORDER BY datetime(created_at) DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +66,34 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	for rows.Next() {
 		var a App
 		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			t = time.Time{}
+		}
+		a.CreatedAt = t
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active')
+		FROM apps
+		WHERE owner_id = ? OR id IN (SELECT app_id FROM app_collaborators WHERE user_id = ?)
+		ORDER BY datetime(created_at) DESC`, userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []App
+	for rows.Next() {
+		var a App
+		var created string
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status); err != nil {
 			return nil, err
 		}
 		t, err := time.Parse(time.RFC3339, created)
@@ -66,7 +109,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	var a App
 	var created string
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,'') FROM apps WHERE id = ?`, id).Scan(&a.ID, &a.Name, &created, &a.ComposeFile)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps WHERE id = ?`, id).Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status)
 	if err != nil {
 		return App{}, err
 	}
@@ -77,6 +120,17 @@ func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	}
 	return a, nil
 }
+
+func (s *Store) UpdateAppStatus(ctx context.Context, id string, status string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+func (s *Store) UpdateAppOwner(ctx context.Context, id string, ownerID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET owner_id = ? WHERE id = ?`, ownerID, id)
+	return err
+}
+
 
 func (s *Store) UpdateComposeFile(ctx context.Context, id, composeFile string) error {
 	composeFile = strings.TrimSpace(composeFile)

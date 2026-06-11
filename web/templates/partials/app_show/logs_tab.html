@@ -1,12 +1,12 @@
-﻿    <div class="panel-card space-y-4 p-5">
+    <div class="panel-card space-y-4 p-5">
       <div>
         <h2 class="text-base font-semibold text-foreground">Container logs</h2>
         <p class="mt-0.5 text-sm text-muted-foreground">Choose a container and how many lines to tail. Colors are heuristic (errors, warnings, HTTP status, etc.).</p>
       </div>
-      {{if not .HasCompose}}
+      {{if not .HasStack}}
         <div class="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
           <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-          <p class="text-sm text-amber-200">Upload <code class="rounded bg-muted px-1">docker-compose.yml</code> in Files and deploy from Overview first.</p>
+          <p class="text-sm text-amber-200">Add a <code class="rounded bg-muted px-1">Dockerfile</code> or <code class="rounded bg-muted px-1">docker-compose.yml</code> in Files and deploy from Overview first.</p>
         </div>
       {{else if not .ComposeRows}}
         <p class="text-sm text-muted-foreground">No compose containers yet. Deploy from Overview, then open this tab again.</p>
@@ -50,7 +50,7 @@
         </div>
       {{end}}
       <div id="log-view" class="mt-2 min-h-[6rem]" aria-live="polite">
-        {{if and .HasCompose .ComposeRows}}
+        {{if and .HasStack .ComposeRows}}
           <div class="flex items-center gap-2 text-xs text-muted-foreground">
             <svg class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
             Loading logs…
@@ -194,6 +194,44 @@
           return true;
         }
 
+        function lineVisible(el, wrap) {
+          if (!elementMatchesFilter(el, wrap.dataset.logFilter || 'all')) return false;
+          var q = wrap.dataset.logSearch || '';
+          if (q && (el.textContent || '').toLowerCase().indexOf(q) === -1) return false;
+          return true;
+        }
+
+        function applyAllVisibility() {
+          var wrap = logView.querySelector('.log-view-wrap');
+          var viewport = wrap ? wrap.querySelector('.log-viewport') : null;
+          if (!wrap || !viewport) return;
+          var filter = wrap.dataset.logFilter || 'all';
+          var searching = !!(wrap.dataset.logSearch || '');
+          var hideSpacers = filter !== 'all' || searching;
+          var visible = 0;
+          var total = 0;
+          viewport.querySelectorAll('.log-line, .log-line-spacer').forEach(function(el) {
+            if (el.classList.contains('log-line-spacer')) {
+              el.style.display = hideSpacers ? 'none' : '';
+              return;
+            }
+            total++;
+            var show = lineVisible(el, wrap);
+            if (show) visible++;
+            el.style.display = show ? '' : 'none';
+          });
+          var counter = logView.querySelector('.log-match-count');
+          if (counter) {
+            if (filter !== 'all' || searching) {
+              counter.textContent = visible + ' / ' + total + ' lines';
+              counter.classList.remove('hidden');
+            } else {
+              counter.classList.add('hidden');
+            }
+          }
+          viewport.scrollTop = viewport.scrollHeight;
+        }
+
         function appendRenderedLine(viewport, wrap, line) {
           if (!viewport || !wrap) return;
           var empty = viewport.querySelector('.log-empty-state');
@@ -202,7 +240,8 @@
           if (line === '') {
             var spacer = document.createElement('div');
             spacer.className = 'log-line-spacer';
-            spacer.style.display = (wrap.dataset.logFilter && wrap.dataset.logFilter !== 'all') ? 'none' : '';
+            var filtering = (wrap.dataset.logFilter && wrap.dataset.logFilter !== 'all') || !!(wrap.dataset.logSearch || '');
+            spacer.style.display = filtering ? 'none' : '';
             viewport.appendChild(spacer);
             return;
           }
@@ -215,7 +254,7 @@
           body = wrapTimestampHtml(body);
           body = highlightLogKeywords(body);
           el.innerHTML = badgeHtml(level) + body;
-          if (!elementMatchesFilter(el, wrap.dataset.logFilter || 'all')) {
+          if (!lineVisible(el, wrap)) {
             el.style.display = 'none';
           }
           viewport.appendChild(el);
@@ -308,10 +347,115 @@
         pick.addEventListener('change', reloadHistoryState);
         tail.addEventListener('change', reloadHistoryState);
 
-        document.addEventListener('htmx:afterSwap', function(e) {
+        function onLogViewSwap(e) {
           if (e.detail && e.detail.target && e.detail.target.id === 'log-view') {
             state.buffer = '';
             connectSocket();
+
+            var wrap = logView.querySelector('.log-view-wrap');
+            if (wrap) {
+              var activeFilterBtn = logView.querySelector('.log-filter-active');
+              if (activeFilterBtn) {
+                 wrap.dataset.logFilter = activeFilterBtn.dataset.filter || 'all';
+              }
+            }
+          }
+        }
+
+        function onLogViewError(e) {
+          var target = e.detail && (e.detail.target || (e.detail.requestConfig && e.detail.requestConfig.target));
+          if (!target || target.id !== 'log-view') return;
+          closeSocket();
+          setLogStatus('error', 'Could not load logs');
+          logView.innerHTML =
+            '<div class="flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">' +
+              '<svg class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>' +
+              '<div><p class="text-sm font-medium text-rose-300">Failed to load logs for this container.</p>' +
+              '<p class="mt-0.5 text-xs text-rose-200/70">The container may have been removed or recreated. Pick another container or reload the page.</p></div>' +
+            '</div>';
+        }
+
+        // The tab partial can be re-rendered by htmx; replace document-level
+        // listeners instead of stacking duplicates that would multi-connect.
+        if (window.__appLogSwapHandler) document.removeEventListener('htmx:afterSwap', window.__appLogSwapHandler);
+        window.__appLogSwapHandler = onLogViewSwap;
+        document.addEventListener('htmx:afterSwap', onLogViewSwap);
+
+        if (window.__appLogErrorHandler) document.removeEventListener('htmx:responseError', window.__appLogErrorHandler);
+        window.__appLogErrorHandler = onLogViewError;
+        document.addEventListener('htmx:responseError', onLogViewError);
+
+        var searchDebounce = 0;
+        logView.addEventListener('input', function(e) {
+          var inp = e.target.closest && e.target.closest('.log-search-input');
+          if (!inp) return;
+          var wrap = logView.querySelector('.log-view-wrap');
+          if (!wrap) return;
+          clearTimeout(searchDebounce);
+          searchDebounce = setTimeout(function() {
+            wrap.dataset.logSearch = (inp.value || '').trim().toLowerCase();
+            applyAllVisibility();
+          }, 120);
+        });
+
+        logView.addEventListener('click', function(e) {
+          var filterBtn = e.target.closest('.log-filter-btn');
+          if (filterBtn) {
+            var filter = filterBtn.dataset.filter || 'all';
+            var wrap = logView.querySelector('.log-view-wrap');
+            if (wrap) wrap.dataset.logFilter = filter;
+
+            logView.querySelectorAll('.log-filter-btn').forEach(function(btn) {
+              btn.classList.remove('log-filter-active', 'bg-primary/12', 'text-primary');
+            });
+            filterBtn.classList.add('log-filter-active', 'bg-primary/12', 'text-primary');
+
+            applyAllVisibility();
+            return;
+          }
+
+          var jumpBtn = e.target.closest('.log-jump-btn');
+          if (jumpBtn) {
+            var jumpViewport = logView.querySelector('.log-viewport');
+            if (jumpViewport) jumpViewport.scrollTop = jumpViewport.scrollHeight;
+            return;
+          }
+
+          var tsToggle = e.target.closest('.log-ts-toggle');
+          if (tsToggle) {
+            var viewport = logView.querySelector('.log-viewport');
+            if (viewport) {
+              viewport.classList.toggle('hide-timestamps');
+            }
+            return;
+          }
+
+          var dlBtn = e.target.closest('.log-download-btn');
+          if (dlBtn) {
+            var viewport = logView.querySelector('.log-viewport');
+            if (viewport) {
+              var clone = viewport.cloneNode(true);
+              if (viewport.classList.contains('hide-timestamps')) {
+                clone.querySelectorAll('.log-ts').forEach(function(n) { n.remove(); });
+              }
+              var lines = Array.from(clone.childNodes).map(function(n) {
+                if (n.nodeType === Node.TEXT_NODE) return n.textContent;
+                if (n.classList && n.classList.contains('log-line-spacer')) return '';
+                return n.innerText || n.textContent;
+              });
+              var text = lines.join('\n');
+              var blob = new Blob([text], { type: 'text/plain' });
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              var containerName = getSelectedContainer().split(' ')[0] || 'logs';
+              a.download = containerName + '-logs.txt';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            }
+            return;
           }
         });
 
