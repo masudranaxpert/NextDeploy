@@ -10,8 +10,8 @@ import (
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
-
 	"panel/internal/logview"
+	"panel/internal/perflog"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -230,12 +230,20 @@ func logTailLines(q string) int {
 
 func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 	id := c.Params("id")
+	tr := perflog.Start("AppLogPartial")
+	defer tr.Finish()
+	tr.Field("app", id)
+
+	mark := time.Now()
 	app, err := h.P.DB.GetApp(c.UserContext(), id)
+	tr.StepDur("db_get_app", mark)
 	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
 	q := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")
 	tail := logTailLines(c.Query("tail"))
+	tr.Field("container", q)
+	tr.Field("tail", fmt.Sprintf("%d", tail))
 	if q == "" {
 		return c.Render("partials/log_view", fiber.Map{
 			"LogHTML": logview.FormatDockerLog("Select a container from the list."),
@@ -244,17 +252,25 @@ func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 45*time.Second)
 	defer cancel()
+	mark = time.Now()
 	byService := h.P.ComposeServiceBelongsToApp(ctx, id, q)
 	if !byService && !h.P.ContainerBelongsToApp(ctx, id, q) {
+		tr.StepDur("access_check", mark)
 		return c.Render("partials/log_view", fiber.Map{
 			"LogHTML": logview.FormatDockerLog("That service or container does not belong to this app."),
 			"LogMeta": "",
 		})
 	}
+	tr.StepDur("access_check", mark)
 	logRef := q
 	if byService {
+		mark = time.Now()
 		project := h.P.ActiveComposeProjectName(ctx, app, id)
+		tr.StepDur("resolve_project", mark)
+		tr.Field("project", project)
+		mark = time.Now()
 		cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, q)
+		tr.StepDur("resolve_container_id", mark)
 		if rerr != nil {
 			return c.Render("partials/log_view", fiber.Map{
 				"LogHTML": logview.FormatDockerLog("Could not resolve container for service " + q + ": " + rerr.Error()),
@@ -263,7 +279,9 @@ func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 		}
 		logRef = cid
 	}
+	mark = time.Now()
 	raw, ferr := dockerapi.FetchContainerLogsText(ctx, logRef, tail)
+	tr.StepDur("docker_logs", mark)
 	status := "ok"
 	if ferr != nil {
 		if strings.TrimSpace(raw) == "" {
@@ -272,9 +290,14 @@ func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 		status = "error"
 	}
 	meta := fmt.Sprintf("%s · %s · last %d lines", q, status, tail)
+	mark = time.Now()
 	html := logview.FormatDockerLog(raw)
-	return c.Render("partials/log_view", fiber.Map{
+	tr.StepDur("format_log", mark)
+	mark = time.Now()
+	err = c.Render("partials/log_view", fiber.Map{
 		"LogHTML": html,
 		"LogMeta": meta,
 	})
+	tr.StepDur("render", mark)
+	return err
 }

@@ -20,6 +20,7 @@ import (
 	"panel/internal/handlers/compose"
 	"panel/internal/handlers/filebrowser"
 	"panel/internal/handlers/git"
+	"panel/internal/perflog"
 	"panel/internal/workspace"
 
 	fws "github.com/gofiber/contrib/websocket"
@@ -116,6 +117,7 @@ func main() {
 		DisablePreParseMultipartForm: true,
 	})
 
+	app.Use(perflog.Middleware())
 	app.Use(logger.New(logger.Config{
 		Format:      "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
 	}))

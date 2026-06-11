@@ -3,16 +3,19 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
+	"panel/internal/perflog"
 	"panel/internal/handlers/audit"
 	"panel/internal/handlers/utils"
 	"panel/internal/volumex"
@@ -418,11 +421,16 @@ func (p *Panel) composeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) b
 // composeProjectAndPS resolves the active compose project name and returns Compose PS rows in at most
 // len(legacyProjectNames) subprocess calls (reuses rows for the winning project — avoids an extra PS on list pages).
 func (p *Panel) ComposeProjectAndPS(ctx context.Context, app db.App, id string) (project string, rows []dockerx.ComposePsRow, res dockerx.Result) {
+	tr := perflog.Start("ComposeProjectAndPS")
+	defer tr.Finish()
+	tr.Field("app", id)
+
 	canonical := p.composeProjectName(app, id)
 	if canonical == "" {
 		return "", nil, dockerx.Result{OK: false, Output: "app has no compose project slug; set an app name with letters or numbers"}
 	}
 	names := p.legacyProjectNames(app, id)
+	tr.Field("candidates", fmt.Sprintf("%d", len(names)))
 	if len(names) == 0 {
 		return "", nil, dockerx.Result{OK: false, Output: "no compose project candidates"}
 	}
@@ -431,15 +439,25 @@ func (p *Panel) ComposeProjectAndPS(ctx context.Context, app db.App, id string) 
 	envFiles := p.composeEnvFiles(ctx, id)
 	var lastRows []dockerx.ComposePsRow
 	var lastRes dockerx.Result
+	probeStart := time.Now()
 	for i, proj := range names {
 		lastRows, lastRes = dockerx.ComposePS(ctx, root, paths, proj, envFiles)
 		if lastRes.OK && len(lastRows) > 0 && p.composeRowsBelongToApp(id, lastRows) {
+			tr.Field("winner", proj)
+			tr.Field("probes", fmt.Sprintf("%d", i+1))
+			tr.StepDur("probes", probeStart)
 			return proj, lastRows, lastRes
 		}
 		if i == len(names)-1 {
+			tr.Field("winner", canonical)
+			tr.Field("probes", fmt.Sprintf("%d", len(names)))
+			tr.StepDur("probes", probeStart)
 			return canonical, nil, lastRes
 		}
 	}
+	tr.Field("winner", canonical)
+	tr.Field("probes", fmt.Sprintf("%d", len(names)))
+	tr.StepDur("probes", probeStart)
 	return canonical, nil, lastRes
 }
 

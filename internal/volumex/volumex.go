@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"panel/internal/perflog"
 	"panel/internal/workspace"
 )
 
@@ -58,11 +59,13 @@ func ParentRel(rel string) string {
 }
 
 func List(ctx context.Context) ([]string, string) {
+	start := time.Now()
 	cmd := exec.CommandContext(ctx, "docker", "volume", "ls", "-q")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
+		perflog.DockerOp("VolumeList", time.Since(start), "cli error")
 		return nil, strings.TrimSpace(out.String())
 	}
 	var names []string
@@ -72,6 +75,7 @@ func List(ctx context.Context) ([]string, string) {
 			names = append(names, line)
 		}
 	}
+	perflog.DockerOp("VolumeList", time.Since(start), fmt.Sprintf("cli count=%d", len(names)))
 	return names, ""
 }
 
@@ -131,12 +135,14 @@ func inspectComposeVolumeLabel(ctx context.Context, volumeName string) string {
 // composeProjects lists compose project names (e.g. from COMPOSE_PROJECT_NAME or app slug) so volumes
 // like "myproject_data" match even when the panel app id is a UUID.
 func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]string, string) {
+	start := time.Now()
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
 		return nil, "app id is required"
 	}
 	names, errMsg := List(ctx)
 	if errMsg != "" {
+		perflog.DockerOp("ListForApp", time.Since(start), "list error")
 		return nil, errMsg
 	}
 	u := strings.ReplaceAll(appID, "-", "_")
@@ -175,6 +181,7 @@ func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]
 		}
 	}
 	sort.Strings(out)
+	perflog.DockerOp("ListForApp", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
 	return out, ""
 }
 
