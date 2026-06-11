@@ -1,14 +1,15 @@
-package handlers
+package backup
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
 	"fmt"
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
+	"panel/internal/handlers"
 	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
@@ -23,70 +24,6 @@ func buildBrowseURL(vol, fromApp string) string {
 		q.Set("from_app", fromApp)
 	}
 	return "/volumes/browse?" + q.Encode()
-}
-
-const (
-	volRestoreStatusExtracting = "extracting"
-	volRestoreStatusCompleted  = "completed"
-	volRestoreStatusFailed     = "failed"
-)
-
-type volumeRestoreJob struct {
-	mu             sync.Mutex
-	ID             string
-	Volume         string
-	Status         string
-	ErrMsg         string
-	ExtractPercent int
-}
-
-func (j *volumeRestoreJob) setExtractPct(p int) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if p > j.ExtractPercent {
-		j.ExtractPercent = p
-	}
-}
-
-func (j *volumeRestoreJob) finish(errMsg string) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.ExtractPercent = 100
-	if errMsg != "" {
-		j.Status = volRestoreStatusFailed
-		j.ErrMsg = errMsg
-	} else {
-		j.Status = volRestoreStatusCompleted
-	}
-}
-
-func (j *volumeRestoreJob) snapshot() (status, errMsg string, pct int, volume string) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	return j.Status, j.ErrMsg, j.ExtractPercent, j.Volume
-}
-
-func (p *Panel) putVolRestoreJob(j *volumeRestoreJob) {
-	p.volRestoreMu.Lock()
-	defer p.volRestoreMu.Unlock()
-	if p.volRestoreJobs == nil {
-		p.volRestoreJobs = make(map[string]*volumeRestoreJob)
-	}
-	p.volRestoreJobs[j.ID] = j
-}
-
-func (p *Panel) getVolRestoreJob(id string) *volumeRestoreJob {
-	p.volRestoreMu.Lock()
-	defer p.volRestoreMu.Unlock()
-	return p.volRestoreJobs[id]
-}
-
-func (p *Panel) expireVolRestoreJob(id string, after time.Duration) {
-	time.AfterFunc(after, func() {
-		p.volRestoreMu.Lock()
-		delete(p.volRestoreJobs, id)
-		p.volRestoreMu.Unlock()
-	})
 }
 
 // volumeRestoreFlashAfterSuccess builds a user-facing flash after a successful extract.
@@ -108,7 +45,7 @@ func volumeRestoreFlashAfterSuccess(ctx context.Context, vol string) string {
 // VolumeRestore uploads a backup into a Docker volume. With Accept: application/json
 // the archive is saved and restore runs in the background; the response is 202 + job_id.
 // Without that header, restore runs synchronously and redirects back to browse (legacy).
-func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
+func (h *Handler) VolumeRestore(c *fiber.Ctx) error {
 	wantJSON := strings.Contains(c.Get("Accept"), "application/json")
 	// Read all multipart fields from the raw stream in one place. Calling
 	// c.FormValue() before manual parsing can consume the body and break large uploads.
@@ -117,7 +54,7 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
-		setFlashError(c, err.Error())
+		utils.SetFlashError(c, err.Error())
 		return c.Redirect(buildBrowseURL(vol, fromApp))
 	}
 
@@ -131,22 +68,22 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid volume"})
 		}
-		setFlashError(c, "Invalid volume name")
+		utils.SetFlashError(c, "Invalid volume name")
 		return c.Redirect(buildBrowseURL(vol, fromApp))
 	}
 
 	if !wantJSON {
-		if _, loaded := p.volRestoreActive.LoadOrStore(vol, struct{}{}); loaded {
+		if _, loaded := h.P.VolRestoreActive.LoadOrStore(vol, struct{}{}); loaded {
 			if syncR != nil {
 				_ = syncR.Close()
 			}
 			if tmpPath != "" {
 				_ = os.Remove(tmpPath)
 			}
-			setFlashError(c, "Another restore is already running for this volume.")
+			utils.SetFlashError(c, "Another restore is already running for this volume.")
 			return c.Redirect(buildBrowseURL(vol, fromApp))
 		}
-		defer p.volRestoreActive.Delete(vol)
+		defer h.P.VolRestoreActive.Delete(vol)
 		var msg string
 		if syncR != nil {
 			defer func() { _ = syncR.Close() }()
@@ -156,21 +93,21 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 			msg = volumex.RestoreVolumeArchiveFromPath(c.UserContext(), vol, tmpPath, archKind, nil)
 		}
 		if msg != "" {
-			setFlashError(c, msg)
+			utils.SetFlashError(c, msg)
 		} else {
-			setFlash(c, volumeRestoreFlashAfterSuccess(c.UserContext(), vol))
+			utils.SetFlash(c, volumeRestoreFlashAfterSuccess(c.UserContext(), vol))
 		}
 		return c.Redirect(buildBrowseURL(vol, fromApp))
 	}
 
-	if _, loaded := p.volRestoreActive.LoadOrStore(vol, struct{}{}); loaded {
+	if _, loaded := h.P.VolRestoreActive.LoadOrStore(vol, struct{}{}); loaded {
 		_ = os.Remove(tmpPath)
 		return c.Status(409).JSON(fiber.Map{"error": "a restore is already running for this volume"})
 	}
 	jobScheduled := false
 	defer func() {
 		if !jobScheduled {
-			p.volRestoreActive.Delete(vol)
+			h.P.VolRestoreActive.Delete(vol)
 		}
 	}()
 
@@ -181,25 +118,25 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 		}
 	}()
 
-	job := &volumeRestoreJob{
+	job := &handlers.VolumeRestoreJob{
 		ID:             uuid.New().String(),
 		Volume:         vol,
-		Status:         volRestoreStatusExtracting,
+		Status:         handlers.VolRestoreStatusExtracting,
 		ExtractPercent: 0,
 	}
-	p.putVolRestoreJob(job)
+	h.P.PutVolRestoreJob(job)
 	handedOff = true
 	jobScheduled = true
 
 	go func() {
-		defer p.volRestoreActive.Delete(vol)
+		defer h.P.VolRestoreActive.Delete(vol)
 		defer os.Remove(tmpPath)
 		ctx := context.Background()
 		msg := volumex.RestoreVolumeArchiveFromPath(ctx, vol, tmpPath, archKind, func(pct int) {
-			job.setExtractPct(pct)
+			job.SetExtractPct(pct)
 		})
-		job.finish(msg)
-		p.expireVolRestoreJob(job.ID, 15*time.Minute)
+		job.Finish(msg)
+		h.P.ExpireVolRestoreJob(job.ID, 15*time.Minute)
 	}()
 
 	return c.Status(202).JSON(fiber.Map{
@@ -212,25 +149,25 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 // VolumeRestoreStatus returns JSON progress for a background volume restore job.
 // When the job completes successfully it also sets the p_flash cookie so the
 // browser can redirect without putting the message in the URL.
-func (p *Panel) VolumeRestoreStatus(c *fiber.Ctx) error {
+func (h *Handler) VolumeRestoreStatus(c *fiber.Ctx) error {
 	id := strings.TrimSpace(c.Query("id"))
 	if id == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "missing job id"})
 	}
-	j := p.getVolRestoreJob(id)
+	j := h.P.GetVolRestoreJob(id)
 	if j == nil {
 		return c.Status(404).JSON(fiber.Map{"error": "unknown or expired job"})
 	}
-	st, errMsg, pct, vol := j.snapshot()
+	st, errMsg, pct, vol := j.Snapshot()
 	resp := fiber.Map{
 		"status":          st,
 		"error":           errMsg,
 		"extract_percent": pct,
 		"volume":          vol,
 	}
-	if st == volRestoreStatusCompleted && errMsg == "" {
+	if st == handlers.VolRestoreStatusCompleted && errMsg == "" {
 		flashMsg := volumeRestoreFlashAfterSuccess(c.UserContext(), vol)
-		setFlash(c, flashMsg)
+		utils.SetFlash(c, flashMsg)
 		resp["flash"] = flashMsg
 	}
 	return c.JSON(resp)

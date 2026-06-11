@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"bytes"
 	"context"
 	"fmt"
@@ -32,17 +33,17 @@ func appShowTabNeedsCompose(tab string) bool {
 func (p *Panel) AppShow(c *fiber.Ctx) error {
 	id := c.Params("id")
 	htmxTabPartial := strings.EqualFold(c.Get("HX-Request"), "true") && c.Query("partial") == "tab"
-	appShowFlash := readFlash(c) // read once; cookie is cleared after this call
+	appShowFlash := utils.ReadFlash(c) // read once; cookie is cleared after this call
 
 	reqCtx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 	defer cancel()
 
 	app, err := p.DB.GetApp(reqCtx, id)
 	if err != nil {
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	tab := c.Query("tab", "overview")
-	isGitApp, gitCfg, hasGitCfg := p.appGitMetadata(reqCtx, id)
+	isGitApp, gitCfg, hasGitCfg := p.AppGitMetadata(reqCtx, id)
 	switch tab {
 	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup":
 	default:
@@ -107,7 +108,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	if tab == "deployment" {
 		deployLogs, _ = p.DB.ListDeployLogs(reqCtx, id, 5)
 		deployBusy = c.Query("busy") == "1"
-		liveOut, liveAct, liveRun = p.deploySnapshot(id)
+		liveOut, liveAct, liveRun = p.DeploySnapshot(id)
 	}
 	if tab == "volumes" || tab == "backup" {
 		volProjects := p.composeProjectCandidates(reqCtx, app, id)
@@ -153,7 +154,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	var gitSaved, gitSynced bool
 	var gitErrFlash string
 	if tab == "git" {
-		gitSaved, gitSynced, gitErrFlash = p.consumeGitTabFlash(c, id)
+		gitSaved, gitSynced, gitErrFlash = p.ConsumeGitTabFlash(c, id)
 	}
 
 	var backupDestinations []db.BackupDestination
@@ -236,13 +237,13 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		return c.Status(500).SendString("template engine not configured")
 	}
 	var headerBuf, tabBuf, switchBuf bytes.Buffer
-	if err := eng.Render(&headerBuf, tmplPartialAppShowHeaderTabs, m); err != nil {
+	if err := eng.Render(&headerBuf, utils.TmplPartialAppShowHeaderTabs, m); err != nil {
 		return c.Status(500).SendString("failed to render header: " + err.Error())
 	}
 	if err := eng.Render(&tabBuf, appShowTabPartialName(tab), m); err != nil {
 		return c.Status(500).SendString("failed to render tab: " + err.Error())
 	}
-	if err := eng.Render(&switchBuf, tmplPartialAppShowSwitchSource, m); err != nil {
+	if err := eng.Render(&switchBuf, utils.TmplPartialAppShowSwitchSource, m); err != nil {
 		return c.Status(500).SendString("failed to render switch modal: " + err.Error())
 	}
 	if htmxTabPartial {

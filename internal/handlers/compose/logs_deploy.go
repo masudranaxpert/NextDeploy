@@ -1,4 +1,4 @@
-package handlers
+package compose
 
 import (
 	"context"
@@ -8,12 +8,14 @@ import (
 	"html"
 	"io"
 	"os"
+	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+
 	"panel/internal/logview"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
@@ -29,14 +31,14 @@ func isHtmxRequest(c *fiber.Ctx) bool {
 	return strings.EqualFold(c.Get("HX-Request"), "true")
 }
 
-func (p *Panel) AppExec(c *fiber.Ctx) error {
+func (h *Handler) AppExec(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
 	}
 	name := strings.TrimPrefix(strings.TrimSpace(c.FormValue("container")), "/")
 	cmd := c.FormValue("command")
-	if !p.containerBelongsToApp(c.UserContext(), id, name) {
+	if !h.P.ContainerBelongsToApp(c.UserContext(), id, name) {
 		return c.Status(400).SendString("invalid container for this app")
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
@@ -46,37 +48,35 @@ func (p *Panel) AppExec(c *fiber.Ctx) error {
 	if strings.TrimSpace(out) == "" {
 		out = "(no output — either the command produced nothing or the container has no such path)"
 	} else if !res.OK {
-		// non-zero exit — append note
 		out = out + "\n[non-zero exit: " + res.Output + "]"
 	}
-	return c.Render(tmplPartialTerminalOut, fiber.Map{
+	return c.Render("partials/terminal_out", fiber.Map{
 		"ExecHTML": logview.FormatTerminalOutput(out),
 		"ExecOK":   res.OK,
 	})
 }
 
-func (p *Panel) ClearDeployLogs(c *fiber.Ctx) error {
+func (h *Handler) ClearDeployLogs(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+		return utils.RespondAppNotFound(c)
 	}
-	if err := p.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
+	if err := h.P.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
-// DeployLogGet returns one deployment log as JSON (used by the deployment tab modal).
-func (p *Panel) DeployLogGet(c *fiber.Ctx) error {
+func (h *Handler) DeployLogGet(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
 	if err != nil || logID < 1 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid log id"})
 	}
-	d, err := p.DB.GetDeployLog(c.UserContext(), id, logID)
+	d, err := h.P.DB.GetDeployLog(c.UserContext(), id, logID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "log not found"})
@@ -84,24 +84,23 @@ func (p *Panel) DeployLogGet(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{
-		"action":         d.Action,
-		"ok":             d.OK,
-		"output":         d.Output,
-		"created_label":  d.CreatedAt.Format("Jan 02, 2006 15:04:05"),
+		"action":        d.Action,
+		"ok":            d.OK,
+		"output":        d.Output,
+		"created_label": d.CreatedAt.Format("Jan 02, 2006 15:04:05"),
 	})
 }
 
-// DeployLogDelete removes a single deploy log row (form POST from deployment tab).
-func (p *Panel) DeployLogDelete(c *fiber.Ctx) error {
+func (h *Handler) DeployLogDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+		return utils.RespondAppNotFound(c)
 	}
 	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
 	if err != nil || logID < 1 {
 		return c.Status(400).SendString("invalid log id")
 	}
-	deleted, err := p.DB.DeleteDeployLog(c.UserContext(), id, logID)
+	deleted, err := h.P.DB.DeleteDeployLog(c.UserContext(), id, logID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -111,16 +110,16 @@ func (p *Panel) DeployLogDelete(c *fiber.Ctx) error {
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
-func (p *Panel) DeleteApp(c *fiber.Ctx) error {
+func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 	htmx := isHtmxRequest(c)
 	id := c.Params("id")
-	app, err := p.DB.GetApp(c.UserContext(), id)
+	app, err := h.P.DB.GetApp(c.UserContext(), id)
 	if err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
 			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML("App not found."))
 		}
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	confirm := strings.TrimSpace(c.FormValue("confirm_name"))
 	if confirm != strings.TrimSpace(app.Name) {
@@ -130,13 +129,13 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(400).SendString("Type the app name exactly in the confirmation field to delete this app.")
 	}
-	dir := p.appSourcePath(c.UserContext(), id)
-	cp := p.composeFilePath(c.UserContext(), app, id)
+	dir := h.P.AppSourcePath(c.UserContext(), id)
+	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
-	candidates := p.composeProjectCandidates(ctx, app, id)
-	paths := p.effectiveComposePaths(ctx, app, id)
-	envFiles := p.composeEnvFiles(ctx, id)
+	candidates := h.P.ComposeProjectCandidates(ctx, app, id)
+	paths := h.P.EffectiveComposePaths(ctx, app, id)
+	envFiles := h.P.ComposeEnvFiles(ctx, id)
 	var cleanupErrs []string
 	if _, err := os.Stat(cp); err == nil {
 		for _, project := range candidates {
@@ -170,14 +169,14 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(msg)
 	}
-	if err := p.DB.DeleteApp(c.UserContext(), id); err != nil {
+	if err := h.P.DB.DeleteApp(c.UserContext(), id); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
 			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
 		}
 		return c.Status(500).SendString(err.Error())
 	}
-	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	h.P.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
 	if err := os.RemoveAll(dir); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
@@ -192,15 +191,15 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 	return c.Redirect("/apps")
 }
 
-func (p *Panel) UploadZip(c *fiber.Ctx) error {
+func (h *Handler) UploadZip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+		return utils.RespondAppNotFound(c)
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.P.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("ZIP upload is disabled for git-backed apps")
 	}
-	app, _ := p.DB.GetApp(c.UserContext(), id)
+	app, _ := h.P.DB.GetApp(c.UserContext(), id)
 	fh, err := c.FormFile("archive")
 	if err != nil {
 		return c.Status(400).SendString("missing archive field (zip)")
@@ -235,7 +234,7 @@ func (p *Panel) UploadZip(c *fiber.Ctx) error {
 	if err := workspace.ValidateZipArchive(f, st.Size()); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
-	if err := p.Store.ClearAllUserFiles(id); err != nil {
+	if err := h.P.Store.ClearAllUserFiles(id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	f2, err := os.Open(tmpPath)
@@ -247,24 +246,24 @@ func (p *Panel) UploadZip(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.Store.ExtractZip(id, f2, st2.Size()); err != nil {
+	if err := h.P.Store.ExtractZip(id, f2, st2.Size()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.Store.WriteMeta(id, app.Name); err != nil {
+	if err := h.P.Store.WriteMeta(id, app.Name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
 }
 
-func (p *Panel) UploadFile(c *fiber.Ctx) error {
+func (h *Handler) UploadFile(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+		return utils.RespondAppNotFound(c)
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.P.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file upload is disabled for git-backed apps")
 	}
 	file, err := c.FormFile("file")
@@ -283,7 +282,7 @@ func (p *Panel) UploadFile(c *fiber.Ctx) error {
 			targetPath = pfx + "/" + file.Filename
 		}
 	}
-	if _, err := p.Store.SaveUploadedFile(id, targetPath, src); err != nil {
+	if _, err := h.P.Store.SaveUploadedFile(id, targetPath, src); err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))

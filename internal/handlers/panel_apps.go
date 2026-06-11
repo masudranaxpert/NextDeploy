@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
 	"database/sql"
 	"errors"
@@ -164,12 +165,12 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			cfg := db.AppGitConfig{
 				AppID:         id,
 				Provider:      "github",
-				RepoURL:       normalizeRepoURL(repoURL),
-				RepoFullName:  repoFullNameFromURL(repoURL),
-				Branch:        normalizeBranch(c.FormValue("branch")),
+				RepoURL:       utils.NormalizeRepoURL(repoURL),
+				RepoFullName:  utils.RepoFullNameFromURL(repoURL),
+				Branch:        utils.NormalizeBranch(c.FormValue("branch")),
 				AuthMode:      strings.TrimSpace(c.FormValue("auth_mode")),
 				Token:         strings.TrimSpace(c.FormValue("token")),
-				WebhookSecret: randomSecret(),
+				WebhookSecret: utils.RandomSecret(),
 				AutoDeploy:    true,
 			}
 			if cfg.AuthMode == "" {
@@ -190,7 +191,7 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 func (p *Panel) SaveAppCompose(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	raw := workspace.NormalizeComposeRel(c.FormValue("compose_file"))
 	if err := p.DB.UpdateComposeFile(c.UserContext(), id, raw); err != nil {
@@ -216,7 +217,7 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 	if st, err := os.Stat(composePath); err == nil && !st.IsDir() {
 		hasComp = true
 	}
-	return c.Render(tmplPartialComposeFileCard, fiber.Map{
+	return c.Render(utils.TmplPartialComposeFileCard, fiber.Map{
 		"ID":                 id,
 		"ComposeFileSetting": composeDisplay,
 		"HasCompose":         hasComp,
@@ -227,14 +228,14 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return respondAppNotFound(c)
+		return utils.RespondAppNotFound(c)
 	}
 	content := c.FormValue("env")
 	if err := p.DB.UpdatePanelEnv(c.UserContext(), id, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	root := p.composeWorkspaceRoot(c.UserContext(), id)
-	if err := p.syncWorkspaceEnvFromPanel(id, root, content); err != nil {
+	if err := p.SyncWorkspaceEnvFromPanel(id, root, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	_ = p.syncAppCaddyOverride(c, id)

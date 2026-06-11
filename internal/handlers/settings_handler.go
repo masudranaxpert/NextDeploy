@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -581,10 +582,10 @@ func (p *Panel) SyncRootStackComposeOnStart() error {
 func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	cfg, _ := p.DB.GetAllSettings(c.UserContext())
 	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
-	return c.Render("pages/settings", withUser(c, fiber.Map{
+	return c.Render("pages/settings", WithUser(c, fiber.Map{
 		"Nav":                        "settings",
 		"Title":                      "Settings",
-		"Flash":                      readFlash(c),
+		"Flash":                      utils.ReadFlash(c),
 		"CleanupEnabled":             settingBool(cfg[settingCleanupEnabled], true),
 		"CleanupInterval":            normalizeCleanupInterval(cfg[settingCleanupInterval]),
 		"CleanupIntervals":           cleanupIntervalOptions(),
@@ -603,7 +604,7 @@ func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
 	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
-	setFlash(c, "tmp_cleaned")
+	utils.SetFlash(c, "tmp_cleaned")
 	return c.Redirect("/settings")
 }
 
@@ -673,7 +674,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		setFlash(c, "panelSaved")
+		utils.SetFlash(c, "panelSaved")
 		return c.Redirect("/nextdeploy")
 	}
 
@@ -681,7 +682,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	setFlash(c, "panelSaved")
+	utils.SetFlash(c, "panelSaved")
 	return c.Redirect("/nextdeploy")
 }
 
@@ -736,7 +737,7 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 		if wantsJSON {
 			return c.JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		setFlash(c, "volumesSaved")
+		utils.SetFlash(c, "volumesSaved")
 		return c.Redirect("/nextdeploy")
 	}
 
@@ -744,7 +745,7 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}
-	setFlash(c, "volumesSaved")
+	utils.SetFlash(c, "volumesSaved")
 	return c.Redirect("/nextdeploy")
 }
 
@@ -774,7 +775,7 @@ func boolString(v bool) string {
 // ManualCleanupRun triggers an immediate Docker cleanup regardless of schedule.
 func (p *Panel) ManualCleanupRun(c *fiber.Ctx) error {
 	go p.runScheduledCleanupForce()
-	setFlash(c, "cleanup_started")
+	utils.SetFlash(c, "cleanup_started")
 	return c.Redirect("/settings")
 }
 
@@ -802,7 +803,6 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
 	go p.orphanStagingSweepLoop()
-	go p.StartBackupWorker()
 	go p.auditLogPruneLoop()
 }
 

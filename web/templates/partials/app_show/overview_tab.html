@@ -1,4 +1,4 @@
-﻿    {{if .SourceSwitchClearError}}
+    {{if .SourceSwitchClearError}}
     <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
       <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
       Could not clear uploaded files when switching to Git. Fix disk permissions or free space, then try again.
@@ -163,7 +163,7 @@
           </form>
           <form method="post" action="/apps/{{.ID}}/compose/down">
             <button type="submit" class="btn-stop text-sm" {{if not .HasCompose}}disabled{{end}}>
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/></svg>
+              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
               Stop
             </button>
           </form>

@@ -14,11 +14,12 @@ func (s *Store) CreateAuditLog(ctx context.Context, log AuditLog) error {
 	return err
 }
 
-func (s *Store) ListAuditLogs(ctx context.Context) ([]AuditLog, error) {
+func (s *Store) ListAuditLogs(ctx context.Context, limit, offset int) ([]AuditLog, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, user_id, username, action, target_type, target_id, ip_address, user_agent, details, created_at
 		 FROM audit_logs
-		 ORDER BY created_at DESC LIMIT 500`,
+		 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -44,8 +45,14 @@ func (s *Store) ListAuditLogs(ctx context.Context) ([]AuditLog, error) {
 	return logs, nil
 }
 
-func (s *Store) PruneAuditLogs(ctx context.Context, days int) error {
-	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format(time.RFC3339)
+func (s *Store) CountAuditLogs(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&count)
+	return count, err
+}
+
+func (s *Store) PruneAuditLogs(ctx context.Context, keepDays int) error {
+	cutoff := time.Now().UTC().AddDate(0, 0, -keepDays).Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx, "DELETE FROM audit_logs WHERE created_at < ?", cutoff)
 	return err
 }

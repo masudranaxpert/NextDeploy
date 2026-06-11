@@ -149,7 +149,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 
 // VPSTerminalPage renders the standalone VPS terminal page.
 func (p *Panel) VPSTerminalPage(c *fiber.Ctx) error {
-	return c.Render("pages/vps_terminal", withUser(c, fiber.Map{
+	return c.Render("pages/vps_terminal", WithUser(c, fiber.Map{
 		"Nav":   "terminal",
 		"Title": "Server Terminal",
 	}), "layouts/shell")

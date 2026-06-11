@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
@@ -127,7 +128,7 @@ func (p *Panel) SetupPage(c *fiber.Ctx) error {
 	}
 	return c.Render("pages/setup", fiber.Map{
 		"Title": "Setup",
-		"Error": readFlashError(c),
+		"Error": utils.ReadFlashError(c),
 	}, "layouts/auth")
 }
 
@@ -144,27 +145,27 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 	confirm := c.FormValue("confirm")
 
 	if username == "" || len(username) < 3 {
-		setFlashError(c, "Username must be at least 3 characters")
+		utils.SetFlashError(c, "Username must be at least 3 characters")
 		return c.Redirect("/setup")
 	}
 	if len(password) < 8 {
-		setFlashError(c, "Password must be at least 8 characters")
+		utils.SetFlashError(c, "Password must be at least 8 characters")
 		return c.Redirect("/setup")
 	}
 	if password != confirm {
-		setFlashError(c, "Passwords do not match")
+		utils.SetFlashError(c, "Passwords do not match")
 		return c.Redirect("/setup")
 	}
 
 	hash, err := hashPassword(password)
 	if err != nil {
-		setFlashError(c, "Internal error")
+		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/setup")
 	}
 
 	userID, err := p.DB.CreateUser(ctx, username, hash, db.RoleAdmin)
 	if err != nil {
-		setFlashError(c, "Username already taken")
+		utils.SetFlashError(c, "Username already taken")
 		return c.Redirect("/setup")
 	}
 
@@ -183,7 +184,7 @@ func (p *Panel) LoginPage(c *fiber.Ctx) error {
 	// ?next= is navigation state (not a flash message), keep in URL.
 	return c.Render("pages/login", fiber.Map{
 		"Title": "Login",
-		"Error": readFlashError(c),
+		"Error": utils.ReadFlashError(c),
 		"Next":  c.Query("next"),
 	}, "layouts/auth")
 }
@@ -197,7 +198,7 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
 		p.RecordAuditLog(c, "login_failed", "user", username, "Failed login attempt")
-		setFlashError(c, "Invalid username or password")
+		utils.SetFlashError(c, "Invalid username or password")
 		// Keep ?next= in URL so the login form can re-submit to the right destination.
 		if next != "" && next != "/" {
 			return c.Redirect("/login?next=" + url.QueryEscape(next))
@@ -232,12 +233,12 @@ func (p *Panel) Logout(c *fiber.Ctx) error {
 func (p *Panel) createSessionAndRedirect(c *fiber.Ctx, userID int64, next string) error {
 	token, err := randomToken()
 	if err != nil {
-		setFlashError(c, "Internal error")
+		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
 	expiresAt := time.Now().Add(sessionTTL)
 	if err := p.DB.CreateSession(c.UserContext(), token, userID, expiresAt); err != nil {
-		setFlashError(c, "Internal error")
+		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
 	c.Cookie(&fiber.Cookie{

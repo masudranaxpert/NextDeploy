@@ -1,31 +1,32 @@
-package handlers
+package git
 
 import (
+	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
 
 	"panel/internal/db"
+	"panel/internal/handlers"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 // GitProvidersPage renders the global Git providers settings page.
-func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
-	providers, err := p.DB.ListGitProviders(c.UserContext())
+func (h *Handler) GitProvidersPage(c *fiber.Ctx) error {
+	providers, err := h.p.DB.ListGitProviders(c.UserContext())
 	if err != nil {
 		providers = nil
 	}
-	ghDetails, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
+	ghDetails, _ := h.p.DB.ListGitHubProviderDetails(c.UserContext())
 	ghMap := map[int64]db.GitHubProviderDetail{}
 	for _, d := range ghDetails {
 		ghMap[d.ProviderID] = d
 	}
-	flash := readFlash(c)
-	// Legacy: ?saved=1 / ?deleted=1 from old bookmarks
+	flash := utils.ReadFlash(c)
 	saved := flash == "saved" || c.Query("saved") == "1"
 	deleted := flash == "deleted" || c.Query("deleted") == "1"
-	errMsg := readFlashError(c)
-	return c.Render("pages/git_providers", withUser(c, fiber.Map{
+	errMsg := utils.ReadFlashError(c)
+	return c.Render("pages/git_providers", handlers.WithUser(c, fiber.Map{
 		"Nav":                  "git",
 		"Title":                "Git Providers",
 		"Providers":            providers,
@@ -36,22 +37,22 @@ func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
 		"GitHubAppCreateURL":   "https://github.com/settings/apps/new",
 		"GitLabAppCreateURL":   "https://gitlab.com/-/user_settings/applications",
 		"GitHubManifestStart":  "/git/github/start",
-		"GitLabCallbackURL":    p.gitlabCallbackURL(c),
+		"GitLabCallbackURL":    h.gitlabCallbackURL(c),
 	}), "layouts/shell")
 }
 
 // GitProviderUpdate updates an existing global Git provider credential.
-func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
+func (h *Handler) GitProviderUpdate(c *fiber.Ctx) error {
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		setFlashError(c, "Invalid ID")
+		utils.SetFlashError(c, "Invalid ID")
 		return c.Redirect("/git")
 	}
 
-	existing, err := p.DB.GetGitProvider(c.UserContext(), id)
+	existing, err := h.p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
-		setFlashError(c, "Provider not found")
+		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
 	}
 
@@ -71,41 +72,38 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	default:
 		provider = existing.Provider
 	}
-	// Keep existing token if new one is empty
 	if token == "" {
 		token = existing.Token
 	}
 
-	if err := p.DB.UpdateGitProvider(c.UserContext(), id, name, provider, token, notes); err != nil {
-		setFlashError(c, err.Error())
+	if err := h.p.DB.UpdateGitProvider(c.UserContext(), id, name, provider, token, notes); err != nil {
+		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
-	setFlash(c, "saved")
+	utils.SetFlash(c, "saved")
 	return c.Redirect("/git")
 }
 
 // GitProviderDelete deletes a global Git provider credential.
-func (p *Panel) GitProviderDelete(c *fiber.Ctx) error {
+func (h *Handler) GitProviderDelete(c *fiber.Ctx) error {
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		setFlashError(c, "Invalid ID")
+		utils.SetFlashError(c, "Invalid ID")
 		return c.Redirect("/git")
 	}
-	if err := p.DB.DeleteGitProvider(c.UserContext(), id); err != nil {
-		setFlashError(c, err.Error())
+	if err := h.p.DB.DeleteGitProvider(c.UserContext(), id); err != nil {
+		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
-	setFlash(c, "deleted")
+	utils.SetFlash(c, "deleted")
 	return c.Redirect("/git")
 }
 
 // AppSwitchSource switches an app between "files" and "git" source types.
-// When switching to "files", it removes the git config.
-// When switching to "git", it sets source_type to "git".
-func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
+func (h *Handler) AppSwitchSource(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
 	}
 
@@ -115,23 +113,21 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 	}
 
 	if newSource == "files" {
-		// Remove git config when switching to files
-		_ = p.DB.DeleteAppGitConfig(c.UserContext(), id)
+		_ = h.p.DB.DeleteAppGitConfig(c.UserContext(), id)
 	}
 	if newSource == "git" {
-		// Before flipping DB to git, clear uploaded workspace so stale files are not left behind.
-		if err := p.Store.ClearUploadedProjectForGitSource(id); err != nil {
-			setFlash(c, "switchError_clear")
+		if err := h.p.Store.ClearUploadedProjectForGitSource(id); err != nil {
+			utils.SetFlash(c, "switchError_clear")
 			return c.Redirect("/apps/" + id + "?tab=overview")
 		}
 	}
 
-	if err := p.DB.SetAppSourceType(c.UserContext(), id, newSource); err != nil {
-		setFlashError(c, "Failed to switch source type")
+	if err := h.p.DB.SetAppSourceType(c.UserContext(), id, newSource); err != nil {
+		utils.SetFlashError(c, "Failed to switch source type")
 		return c.Redirect("/apps/" + id + "?tab=overview")
 	}
 
-	setFlash(c, "sourceSwitched")
+	utils.SetFlash(c, "sourceSwitched")
 	if newSource == "git" {
 		return c.Redirect("/apps/" + id + "?tab=git")
 	}

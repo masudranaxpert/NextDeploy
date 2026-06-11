@@ -1,4 +1,4 @@
-package handlers
+package filebrowser
 
 import (
 	"archive/zip"
@@ -13,12 +13,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func (p *Panel) BrowseUrlUpload(c *fiber.Ctx) error {
+func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "upload disabled for git apps"})
 	}
 
@@ -67,19 +67,19 @@ func (p *Panel) BrowseUrlUpload(c *fiber.Ctx) error {
 		relPath = destDir + "/" + filename
 	}
 
-	if _, err := p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
+	if _, err := h.p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save file: %v", err)})
 	}
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Downloaded to server."})
 }
 
-func (p *Panel) BrowseUpload(c *fiber.Ctx) error {
+func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "upload disabled for git apps"})
 	}
 
@@ -106,7 +106,7 @@ func (p *Panel) BrowseUpload(c *fiber.Ctx) error {
 		}
 		defer f.Close()
 
-		if _, err := p.Store.SaveUploadedFile(id, relPath, f); err != nil {
+		if _, err := h.p.Store.SaveUploadedFile(id, relPath, f); err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save %s: %v", file.Filename, err)})
 		}
 	}
@@ -114,12 +114,12 @@ func (p *Panel) BrowseUpload(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "message": "Files uploaded successfully"})
 }
 
-func (p *Panel) BrowseMove(c *fiber.Ctx) error {
+func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "move disabled for git apps"})
 	}
 
@@ -136,7 +136,7 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 	}
 
 	for _, pth := range req.Paths {
-		oldFull, err := p.Store.SafeFilePath(id, pth)
+		oldFull, err := h.p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -145,7 +145,7 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 		if req.Dest == "" {
 			newRel = filepath.Base(pth)
 		}
-		newFull, err := p.Store.SafeFilePath(id, newRel)
+		newFull, err := h.p.Store.SafeFilePath(id, newRel)
 		if err != nil {
 			continue
 		}
@@ -157,12 +157,12 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "message": "Moved successfully"})
 }
 
-func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
+func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "copy disabled for git apps"})
 	}
 
@@ -179,7 +179,7 @@ func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 	}
 
 	for _, pth := range req.Paths {
-		srcFull, err := p.Store.SafeFilePath(id, pth)
+		srcFull, err := h.p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -188,7 +188,7 @@ func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 		if req.Dest == "" {
 			newRel = filepath.Base(pth)
 		}
-		dstFull, err := p.Store.SafeFilePath(id, newRel)
+		dstFull, err := h.p.Store.SafeFilePath(id, newRel)
 		if err != nil {
 			continue
 		}
@@ -199,12 +199,12 @@ func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "message": "Copied successfully"})
 }
 
-func (p *Panel) BrowseMkdir(c *fiber.Ctx) error {
+func (h *Handler) BrowseMkdir(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "mkdir disabled for git apps"})
 	}
 
@@ -219,7 +219,7 @@ func (p *Panel) BrowseMkdir(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Path required"})
 	}
 
-	fullPath, err := p.Store.SafeFilePath(id, req.Path)
+	fullPath, err := h.p.Store.SafeFilePath(id, req.Path)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid path"})
 	}
@@ -231,12 +231,12 @@ func (p *Panel) BrowseMkdir(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "message": "Directory created"})
 }
 
-func (p *Panel) BrowseZip(c *fiber.Ctx) error {
+func (h *Handler) BrowseZip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "zip disabled for git apps"})
 	}
 
@@ -260,7 +260,7 @@ func (p *Panel) BrowseZip(c *fiber.Ctx) error {
 	if req.Dest == "" {
 		destRel = req.Name
 	}
-	zipFull, err := p.Store.SafeFilePath(id, destRel)
+	zipFull, err := h.p.Store.SafeFilePath(id, destRel)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid destination path"})
 	}
@@ -275,7 +275,7 @@ func (p *Panel) BrowseZip(c *fiber.Ctx) error {
 	defer zw.Close()
 
 	for _, pth := range req.Paths {
-		srcFull, err := p.Store.SafeFilePath(id, pth)
+		srcFull, err := h.p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -310,12 +310,12 @@ func (p *Panel) BrowseZip(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "message": "Compressed successfully"})
 }
 
-func (p *Panel) BrowseUnzip(c *fiber.Ctx) error {
+func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if p.isGitApp(c.UserContext(), id) {
+	if h.p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "unzip disabled for git apps"})
 	}
 
@@ -327,7 +327,7 @@ func (p *Panel) BrowseUnzip(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid request format"})
 	}
 
-	zipFull, err := p.Store.SafeFilePath(id, req.Path)
+	zipFull, err := h.p.Store.SafeFilePath(id, req.Path)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid zip path"})
 	}
@@ -339,14 +339,13 @@ func (p *Panel) BrowseUnzip(c *fiber.Ctx) error {
 	defer f.Close()
 
 	stat, _ := f.Stat()
-	if err := p.Store.ExtractZip(id, f, stat.Size()); err != nil {
+	if err := h.p.Store.ExtractZip(id, f, stat.Size()); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": "Extract failed: " + err.Error()})
 	}
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Extracted successfully"})
 }
 
-// copyRecursively is a helper to copy a file or directory
 func copyRecursively(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {

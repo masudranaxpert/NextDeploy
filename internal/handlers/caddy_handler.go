@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"context"
 	"fmt"
 	"log"
@@ -44,13 +45,17 @@ func (p *Panel) appDomainForRequest(c *fiber.Ctx) (db.AppDomain, error) {
 	return d, nil
 }
 
-func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
-	return p.syncAppCaddyOverrideCtx(c.UserContext(), appID)
+func (p *Panel) SyncAppCaddyOverride(c *fiber.Ctx, appID string) error {
+	return p.SyncAppCaddyOverrideCtx(c.UserContext(), appID)
 }
 
-// syncAppCaddyOverrideCtx writes the merged Caddy compose override file.
+func (p *Panel) syncAppCaddyOverride(c *fiber.Ctx, appID string) error {
+	return p.SyncAppCaddyOverride(c, appID)
+}
+
+// SyncAppCaddyOverrideCtx writes the merged Caddy compose override file.
 // It passes the panel env so GenerateMergedCompose can inject env_file into every service.
-func (p *Panel) syncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
+func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error {
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return err
@@ -204,7 +209,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
@@ -221,7 +226,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 
@@ -267,7 +272,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	setFlash(c, "domainSaved")
+	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
 }
 

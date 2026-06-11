@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/handlers/utils"
 	"fmt"
 	"os"
 	"sort"
@@ -16,7 +17,7 @@ import (
 
 func (p *Panel) Overview(c *fiber.Ctx) error {
 	si := sysinfo.Collect(c.UserContext())
-	return c.Render("pages/overview", withUser(c, fiber.Map{
+	return c.Render("pages/overview", WithUser(c, fiber.Map{
 		"Nav":   "overview",
 		"Title": "Overview",
 		"Sys":   si,
@@ -26,7 +27,7 @@ func (p *Panel) Overview(c *fiber.Ctx) error {
 func (p *Panel) MonitorPage(c *fiber.Ctx) error {
 	sys := sysinfo.Collect(c.UserContext())
 	rows, errMsg := dockerapi.ListContainerUsage(c.UserContext())
-	return c.Render("pages/monitor", withUser(c, fiber.Map{
+	return c.Render("pages/monitor", WithUser(c, fiber.Map{
 		"Nav":         "monitor",
 		"Title":       "Monitor",
 		"Sys":         sys,
@@ -38,7 +39,7 @@ func (p *Panel) MonitorPage(c *fiber.Ctx) error {
 func (p *Panel) MonitorPartial(c *fiber.Ctx) error {
 	sys := sysinfo.Collect(c.UserContext())
 	rows, errMsg := dockerapi.ListContainerUsage(c.UserContext())
-	return c.Render(tmplPartialMonitorStats, fiber.Map{
+	return c.Render(utils.TmplPartialMonitorStats, fiber.Map{
 		"Sys":         sys,
 		"UsageRows":   rows,
 		"DockerError": errMsg,
@@ -47,7 +48,7 @@ func (p *Panel) MonitorPartial(c *fiber.Ctx) error {
 
 func (p *Panel) Containers(c *fiber.Ctx) error {
 	rows, errMsg := dockerapi.ListContainers(c.UserContext())
-	return c.Render("pages/containers", withUser(c, fiber.Map{
+	return c.Render("pages/containers", WithUser(c, fiber.Map{
 		"Nav":         "containers",
 		"Title":       "Containers",
 		"Containers":  rows,
@@ -57,7 +58,7 @@ func (p *Panel) Containers(c *fiber.Ctx) error {
 
 func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 	rows, errMsg := dockerapi.ListImages(c.UserContext())
-	return c.Render("pages/images", withUser(c, fiber.Map{
+	return c.Render("pages/images", WithUser(c, fiber.Map{
 		"Nav":         "images",
 		"Title":       "Images",
 		"Images":      rows,
@@ -67,7 +68,7 @@ func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 
 func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 	names, errMsg := volumex.List(c.UserContext())
-	return c.Render("pages/volumes", withUser(c, fiber.Map{
+	return c.Render("pages/volumes", WithUser(c, fiber.Map{
 		"Nav":         "volumes",
 		"Title":       "Volumes",
 		"Volumes":     names,
@@ -105,7 +106,7 @@ func (p *Panel) VolumeBrowse(c *fiber.Ctx) error {
 		}
 		return strings.ToLower(rows[i].Name) < strings.ToLower(rows[j].Name)
 	})
-	return c.Render("pages/volume_browse", withUser(c, fiber.Map{
+	return c.Render("pages/volume_browse", WithUser(c, fiber.Map{
 		"Nav":         "volumes",
 		"Title":       name,
 		"VolumeName":  name,
@@ -113,8 +114,8 @@ func (p *Panel) VolumeBrowse(c *fiber.Ctx) error {
 		"ParentPath":  parent,
 		"VolRows":     rows,
 		"BrowseError": msg,
-		"Flash":       readFlash(c),
-		"FlashError":  readFlashError(c),
+		"Flash":       utils.ReadFlash(c),
+		"FlashError":  utils.ReadFlashError(c),
 		"FromApp":     fromApp,
 	}), "layouts/shell")
 }

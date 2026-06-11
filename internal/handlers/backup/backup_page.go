@@ -1,22 +1,22 @@
-package handlers
+package backup
 
 import (
+	"panel/internal/handlers/utils"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func (p *Panel) BackupPage(c *fiber.Ctx) error {
-	redirectURL := strings.TrimRight(p.panelBaseURL(c), "/") + "/backup/gdrive/callback"
-	flash := readFlash(c)
-	// Legacy: ?saved=1 from old bookmarks
+func (h *Handler) BackupPage(c *fiber.Ctx) error {
+	redirectURL := strings.TrimRight(h.P.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
+	flash := utils.ReadFlash(c)
 	if flash == "" && c.Query("saved") == "1" {
 		flash = "saved"
 	}
 	data := fiber.Map{
 		"Nav":         "backup",
 		"Flash":       flash,
-		"Error":       readFlashError(c),
+		"Error":       utils.ReadFlashError(c),
 		"RedirectURL": redirectURL,
 	}
 	return c.Render("pages/backup", data, "layouts/shell")

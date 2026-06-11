@@ -1,4 +1,4 @@
-package handlers
+package filebrowser
 
 import (
 	"archive/zip"
@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,30 +19,28 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-const maxWorkspaceBlobJSON = 512 << 10 // inline JSON preview (aligned with git blob UI)
+const maxWorkspaceBlobJSON = 512 << 10
 
-// maxWorkspaceFileSaveBytes caps a single workspace file save (JSON body "content") to limit memory and disk abuse.
-const maxWorkspaceFileSaveBytes = 2 << 20 // 2 MiB
+const maxWorkspaceFileSaveBytes = 2 << 20
 
 var errWorkspaceZipTooLarge = errors.New("workspace zip exceeds size limit")
 
-func (p *Panel) workspaceFilesGate(c *fiber.Ctx, appID string) int {
+func (h *Handler) workspaceFilesGate(c *fiber.Ctx, appID string) int {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 30*time.Second)
 	defer cancel()
-	if _, err := p.DB.GetApp(ctx, appID); err != nil {
+	if _, err := h.p.DB.GetApp(ctx, appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	isGit, _, _ := p.appGitMetadata(ctx, appID)
+	isGit, _, _ := h.p.AppGitMetadata(ctx, appID)
 	if isGit {
 		return fiber.StatusBadRequest
 	}
 	return 0
 }
 
-// WorkspaceFilesTree returns directory listing JSON for the app workspace (non-git), same shape as GitRepoTree.
-func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
+func (h *Handler) WorkspaceFilesTree(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := p.workspaceFilesGate(c, appID); code != 0 {
+	if code := h.workspaceFilesGate(c, appID); code != 0 {
 		msg := "not available"
 		if code == fiber.StatusNotFound {
 			msg = "app not found"
@@ -52,7 +51,7 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 		return c.Status(code).JSON(fiber.Map{"error": msg})
 	}
 	rel := c.Query("path", "")
-	children, err := p.Store.ListChildren(appID, rel)
+	children, err := h.p.Store.ListChildren(appID, rel)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
@@ -78,7 +77,7 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 			Perms:   ch.Perms,
 		})
 	}
-	parent := p.Store.ParentRel(rel)
+	parent := h.p.Store.ParentRel(rel)
 	return c.JSON(fiber.Map{
 		"path":    rel,
 		"parent":  parent,
@@ -86,17 +85,16 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 	})
 }
 
-// WorkspaceFilesBlob returns JSON with file text for the file browser / Monaco, or metadata for binary/oversized files.
-func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
+func (h *Handler) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := p.workspaceFilesGate(c, appID); code != 0 {
+	if code := h.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"error": "not available"})
 	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
-	full, err := p.Store.SafeFilePath(appID, rel)
+	full, err := h.p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
 	}
@@ -116,13 +114,13 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	downloadURL := rawURL + "&download=1"
 	if st.Size() > int64(maxWorkspaceBlobJSON) {
 		return c.JSON(fiber.Map{
-			"path":          rel,
-			"name":          name,
-			"size":          st.Size(),
-			"too_large":     true,
-			"max_bytes":     maxWorkspaceBlobJSON,
-			"raw_url":       rawURL,
-			"download_url":  downloadURL,
+			"path":         rel,
+			"name":         name,
+			"size":         st.Size(),
+			"too_large":    true,
+			"max_bytes":    maxWorkspaceBlobJSON,
+			"raw_url":      rawURL,
+			"download_url": downloadURL,
 		})
 	}
 	f, err := os.Open(full)
@@ -134,26 +132,26 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	preview, isBinary := gitRepoBlobPreviewText(b)
+	preview, isBinary := utils.GitRepoBlobPreviewText(b)
 	if isBinary {
 		return c.JSON(fiber.Map{
-			"path":          rel,
-			"name":          name,
-			"size":          st.Size(),
-			"binary":        true,
-			"raw_url":       rawURL,
-			"download_url":  downloadURL,
+			"path":         rel,
+			"name":         name,
+			"size":         st.Size(),
+			"binary":       true,
+			"raw_url":      rawURL,
+			"download_url": downloadURL,
 		})
 	}
 	return c.JSON(fiber.Map{
-		"path":          rel,
-		"name":          name,
-		"size":          st.Size(),
-		"text":          preview,
-		"truncated":     false,
-		"binary":        false,
-		"raw_url":       rawURL,
-		"download_url":  downloadURL,
+		"path":         rel,
+		"name":         name,
+		"size":         st.Size(),
+		"text":         preview,
+		"truncated":    false,
+		"binary":       false,
+		"raw_url":      rawURL,
+		"download_url": downloadURL,
 	})
 }
 
@@ -161,10 +159,9 @@ type workspaceFileSaveBody struct {
 	Content string `json:"content"`
 }
 
-// WorkspaceFileSave writes JSON body { "content": "..." } to the file at ?path= (non-git workspace only).
-func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
+func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := p.workspaceFilesGate(c, appID); code != 0 {
+	if code := h.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "save not allowed"})
 	}
 	rel := c.Query("path", "")
@@ -180,7 +177,7 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 			"ok": false, "message": fmt.Sprintf("content exceeds max size (%d bytes)", maxWorkspaceFileSaveBytes),
 		})
 	}
-	full, err := p.Store.SafeFilePath(appID, rel)
+	full, err := h.p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
 	}
@@ -193,18 +190,17 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
-const maxWorkspaceZipBytes = 512 << 20 // same order as single-file download cap
+const maxWorkspaceZipBytes = 512 << 20
 
-// WorkspaceFilesDownloadZip streams a zip of the whole workspace or of ?paths= (comma-separated, URI-encoded rel paths).
-func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
+func (h *Handler) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := p.workspaceFilesGate(c, appID); code != 0 {
+	if code := h.workspaceFilesGate(c, appID); code != 0 {
 		if code == fiber.StatusNotFound {
-			return respondAppNotFound(c)
+			return utils.RespondAppNotFound(c)
 		}
 		return c.Status(400).SendString("download zip is only for non-git apps")
 	}
-	base := filepath.Clean(p.Store.Path(appID))
+	base := filepath.Clean(h.p.Store.Path(appID))
 	c.Set("Content-Type", "application/zip")
 	c.Set("Content-Disposition", `attachment; filename="workspace.zip"`)
 
@@ -266,7 +262,7 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(400).SendString("invalid paths parameter")
 		}
-		full, err := p.Store.SafeFilePath(appID, rel)
+		full, err := h.p.Store.SafeFilePath(appID, rel)
 		if err != nil {
 			return c.Status(400).SendString("invalid path")
 		}

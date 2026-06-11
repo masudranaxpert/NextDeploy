@@ -215,7 +215,7 @@
             <form method="POST" action="/caddy/container" onsubmit="return confirm('Stop the Caddy proxy container?')">
               <input type="hidden" name="action" value="stop">
               <button type="submit" class="btn-stop-sm h-9 px-3 text-xs gap-1.5 disabled:opacity-40" {{if not .CaddyRunning}}disabled{{end}}>
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/></svg>
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="5.5" width="13" height="13" rx="1.5" /></svg>
                 Stop
               </button>
             </form>

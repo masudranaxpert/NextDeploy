@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"context"
@@ -14,8 +14,8 @@ import (
 
 var backupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
-func (p *Panel) StartBackupWorker() {
-	if n, err := p.DB.ResetInFlightBackups(context.Background(), "panel restarted while this backup was running"); err != nil {
+func (h *Handler) StartBackupWorker() {
+	if n, err := h.P.DB.ResetInFlightBackups(context.Background(), "panel restarted while this backup was running"); err != nil {
 		log.Printf("[backup] reset in-flight rows: %v", err)
 	} else if n > 0 {
 		log.Printf("[backup] reset %d in-flight backup row(s) to failed", n)
@@ -25,11 +25,11 @@ func (p *Panel) StartBackupWorker() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[backup-worker] recovered from panic: %v — restarting", r)
-				go p.StartBackupWorker()
+				go h.StartBackupWorker()
 			}
 		}()
 
-		p.safeProcessScheduledBackups()
+		h.safeProcessScheduledBackups()
 		firstWait := time.Until(time.Now().Truncate(time.Minute).Add(time.Minute))
 		if firstWait > 0 {
 			timer := time.NewTimer(firstWait)
@@ -39,32 +39,32 @@ func (p *Panel) StartBackupWorker() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			p.safeProcessScheduledBackups()
+			h.safeProcessScheduledBackups()
 		}
 	}()
 
 	log.Println("Backup worker started")
 }
 
-func (p *Panel) safeProcessScheduledBackups() {
+func (h *Handler) safeProcessScheduledBackups() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[backup-worker] tick panic: %v", r)
 		}
 	}()
-	p.processScheduledBackups()
+	h.processScheduledBackups()
 }
 
-func (p *Panel) processScheduledBackups() {
+func (h *Handler) processScheduledBackups() {
 	ctx := context.Background()
 	
-	apps, err := p.DB.ListApps(ctx)
+	apps, err := h.P.DB.ListApps(ctx)
 	if err != nil {
 		return
 	}
 	
 	for _, app := range apps {
-		schedules, err := p.DB.ListBackupSchedules(ctx, app.ID)
+		schedules, err := h.P.DB.ListBackupSchedules(ctx, app.ID)
 		if err != nil {
 			continue
 		}
@@ -75,12 +75,12 @@ func (p *Panel) processScheduledBackups() {
 			}
 			
 			if shouldRunSchedule(schedule) {
-				dest, err := p.DB.GetBackupDestination(ctx, schedule.DestinationID)
+				dest, err := h.P.DB.GetBackupDestination(ctx, schedule.DestinationID)
 				if err != nil {
 					continue
 				}
 				
-				historyID, err := p.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
+				historyID, err := h.P.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
 				if err != nil {
 					continue
 				}
@@ -89,9 +89,9 @@ func (p *Panel) processScheduledBackups() {
 				if retention < 1 {
 					retention = 5
 				}
-				go p.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention)
+				go h.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention)
 
-				_ = p.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID)
+				_ = h.P.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID)
 			}
 		}
 	}
