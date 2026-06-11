@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"panel/internal/db"
 	"panel/internal/handlers/utils"
+	"panel/internal/sandbox"
 	"path/filepath"
 	"strings"
 	"time"
@@ -181,6 +183,32 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
 	}
+
+	app, err := h.p.DB.GetApp(c.UserContext(), appID)
+	if err == nil {
+		composeName := filepath.Base(app.ComposeFile)
+		if composeName == "" {
+			composeName = "docker-compose.yml"
+		}
+		if filepath.Base(rel) == composeName {
+			owner, err := h.p.DB.GetUserByID(c.UserContext(), app.OwnerID)
+			if err != nil {
+				owner = db.User{
+					Role:        db.RoleUser,
+					MaxCPUs:     2.0,
+					MaxMemoryMB: 2048,
+				}
+			}
+			if owner.Role != db.RoleAdmin {
+				clamped, err := sandbox.ValidateAndClampCompose([]byte(body.Content), owner.MaxCPUs, owner.MaxMemoryMB)
+				if err != nil {
+					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "Security check failed: " + err.Error()})
+				}
+				body.Content = string(clamped)
+			}
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}

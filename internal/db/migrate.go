@@ -357,5 +357,72 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 		return err
 	}
 
+	// Multi-user & sandboxing schema migrations
+	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_apps INTEGER NOT NULL DEFAULT 5`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_memory_mb INTEGER NOT NULL DEFAULT 2048`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN max_cpus REAL NOT NULL DEFAULT 2.0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS app_collaborators (
+  app_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'developer',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (app_id, user_id),
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS private_registries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  name TEXT NOT NULL,
+  server_address TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+
+	var legacyOwnerMigrated int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'apps_owner_migration_done'`).Scan(&legacyOwnerMigrated)
+	if legacyOwnerMigrated == 0 {
+		_, _ = s.db.Exec(`UPDATE apps SET owner_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1) WHERE owner_id IS NULL`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('apps_owner_migration_done', '1')`)
+	}
+
 	return nil
 }
+

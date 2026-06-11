@@ -22,6 +22,7 @@ const (
 	TmplPartialAppShowOverview     = "partials/app_show/overview_tab"
 	TmplPartialAppShowHeaderTabs   = "partials/app_show/header_tabs"
 	TmplPartialAppShowSwitchSource = "partials/app_show/switch_source_bundle"
+	TmplPartialAppShowCollaborators = "partials/app_show/collaborators_tab"
 
 	TmplPartialComposeFileCard = "partials/components/compose_file_card"
 )

@@ -81,99 +81,31 @@
               {{else}}
                 <span class="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">user</span>
               {{end}}
+              {{if eq .Status "suspended"}}
+                <span class="inline-flex items-center rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300 ring-1 ring-rose-500/25">suspended</span>
+              {{else}}
+                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">active</span>
+              {{end}}
               {{if eq .ID $.CurrentUser.ID}}
                 <span class="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-primary/25">you</span>
               {{end}}
             </div>
-            <p class="mt-0.5 text-xs text-muted-foreground">Joined {{.CreatedAt.Format "Jan 02, 2006"}}</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">Joined {{.CreatedAt.Format "Jan 02, 2006"}} | Limits: {{.MaxApps}} apps, {{.MaxMemoryMB}}MB RAM, {{.MaxCPUs}} CPUs</p>
           </div>
         </div>
 
         <!-- Actions -->
-        <div class="flex flex-wrap items-center gap-2 shrink-0">
-          <!-- Role selector (admin only, not self) -->
-          {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
-          <form method="post" action="/users/{{.ID}}/role" class="inline-flex items-center gap-1.5">
-            <select name="role" class="input h-8 py-0 pr-7 text-xs w-24">
-              <option value="user"  {{if eq .Role "user"}}selected{{end}}>user</option>
-              <option value="admin" {{if eq .Role "admin"}}selected{{end}}>admin</option>
-            </select>
-            <button type="submit" class="btn-secondary h-8 px-2.5 text-xs">Set</button>
-          </form>
-          {{end}}
-
-          <!-- Password change -->
-          <button type="button"
-            class="btn-secondary h-8 gap-1.5 px-3 text-xs"
-            onclick="document.getElementById('pw-modal-{{.ID}}').classList.remove('hidden')"
-            aria-label="Change password for {{.Username}}">
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="/users/{{.ID}}/edit" class="btn-secondary h-8 gap-1.5 px-3 text-xs inline-flex items-center" aria-label="Manage {{.Username}}">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.645-.869l.214-1.28z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
-            Password
-          </button>
-
-          <!-- Delete (admin only, not self) -->
-          {{if and (eq $.CurrentUser.Role "admin") (ne .ID $.CurrentUser.ID)}}
-          <form method="post" action="/users/{{.ID}}/delete" class="inline"
-                onsubmit="return confirm('Permanently delete {{.Username}}? This cannot be undone.');">
-            <button type="submit" class="btn-delete-sm gap-1.5" aria-label="Delete {{.Username}}">
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
-              </svg>
-              Delete
-            </button>
-          </form>
-          {{end}}
+            Manage
+          </a>
         </div>
       </div>
     </li>
-
-    <!-- Password change modal for this user -->
-    <div id="pw-modal-{{.ID}}" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pw-modal-title-{{.ID}}"
-         onclick="if(event.target===this)this.classList.add('hidden')">
-      <div class="modal-box max-w-sm w-full" onclick="event.stopPropagation()">
-        <div class="mb-5 flex items-start justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
-              <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
-              </svg>
-            </div>
-            <div>
-              <h3 id="pw-modal-title-{{.ID}}" class="text-sm font-semibold text-foreground">Change password</h3>
-              <p class="text-xs text-muted-foreground">{{.Username}}</p>
-            </div>
-          </div>
-          <button type="button"
-            onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')"
-            class="btn-icon shrink-0"
-            aria-label="Close">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <form method="post" action="/users/{{.ID}}/password" class="space-y-3">
-          <div>
-            <label class="mb-1.5 block text-xs font-medium text-foreground" for="pw-new-{{.ID}}">New password</label>
-            <input id="pw-new-{{.ID}}" type="password" name="password" class="input w-full" placeholder="Min 8 characters" required minlength="8" autocomplete="new-password">
-          </div>
-          <div>
-            <label class="mb-1.5 block text-xs font-medium text-foreground" for="pw-confirm-{{.ID}}">Confirm password</label>
-            <input id="pw-confirm-{{.ID}}" type="password" name="confirm" class="input w-full" placeholder="Repeat password" required minlength="8" autocomplete="new-password">
-          </div>
-          <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-            <button type="button"
-              onclick="document.getElementById('pw-modal-{{.ID}}').classList.add('hidden')"
-              class="btn-secondary px-4 py-2 text-sm">
-              Cancel
-            </button>
-            <button type="submit" class="btn-primary px-4 py-2 text-sm">
-              Update password
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
     {{end}}
 
     {{if not .Users}}

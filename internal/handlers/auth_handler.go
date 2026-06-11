@@ -94,6 +94,10 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Redirect("/login")
 	}
+	if user.Status == db.UserStatusSuspended {
+		c.Cookie(&fiber.Cookie{Name: sessionCookie, Value: "", MaxAge: -1, HTTPOnly: true, SameSite: "Lax"})
+		return c.Status(fiber.StatusForbidden).SendString("Your account has been suspended.")
+	}
 	c.Locals(contextUserKey, user)
 	return c.Next()
 }
@@ -104,17 +108,10 @@ func currentUser(c *fiber.Ctx) (db.User, bool) {
 	return u, ok
 }
 
-func requireAdmin(c *fiber.Ctx) error {
+func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
-	}
-	return nil
-}
-
-func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
-	if err := requireAdmin(c); err != nil {
-		return err
 	}
 	return c.Next()
 }

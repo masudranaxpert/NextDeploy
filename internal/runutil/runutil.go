@@ -22,6 +22,12 @@ func Run(ctx context.Context, dir string, env []string, args ...string) Result {
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
+	if configDir, ok := ctx.Value("docker_config").(string); ok && configDir != "" {
+		if len(cmd.Env) == 0 {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = append(cmd.Env, "DOCKER_CONFIG="+configDir)
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

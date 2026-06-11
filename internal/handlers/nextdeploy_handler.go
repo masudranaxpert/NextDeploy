@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/db"
 	"panel/internal/handlers/utils"
 	"context"
 	"fmt"
@@ -18,6 +19,10 @@ import (
 )
 
 func (p *Panel) NextDeployPage(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	nextDeployFlash := utils.ReadFlash(c) // read once; cookie is cleared after this call
 	cfg, _ := p.DB.GetAllSettings(ctx)

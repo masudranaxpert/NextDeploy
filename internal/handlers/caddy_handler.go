@@ -3,10 +3,13 @@ package handlers
 import (
 	"panel/internal/handlers/utils"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,6 +20,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/sandbox"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -76,6 +80,30 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		}
 		return err
 	}
+
+	owner, err := p.DB.GetUserByID(ctx, app.OwnerID)
+	if err != nil {
+		owner = db.User{
+			Role:        db.RoleUser,
+			MaxCPUs:     2.0,
+			MaxMemoryMB: 2048,
+		}
+	}
+	if owner.Role != db.RoleAdmin {
+		clamped, err := sandbox.ValidateAndClampCompose(base, owner.MaxCPUs, owner.MaxMemoryMB)
+		if err != nil {
+			return fmt.Errorf("security sandbox error: %w", err)
+		}
+		base = clamped
+		if err := os.WriteFile(basePath, base, 0640); err != nil {
+			return err
+		}
+	}
+
+	if err := p.WriteDockerRegistryConfig(ctx, appID, app.OwnerID); err != nil {
+		log.Printf("failed to write docker registry config for app %s: %v", appID, err)
+	}
+
 	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
@@ -113,11 +141,19 @@ func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
 // ── Caddy global page ─────────────────────────────────────────────────────────
 
 func (p *Panel) CaddyPage(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	return c.Redirect("/nextdeploy", fiber.StatusFound)
 }
 
 // POST /caddy/config — save global caddy settings
 func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	ctx := c.UserContext()
 	fields := map[string]string{
 		"admin_api":   strings.TrimSpace(c.FormValue("admin_api")),
@@ -136,6 +172,10 @@ func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
 }
 
 func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	action := strings.TrimSpace(c.FormValue("action"))
 	ctx := c.UserContext()
 	var err error
@@ -356,6 +396,10 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 
 // GET /caddy/logs — return caddy container logs as JSON lines
 func (p *Panel) CaddyLogs(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
 	tail, _ := strconv.Atoi(c.Query("tail", "300"))
 	if tail <= 0 || tail > 2000 {
 		tail = 300
@@ -428,5 +472,54 @@ func parseComposeServiceNames(data []byte) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func (p *Panel) WriteDockerRegistryConfig(ctx context.Context, appID string, ownerID int64) error {
+	regs, err := p.DB.ListPrivateRegistries(ctx, &ownerID)
+	if err != nil {
+		return err
+	}
+
+	if len(regs) == 0 {
+		dockerDir := filepath.Join(p.Store.ReservedPath(appID), ".docker")
+		_ = os.Remove(filepath.Join(dockerDir, "config.json"))
+		return nil
+	}
+
+	type DockerAuth struct {
+		Auth string `json:"auth"`
+	}
+	type DockerConfig struct {
+		Auths map[string]DockerAuth `json:"auths"`
+	}
+
+	cfg := DockerConfig{
+		Auths: make(map[string]DockerAuth),
+	}
+
+	for _, r := range regs {
+		pwd, err := sandbox.Decrypt(r.PasswordEncrypted)
+		if err != nil {
+			continue
+		}
+		authStr := base64.StdEncoding.EncodeToString([]byte(r.Username + ":" + pwd))
+		serverAddr := strings.TrimSpace(r.ServerAddress)
+		if serverAddr == "" {
+			serverAddr = "https://index.docker.io/v1/"
+		}
+		cfg.Auths[serverAddr] = DockerAuth{Auth: authStr}
+	}
+
+	dockerDir := filepath.Join(p.Store.ReservedPath(appID), ".docker")
+	if err := os.MkdirAll(dockerDir, 0750); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return atomicWriteFile(filepath.Join(dockerDir, "config.json"), data, 0600)
 }
 

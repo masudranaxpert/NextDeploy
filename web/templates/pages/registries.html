@@ -1,0 +1,120 @@
+{{/* Panel private Docker registries. Layout: layouts/shell. */}}
+<div class="page-shell max-w-5xl">
+  <div class="section-header">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20">
+        <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m0 5.625c0 2.278 3.694 4.125 8.25 4.125s8.25-1.847 8.25-4.125"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h1 class="page-title">Registries</h1>
+        <p class="page-subtitle">Configure private Docker registries for compose deployments</p>
+      </div>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 mb-5" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">{{.Flash}}</p>
+  </div>
+  {{end}}
+
+  <div class="panel-card space-y-5 p-4 sm:p-5">
+    <div class="border-b border-border/50 pb-4">
+      <h2 class="text-sm font-semibold text-foreground">Docker Registries</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Manage credentials for pulling custom images or building stack containers.</p>
+    </div>
+
+    <!-- Registry list -->
+    <div class="space-y-3">
+      {{if .Registries}}
+        <div class="overflow-x-auto rounded-xl border border-border/50 bg-muted/5">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-border/50 bg-muted/20 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <th class="px-4 py-3">Name</th>
+                <th class="px-4 py-3">Server Address</th>
+                <th class="px-4 py-3">Username</th>
+                <th class="px-4 py-3">Scope</th>
+                <th class="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border/40 text-xs">
+              {{range .Registries}}
+                <tr class="hover:bg-muted/10 transition-colors">
+                  <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+                  <td class="px-4 py-3 font-mono text-muted-foreground">{{.ServerAddress}}</td>
+                  <td class="px-4 py-3 text-muted-foreground">{{.Username}}</td>
+                  <td class="px-4 py-3">
+                    {{if not .UserID}}
+                      <span class="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">Global</span>
+                    {{else}}
+                      <span class="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">Personal</span>
+                    {{end}}
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <form method="post" action="/registries/{{.ID}}/delete" onsubmit="return confirm('Are you sure you want to delete this registry?')">
+                      <button type="submit" class="text-rose-400 hover:text-rose-300 font-medium transition-colors">
+                        Delete
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      {{else}}
+        <div class="rounded-xl border border-dashed border-border/60 bg-muted/5 py-6 text-center">
+          <p class="text-xs text-muted-foreground">No private registries configured yet.</p>
+        </div>
+      {{end}}
+    </div>
+
+    <!-- Add Registry Form -->
+    <div class="rounded-xl border border-border/50 bg-muted/10 p-4 sm:p-5 mt-6">
+      <h3 class="text-xs font-semibold text-foreground uppercase tracking-wider mb-4">Add Private Registry</h3>
+      <form method="post" action="/registries" class="space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="reg_name">Friendly Name</label>
+            <input type="text" id="reg_name" name="name" required placeholder="e.g. Docker Hub, GitHub Packages" class="input w-full">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="reg_server">Server Address</label>
+            <input type="text" id="reg_server" name="server_address" required placeholder="e.g. index.docker.io/v1/, ghcr.io" class="input w-full">
+          </div>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="reg_user">Username</label>
+            <input type="text" id="reg_user" name="username" required placeholder="Username or token owner" class="input w-full">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="reg_pass">Password / Token</label>
+            <input type="password" id="reg_pass" name="password" required placeholder="••••••••" class="input w-full">
+          </div>
+        </div>
+
+        {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+        <div class="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+          <input type="checkbox" id="reg_global" name="is_global" class="rounded border-border text-primary focus:ring-primary h-4 w-4 bg-transparent">
+          <div>
+            <label for="reg_global" class="text-xs font-medium text-foreground cursor-pointer">Make Global Registry</label>
+            <p class="text-[10px] text-muted-foreground mt-0.5">Allows all developers and users on this panel to use credentials for pulling images from this registry.</p>
+          </div>
+        </div>
+        {{end}}
+
+        <div class="flex justify-end pt-2">
+          <button type="submit" class="btn-primary px-4 py-2 text-xs">Add Registry</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

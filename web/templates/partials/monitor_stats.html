@@ -46,6 +46,47 @@
     </div>
   </div>
 
+  <!-- Global Quotas & Over-provisioning Status -->
+  <div class="grid gap-4 md:grid-cols-2">
+    <div class="panel-card p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Allocated RAM (User Limits)</p>
+          <p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">{{printf "%.1f" .TotalAllocatedMemoryGB}}<span class="text-sm font-normal text-muted-foreground"> GB</span></p>
+          <p class="mt-1 text-xs text-muted-foreground">of {{printf "%.1f" .Sys.MemTotalGB}} GB Host Capacity</p>
+        </div>
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
+          <svg class="h-5 w-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+          </svg>
+        </div>
+      </div>
+      <div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40">
+        <div class="h-full rounded-full {{if gt .MemoryAllocatedPct 100.0}}bg-rose-500{{else if gt .MemoryAllocatedPct 80.0}}bg-amber-500{{else}}bg-blue-500{{end}}" style="width: {{if gt .MemoryAllocatedPct 100.0}}100{{else}}{{printf "%.0f" .MemoryAllocatedPct}}{{end}}%"></div>
+      </div>
+      <p class="mt-1.5 text-[10px] text-muted-foreground text-right font-medium">{{printf "%.0f" .MemoryAllocatedPct}}% Allocated</p>
+    </div>
+
+    <div class="panel-card p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Allocated CPU Cores (User Limits)</p>
+          <p class="mt-1.5 text-2xl font-bold tabular-nums text-foreground">{{printf "%.1f" .TotalAllocatedCPUs}}<span class="text-sm font-normal text-muted-foreground"> Cores</span></p>
+          <p class="mt-1 text-xs text-muted-foreground">of {{.Sys.NumCPU}} Host Cores</p>
+        </div>
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/20">
+          <svg class="h-5 w-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21M6.75 6.75l.75.75m9-3l-.75.75m-9 12l.75-.75m9 3l-.75-.75" />
+          </svg>
+        </div>
+      </div>
+      <div class="mt-4 h-2 overflow-hidden rounded-full bg-muted/40">
+        <div class="h-full rounded-full {{if gt .CPUAllocatedPct 100.0}}bg-rose-500{{else if gt .CPUAllocatedPct 80.0}}bg-amber-500{{else}}bg-orange-500{{end}}" style="width: {{if gt .CPUAllocatedPct 100.0}}100{{else}}{{printf "%.0f" .CPUAllocatedPct}}{{end}}%"></div>
+      </div>
+      <p class="mt-1.5 text-[10px] text-muted-foreground text-right font-medium">{{printf "%.0f" .CPUAllocatedPct}}% Allocated</p>
+    </div>
+  </div>
+
   {{if .DockerError}}
     <div class="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{{.DockerError}}</div>
   {{else}}

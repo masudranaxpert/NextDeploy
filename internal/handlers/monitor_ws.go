@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/sysinfo"
 
@@ -13,10 +14,14 @@ import (
 )
 
 type monitorPayload struct {
-	Sys         sysinfo.Snapshot           `json:"sys"`
-	UsageRows   []dockerapi.ContainerUsageRow `json:"usageRows"`
-	DockerError string                     `json:"dockerError"`
-	UpdatedAt   string                     `json:"updatedAt"`
+	Sys                    sysinfo.Snapshot              `json:"sys"`
+	UsageRows              []dockerapi.ContainerUsageRow `json:"usageRows"`
+	DockerError            string                        `json:"dockerError"`
+	UpdatedAt              string                        `json:"updatedAt"`
+	TotalAllocatedMemoryGB float64                       `json:"totalAllocatedMemoryGB"`
+	TotalAllocatedCPUs     float64                       `json:"totalAllocatedCPUs"`
+	MemoryAllocatedPct     float64                       `json:"memoryAllocatedPct"`
+	CPUAllocatedPct        float64                       `json:"cpuAllocatedPct"`
 }
 
 func (p *Panel) MonitorWebSocket(c *fws.Conn) {
@@ -59,11 +64,36 @@ func (p *Panel) MonitorWebSocket(c *fws.Conn) {
 		prev = nextPrev
 		prevAt = now
 
+		users, _ := p.DB.ListUsers(ctx)
+		var totalAllocatedMemoryMB int
+		var totalAllocatedCPUs float64
+		for _, u := range users {
+			if u.Role != db.RoleAdmin {
+				totalAllocatedMemoryMB += u.MaxMemoryMB
+				totalAllocatedCPUs += u.MaxCPUs
+			}
+		}
+
+		memTotal := sys.MemTotalGB
+		var memPct float64
+		if memTotal > 0 {
+			memPct = ((float64(totalAllocatedMemoryMB) / 1024.0) / memTotal) * 100.0
+		}
+		cpuTotal := float64(sys.NumCPU)
+		var cpuPct float64
+		if cpuTotal > 0 {
+			cpuPct = (totalAllocatedCPUs / cpuTotal) * 100.0
+		}
+
 		payload := monitorPayload{
-			Sys:         sys,
-			UsageRows:   rows,
-			DockerError: errMsg,
-			UpdatedAt:   now.Format(time.RFC3339),
+			Sys:                    sys,
+			UsageRows:              rows,
+			DockerError:            errMsg,
+			UpdatedAt:              now.Format(time.RFC3339),
+			TotalAllocatedMemoryGB: float64(totalAllocatedMemoryMB) / 1024.0,
+			TotalAllocatedCPUs:     totalAllocatedCPUs,
+			MemoryAllocatedPct:     memPct,
+			CPUAllocatedPct:        cpuPct,
 		}
 		body, err := json.Marshal(payload)
 		if err != nil {

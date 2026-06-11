@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -118,6 +120,10 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 	go func() {
 		runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
+		dockerConfigPath := filepath.Join(p.Store.ReservedPath(id), ".docker")
+		if _, err := os.Stat(filepath.Join(dockerConfigPath, "config.json")); err == nil {
+			runCtx = context.WithValue(runCtx, "docker_config", dockerConfigPath)
+		}
 		stream := &deployRunWriter{r: r}
 		envFiles := p.ComposeEnvFiles(runCtx, id)
 		res := fn(runCtx, dir, composePaths, project, stream, envFiles)

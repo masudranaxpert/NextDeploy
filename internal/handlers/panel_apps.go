@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"panel/internal/handlers/utils"
 	"context"
 	"database/sql"
@@ -93,7 +95,17 @@ func (p *Panel) fetchAppStateForAppsList(ctx context.Context, app db.App, hint d
 // failing/slow app does not cancel others; goroutines always return nil and errors show as
 // "not deployed" via fetchAppStateForAppsList.
 func (p *Panel) AppsPage(c *fiber.Ctx) error {
-	list, err := p.DB.ListApps(c.UserContext())
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Redirect("/login")
+	}
+	var list []db.App
+	var err error
+	if u.Role == db.RoleAdmin {
+		list, err = p.DB.ListApps(c.UserContext())
+	} else {
+		list, err = p.DB.ListAppsForUser(c.UserContext(), u.ID)
+	}
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -131,18 +143,45 @@ func (p *Panel) AppsPage(c *fiber.Ctx) error {
 	}), "layouts/shell")
 }
 
+func randomAppSuffix() string {
+	buf := make([]byte, 2)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%04x", time.Now().UnixNano()%65536)
+	}
+	return hex.EncodeToString(buf)
+}
+
 func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(401).SendString("unauthorized")
+	}
 	slug, err := validateAppSlug(c.FormValue("name"))
 	if err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
-	if _, err := p.DB.GetApp(ctx, slug); err == nil {
-		return c.Status(400).SendString("an app with this name already exists")
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	exists, err := p.DB.AppNameExistsForUser(ctx, slug, u.ID)
+	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	id := slug
+	if exists {
+		return c.Status(400).SendString("an app with this name already exists")
+	}
+	if u.Role != db.RoleAdmin {
+		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
+		if err == nil && len(apps) >= u.MaxApps {
+			return c.Status(400).SendString("maximum app limit reached")
+		}
+	}
+	var id string
+	for {
+		suffix := randomAppSuffix()
+		id = fmt.Sprintf("%s-%s", slug, suffix)
+		if _, err := p.DB.GetApp(ctx, id); errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+	}
 	name := slug
 	if err := os.MkdirAll(p.Store.Path(id), 0750); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -150,7 +189,7 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	if err := p.Store.WriteMeta(id, name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.DB.CreateApp(c.UserContext(), id, name); err != nil {
+	if err := p.DB.CreateApp(ctx, id, name, u.ID); err != nil {
 		_ = os.RemoveAll(p.Store.Path(id))
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return c.Status(400).SendString(err.Error())

@@ -25,8 +25,8 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, e
 	var u User
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,username,password_hash,role,created_at FROM users WHERE username=? COLLATE NOCASE`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created)
+		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,status FROM users WHERE username=? COLLATE NOCASE`, username).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.Status)
 	if err != nil {
 		return User{}, err
 	}
@@ -38,8 +38,8 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (User, error) {
 	var u User
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,username,password_hash,role,created_at FROM users WHERE id=?`, id).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created)
+		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,status FROM users WHERE id=?`, id).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.Status)
 	if err != nil {
 		return User{}, err
 	}
@@ -48,7 +48,7 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (User, error) {
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,password_hash,role,created_at FROM users ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,status FROM users ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var created string
-		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.Status); err != nil {
 			return nil, err
 		}
 		u.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -73,6 +73,16 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id int64, passwordHash s
 
 func (s *Store) UpdateUserRole(ctx context.Context, id int64, role string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET role=? WHERE id=?`, role, id)
+	return err
+}
+
+func (s *Store) UpdateUserStatus(ctx context.Context, id int64, status string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+func (s *Store) UpdateUserLimits(ctx context.Context, id int64, maxApps, maxMemoryMB int, maxCPUs float64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET max_apps=?, max_memory_mb=?, max_cpus=? WHERE id=?`, maxApps, maxMemoryMB, maxCPUs, id)
 	return err
 }
 

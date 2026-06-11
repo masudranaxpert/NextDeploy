@@ -37,13 +37,14 @@ func newAPIClient() (*client.Client, error) {
 }
 
 type ContainerRow struct {
-	ID      string
-	Name    string
-	Image   string
-	State   string
-	Status  string
-	Ports   string
-	Created time.Time
+	ID             string
+	Name           string
+	Image          string
+	State          string
+	Status         string
+	Ports          string
+	Created        time.Time
+	ComposeProject string
 }
 
 type ImageRow struct {
@@ -130,13 +131,14 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 	for _, c := range list {
 		ports := formatPorts(c.Ports)
 		out = append(out, ContainerRow{
-			ID:      c.ID[:12],
-			Name:    containerName(c),
-			Image:   c.Image,
-			State:   c.State,
-			Status:  c.Status,
-			Ports:   ports,
-			Created: time.Unix(c.Created, 0).UTC(),
+			ID:             c.ID[:12],
+			Name:           containerName(c),
+			Image:          c.Image,
+			State:          c.State,
+			Status:         c.Status,
+			Ports:          ports,
+			Created:        time.Unix(c.Created, 0).UTC(),
+			ComposeProject: c.Labels[composeProjectLabel],
 		})
 	}
 	return out, ""

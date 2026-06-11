@@ -38,14 +38,14 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	reqCtx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 	defer cancel()
 
-	app, err := p.DB.GetApp(reqCtx, id)
+	app, err := p.RequireAppAccess(c, id, db.CollabRoleViewer)
 	if err != nil {
-		return utils.RespondAppNotFound(c)
+		return err
 	}
 	tab := c.Query("tab", "overview")
 	isGitApp, gitCfg, hasGitCfg := p.AppGitMetadata(reqCtx, id)
 	switch tab {
-	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup":
+	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup", "collaborators":
 	default:
 		tab = "overview"
 	}
@@ -174,7 +174,33 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		gitDeployShort, gitDeploySubject, gitDeployURL = p.gitDeployedSummary(reqCtx, id, gitCfg)
 	}
 
-	m := fiber.Map{
+	type CollabDetail struct {
+		UserID    int64
+		Username  string
+		Role      string
+		CreatedAt time.Time
+	}
+	var collabs []CollabDetail
+	var allUsers []db.User
+	var ownerUser db.User
+	if tab == "collaborators" {
+		dbCollabs, _ := p.DB.ListCollaborators(reqCtx, id)
+		for _, cb := range dbCollabs {
+			u, err := p.DB.GetUserByID(reqCtx, cb.UserID)
+			if err == nil {
+				collabs = append(collabs, CollabDetail{
+					UserID:    cb.UserID,
+					Username:  u.Username,
+					Role:      cb.Role,
+					CreatedAt: cb.CreatedAt,
+				})
+			}
+		}
+		allUsers, _ = p.DB.ListUsers(reqCtx)
+		ownerUser, _ = p.DB.GetUserByID(reqCtx, app.OwnerID)
+	}
+
+	m := withUser(c, fiber.Map{
 		"Nav":                    "apps",
 		"Title":                  app.Name,
 		"App":                    app,
@@ -230,7 +256,11 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"BackupDestinations":     backupDestinations,
 		"BackupSchedules":        backupSchedules,
 		"BackupHistory":          backupHistory,
-	}
+		"Collaborators":          collabs,
+		"AllUsers":               allUsers,
+		"OwnerUser":              ownerUser,
+		"Flash":                  appShowFlash,
+	})
 
 	eng, _ := c.App().Config().Views.(viewsRenderer)
 	if eng == nil {
@@ -261,4 +291,128 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	m["AppPageHTML"] = template.HTML(page.String())
 
 	return c.Render("pages/app_show", withUser(c, m), "layouts/shell")
+}
+
+func (p *Panel) AddCollaborator(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	appID := c.Params("id")
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	app, err := p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("App not found")
+	}
+
+	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
+	}
+
+	collabUsername := strings.TrimSpace(c.FormValue("username"))
+	role := strings.TrimSpace(c.FormValue("role"))
+	if role != db.CollabRoleDeveloper && role != db.CollabRoleViewer {
+		role = db.CollabRoleViewer
+	}
+
+	targetUser, err := p.DB.GetUserByUsername(ctx, collabUsername)
+	if err != nil {
+		utils.SetFlash(c, "Error: User not found.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	if targetUser.ID == app.OwnerID {
+		utils.SetFlash(c, "Error: User is already the owner of this app.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	err = p.DB.AddCollaborator(ctx, appID, targetUser.ID, role)
+	if err != nil {
+		utils.SetFlash(c, "Error adding collaborator: "+err.Error())
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	p.RecordAuditLog(c, "add_collaborator", "app", appID, fmt.Sprintf("Added collaborator %s with role %s", collabUsername, role))
+	utils.SetFlash(c, "Collaborator added successfully.")
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+}
+
+func (p *Panel) DeleteCollaborator(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	appID := c.Params("id")
+	collabUserID, err := c.ParamsInt("uid")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("Invalid user ID")
+	}
+
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	app, err := p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("App not found")
+	}
+
+	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
+	}
+
+	err = p.DB.RemoveCollaborator(ctx, appID, int64(collabUserID))
+	if err != nil {
+		utils.SetFlash(c, "Error removing collaborator: "+err.Error())
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	p.RecordAuditLog(c, "delete_collaborator", "app", appID, fmt.Sprintf("Removed collaborator user ID %d", collabUserID))
+	utils.SetFlash(c, "Collaborator removed successfully.")
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+}
+
+func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	appID := c.Params("id")
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	app, err := p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("App not found")
+	}
+
+	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
+	}
+
+	newOwnerUsername := strings.TrimSpace(c.FormValue("username"))
+	targetUser, err := p.DB.GetUserByUsername(ctx, newOwnerUsername)
+	if err != nil {
+		utils.SetFlash(c, "Error: User not found.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	if targetUser.ID == app.OwnerID {
+		utils.SetFlash(c, "Error: User is already the owner.")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	err = p.DB.TransferAppOwnership(ctx, appID, targetUser.ID)
+	if err != nil {
+		utils.SetFlash(c, "Error transferring ownership: "+err.Error())
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+	}
+
+	_ = p.DB.RemoveCollaborator(ctx, appID, targetUser.ID)
+
+	p.RecordAuditLog(c, "transfer_ownership", "app", appID, fmt.Sprintf("Transferred ownership of app %s to %s", appID, newOwnerUsername))
+	utils.SetFlash(c, "Ownership transferred successfully.")
+
+	if u.Role != db.RoleAdmin {
+		return c.Redirect("/apps")
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
 }

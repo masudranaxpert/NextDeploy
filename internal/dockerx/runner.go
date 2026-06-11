@@ -34,6 +34,9 @@ func runCompose(ctx context.Context, projectDir string, composeFiles []string, p
 	args := composeBin(projectDir, composeFiles, project, envFiles, rest...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = projectDir
+	if configDir, ok := ctx.Value("docker_config").(string); ok && configDir != "" {
+		cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+configDir)
+	}
 	var buf bytes.Buffer
 	out := io.Writer(&buf)
 	if logW != nil {
