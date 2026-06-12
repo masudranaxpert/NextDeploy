@@ -87,16 +87,32 @@ if [[ ! -s "$DEST" ]]; then
   die "Downloaded bundle is empty"
 fi
 
+head_bytes="$(head -c 512 "$DEST" 2>/dev/null || true)"
+if [[ "$head_bytes" == *"<!doctype"* || "$head_bytes" == *"<html"* || "$head_bytes" == *"<HTML"* ]]; then
+  rm -f "$DEST"
+  die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
+fi
+if ! gzip -t "$DEST" 2>/dev/null; then
+  rm -f "$DEST"
+  die "Downloaded file is not a valid gzip bundle. Use a direct file URL or --file."
+fi
+
 chmod 600 "$DEST"
 CONTAINER_PATH="/data/migrate-incoming/$(basename "$DEST")"
 
-info "Importing into panel (this may take a while)…"
-IMPORT_ARGS=(panel migrate import "$CONTAINER_PATH" --delete-after)
-if [[ -n "$NO_DEPLOY" ]]; then
-  IMPORT_ARGS+=(--no-deploy)
+PANEL_BIN="/usr/local/bin/panel"
+if ! docker exec "$PANEL_CONTAINER" test -x "$PANEL_BIN" 2>/dev/null; then
+  PANEL_BIN="panel"
 fi
 
-if ! docker exec "$PANEL_CONTAINER" "${IMPORT_ARGS[@]}"; then
+IMPORT_FLAGS=(--delete-after)
+if [[ -n "$NO_DEPLOY" ]]; then
+  IMPORT_FLAGS+=(--no-deploy)
+fi
+
+info "Importing into panel (this may take a while)…"
+info "docker exec ${PANEL_CONTAINER} ${PANEL_BIN} migrate import ${CONTAINER_PATH}"
+if ! docker exec "$PANEL_CONTAINER" "$PANEL_BIN" migrate import "$CONTAINER_PATH" "${IMPORT_FLAGS[@]}"; then
   die "Import failed. Bundle left at ${DEST} for inspection."
 fi
 
