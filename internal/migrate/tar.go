@@ -18,7 +18,7 @@ func tarExtractGz(ctx context.Context, archivePath, destDir string) error {
 }
 
 func tarCreateGz(ctx context.Context, outPath, baseDir string, members []string) error {
-	args := []string{"-I", "gzip -1", "-cf", outPath, "-C", baseDir}
+	args := []string{"czf", outPath, "-C", baseDir}
 	args = append(args, members...)
 	return runTar(ctx, args, "create archive")
 }
