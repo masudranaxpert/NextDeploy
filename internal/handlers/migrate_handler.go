@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -369,15 +370,28 @@ func (p *Panel) migratePublicBase(c *fiber.Ctx) string {
 	}
 	domain := strings.TrimSpace(p.DB.GetSetting(ctx, "panel_domain"))
 	https := strings.EqualFold(p.DB.GetSetting(ctx, "panel_enable_https"), "true") || strings.EqualFold(p.DB.GetSetting(ctx, "panel_enable_https"), "1")
+	if domain != "" {
+		return migrate.PublicBaseURL(domain, https, "", 0)
+	}
 	host := "127.0.0.1"
 	port := 8080
 	if c != nil {
-		host = c.Hostname()
-		if p, err := strconv.Atoi(c.Port()); err == nil && p > 0 {
-			port = p
+		raw := strings.TrimSpace(c.Hostname())
+		if h, pStr, err := net.SplitHostPort(raw); err == nil {
+			host = h
+			if n, err := strconv.Atoi(pStr); err == nil && n > 0 {
+				port = n
+			}
+		} else {
+			host = raw
+			if strings.EqualFold(c.Protocol(), "https") {
+				port = 443
+			} else {
+				port = 80
+			}
 		}
 	}
-	return migrate.PublicBaseURL(domain, https, host, port)
+	return migrate.PublicBaseURL("", https, host, port)
 }
 
 func (p *Panel) MigrateImportDeps(adminID int64) migrate.ImportDeps {
