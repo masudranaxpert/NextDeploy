@@ -78,6 +78,10 @@ else
   if [[ ! -f "$BUNDLE_FILE" ]]; then
     die "Bundle file not found: $BUNDLE_FILE"
   fi
+  case "$BUNDLE_FILE" in
+    *.nd-migrate) ;;
+    *) die "Expected a .nd-migrate file: $BUNDLE_FILE" ;;
+  esac
   info "Copying local bundle…"
   cp -f "$BUNDLE_FILE" "$DEST"
 fi
@@ -89,6 +93,11 @@ fi
 
 chmod 600 "$DEST"
 CONTAINER_PATH="/data/migrate-incoming/$(basename "$DEST")"
+
+if ! docker exec "$PANEL_CONTAINER" tar -tzf "$CONTAINER_PATH" manifest.json >/dev/null 2>&1; then
+  rm -f "$DEST"
+  die "Not a valid .nd-migrate bundle (manifest.json missing). The URL must be a direct download to the raw file."
+fi
 
 PANEL_BIN="/usr/local/bin/panel"
 if ! docker exec "$PANEL_CONTAINER" test -x "$PANEL_BIN" 2>/dev/null; then
