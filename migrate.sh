@@ -9,6 +9,7 @@ NO_DEPLOY=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[migrate] $*"; }
+warn() { echo "[migrate] WARNING: $*" >&2; }
 
 usage() {
   cat <<'EOF'

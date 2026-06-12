@@ -17,10 +17,14 @@ import (
 )
 
 func runMigrateCLI(args []string) {
+	if len(args) < 1 || strings.TrimSpace(args[0]) != "import" {
+		fmt.Fprintln(os.Stderr, "usage: panel migrate import <bundle.nd-migrate> [--delete-after] [--no-deploy]")
+		os.Exit(2)
+	}
 	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
 	deleteAfter := fs.Bool("delete-after", false, "remove bundle file after successful import")
 	noDeploy := fs.Bool("no-deploy", false, "skip compose up after import")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args[1:])
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "usage: panel migrate import <bundle.nd-migrate> [--delete-after] [--no-deploy]")
 		os.Exit(2)
