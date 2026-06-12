@@ -307,7 +307,7 @@ func (s *Store) ClearPanelForMigrateImport(ctx context.Context) error {
 		`DELETE FROM sessions`,
 		`DELETE FROM app_collaborators`,
 		`DELETE FROM app_domains`,
-		`DELETE FROM app_git_config`,
+		`DELETE FROM app_git_configs`,
 		`DELETE FROM apps`,
 		`DELETE FROM private_registries`,
 		`DELETE FROM github_provider_details`,
