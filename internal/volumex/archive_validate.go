@@ -59,10 +59,26 @@ func safeArchiveMemberPath(name string) error {
 	return nil
 }
 
-func safeSymlinkTarget(target string) error {
+func safeSymlinkTargetInArchive(memberName, target string) error {
 	target = normalizeArchivePath(target)
-	if !isLocalArchivePath(target) {
+	if target == "" {
+		return errors.New("empty symlink target in archive")
+	}
+	if pathstd.IsAbs(target) {
 		return errors.New("unsafe symlink target in archive")
+	}
+	memberDir := pathstd.Dir(normalizeArchivePath(memberName))
+	resolved := pathstd.Clean(pathstd.Join(memberDir, target))
+	if pathstd.IsAbs(resolved) {
+		return errors.New("unsafe symlink target in archive")
+	}
+	if resolved == ".." || strings.HasPrefix(resolved, "../") {
+		return errors.New("unsafe symlink target in archive")
+	}
+	for _, seg := range strings.Split(resolved, "/") {
+		if seg == ".." {
+			return errors.New("unsafe symlink target in archive")
+		}
 	}
 	return nil
 }
@@ -111,7 +127,7 @@ func ValidateTarGzPaths(path string) error {
 		}
 		switch hdr.Typeflag {
 		case tar.TypeSymlink, tar.TypeLink:
-			if err := safeSymlinkTarget(hdr.Linkname); err != nil {
+			if err := safeSymlinkTargetInArchive(hdr.Name, hdr.Linkname); err != nil {
 				return err
 			}
 		}
@@ -159,7 +175,7 @@ func ValidateZipPaths(path string) error {
 		if t == "" {
 			return errors.New("empty symlink target in zip")
 		}
-		if err := safeSymlinkTarget(t); err != nil {
+		if err := safeSymlinkTargetInArchive(f.Name, t); err != nil {
 			return err
 		}
 	}
