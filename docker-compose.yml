@@ -25,10 +25,10 @@ services:
             - caddy
         environment:
             DATA_DIR: /data
-            DOCKER_API_VERSION: "1.45"
+            DOCKER_API_VERSION: "1.54"
             LISTEN_ADDR: :8080
             WORKSPACES_ROOT: /data/workspaces
-            PANEL_PERF_LOG: "true"
+            PANEL_PERF_LOG: "false"
         image: masudranaxpert/nextdeploy:latest
         networks:
             - nextdeploy
