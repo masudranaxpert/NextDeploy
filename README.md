@@ -161,7 +161,7 @@ Open `http://localhost:8080` — first visit creates the admin account.
 
 ## Panel migration (VPS to VPS)
 
-Export selected apps to a `.nd-migrate` bundle (apps, volumes, domains, Git, registries, env). **Users/sessions are not migrated** — set up a fresh admin on the target VPS first.
+Export selected apps to a `.nd-migrate` bundle (apps, volumes, domains, Git, registries, env, **users + password hashes**, collaborators). Import **resets the target panel** and restores a full clone — **no manual setup** required.
 
 **Export (source):** Admin → **System → Migration** → select apps → **Create export bundle**. All apps pause briefly during export, then restart. Download link is valid **3 hours**; a new export replaces the previous one.
 

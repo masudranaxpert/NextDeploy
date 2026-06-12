@@ -297,3 +297,72 @@ func scanMigrateExports(rows *sql.Rows) ([]MigrateExport, error) {
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) ClearPanelForMigrateImport(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	stmts := []string{
+		`DELETE FROM sessions`,
+		`DELETE FROM app_collaborators`,
+		`DELETE FROM app_domains`,
+		`DELETE FROM app_git_config`,
+		`DELETE FROM apps`,
+		`DELETE FROM private_registries`,
+		`DELETE FROM github_provider_details`,
+		`DELETE FROM git_providers`,
+		`DELETE FROM users`,
+	}
+	for _, q := range stmts {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) InsertUserMigrate(ctx context.Context, u User) error {
+	allow := 0
+	if u.AllowDomainFileServer {
+		allow = 1
+	}
+	created := u.CreatedAt.UTC().Format(time.RFC3339)
+	if u.CreatedAt.IsZero() {
+		created = time.Now().UTC().Format(time.RFC3339)
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO users(id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,status,allow_domain_file_server) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		u.ID, u.Username, u.PasswordHash, u.Role, created, u.MaxApps, u.MaxMemoryMB, u.MaxCPUs, u.MaxStorageMB, u.Status, allow)
+	return err
+}
+
+func (s *Store) SyncUsersIDSequence(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sqlite_sequence SET seq=(SELECT COALESCE(MAX(id),0) FROM users) WHERE name='users'`)
+	return err
+}
+
+func (s *Store) InsertGitProviderMigrate(ctx context.Context, p GitProvider) error {
+	ca := p.CreatedAt.UTC().Format(time.RFC3339)
+	ua := p.UpdatedAt.UTC().Format(time.RFC3339)
+	if p.CreatedAt.IsZero() {
+		ca = time.Now().UTC().Format(time.RFC3339)
+	}
+	if p.UpdatedAt.IsZero() {
+		ua = ca
+	}
+	var uid interface{}
+	if p.UserID != nil {
+		uid = *p.UserID
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO git_providers(id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, uid, p.Name, p.Provider, p.Token, p.RefreshToken, p.ExpiresAt, p.Notes, ca, ua)
+	return err
+}
+
+func (s *Store) SyncGitProvidersIDSequence(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sqlite_sequence SET seq=(SELECT COALESCE(MAX(id),0) FROM git_providers) WHERE name='git_providers'`)
+	return err
+}

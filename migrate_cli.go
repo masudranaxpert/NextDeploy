@@ -52,21 +52,7 @@ func runMigrateCLI(args []string) {
 	store := workspace.NewStore(root)
 	panel := &handlers.Panel{DB: database, Store: store, WorkspacesRoot: root}
 
-	adminID := int64(0)
-	users, err := database.ListUsers(context.Background())
-	if err == nil {
-		for _, u := range users {
-			if u.Role == db.RoleAdmin {
-				adminID = u.ID
-				break
-			}
-		}
-	}
-	if adminID == 0 {
-		log.Fatal("no admin user found; complete setup first")
-	}
-
-	_ = os.MkdirAll(migrate.IncomingDir(), 0700)
+	adminID := int64(1)
 	deps := panel.MigrateImportDeps(adminID)
 	deps.DeployAfterImport = !*noDeploy
 	deps.OnProgress = func(msg string) {

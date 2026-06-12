@@ -53,6 +53,9 @@ Options:
   --no-deploy         Skip compose up after import
   -h, --help          Show this help
 
+Note: Import resets the panel (users, apps, workspaces) and restores the bundle clone.
+      No manual setup is required — install NextDeploy, then run migrate.
+
 Examples:
   sudo bash migrate.sh --url "https://panel.example.com/migrate/download/TOKEN"
   sudo bash migrate.sh --url "https://cdn.example.com/bundle" panel-migrate-20260612.nd-migrate
@@ -154,16 +157,10 @@ if [[ -n "$NO_DEPLOY" ]]; then
   IMPORT_FLAGS+=(--no-deploy)
 fi
 
-if [[ -f "${DATA_DIR}/panel.db" ]] && command -v sqlite3 >/dev/null 2>&1; then
-  if ! sqlite3 "${DATA_DIR}/panel.db" "SELECT 1 FROM users WHERE role='admin' LIMIT 1;" 2>/dev/null | grep -q 1; then
-    die "Complete panel setup first (open the panel in a browser and create the admin account), then run migrate again."
-  fi
-fi
-
-info "Importing into panel (this may take a while)…"
+info "Importing bundle (resets panel state, restores users + apps)…"
 info "docker exec ${PANEL_CONTAINER} ${PANEL_BIN} migrate import ${CONTAINER_PATH}"
 if ! docker exec "$PANEL_CONTAINER" "$PANEL_BIN" migrate import "$CONTAINER_PATH" "${IMPORT_FLAGS[@]}"; then
-  die "Import failed. Bundle left at ${DEST} for inspection. If you see 'no admin user found', complete panel setup in the browser first."
+  die "Import failed. Bundle left at ${DEST} for inspection."
 fi
 
 info "Migration import completed successfully."

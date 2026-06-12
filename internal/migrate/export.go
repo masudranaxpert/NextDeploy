@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"panel/internal/backup"
 	"panel/internal/db"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type ExportDeps struct {
@@ -22,6 +22,13 @@ type ExportDeps struct {
 	SourcePanelURL string
 	AppendLog      func(exportID int64, msg string)
 	QuiescePanel   func(ctx context.Context, log func(string)) (restore func(context.Context), err error)
+}
+
+type exportAppMeta struct {
+	snap       AppSnapshot
+	domains    []DomainSnapshot
+	gitConfigs []GitSnapshot
+	panelEnv   string
 }
 
 func RunExport(ctx context.Context, exportID int64, appIDs []string, deps ExportDeps) (plainToken string, err error) {
@@ -43,11 +50,11 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		}
 	}()
 
-	logf := func(msg string) {
+	log := newSafeLogger(func(msg string) {
 		if deps.AppendLog != nil {
 			deps.AppendLog(exportID, msg)
 		}
-	}
+	})
 
 	var restorePanel func(context.Context)
 	var restoreOnce sync.Once
@@ -57,7 +64,7 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 				return
 			}
 			if msg != "" {
-				logf(msg)
+				log.log(msg)
 			}
 			restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
@@ -65,9 +72,9 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		})
 	}
 	if deps.QuiescePanel != nil {
-		logf("quiescing panel before export")
+		log.log("quiescing panel before export")
 		var qerr error
-		restorePanel, qerr = deps.QuiescePanel(ctx, logf)
+		restorePanel, qerr = deps.QuiescePanel(ctx, log.log)
 		if qerr != nil {
 			return "", fmt.Errorf("quiesce panel: %w", qerr)
 		}
@@ -78,77 +85,137 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		}()
 	}
 
-	snap := PanelSnapshot{PanelEnvs: map[string]string{}, SourcePanel: deps.SourcePanelURL}
-	manifest := newBundleManifest(exportID, appIDs)
-	ownerSet := map[int64]struct{}{}
-
+	apps := make([]db.App, 0, len(appIDs))
 	for _, appID := range appIDs {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
 		app, gerr := deps.DB.GetApp(ctx, appID)
 		if gerr != nil {
 			return "", fmt.Errorf("app %s: %w", appID, gerr)
 		}
-		logf("archiving " + app.Name + " (" + app.ID + ")")
+		apps = append(apps, app)
+	}
 
-		sourceDir := deps.WorkspaceRoot(app.ID)
-		vols, verr := deps.VolumeNames(ctx, app)
-		if verr != nil {
-			return "", verr
-		}
-		archivePath, berr := backup.BackupFullWithVolumesOptions(ctx, app.Name, sourceDir, vols, false, func(msg string) {
-			logf(app.Name + ": " + msg)
+	meta := make([]exportAppMeta, len(apps))
+	sem := newSemaphore(ParallelWorkers())
+	g, gctx := errgroup.WithContext(ctx)
+
+	for i, app := range apps {
+		i, app := i, app
+		g.Go(func() error {
+			if err := sem.acquire(gctx); err != nil {
+				return err
+			}
+			defer sem.release()
+
+			log.log("archiving " + app.Name + " (" + app.ID + ")")
+			sourceDir := deps.WorkspaceRoot(app.ID)
+			vols, verr := deps.VolumeNames(gctx, app)
+			if verr != nil {
+				return verr
+			}
+			destPath := filepath.Join(workDir, appsDirName, app.ID+".tar.gz")
+			if err := exportAppArchive(gctx, app.Name, sourceDir, vols, destPath, func(msg string) {
+				log.log(app.Name + ": " + msg)
+			}); err != nil {
+				return fmt.Errorf("archive %s: %w", app.Name, err)
+			}
+
+			srcType := deps.DB.GetAppSourceType(gctx, app.ID)
+			meta[i].snap = AppSnapshot{
+				ID:          app.ID,
+				Name:        app.Name,
+				ComposeFile: app.ComposeFile,
+				OwnerID:     app.OwnerID,
+				Status:      app.Status,
+				SourceType:  srcType,
+				Archive:     filepath.ToSlash(filepath.Join(appsDirName, app.ID+".tar.gz")),
+			}
+			domains, _ := deps.DB.ListAppDomains(gctx, app.ID)
+			for _, d := range domains {
+				meta[i].domains = append(meta[i].domains, DomainSnapshot{
+					AppID: d.AppID, Domain: d.Domain, Service: d.Service, Port: d.Port,
+					EnableHTTPS: d.EnableHTTPS, EnableWWW: d.EnableWWW,
+					ServeStatic: d.ServeStatic, StaticPath: d.StaticPath, StaticURLPrefix: d.StaticURLPrefix,
+					ServeMedia: d.ServeMedia, MediaPath: d.MediaPath, MediaURLPrefix: d.MediaURLPrefix,
+					RouteRulesJSON: d.RouteRulesJSON,
+				})
+			}
+			if env, eerr := deps.DB.GetPanelEnv(gctx, app.ID); eerr == nil && strings.TrimSpace(env) != "" {
+				meta[i].panelEnv = env
+			}
+			if gitCfg, gerr := deps.DB.GetAppGitConfig(gctx, app.ID); gerr == nil && strings.TrimSpace(gitCfg.RepoURL) != "" {
+				meta[i].gitConfigs = append(meta[i].gitConfigs, GitSnapshot{
+					AppID: gitCfg.AppID, GitProviderID: gitCfg.GitProviderID, Provider: gitCfg.Provider,
+					RepoURL: gitCfg.RepoURL, RepoFullName: gitCfg.RepoFullName, Branch: gitCfg.Branch,
+					AuthMode: gitCfg.AuthMode, Token: gitCfg.Token, AppGitID: gitCfg.AppGitID,
+					InstallationID: gitCfg.InstallationID, PrivateKeyPEM: gitCfg.PrivateKeyPEM,
+					WebhookSecret: gitCfg.WebhookSecret, AutoDeploy: gitCfg.AutoDeploy, LastDeployRef: gitCfg.LastDeployRef,
+				})
+			}
+			return nil
 		})
-		if berr != nil {
-			return "", fmt.Errorf("backup %s: %w", app.Name, berr)
-		}
+	}
+	if err := g.Wait(); err != nil {
+		return "", err
+	}
 
-		destName := app.ID + ".tar.gz"
-		destPath := filepath.Join(workDir, appsDirName, destName)
-		if err := moveArchive(archivePath, destPath); err != nil {
-			return "", err
-		}
+	runRestore("restarting apps (bundle packing continues)")
 
-		srcType := deps.DB.GetAppSourceType(ctx, app.ID)
-		snap.Apps = append(snap.Apps, AppSnapshot{
-			ID:          app.ID,
-			Name:        app.Name,
-			ComposeFile: app.ComposeFile,
-			OwnerID:     app.OwnerID,
-			Status:      app.Status,
-			SourceType:  srcType,
-			Archive:     filepath.ToSlash(filepath.Join(appsDirName, destName)),
-		})
-		ownerSet[app.OwnerID] = struct{}{}
-
-		domains, _ := deps.DB.ListAppDomains(ctx, app.ID)
-		for _, d := range domains {
-			snap.Domains = append(snap.Domains, DomainSnapshot{
-				AppID: d.AppID, Domain: d.Domain, Service: d.Service, Port: d.Port,
-				EnableHTTPS: d.EnableHTTPS, EnableWWW: d.EnableWWW,
-				ServeStatic: d.ServeStatic, StaticPath: d.StaticPath, StaticURLPrefix: d.StaticURLPrefix,
-				ServeMedia: d.ServeMedia, MediaPath: d.MediaPath, MediaURLPrefix: d.MediaURLPrefix,
-				RouteRulesJSON: d.RouteRulesJSON,
-			})
-		}
-		if env, eerr := deps.DB.GetPanelEnv(ctx, app.ID); eerr == nil && strings.TrimSpace(env) != "" {
-			snap.PanelEnvs[app.ID] = env
-		}
-		if gitCfg, gerr := deps.DB.GetAppGitConfig(ctx, app.ID); gerr == nil && strings.TrimSpace(gitCfg.RepoURL) != "" {
-			snap.GitConfigs = append(snap.GitConfigs, GitSnapshot{
-				AppID: gitCfg.AppID, GitProviderID: gitCfg.GitProviderID, Provider: gitCfg.Provider,
-				RepoURL: gitCfg.RepoURL, RepoFullName: gitCfg.RepoFullName, Branch: gitCfg.Branch,
-				AuthMode: gitCfg.AuthMode, Token: gitCfg.Token, AppGitID: gitCfg.AppGitID,
-				InstallationID: gitCfg.InstallationID, PrivateKeyPEM: gitCfg.PrivateKeyPEM,
-				WebhookSecret: gitCfg.WebhookSecret, AutoDeploy: gitCfg.AutoDeploy, LastDeployRef: gitCfg.LastDeployRef,
-			})
+	snap := PanelSnapshot{PanelEnvs: map[string]string{}, SourcePanel: deps.SourcePanelURL}
+	manifest := newBundleManifest(exportID, appIDs)
+	ownerSet := map[int64]struct{}{}
+	for _, m := range meta {
+		snap.Apps = append(snap.Apps, m.snap)
+		ownerSet[m.snap.OwnerID] = struct{}{}
+		snap.Domains = append(snap.Domains, m.domains...)
+		snap.GitConfigs = append(snap.GitConfigs, m.gitConfigs...)
+		if strings.TrimSpace(m.panelEnv) != "" {
+			snap.PanelEnvs[m.snap.ID] = m.panelEnv
 		}
 	}
 
-	runRestore("restarting apps (bundle packing continues in background)")
+	users, uerr := deps.DB.ListUsers(ctx)
+	if uerr == nil {
+		for _, u := range users {
+			snap.Users = append(snap.Users, userToSnapshot(u))
+		}
+	}
+
+	providerSeen := map[int64]struct{}{}
+	for _, appID := range appIDs {
+		collabs, _ := deps.DB.ListCollaborators(ctx, appID)
+		for _, c := range collabs {
+			snap.Collaborators = append(snap.Collaborators, CollaboratorSnapshot{
+				AppID: c.AppID, UserID: c.UserID, Role: c.Role,
+			})
+		}
+		for _, g := range snap.GitConfigs {
+			if g.AppID != appID || g.GitProviderID <= 0 {
+				continue
+			}
+			providerSeen[g.GitProviderID] = struct{}{}
+		}
+	}
+	for pid := range providerSeen {
+		p, perr := deps.DB.GetGitProvider(ctx, pid)
+		if perr != nil {
+			continue
+		}
+		ps := GitProviderSnapshot{
+			ID: p.ID, UserID: p.UserID, Name: p.Name, Provider: p.Provider,
+			Token: p.Token, RefreshToken: p.RefreshToken, ExpiresAt: p.ExpiresAt, Notes: p.Notes,
+			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
+		}
+		if d, derr := deps.DB.GetGitHubProviderDetail(ctx, pid); derr == nil {
+			ps.GitHubDetail = &GitHubProviderSnap{
+				GitHubAppID: d.GitHubAppID, ClientID: d.ClientID, ClientSecret: d.ClientSecret,
+				PrivateKeyPEM: d.PrivateKeyPEM, WebhookSecret: d.WebhookSecret,
+				InstallationID: d.InstallationID, AccountLogin: d.AccountLogin, AppSlug: d.AppSlug,
+				ManifestState: d.ManifestState, CreatedViaManifest: d.CreatedViaManifest,
+			}
+		}
+		snap.GitProviders = append(snap.GitProviders, ps)
+	}
 
 	for ownerID := range ownerSet {
 		regs, _ := deps.DB.ListPrivateRegistries(ctx, &ownerID)
@@ -169,7 +236,7 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 	}
 
 	bundlePath := filepath.Join(StagingRoot(), bundleFileName())
-	logf("packing bundle")
+	log.log("packing bundle")
 	if err := packBundle(ctx, workDir, bundlePath, manifest); err != nil {
 		return "", err
 	}
@@ -190,31 +257,6 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		_ = os.Remove(bundlePath)
 		return "", err
 	}
-	logf("export ready — previous bundles will be replaced")
+	log.log("export ready — previous bundles will be replaced")
 	return plain, nil
-}
-
-func moveArchive(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	if err := copyFile(src, dst); err != nil {
-		return err
-	}
-	return os.Remove(src)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
 }

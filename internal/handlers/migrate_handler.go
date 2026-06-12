@@ -402,9 +402,6 @@ func (p *Panel) MigrateImportDeps(adminID int64) migrate.ImportDeps {
 		WorkspaceRoot: func(appID string) string {
 			return p.ComposeWorkspaceRoot(context.Background(), appID)
 		},
-		ComposeFilePath: func(app db.App) string {
-			return p.ComposeFilePath(context.Background(), app, app.ID)
-		},
 		ComposePaths: func(app db.App) []string {
 			return p.EffectiveComposePaths(context.Background(), app, app.ID)
 		},

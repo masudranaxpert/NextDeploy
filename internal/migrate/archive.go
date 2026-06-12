@@ -1,77 +1,13 @@
 package migrate
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
-
-const streamBuf = 64 * 1024
-
-func writeTarGz(ctx context.Context, outPath string, members []string, baseDir string) error {
-	out, err := os.Create(outPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	gz, err := gzip.NewWriterLevel(out, gzip.BestSpeed)
-	if err != nil {
-		return err
-	}
-	tw := tar.NewWriter(gz)
-	for _, rel := range members {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		rel = filepath.ToSlash(strings.TrimPrefix(rel, string(filepath.Separator)))
-		abs := filepath.Join(baseDir, filepath.FromSlash(rel))
-		fi, err := os.Stat(abs)
-		if err != nil {
-			return err
-		}
-		if fi.IsDir() {
-			continue
-		}
-		hdr := &tar.Header{
-			Name:     rel,
-			Mode:     0600,
-			Size:     fi.Size(),
-			ModTime:  fi.ModTime(),
-			Typeflag: tar.TypeReg,
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		f, err := os.Open(abs)
-		if err != nil {
-			return err
-		}
-		buf := make([]byte, streamBuf)
-		if _, err := io.CopyBuffer(tw, f, buf); err != nil {
-			_ = f.Close()
-			return err
-		}
-		_ = f.Close()
-	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		return err
-	}
-	return out.Close()
-}
 
 func packBundle(ctx context.Context, workDir, outPath string, manifest BundleManifest) error {
 	payload := []string{snapshotName}
@@ -86,15 +22,6 @@ func packBundle(ctx context.Context, workDir, outPath string, manifest BundleMan
 		}
 		payload = append(payload, filepath.Join(appsDirName, e.Name()))
 	}
-	manifest.Checksums = map[string]string{}
-	for _, rel := range payload {
-		abs := filepath.Join(workDir, filepath.FromSlash(rel))
-		sum, err := fileSHA256(abs)
-		if err != nil {
-			return err
-		}
-		manifest.Checksums[filepath.ToSlash(rel)] = sum
-	}
 	mb, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
@@ -103,59 +30,22 @@ func packBundle(ctx context.Context, workDir, outPath string, manifest BundleMan
 		return err
 	}
 	members := append([]string{manifestName}, payload...)
-	return writeTarGz(ctx, outPath, members, workDir)
+	return tarCreateGz(ctx, outPath, workDir, members)
 }
 
-func extractBundle(ctx context.Context, bundlePath, destDir string) error {
+func extractBundleMembers(ctx context.Context, bundlePath, destDir string, members []string) error {
 	if err := os.MkdirAll(destDir, 0700); err != nil {
 		return err
 	}
-	f, err := os.Open(bundlePath)
-	if err != nil {
-		return err
+	return tarExtractMembers(ctx, bundlePath, destDir, members)
+}
+
+func ensureBundleMember(ctx context.Context, bundlePath, destDir, member string) error {
+	target := filepath.Join(destDir, filepath.FromSlash(member))
+	if _, err := os.Stat(target); err == nil {
+		return nil
 	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-		name := filepath.Clean(filepath.FromSlash(hdr.Name))
-		if strings.Contains(name, "..") {
-			return fmt.Errorf("invalid path in bundle: %s", hdr.Name)
-		}
-		target := filepath.Join(destDir, name)
-		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
-			return err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-		if err != nil {
-			return err
-		}
-		buf := make([]byte, streamBuf)
-		if _, err := io.CopyBuffer(out, tr, buf); err != nil {
-			_ = out.Close()
-			return err
-		}
-		_ = out.Close()
-	}
+	return extractBundleMembers(ctx, bundlePath, destDir, []string{member})
 }
 
 func readManifestFromDir(dir string) (BundleManifest, error) {
@@ -183,20 +73,6 @@ func readSnapshotFromDir(dir string) (PanelSnapshot, error) {
 		return s, err
 	}
 	return s, nil
-}
-
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	buf := make([]byte, streamBuf)
-	if _, err := io.CopyBuffer(h, f, buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func bundleFileName() string {
