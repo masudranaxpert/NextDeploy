@@ -58,12 +58,18 @@
     if (this.term) return;
     var host = document.getElementById(this.hostId);
     if (!host) return;
-    if (typeof Terminal === 'undefined') {
+    if (typeof window.Terminal === 'undefined' && window.MaterialFileIcons && window.MaterialFileIcons.Terminal) {
+      window.Terminal = window.MaterialFileIcons.Terminal;
+    }
+    if (typeof window.FitAddon === 'undefined' && window.MaterialFileIcons && window.MaterialFileIcons.FitAddon) {
+      window.FitAddon = window.MaterialFileIcons.FitAddon;
+    }
+    if (typeof window.Terminal === 'undefined') {
       this._status('xterm.js failed to load', 'error');
       return;
     }
     var o = this.opts;
-    this.term = new Terminal({
+    this.term = new window.Terminal({
       fontFamily: o.fontFamily || '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
       fontSize:   o.fontSize || 13,
       lineHeight: o.lineHeight || 1.4,
@@ -73,8 +79,9 @@
       scrollback: o.scrollback != null ? o.scrollback : 5000,
     });
     var FitCtor = null;
-    if (typeof FitAddon !== 'undefined') {
-      FitCtor = FitAddon.FitAddon || FitAddon.default || FitAddon;
+    var fitRef = window.FitAddon;
+    if (typeof fitRef !== 'undefined') {
+      FitCtor = fitRef.FitAddon || fitRef.default || fitRef;
     }
     if (typeof FitCtor === 'function') {
       this.fit = new FitCtor();
@@ -250,8 +257,23 @@
     return proto + '//' + location.host + '/apps/' + appId + '/ws/terminal?' + q;
   }
 
+  function appTermPublishXtermGlobals() {
+    var polluted = window.MaterialFileIcons;
+    if (typeof window.Terminal === 'undefined' && polluted && polluted.Terminal) {
+      window.Terminal = polluted.Terminal;
+    }
+    if (typeof window.FitAddon === 'undefined' && polluted && polluted.FitAddon) {
+      window.FitAddon = polluted.FitAddon;
+    }
+  }
+
+  function appTermLibsReady() {
+    appTermPublishXtermGlobals();
+    return typeof window.Terminal !== 'undefined' && typeof SharedTerminal !== 'undefined';
+  }
+
   function appTermWaitLibs(cb, left) {
-    if (typeof Terminal !== 'undefined' && typeof SharedTerminal !== 'undefined') {
+    if (appTermLibsReady()) {
       cb();
       return;
     }
