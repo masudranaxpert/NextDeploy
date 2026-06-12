@@ -56,6 +56,19 @@ func (p *Panel) containerBelongsToApp(ctx context.Context, appID, containerName 
 	return p.ContainerBelongsToApp(ctx, appID, containerName)
 }
 
+func (p *Panel) ComposeServiceInRows(rows []dockerx.ComposePsRow, service string) bool {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return false
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.Service) == service {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Panel) ComposeServiceBelongsToApp(ctx context.Context, appID, service string) bool {
 	service = strings.TrimSpace(service)
 	if service == "" {
@@ -69,12 +82,7 @@ func (p *Panel) ComposeServiceBelongsToApp(ctx context.Context, appID, service s
 	if !res.OK {
 		return false
 	}
-	for _, row := range rows {
-		if strings.TrimSpace(row.Service) == service {
-			return true
-		}
-	}
-	return false
+	return p.ComposeServiceInRows(rows, service)
 }
 
 func (p *Panel) composeServiceBelongsToApp(ctx context.Context, appID, service string) bool {

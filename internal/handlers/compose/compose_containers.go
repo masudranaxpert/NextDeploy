@@ -86,12 +86,47 @@ func (h *Handler) AppComposePartial(c *fiber.Ctx) error {
 	return h.renderComposeTable(c, c.Params("id"))
 }
 
+func (h *Handler) TerminalContainersPartial(c *fiber.Ctx) error {
+	id := c.Params("id")
+	app, err := h.P.DB.GetApp(c.UserContext(), id)
+	if err != nil {
+		return c.Status(404).SendString("not found")
+	}
+	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
+	if _, err := os.Stat(cp); err != nil {
+		hasDockerfile, hasCompose := h.P.Store.HasDockerArtifacts(id)
+		if !hasDockerfile || hasCompose {
+			return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+				"ComposeRows":  nil,
+				"ComposePsMsg": "Compose file not found. Set the filename on Overview or upload it in Files.",
+			})
+		}
+	}
+	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
+		return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+			"ComposeRows":  nil,
+			"ComposePsMsg": err.Error(),
+		})
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
+	defer cancel()
+	_, rows, res := h.P.ComposeProjectAndPS(ctx, app, id)
+	errMsg := ""
+	if !res.OK {
+		errMsg = res.Output
+		rows = nil
+	}
+	return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+		"ComposeRows":  rows,
+		"ComposePsMsg": errMsg,
+	})
+}
+
 func (h *Handler) renderComposeTable(c *fiber.Ctx, id string) error {
 	app, err := h.P.DB.GetApp(c.UserContext(), id)
 	if err != nil {
 		return c.Status(404).SendString("not found")
 	}
-	dir := h.P.AppSourcePath(c.UserContext(), id)
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
 		// Dockerfile-only apps run from the auto-generated merged compose.
@@ -113,8 +148,7 @@ func (h *Handler) renderComposeTable(c *fiber.Ctx, id string) error {
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 	defer cancel()
-	project := h.P.ActiveComposeProjectName(ctx, app, id)
-	rows, res := dockerx.ComposePS(ctx, dir, h.P.EffectiveComposePaths(c.UserContext(), app, id), project, h.P.ComposeEnvFiles(ctx, id))
+	_, rows, res := h.P.ComposeProjectAndPS(ctx, app, id)
 	errMsg := ""
 	if !res.OK {
 		errMsg = res.Output
@@ -253,7 +287,8 @@ func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 45*time.Second)
 	defer cancel()
 	mark = time.Now()
-	byService := h.P.ComposeServiceBelongsToApp(ctx, id, q)
+	project, composeRows, composeRes := h.P.ComposeProjectAndPS(ctx, app, id)
+	byService := composeRes.OK && h.P.ComposeServiceInRows(composeRows, q)
 	if !byService && !h.P.ContainerBelongsToApp(ctx, id, q) {
 		tr.StepDur("access_check", mark)
 		return c.Render("partials/log_view", fiber.Map{
@@ -264,9 +299,6 @@ func (h *Handler) AppLogPartial(c *fiber.Ctx) error {
 	tr.StepDur("access_check", mark)
 	logRef := q
 	if byService {
-		mark = time.Now()
-		project := h.P.ActiveComposeProjectName(ctx, app, id)
-		tr.StepDur("resolve_project", mark)
 		tr.Field("project", project)
 		mark = time.Now()
 		cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, q)

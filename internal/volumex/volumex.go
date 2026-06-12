@@ -219,6 +219,10 @@ func ResolveBackupDataVolumeName(ctx context.Context, appID, appDisplayName stri
 	if errMsg != "" {
 		return "", errMsg
 	}
+	return PickBackupDataVolumeName(ctx, appDisplayName, composeProjectCandidates, vols)
+}
+
+func PickBackupDataVolumeName(ctx context.Context, appDisplayName string, composeProjectCandidates []string, vols []string) (string, string) {
 	if len(vols) == 0 {
 		return "", "no Docker volumes matched this app"
 	}

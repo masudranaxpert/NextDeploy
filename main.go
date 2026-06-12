@@ -238,6 +238,7 @@ func main() {
 	app.Post("/apps/:id/files/zip", fbH.BrowseZip)
 	app.Post("/apps/:id/files/unzip", fbH.BrowseUnzip)
 	app.Get("/apps/:id/partials/compose", compH.AppComposePartial)
+	app.Get("/apps/:id/partials/terminal-containers", compH.TerminalContainersPartial)
 	app.Get("/apps/:id/partials/deploy-progress", compH.DeployProgressPartial)
 	app.Get("/apps/:id/partials/logs", compH.AppLogPartial)
 	app.Use("/apps/:id/ws/logs", p.WSUpgrade)

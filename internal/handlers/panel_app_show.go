@@ -24,7 +24,7 @@ import (
 // appShowTabNeedsCompose is true when the tab template reads ComposeRows / container state from the initial handler.
 func appShowTabNeedsCompose(tab string) bool {
 	switch tab {
-	case "overview", "logs", "terminal", "containers":
+	case "overview", "logs", "containers":
 		return true
 	default:
 		return false
@@ -128,6 +128,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	var deployLogs []db.DeployLog
 	var appVols []string
 	var appVolErr string
+	var volProjects []string
 	deployBusy := false
 	var liveOut, liveAct string
 	var liveRun bool
@@ -145,7 +146,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	}
 	if tab == "volumes" || tab == "backup" {
 		mark = time.Now()
-		volProjects := p.composeProjectCandidates(reqCtx, app, id)
+		volProjects = p.composeProjectCandidates(reqCtx, app, id)
 		if stackReady {
 			if active, _, pr := p.composeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
 				volProjects = dedupeStringsPreserveOrder(append([]string{active}, volProjects...))
@@ -216,7 +217,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		backupDestinations, _ = p.DB.ListBackupDestinations(reqCtx, userID)
 		backupSchedules, _ = p.DB.ListBackupSchedules(reqCtx, id)
 		backupHistory, _ = p.DB.ListBackupHistory(reqCtx, id, 50)
-		backupAutoVolumeName, backupAutoVolumeErr = p.resolveRequestedBackupVolume(reqCtx, app, "")
+		backupAutoVolumeName, backupAutoVolumeErr = volumex.PickBackupDataVolumeName(reqCtx, app.Name, volProjects, appVols)
 		tr.StepDur("backup_db", mark)
 	}
 
