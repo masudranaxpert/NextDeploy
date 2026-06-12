@@ -94,7 +94,9 @@ if head -c 256 "$DEST" 2>/dev/null | grep -aqiE '<!doctype|<html'; then
 fi
 
 bundle_magic=""
-if command -v xxd >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1; then
+  bundle_magic="$(python3 -c "import sys; print(open(sys.argv[1],'rb').read(2).hex())" "$DEST" 2>/dev/null || true)"
+elif command -v xxd >/dev/null 2>&1; then
   bundle_magic="$(xxd -l 2 -p "$DEST" 2>/dev/null | tr -d '\n' || true)"
 elif command -v hexdump >/dev/null 2>&1; then
   bundle_magic="$(hexdump -n 2 -e '2/1 "%02x"' "$DEST" 2>/dev/null || true)"
@@ -102,23 +104,10 @@ else
   bundle_magic="$(od -An -tx1 -N2 "$DEST" 2>/dev/null | tr -d ' \n' || true)"
 fi
 
-bundle_ok=false
-if [[ "$bundle_magic" == "1f8b" ]]; then
-  bundle_ok=true
-elif command -v file >/dev/null 2>&1 && file -b "$DEST" 2>/dev/null | grep -qiE 'gzip|POSIX tar'; then
-  bundle_ok=true
-elif command -v python3 >/dev/null 2>&1 && python3 -c "import sys; sys.exit(0 if open(sys.argv[1],'rb').read(2)==b'\\x1f\\x8b' else 1)" "$DEST" 2>/dev/null; then
-  bundle_ok=true
-fi
-
-if [[ "$bundle_ok" != true ]]; then
+if [[ "$bundle_magic" != "1f8b" ]]; then
   bundle_bytes="$(wc -c <"$DEST" | tr -d ' ')"
-  if [[ "${bundle_bytes:-0}" -gt 52428800 ]]; then
-    warn "gzip magic not detected (got ${bundle_magic:-unknown}) but file is large (${bundle_bytes} bytes) — continuing"
-  else
-    rm -f "$DEST"
-    die "File is not a valid .nd-migrate gzip bundle (magic ${bundle_magic:-unknown}, size ${bundle_bytes} bytes)."
-  fi
+  rm -f "$DEST"
+  die "Not a valid gzip .nd-migrate bundle (magic ${bundle_magic:-unknown}, ${bundle_bytes} bytes). File hosts like Limewire, Gofile, and Google Drive often serve encrypted or HTML instead of the raw file. Copy the bundle with scp and run: migrate.sh --file /path/to/bundle.nd-migrate — or use the source panel /migrate/download/TOKEN URL."
 fi
 
 chmod 600 "$DEST"
