@@ -81,7 +81,28 @@ func isHostBindPath(src string) bool {
 	return false
 }
 
+func ValidateComposeSecurity(composeBytes []byte) ([]byte, error) {
+	return validateCompose(composeBytes, false, 0, 0)
+}
+
+func CheckComposeSecurity(composeBytes []byte) error {
+	_, err := ValidateComposeSecurity(composeBytes)
+	return err
+}
+
+func ApplyResourceLimits(composeBytes []byte, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
+	return validateCompose(composeBytes, true, maxCPUs, maxMemoryMB)
+}
+
 func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
+	secured, err := ValidateComposeSecurity(composeBytes)
+	if err != nil {
+		return nil, err
+	}
+	return ApplyResourceLimits(secured, maxCPUs, maxMemoryMB)
+}
+
+func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(composeBytes, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse compose file: %w", err)
@@ -282,83 +303,9 @@ func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB i
 			}
 		}
 
-		deployRaw, hasDeploy := svc["deploy"]
-		var deploy map[string]interface{}
-		if hasDeploy {
-			if m, ok2 := deployRaw.(map[string]interface{}); ok2 {
-				deploy = m
-			} else if m2, ok2 := deployRaw.(map[interface{}]interface{}); ok2 {
-				deploy = make(map[string]interface{})
-				for k, v := range m2 {
-					if ks, ok3 := k.(string); ok3 {
-						deploy[ks] = v
-					}
-				}
-			}
+		if applyLimits {
+			svc = applyServiceResourceLimits(svc, maxCPUs, maxMemoryMB)
 		}
-		if deploy == nil {
-			deploy = make(map[string]interface{})
-		}
-
-		resourcesRaw, hasResources := deploy["resources"]
-		var resources map[string]interface{}
-		if hasResources {
-			if m, ok2 := resourcesRaw.(map[string]interface{}); ok2 {
-				resources = m
-			} else if m2, ok2 := resourcesRaw.(map[interface{}]interface{}); ok2 {
-				resources = make(map[string]interface{})
-				for k, v := range m2 {
-					if ks, ok3 := k.(string); ok3 {
-						resources[ks] = v
-					}
-				}
-			}
-		}
-		if resources == nil {
-			resources = make(map[string]interface{})
-		}
-
-		limitsRaw, hasLimits := resources["limits"]
-		var limits map[string]interface{}
-		if hasLimits {
-			if m, ok2 := limitsRaw.(map[string]interface{}); ok2 {
-				limits = m
-			} else if m2, ok2 := limitsRaw.(map[interface{}]interface{}); ok2 {
-				limits = make(map[string]interface{})
-				for k, v := range m2 {
-					if ks, ok3 := k.(string); ok3 {
-						limits[ks] = v
-					}
-				}
-			}
-		}
-		if limits == nil {
-			limits = make(map[string]interface{})
-		}
-
-		clampedCPUs := maxCPUs
-		if cpuRaw, exists := limits["cpus"]; exists {
-			userCPUs, err := parseCPUs(cpuRaw)
-			if err == nil && userCPUs > 0 && userCPUs < clampedCPUs {
-				clampedCPUs = userCPUs
-			}
-		}
-		limits["cpus"] = fmt.Sprintf("%.2f", clampedCPUs)
-
-		clampedMem := maxMemoryMB
-		if memRaw, exists := limits["memory"]; exists {
-			if memStr, ok3 := memRaw.(string); ok3 {
-				userMem, err := parseMemoryToMB(memStr)
-				if err == nil && userMem > 0 && userMem < clampedMem {
-					clampedMem = userMem
-				}
-			}
-		}
-		limits["memory"] = fmt.Sprintf("%dM", clampedMem)
-
-		resources["limits"] = limits
-		deploy["resources"] = resources
-		svc["deploy"] = deploy
 		services[svcName] = svc
 	}
 
@@ -370,6 +317,87 @@ func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB i
 	}
 
 	return clampedBytes, nil
+}
+
+func applyServiceResourceLimits(svc map[string]interface{}, maxCPUs float64, maxMemoryMB int) map[string]interface{} {
+	deployRaw, hasDeploy := svc["deploy"]
+	var deploy map[string]interface{}
+	if hasDeploy {
+		if m, ok2 := deployRaw.(map[string]interface{}); ok2 {
+			deploy = m
+		} else if m2, ok2 := deployRaw.(map[interface{}]interface{}); ok2 {
+			deploy = make(map[string]interface{})
+			for k, v := range m2 {
+				if ks, ok3 := k.(string); ok3 {
+					deploy[ks] = v
+				}
+			}
+		}
+	}
+	if deploy == nil {
+		deploy = make(map[string]interface{})
+	}
+
+	resourcesRaw, hasResources := deploy["resources"]
+	var resources map[string]interface{}
+	if hasResources {
+		if m, ok2 := resourcesRaw.(map[string]interface{}); ok2 {
+			resources = m
+		} else if m2, ok2 := resourcesRaw.(map[interface{}]interface{}); ok2 {
+			resources = make(map[string]interface{})
+			for k, v := range m2 {
+				if ks, ok3 := k.(string); ok3 {
+					resources[ks] = v
+				}
+			}
+		}
+	}
+	if resources == nil {
+		resources = make(map[string]interface{})
+	}
+
+	limitsRaw, hasLimits := resources["limits"]
+	var limits map[string]interface{}
+	if hasLimits {
+		if m, ok2 := limitsRaw.(map[string]interface{}); ok2 {
+			limits = m
+		} else if m2, ok2 := limitsRaw.(map[interface{}]interface{}); ok2 {
+			limits = make(map[string]interface{})
+			for k, v := range m2 {
+				if ks, ok3 := k.(string); ok3 {
+					limits[ks] = v
+				}
+			}
+		}
+	}
+	if limits == nil {
+		limits = make(map[string]interface{})
+	}
+
+	clampedCPUs := maxCPUs
+	if cpuRaw, exists := limits["cpus"]; exists {
+		userCPUs, err := parseCPUs(cpuRaw)
+		if err == nil && userCPUs > 0 && userCPUs < clampedCPUs {
+			clampedCPUs = userCPUs
+		}
+	}
+	limits["cpus"] = fmt.Sprintf("%.2f", clampedCPUs)
+
+	clampedMem := maxMemoryMB
+	if memRaw, exists := limits["memory"]; exists {
+		if memStr, ok3 := memRaw.(string); ok3 {
+			userMem, err := parseMemoryToMB(memStr)
+			if err == nil && userMem > 0 && userMem < clampedMem {
+				clampedMem = userMem
+			}
+		}
+	}
+	limits["memory"] = fmt.Sprintf("%dM", clampedMem)
+
+	resources["limits"] = limits
+	deploy["resources"] = resources
+	svc["deploy"] = deploy
+	return svc
 }
 
 // GetComposeResources parses the compose YAML and returns the sum of memory limits (in MB) and CPU limits of all services.

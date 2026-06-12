@@ -66,6 +66,9 @@ func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 	if destDir != "" {
 		relPath = destDir + "/" + filename
 	}
+	if isGeneratedComposeRel(relPath) {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
+	}
 
 	var incoming int64
 	if resp.ContentLength > 0 {
@@ -116,7 +119,10 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 		if destDir != "" {
 			relPath = destDir + "/" + file.Filename
 		}
-		
+		if isGeneratedComposeRel(relPath) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
+		}
+
 		f, err := file.Open()
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to open %s: %v", file.Filename, err)})
@@ -154,14 +160,20 @@ func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 	}
 
 	for _, pth := range req.Paths {
+		if isGeneratedComposeRel(pth) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
+		}
 		oldFull, err := h.p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
-		
+
 		newRel := req.Dest + "/" + filepath.Base(pth)
 		if req.Dest == "" {
 			newRel = filepath.Base(pth)
+		}
+		if isGeneratedComposeRel(newRel) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
 		newFull, err := h.p.Store.SafeFilePath(id, newRel)
 		if err != nil {
@@ -197,6 +209,9 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 	}
 
 	for _, pth := range req.Paths {
+		if isGeneratedComposeRel(pth) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
+		}
 		srcFull, err := h.p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
@@ -205,6 +220,9 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 		newRel := req.Dest + "/" + filepath.Base(pth)
 		if req.Dest == "" {
 			newRel = filepath.Base(pth)
+		}
+		if isGeneratedComposeRel(newRel) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
 		dstFull, err := h.p.Store.SafeFilePath(id, newRel)
 		if err != nil {

@@ -65,6 +65,9 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 	if name == "" {
 		return respond(400, false, "filename required")
 	}
+	if isGeneratedComposeRel(name) {
+		return respond(400, false, generatedComposeManagedMsg())
+	}
 
 	rel := filepath.ToSlash(name)
 	if strings.HasSuffix(name, "/") {
@@ -122,6 +125,10 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 	}
 	var errs []string
 	for _, pth := range paths {
+		if isGeneratedComposeRel(pth) {
+			errs = append(errs, fmt.Sprintf("%s: %s", pth, generatedComposeManagedMsg()))
+			continue
+		}
 		if err := h.p.Store.RemoveRel(id, pth); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", pth, err))
 		}
@@ -286,6 +293,9 @@ func (h *Handler) BrowseRename(c *fiber.Ctx) error {
 	newPath := strings.TrimSpace(c.FormValue("new_path"))
 	if oldPath == "" || newPath == "" {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "both old_path and new_path are required"})
+	}
+	if isGeneratedComposeRel(oldPath) || isGeneratedComposeRel(newPath) {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 	}
 	oldFull, err := h.p.Store.SafeFilePath(id, oldPath)
 	if err != nil {

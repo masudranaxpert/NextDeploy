@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"panel/internal/caddy"
 )
 
 func (s *Store) ClearAllUserFiles(wsID string) error {
@@ -59,6 +61,9 @@ func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 	for _, f := range zr.File {
 		p := filepath.Clean(f.Name)
 		if p == "." || strings.HasPrefix(p, "..") {
+			continue
+		}
+		if filepath.Base(p) == caddy.GeneratedCompose {
 			continue
 		}
 		dest := filepath.Join(base, p)
@@ -182,7 +187,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 	var list []FileEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".panel-meta" || name == ReservedDir {
+		if name == ".panel-meta" || name == ReservedDir || name == caddy.GeneratedCompose {
 			continue
 		}
 		relPath := name

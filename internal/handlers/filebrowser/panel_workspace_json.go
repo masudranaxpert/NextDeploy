@@ -161,6 +161,26 @@ type workspaceFileSaveBody struct {
 	Content string `json:"content"`
 }
 
+const generatedComposeName = ".nextdeploy.generated.compose.yml"
+
+func normalizeWorkspaceRel(rel string) string {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	rel = strings.TrimPrefix(rel, "./")
+	return strings.Trim(rel, "/")
+}
+
+func isGeneratedComposeRel(rel string) bool {
+	return filepath.Base(rel) == generatedComposeName
+}
+
+func generatedComposeManagedMsg() string {
+	return generatedComposeName + " is managed by the panel; edit docker-compose.yml instead"
+}
+
+func isAppComposeRel(rel string, app db.App) bool {
+	return normalizeWorkspaceRel(rel) == workspace.NormalizeComposeRel(app.ComposeFile)
+}
+
 func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if code := h.workspaceFilesGate(c, appID); code != 0 {
@@ -179,32 +199,32 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 			"ok": false, "message": fmt.Sprintf("content exceeds max size (%d bytes)", maxWorkspaceFileSaveBytes),
 		})
 	}
+	if isGeneratedComposeRel(rel) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"ok": false, "message": generatedComposeManagedMsg(),
+		})
+	}
+
 	full, err := h.p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
 	}
 
+	var savingCompose bool
 	app, err := h.p.DB.GetApp(c.UserContext(), appID)
-	if err == nil {
-		composeName := filepath.Base(app.ComposeFile)
-		if composeName == "" {
-			composeName = "docker-compose.yml"
-		}
-		if filepath.Base(rel) == composeName {
-			owner, err := h.p.DB.GetUserByID(c.UserContext(), app.OwnerID)
-			if err != nil {
-				owner = db.User{
-					Role:        db.RoleUser,
-					MaxCPUs:     2.0,
-					MaxMemoryMB: 2048,
-				}
+	if err == nil && isAppComposeRel(rel, app) {
+		savingCompose = true
+		owner, err := h.p.DB.GetUserByID(c.UserContext(), app.OwnerID)
+		if err != nil {
+			owner = db.User{
+				Role:        db.RoleUser,
+				MaxCPUs:     2.0,
+				MaxMemoryMB: 2048,
 			}
-			if owner.Role != db.RoleAdmin {
-				clamped, err := sandbox.ValidateAndClampCompose([]byte(body.Content), owner.MaxCPUs, owner.MaxMemoryMB)
-				if err != nil {
-					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "Security check failed: " + err.Error()})
-				}
-				body.Content = string(clamped)
+		}
+		if owner.Role != db.RoleAdmin {
+			if err := sandbox.CheckComposeSecurity([]byte(body.Content)); err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "Security check failed: " + err.Error()})
 			}
 		}
 	}
@@ -214,6 +234,13 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 	}
 	if err := os.WriteFile(full, []byte(body.Content), 0640); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
+	}
+	if savingCompose {
+		if err := h.p.SyncAppCaddyOverrideCtx(c.UserContext(), appID); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"ok": false, "message": "Compose saved but deploy file refresh failed: " + err.Error(),
+			})
+		}
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }

@@ -106,8 +106,7 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		return err
 	}
 	overridePath := p.composeOverridePath(ctx, appID)
-	basePath := p.composeFilePath(ctx, app, appID)
-	base, baseOnDisk, ok := p.EffectiveBaseCompose(ctx, app, appID)
+	base, _, ok := p.EffectiveBaseCompose(ctx, app, appID)
 	if !ok {
 		if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
 			return err
@@ -125,16 +124,16 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		}
 	}
 	if owner.Role != db.RoleAdmin {
-		clamped, err := sandbox.ValidateAndClampCompose(base, owner.MaxCPUs, owner.MaxMemoryMB)
+		secured, err := sandbox.ValidateComposeSecurity(base)
 		if err != nil {
 			return fmt.Errorf("security sandbox error: %w", err)
 		}
-		base = clamped
-		if baseOnDisk {
-			if err := os.WriteFile(basePath, base, 0640); err != nil {
-				return err
-			}
+		base = secured
+		limited, err := sandbox.ApplyResourceLimits(base, owner.MaxCPUs, owner.MaxMemoryMB)
+		if err != nil {
+			return fmt.Errorf("resource limits error: %w", err)
 		}
+		base = limited
 	}
 	cgroupParent := p.UserCgroupParent(ctx, owner)
 
