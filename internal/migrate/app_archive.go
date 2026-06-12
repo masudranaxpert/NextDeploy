@@ -201,8 +201,9 @@ func tarCreateWorkspace(ctx context.Context, sourceDir, outPath string) error {
 		}
 	}
 	args := []string{
+		"czf", outPath, "-C", sourceDir,
 		"--exclude=.git", "--exclude=node_modules", "--exclude=vendor", "--exclude=tmp",
-		"czf", outPath, "-C", sourceDir, ".",
+		".",
 	}
 	return runTar(ctx, args, "pack workspace")
 }
