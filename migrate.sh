@@ -9,7 +9,6 @@ NO_DEPLOY=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[migrate] $*"; }
-warn() { echo "[migrate] WARNING: $*" >&2; }
 
 usage() {
   cat <<'EOF'
@@ -86,28 +85,6 @@ fi
 if [[ ! -s "$DEST" ]]; then
   rm -f "$DEST"
   die "Downloaded bundle is empty"
-fi
-
-if head -c 256 "$DEST" 2>/dev/null | grep -aqiE '<!doctype|<html'; then
-  rm -f "$DEST"
-  die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
-fi
-
-bundle_magic=""
-if command -v python3 >/dev/null 2>&1; then
-  bundle_magic="$(python3 -c "import sys; print(open(sys.argv[1],'rb').read(2).hex())" "$DEST" 2>/dev/null || true)"
-elif command -v xxd >/dev/null 2>&1; then
-  bundle_magic="$(xxd -l 2 -p "$DEST" 2>/dev/null | tr -d '\n' || true)"
-elif command -v hexdump >/dev/null 2>&1; then
-  bundle_magic="$(hexdump -n 2 -e '2/1 "%02x"' "$DEST" 2>/dev/null || true)"
-else
-  bundle_magic="$(od -An -tx1 -N2 "$DEST" 2>/dev/null | tr -d ' \n' || true)"
-fi
-
-if [[ "$bundle_magic" != "1f8b" ]]; then
-  bundle_bytes="$(wc -c <"$DEST" | tr -d ' ')"
-  rm -f "$DEST"
-  die "Not a valid gzip .nd-migrate bundle (magic ${bundle_magic:-unknown}, ${bundle_bytes} bytes). File hosts like Limewire, Gofile, and Google Drive often serve encrypted or HTML instead of the raw file. Copy the bundle with scp and run: migrate.sh --file /path/to/bundle.nd-migrate — or use the source panel /migrate/download/TOKEN URL."
 fi
 
 chmod 600 "$DEST"
