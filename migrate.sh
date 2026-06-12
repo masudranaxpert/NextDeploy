@@ -68,7 +68,7 @@ DEST="${INCOMING}/import-${TS}.nd-migrate"
 if [[ -n "$BUNDLE_URL" ]]; then
   info "Downloading bundle…"
   if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --retry-delay 5 -o "$DEST" "$BUNDLE_URL"
+    curl -fL -H "Accept-Encoding: identity" --retry 3 --retry-delay 5 -o "$DEST" "$BUNDLE_URL"
   elif command -v wget >/dev/null 2>&1; then
     wget -O "$DEST" "$BUNDLE_URL"
   else
@@ -87,14 +87,37 @@ if [[ ! -s "$DEST" ]]; then
   die "Downloaded bundle is empty"
 fi
 
-bundle_magic="$(dd if="$DEST" bs=1 count=2 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n' || true)"
-if [[ "$bundle_magic" != "1f8b" ]]; then
-  if head -c 256 "$DEST" 2>/dev/null | grep -aqiE '<!doctype|<html'; then
-    rm -f "$DEST"
-    die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
-  fi
+if head -c 256 "$DEST" 2>/dev/null | grep -aqiE '<!doctype|<html'; then
   rm -f "$DEST"
-  die "File is not a gzip .nd-migrate bundle (expected magic 1f8b, got ${bundle_magic:-none})."
+  die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
+fi
+
+bundle_magic=""
+if command -v xxd >/dev/null 2>&1; then
+  bundle_magic="$(xxd -l 2 -p "$DEST" 2>/dev/null | tr -d '\n' || true)"
+elif command -v hexdump >/dev/null 2>&1; then
+  bundle_magic="$(hexdump -n 2 -e '2/1 "%02x"' "$DEST" 2>/dev/null || true)"
+else
+  bundle_magic="$(od -An -tx1 -N2 "$DEST" 2>/dev/null | tr -d ' \n' || true)"
+fi
+
+bundle_ok=false
+if [[ "$bundle_magic" == "1f8b" ]]; then
+  bundle_ok=true
+elif command -v file >/dev/null 2>&1 && file -b "$DEST" 2>/dev/null | grep -qiE 'gzip|POSIX tar'; then
+  bundle_ok=true
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import sys; sys.exit(0 if open(sys.argv[1],'rb').read(2)==b'\\x1f\\x8b' else 1)" "$DEST" 2>/dev/null; then
+  bundle_ok=true
+fi
+
+if [[ "$bundle_ok" != true ]]; then
+  bundle_bytes="$(wc -c <"$DEST" | tr -d ' ')"
+  if [[ "${bundle_bytes:-0}" -gt 52428800 ]]; then
+    warn "gzip magic not detected (got ${bundle_magic:-unknown}) but file is large (${bundle_bytes} bytes) — continuing"
+  else
+    rm -f "$DEST"
+    die "File is not a valid .nd-migrate gzip bundle (magic ${bundle_magic:-unknown}, size ${bundle_bytes} bytes)."
+  fi
 fi
 
 chmod 600 "$DEST"
