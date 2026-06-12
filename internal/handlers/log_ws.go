@@ -136,5 +136,6 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 			break
 		}
 	}
+	_ = logReader.Close()
 	wg.Wait()
 }

@@ -149,11 +149,14 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		}
 		if mt == websocket.BinaryMessage && len(msg) > 0 {
 			if _, werr := hij.Conn.Write(msg); werr != nil {
+				cancel()
 				break
 			}
 		}
 	}
+	cancel()
 	_ = hij.CloseWrite()
+	_ = sess.Close()
 	wg.Wait()
 }
 
@@ -278,9 +281,15 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 		}
 		if mt == websocket.BinaryMessage && len(msg) > 0 {
 			if _, werr := ptmx.Write(msg); werr != nil {
+				vpsCancel()
 				break
 			}
 		}
 	}
+	vpsCancel()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	_ = ptmx.Close()
 	wg.Wait()
 }
