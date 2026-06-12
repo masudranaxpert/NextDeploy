@@ -134,6 +134,41 @@ func inspectComposeVolumeLabel(ctx context.Context, volumeName string) string {
 // ListForApp returns Docker volume names that likely belong to this app.
 // composeProjects lists compose project names (e.g. from COMPOSE_PROJECT_NAME or app slug) so volumes
 // like "myproject_data" match even when the panel app id is a UUID.
+func FilterForApp(appID string, allNames []string, composeProjects []string) []string {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return nil
+	}
+	u := strings.ReplaceAll(appID, "-", "_")
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(vol string) {
+		if _, ok := seen[vol]; ok {
+			return
+		}
+		seen[vol] = struct{}{}
+		out = append(out, vol)
+	}
+	for _, n := range allNames {
+		if matchesVolumeKey(n, appID) || matchesVolumeKey(n, u) {
+			add(n)
+			continue
+		}
+		for _, pref := range composeProjects {
+			pref = strings.TrimSpace(pref)
+			if pref == "" {
+				continue
+			}
+			if n == pref || strings.HasPrefix(n, pref+"_") {
+				add(n)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]string, string) {
 	start := time.Now()
 	appID = strings.TrimSpace(appID)
@@ -145,7 +180,23 @@ func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]
 		perflog.DockerOp("ListForApp", time.Since(start), "list error")
 		return nil, errMsg
 	}
-	u := strings.ReplaceAll(appID, "-", "_")
+	out, errMsg := mergeAppVolumes(ctx, appID, names, composeProjects)
+	perflog.DockerOp("ListForApp", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
+	return out, errMsg
+}
+
+func ListForAppFromNames(ctx context.Context, appID string, allNames []string, composeProjects []string) ([]string, string) {
+	start := time.Now()
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return nil, "app id is required"
+	}
+	out, errMsg := mergeAppVolumes(ctx, appID, allNames, composeProjects)
+	perflog.DockerOp("ListForAppFromNames", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
+	return out, errMsg
+}
+
+func mergeAppVolumes(ctx context.Context, appID string, names []string, composeProjects []string) ([]string, string) {
 	seen := map[string]struct{}{}
 	var out []string
 	add := func(vol string) {
@@ -164,24 +215,10 @@ func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]
 			add(vol)
 		}
 	}
-	for _, n := range names {
-		if matchesVolumeKey(n, appID) || matchesVolumeKey(n, u) {
-			add(n)
-			continue
-		}
-		for _, pref := range composeProjects {
-			pref = strings.TrimSpace(pref)
-			if pref == "" {
-				continue
-			}
-			if n == pref || strings.HasPrefix(n, pref+"_") {
-				add(n)
-				break
-			}
-		}
+	for _, vol := range FilterForApp(appID, names, composeProjects) {
+		add(vol)
 	}
 	sort.Strings(out)
-	perflog.DockerOp("ListForApp", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
 	return out, ""
 }
 

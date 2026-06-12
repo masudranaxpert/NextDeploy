@@ -195,6 +195,7 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(msg)
 	}
+	h.P.RemoveDeployRun(id)
 	if err := h.P.DB.DeleteApp(c.UserContext(), id); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")

@@ -75,26 +75,46 @@ func (h *Handler) processScheduledBackups() {
 			}
 			
 			if shouldRunSchedule(schedule) {
+				running, err := h.P.DB.AppHasRunningBackup(ctx, app.ID)
+				if err != nil || running {
+					continue
+				}
+				if err := h.P.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID); err != nil {
+					continue
+				}
 				dest, err := h.P.DB.GetBackupDestination(ctx, schedule.DestinationID)
 				if err != nil {
 					continue
 				}
-				
 				historyID, err := h.P.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
 				if err != nil {
 					continue
 				}
-				
 				retention := schedule.RetentionCount
 				if retention < 1 {
 					retention = 5
 				}
-				go h.runBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention, schedule.PauseContainers)
-
-				_ = h.P.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID)
+				h.spawnBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention, schedule.PauseContainers)
 			}
 		}
 	}
+}
+
+func (h *Handler) spawnBackupJob(ctx context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, volumeNames string, retention int, pauseContainers bool) bool {
+	if historyID <= 0 {
+		return false
+	}
+	select {
+	case h.backupSem <- struct{}{}:
+	default:
+		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "backup worker busy (concurrency limit)", "")
+		return false
+	}
+	go func() {
+		defer func() { <-h.backupSem }()
+		h.runBackupJob(ctx, historyID, appID, dest, backupType, volumeNames, retention, pauseContainers)
+	}()
+	return true
 }
 
 func shouldRunSchedule(schedule db.BackupSchedule) bool {

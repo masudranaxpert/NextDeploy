@@ -100,10 +100,25 @@
     setTimeout(function () { window.vterm.connect(); }, 150);
   }
 
+  function bootVTerm() {
+    var start = function () {
+      if (typeof SharedTerminal === 'undefined') {
+        setTimeout(start, 50);
+        return;
+      }
+      initVTerm();
+    };
+    if (window.loadXtermAssets) {
+      window.loadXtermAssets().then(start).catch(start);
+    } else {
+      start();
+    }
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVTerm);
+    document.addEventListener('DOMContentLoaded', bootVTerm);
   } else {
-    initVTerm();
+    bootVTerm();
   }
 })();
 </script>

@@ -24,7 +24,7 @@ import (
 // appShowTabNeedsCompose is true when the tab template reads ComposeRows / container state from the initial handler.
 func appShowTabNeedsCompose(tab string) bool {
 	switch tab {
-	case "overview", "logs", "containers":
+	case "overview", "containers":
 		return true
 	default:
 		return false
@@ -237,17 +237,14 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	var ownerUser db.User
 	if tab == "collaborators" {
 		mark = time.Now()
-		dbCollabs, _ := p.DB.ListCollaborators(reqCtx, id)
+		dbCollabs, _ := p.DB.ListCollaboratorsWithUsers(reqCtx, id)
 		for _, cb := range dbCollabs {
-			u, err := p.DB.GetUserByID(reqCtx, cb.UserID)
-			if err == nil {
-				collabs = append(collabs, CollabDetail{
-					UserID:    cb.UserID,
-					Username:  u.Username,
-					Role:      cb.Role,
-					CreatedAt: cb.CreatedAt,
-				})
-			}
+			collabs = append(collabs, CollabDetail{
+				UserID:    cb.UserID,
+				Username:  cb.Username,
+				Role:      cb.Role,
+				CreatedAt: cb.CreatedAt,
+			})
 		}
 		allUsers, _ = p.DB.ListUsers(reqCtx)
 		ownerUser, _ = p.DB.GetUserByID(reqCtx, app.OwnerID)

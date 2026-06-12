@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"panel/internal/caddy"
@@ -86,6 +87,27 @@ type Panel struct {
 	userSliceApplied sync.Map // user id (int64) -> "memMB:cpus" last applied
 
 	appStorage sync.Map // app id (string) -> appStorageEntry
+
+	setupDone atomic.Bool
+}
+
+func (p *Panel) MarkSetupComplete() {
+	p.setupDone.Store(true)
+}
+
+func (p *Panel) setupRedirectNeeded(ctx context.Context) (bool, error) {
+	if p.setupDone.Load() {
+		return false, nil
+	}
+	count, err := p.DB.UserCount(ctx)
+	if err != nil {
+		return false, err
+	}
+	if count > 0 {
+		p.setupDone.Store(true)
+		return false, nil
+	}
+	return true, nil
 }
 
 type BackupRestoreState struct {

@@ -25,11 +25,11 @@ func ContainerIDForComposeService(ctx context.Context, project, service string) 
 	if project == "" || service == "" {
 		return "", fmt.Errorf("empty project or service")
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return "", err
 	}
-	defer cli.Close()
+
 
 	fl := filters.NewArgs(
 		filters.Arg("label", composeProjectLabel+"="+project),
@@ -69,11 +69,11 @@ func FetchContainerLogsText(ctx context.Context, containerRef string, tailLines 
 	if containerRef == "" {
 		return "", fmt.Errorf("empty container reference")
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return "", err
 	}
-	defer cli.Close()
+
 
 	raw, err := cli.ContainerLogs(ctx, containerRef, types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -127,7 +127,7 @@ func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail s
 	if strings.TrimSpace(tail) == "" {
 		tail = "0"
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail s
 		Tail:       tail,
 	})
 	if err != nil {
-		_ = cli.Close()
+
 		return nil, err
 	}
 
@@ -148,7 +148,6 @@ func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail s
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-		defer func() { _ = cli.Close() }()
 		_, copyErr := stdcopy.StdCopy(pw, pw, raw)
 		d.endRaw()
 		if copyErr != nil && !errors.Is(copyErr, io.EOF) {

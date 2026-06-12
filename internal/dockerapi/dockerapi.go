@@ -21,19 +21,27 @@ import (
 
 const composeProjectLabel = "com.docker.compose.project"
 
-func newAPIClient() (*client.Client, error) {
-	ver := strings.TrimSpace(os.Getenv("DOCKER_API_VERSION"))
-	opts := []client.Opt{
-		client.FromEnv,
-		client.WithAPIVersionNegotiation(),
-	}
-	if ver != "" {
-		opts = append(opts, client.WithVersion(ver))
-	} else {
-		// Newer Docker Engines reject API < 1.44; pin a safe floor when env is unset.
-		opts = append(opts, client.WithVersion("1.45"))
-	}
-	return client.NewClientWithOpts(opts...)
+var (
+	apiClientOnce sync.Once
+	apiClientInst *client.Client
+	apiClientErr  error
+)
+
+func apiClient() (*client.Client, error) {
+	apiClientOnce.Do(func() {
+		ver := strings.TrimSpace(os.Getenv("DOCKER_API_VERSION"))
+		opts := []client.Opt{
+			client.FromEnv,
+			client.WithAPIVersionNegotiation(),
+		}
+		if ver != "" {
+			opts = append(opts, client.WithVersion(ver))
+		} else {
+			opts = append(opts, client.WithVersion("1.45"))
+		}
+		apiClientInst, apiClientErr = client.NewClientWithOpts(opts...)
+	})
+	return apiClientInst, apiClientErr
 }
 
 type ContainerRow struct {
@@ -119,11 +127,11 @@ type statsJSON struct {
 }
 
 func ListContainers(ctx context.Context) ([]ContainerRow, string) {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err.Error()
 	}
-	defer cli.Close()
+
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err.Error()
@@ -146,11 +154,11 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 }
 
 func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, mountDestination string) (project, source string, err error) {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return "", "", err
 	}
-	defer cli.Close()
+
 
 	insp, err := cli.ContainerInspect(ctx, strings.TrimSpace(containerName))
 	if err != nil {
@@ -185,11 +193,11 @@ func ListContainerUsageForProjects(ctx context.Context, projects map[string]bool
 }
 
 func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) bool) ([]ContainerUsageRow, string) {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err.Error()
 	}
-	defer cli.Close()
+
 
 	all, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
@@ -305,11 +313,11 @@ func cpuPercentSingleSample(cur statsJSON) float64 {
 }
 
 func ListImages(ctx context.Context) ([]ImageRow, string) {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err.Error()
 	}
-	defer cli.Close()
+
 	list, err := cli.ImageList(ctx, types.ImageListOptions{All: true})
 	if err != nil {
 		return nil, err.Error()
@@ -526,11 +534,11 @@ func RemoveAppImages(ctx context.Context, projectID string) []string {
 	if projectID == "" {
 		return nil
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return []string{err.Error()}
 	}
-	defer cli.Close()
+
 	list, err := cli.ImageList(ctx, types.ImageListOptions{All: true})
 	if err != nil {
 		return []string{err.Error()}
@@ -574,11 +582,11 @@ func RemoveContainersByComposeProject(ctx context.Context, projectID string) []s
 	if projectID == "" {
 		return nil
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return []string{err.Error()}
 	}
-	defer cli.Close()
+
 	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+projectID))
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true, Filters: fl})
 	if err != nil {
@@ -599,11 +607,11 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 	if projectID == "" {
 		return nil
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return []string{err.Error()}
 	}
-	defer cli.Close()
+
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return []string{err.Error()}
@@ -640,11 +648,11 @@ func RemoveAppNetworks(ctx context.Context, projectID string) []string {
 	if projectID == "" {
 		return nil
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return []string{err.Error()}
 	}
-	defer cli.Close()
+
 	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+projectID))
 	nets, err := cli.NetworkList(ctx, types.NetworkListOptions{Filters: fl})
 	if err != nil {
@@ -660,11 +668,11 @@ func RemoveAppNetworks(ctx context.Context, projectID string) []string {
 }
 
 func containerIDByName(ctx context.Context, name string) (string, error) {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return "", err
 	}
-	defer cli.Close()
+
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return "", err
@@ -685,11 +693,11 @@ func StartContainerByName(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	return cli.ContainerStart(ctx, id, types.ContainerStartOptions{})
 }
 
@@ -698,11 +706,11 @@ func StopContainerByName(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	timeout := 10
 	return cli.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
 }
@@ -712,11 +720,11 @@ func RestartContainerByName(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	timeout := 10
 	return cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
 }
@@ -726,49 +734,49 @@ func RemoveContainerByName(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	return cli.ContainerRemove(ctx, id, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false})
 }
 
 func RemoveImageByID(ctx context.Context, imageID string) error {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	_, err = cli.ImageRemove(ctx, imageID, types.ImageRemoveOptions{Force: false, PruneChildren: true})
 	return err
 }
 
 func RemoveVolumeByName(ctx context.Context, name string) error {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	return cli.VolumeRemove(ctx, name, false)
 }
 
 func PruneImages(ctx context.Context) error {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	_, err = cli.ImagesPrune(ctx, filters.Args{})
 	return err
 }
 
 func PruneContainers(ctx context.Context) error {
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+
 	_, err = cli.ContainersPrune(ctx, filters.Args{})
 	return err
 }
@@ -793,11 +801,11 @@ func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
 	if project == "" {
 		return nil, fmt.Errorf("empty project name")
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err
 	}
-	defer cli.Close()
+
 
 	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+project))
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true, Filters: fl})
@@ -830,11 +838,11 @@ func ContainerComposeLabels(ctx context.Context, containerName string) (project,
 	if containerName == "" {
 		return "", "", fmt.Errorf("empty container name")
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return "", "", err
 	}
-	defer cli.Close()
+
 
 	insp, err := cli.ContainerInspect(ctx, containerName)
 	if err != nil {

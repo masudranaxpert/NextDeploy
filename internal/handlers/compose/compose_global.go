@@ -353,6 +353,12 @@ func (h *Handler) DeployProgressPartial(c *fiber.Ctx) error {
 	running := r.Running
 	act := r.Action
 	r.Mu.Unlock()
+	if c.Query("oob") == "1" {
+		prevLen := strings.TrimSpace(c.Query("len"))
+		if prevLen != "" && fmt.Sprintf("%d", len(out)) == prevLen && running {
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+	}
 	return c.Render("partials/deploy_progress", fiber.Map{
 		"ID":          id,
 		"LiveOutput":  out,
