@@ -95,6 +95,10 @@ func (p *Panel) MarkSetupComplete() {
 	p.setupDone.Store(true)
 }
 
+func (p *Panel) ClearSetupComplete() {
+	p.setupDone.Store(false)
+}
+
 func (p *Panel) setupRedirectNeeded(ctx context.Context) (bool, error) {
 	if p.setupDone.Load() {
 		return false, nil

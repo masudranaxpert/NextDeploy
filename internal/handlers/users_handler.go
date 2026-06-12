@@ -141,6 +141,9 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "Delete failed")
 		return c.Redirect("/users")
 	}
+	if count, err := p.DB.UserCount(ctx); err == nil && count == 0 {
+		p.ClearSetupComplete()
+	}
 	utils.SetFlash(c, "User deleted")
 	return c.Redirect("/users")
 }

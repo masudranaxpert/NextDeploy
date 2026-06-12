@@ -37,7 +37,7 @@ func apiClient() (*client.Client, error) {
 		if ver != "" {
 			opts = append(opts, client.WithVersion(ver))
 		} else {
-			opts = append(opts, client.WithVersion("1.45"))
+			opts = append(opts, client.WithVersion("1.54"))
 		}
 		apiClientInst, apiClientErr = client.NewClientWithOpts(opts...)
 	})

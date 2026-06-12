@@ -259,9 +259,13 @@ func (h *Handler) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, 
 	if err != nil {
 		return false, err
 	}
+	allVolNames, listErr := volumex.List(ctx)
+	if listErr != "" {
+		return false, fmt.Errorf("%s", listErr)
+	}
 	for _, app := range apps {
-		projCandidates := []string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}
-		appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
+		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, h.P.ComposeProjectCandidates(ctx, app, app.ID)...)
+		appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
 		for _, v := range appVols {
 			if v == volumeName {
 				return true, nil
