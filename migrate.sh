@@ -87,14 +87,14 @@ if [[ ! -s "$DEST" ]]; then
   die "Downloaded bundle is empty"
 fi
 
-head_bytes="$(head -c 512 "$DEST" 2>/dev/null || true)"
-if [[ "$head_bytes" == *"<!doctype"* || "$head_bytes" == *"<html"* || "$head_bytes" == *"<HTML"* ]]; then
+bundle_magic="$(dd if="$DEST" bs=1 count=2 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n' || true)"
+if [[ "$bundle_magic" != "1f8b" ]]; then
+  if head -c 256 "$DEST" 2>/dev/null | grep -aqiE '<!doctype|<html'; then
+    rm -f "$DEST"
+    die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
+  fi
   rm -f "$DEST"
-  die "URL returned HTML, not a .nd-migrate bundle. Use /migrate/download/TOKEN or --file."
-fi
-if ! gzip -t "$DEST" 2>/dev/null; then
-  rm -f "$DEST"
-  die "Downloaded file is not a valid gzip bundle. Use a direct file URL or --file."
+  die "File is not a gzip .nd-migrate bundle (expected magic 1f8b, got ${bundle_magic:-none})."
 fi
 
 chmod 600 "$DEST"
@@ -110,10 +110,16 @@ if [[ -n "$NO_DEPLOY" ]]; then
   IMPORT_FLAGS+=(--no-deploy)
 fi
 
+if [[ -f "${DATA_DIR}/panel.db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+  if ! sqlite3 "${DATA_DIR}/panel.db" "SELECT 1 FROM users WHERE role='admin' LIMIT 1;" 2>/dev/null | grep -q 1; then
+    die "Complete panel setup first (open the panel in a browser and create the admin account), then run migrate again."
+  fi
+fi
+
 info "Importing into panel (this may take a while)…"
 info "docker exec ${PANEL_CONTAINER} ${PANEL_BIN} migrate import ${CONTAINER_PATH}"
 if ! docker exec "$PANEL_CONTAINER" "$PANEL_BIN" migrate import "$CONTAINER_PATH" "${IMPORT_FLAGS[@]}"; then
-  die "Import failed. Bundle left at ${DEST} for inspection."
+  die "Import failed. Bundle left at ${DEST} for inspection. If you see 'no admin user found', complete panel setup in the browser first."
 fi
 
 info "Migration import completed successfully."
