@@ -107,6 +107,7 @@ sudo bash uninstall.sh --force
 | `nextdeploy-update` | `docker compose pull` + `up -d` in the install directory |
 | `nextdeploy-logs` | `docker compose logs -f --tail=100` |
 | `systemctl status nextdeploy` | Systemd unit status (if enabled during install) |
+| `migrate.sh` | Import a `.nd-migrate` bundle on a new VPS (see [Panel migration](#panel-migration-vps-to-vps)) |
 
 ---
 
@@ -153,7 +154,28 @@ Open `http://localhost:8080` — first visit creates the admin account.
 - **Docker resources** — List and remove containers, images, and volumes
 - **Scheduled cleanup** — Auto-prune unused Docker data on a configurable interval
 - **Multi-user auth** — First-run admin; admins manage users and roles
+- **Panel migration** — Export selected apps to a `.nd-migrate` bundle and restore on another VPS (admin-only)
 - **Responsive UI** — Works on phones and tablets
+
+---
+
+## Panel migration (VPS to VPS)
+
+Export selected apps to a `.nd-migrate` bundle (apps, volumes, domains, Git, registries, env). **Users/sessions are not migrated** — set up a fresh admin on the target VPS first.
+
+**Export (source):** Admin → **System → Migration** → select apps → **Create export bundle**. All apps pause briefly during export, then restart. Download link is valid **24h**; a new export replaces the previous one.
+
+**Import (target):** Install NextDeploy, create admin, then:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \
+  --url "https://panel.example.com/migrate/download/TOKEN"
+```
+
+Local file: `sudo bash migrate.sh --file /path/to/bundle.nd-migrate`  
+Options: `--no-deploy` (skip compose up), `--data-dir`, `--container`.
+
+Manual: `docker exec panel migrate import /data/migrate-incoming/bundle.nd-migrate [--delete-after] [--no-deploy]`
 
 ---
 
