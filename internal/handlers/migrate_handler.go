@@ -23,17 +23,84 @@ func (p *Panel) MigratePage(c *fiber.Ctx) error {
 	apps, _ := p.DB.ListApps(ctx)
 	recent, _ := p.DB.ListRecentMigrateExports(ctx, 8)
 	est, _ := p.migrateEstimateApps(ctx, apps)
+	exportRunning, _ := p.DB.HasRunningMigrateExport(ctx)
+	runningExportID := int64(0)
+	if exportRunning {
+		if row, err := p.DB.GetRunningMigrateExport(ctx); err == nil {
+			runningExportID = row.ID
+		}
+	}
+	focusID := migrateFocusExportID(c, recent, runningExportID)
+	focus := fiber.Map{}
+	if focusID > 0 {
+		if row, err := p.DB.GetMigrateExport(ctx, focusID); err == nil {
+			focus = migrateExportView(p, c, row)
+		}
+	}
 	return c.Render("pages/migrate", WithUser(c, fiber.Map{
-		"Nav":           "migrate",
-		"Title":         "Panel Migration",
-		"Apps":          apps,
-		"RecentExports": recent,
-		"EstimateTotal": migrate.FormatBytes(est.TotalBytes()),
-		"EstimateApps":  est.AppCount,
-		"EstimateVols":  est.VolumeCount,
-		"Flash":         utils.ReadFlash(c),
-		"FlashError":    utils.ReadFlashError(c),
+		"Nav":              "migrate",
+		"Title":            "Panel Migration",
+		"Apps":             apps,
+		"RecentExports":    recent,
+		"EstimateTotal":    migrate.FormatBytes(est.TotalBytes()),
+		"EstimateApps":     est.AppCount,
+		"EstimateVols":     est.VolumeCount,
+		"ExportRunning":    exportRunning,
+		"RunningExportID":  runningExportID,
+		"FocusExportID":    focusID,
+		"FocusExport":      focus,
+		"Flash":            utils.ReadFlash(c),
+		"FlashError":       utils.ReadFlashError(c),
 	}), "layouts/shell")
+}
+
+func migrateFocusExportID(c *fiber.Ctx, recent []db.MigrateExport, runningID int64) int64 {
+	if q := strings.TrimSpace(c.Query("export")); q != "" {
+		if id, err := strconv.ParseInt(q, 10, 64); err == nil && id > 0 {
+			return id
+		}
+	}
+	if runningID > 0 {
+		return runningID
+	}
+	for _, row := range recent {
+		if row.Status == db.MigrateExportFailed {
+			return row.ID
+		}
+	}
+	for _, row := range recent {
+		if row.Status == db.MigrateExportReady || row.Status == db.MigrateExportDownloaded {
+			return row.ID
+		}
+	}
+	return 0
+}
+
+func migrateExportView(p *Panel, c *fiber.Ctx, row db.MigrateExport) fiber.Map {
+	view := fiber.Map{
+		"ID":              row.ID,
+		"Status":          row.Status,
+		"ProgressLog":     row.ProgressLog,
+		"Error":           row.Error,
+		"SizeHuman":       migrate.FormatBytes(row.SizeBytes),
+		"EstimatedHuman":  migrate.FormatBytes(row.EstimatedBytes),
+		"CreatedAt":       row.CreatedAt.UTC().Format(time.RFC3339),
+		"ShowProgress":    true,
+	}
+	if row.Status == db.MigrateExportReady || row.Status == db.MigrateExportDownloaded {
+		if tok, ok := p.migrateTokens.Load(row.ID); ok {
+			if plain, ok2 := tok.(string); ok2 && plain != "" {
+				url := migrate.DownloadURL(p.migratePublicBase(c), plain)
+				view["DownloadURL"] = url
+				view["MigrateCmd"] = migrateShellCommand(url)
+			}
+		}
+	}
+	return view
+}
+
+func migrateShellCommand(downloadURL string) string {
+	return "curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \\\n  --url \"" + downloadURL + "\""
 }
 
 func (p *Panel) MigrateEstimate(c *fiber.Ctx) error {
@@ -124,11 +191,14 @@ func (p *Panel) MigrateExportStatus(c *fiber.Ctx) error {
 		"size_human":      migrate.FormatBytes(row.SizeBytes),
 		"estimated_bytes": row.EstimatedBytes,
 		"estimated_human": migrate.FormatBytes(row.EstimatedBytes),
+		"created_at":      row.CreatedAt.UTC().Format(time.RFC3339),
 	}
-	if row.Status == db.MigrateExportReady {
+	if row.Status == db.MigrateExportReady || row.Status == db.MigrateExportDownloaded {
 		if tok, ok := p.migrateTokens.Load(id); ok {
 			if plain, ok2 := tok.(string); ok2 && plain != "" {
-				resp["download_url"] = migrate.DownloadURL(p.migratePublicBase(c), plain)
+				url := migrate.DownloadURL(p.migratePublicBase(c), plain)
+				resp["download_url"] = url
+				resp["migrate_cmd"] = migrateShellCommand(url)
 			}
 		}
 	}
@@ -164,12 +234,15 @@ func (p *Panel) MigrateDownload(c *fiber.Ctx) error {
 }
 
 func (p *Panel) runMigrateExport(exportID int64, appIDs []string) {
+	_ = p.DB.AppendMigrateExportLog(context.Background(), exportID, "export job started")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Hour)
 	defer cancel()
 	plain, err := migrate.RunExport(ctx, exportID, appIDs, migrate.ExportDeps{
-		DB:            p.DB,
-		WorkspaceRoot: p.Store.Path,
-		VolumeNames:   p.migrateVolumeNames,
+		DB: p.DB,
+		WorkspaceRoot: func(appID string) string {
+			return p.ComposeWorkspaceRoot(context.Background(), appID)
+		},
+		VolumeNames: p.migrateVolumeNames,
 		SourcePanelURL: p.migratePublicBase(nil),
 		AppendLog: func(id int64, msg string) {
 			_ = p.DB.AppendMigrateExportLog(context.Background(), id, msg)
