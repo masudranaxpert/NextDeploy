@@ -78,15 +78,21 @@
           <h2 class="text-sm font-semibold text-foreground">Storage Usage</h2>
           <p class="text-xs text-muted-foreground">Workspace files across all apps owned by this user.</p>
         </div>
+        {{if .StorageUnlimited}}
+        <span class="text-sm font-semibold tabular-nums text-foreground">{{.StorageUsed}} <span class="text-xs font-normal text-muted-foreground">· unlimited</span></span>
+        {{else}}
         <span class="text-sm font-semibold tabular-nums text-foreground">{{.StorageUsed}} <span class="text-xs font-normal text-muted-foreground">of {{.StorageMax}}</span></span>
+        {{end}}
       </div>
+      {{if not .StorageUnlimited}}
       <div class="progress-bar">
         <div class="progress-fill bg-gradient-to-r from-amber-600 to-amber-400" style="width: {{printf "%.0f" .StoragePercent}}%"></div>
       </div>
+      {{end}}
     </div>
 
     <!-- ── Quota & Limits (Admin Only) ───────────────────────── -->
-    {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID)}}
+    {{if and (eq .CurrentUser.Role "admin") (ne .TargetUser.ID .CurrentUser.ID) (ne .TargetUser.Role "admin")}}
     <div class="panel-card p-5">
       <div class="mb-4 border-b border-border/50 pb-3">
         <h2 class="text-sm font-semibold text-foreground">Resource Limits</h2>
