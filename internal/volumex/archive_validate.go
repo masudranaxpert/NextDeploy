@@ -59,31 +59,7 @@ func safeArchiveMemberPath(name string) error {
 	return nil
 }
 
-func safeSymlinkTargetInArchive(memberName, target string) error {
-	target = normalizeArchivePath(target)
-	if target == "" {
-		return errors.New("empty symlink target in archive")
-	}
-	if pathstd.IsAbs(target) {
-		return errors.New("unsafe symlink target in archive")
-	}
-	memberDir := pathstd.Dir(normalizeArchivePath(memberName))
-	resolved := pathstd.Clean(pathstd.Join(memberDir, target))
-	if pathstd.IsAbs(resolved) {
-		return errors.New("unsafe symlink target in archive")
-	}
-	if resolved == ".." || strings.HasPrefix(resolved, "../") {
-		return errors.New("unsafe symlink target in archive")
-	}
-	for _, seg := range strings.Split(resolved, "/") {
-		if seg == ".." {
-			return errors.New("unsafe symlink target in archive")
-		}
-	}
-	return nil
-}
-
-// ValidateTarGzPaths reads the gzip-tar and rejects unsafe member names (path traversal, absolute paths, unsafe symlinks).
+// ValidateTarGzPaths reads the gzip-tar and rejects unsafe member names (path traversal, absolute paths).
 func ValidateTarGzPaths(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -125,12 +101,6 @@ func ValidateTarGzPaths(path string) error {
 		if err := safeArchiveMemberPath(hdr.Name); err != nil {
 			return err
 		}
-		switch hdr.Typeflag {
-		case tar.TypeSymlink, tar.TypeLink:
-			if err := safeSymlinkTargetInArchive(hdr.Name, hdr.Linkname); err != nil {
-				return err
-			}
-		}
 	}
 }
 
@@ -157,27 +127,6 @@ func ValidateZipPaths(path string) error {
 			return fmt.Errorf("uncompressed total exceeds limit")
 		}
 		total += sz
-
-		mode := f.FileInfo().Mode()
-		if mode&os.ModeSymlink == 0 {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		b, err := io.ReadAll(io.LimitReader(rc, 8192))
-		_ = rc.Close()
-		if err != nil {
-			return err
-		}
-		t := strings.TrimSpace(string(b))
-		if t == "" {
-			return errors.New("empty symlink target in zip")
-		}
-		if err := safeSymlinkTargetInArchive(f.Name, t); err != nil {
-			return err
-		}
 	}
 	return nil
 }
