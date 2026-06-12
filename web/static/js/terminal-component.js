@@ -215,4 +215,144 @@
   };
 
   window.SharedTerminal = SharedTerminal;
+
+  var appTermIO = null;
+  var appTermInstance = null;
+  var appTermVisBound = false;
+
+  function appTermScope(root) {
+    return root || document.getElementById('app-tab-panel') || document;
+  }
+
+  function appTermSetStatus(text, state) {
+    var statusEl = document.getElementById('term-status');
+    var statusDot = document.getElementById('term-status-dot');
+    if (!statusEl || !statusDot) return;
+    statusEl.textContent = text || '';
+    if (state === 'connected') {
+      statusDot.className = 'inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]';
+    } else if (state === 'error') {
+      statusDot.className = 'inline-block h-2 w-2 rounded-full bg-red-400';
+    } else if (state === 'connecting') {
+      statusDot.className = 'inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse';
+    } else {
+      statusDot.className = 'inline-block h-2 w-2 rounded-full bg-muted-foreground/40';
+    }
+  }
+
+  function appTermWsURL(pick, host) {
+    if (!host || !pick) return '';
+    var appId = (host.getAttribute('data-app-id') || '').trim();
+    var container = (pick.value || '').trim();
+    if (!appId || !container) return '';
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var q = 'app=' + encodeURIComponent(appId) + '&container=' + encodeURIComponent(container) + '&cols=80&rows=24';
+    return proto + '//' + location.host + '/apps/' + appId + '/ws/terminal?' + q;
+  }
+
+  function appTermWaitLibs(cb, left) {
+    if (typeof Terminal !== 'undefined' && typeof SharedTerminal !== 'undefined') {
+      cb();
+      return;
+    }
+    if (left <= 0) {
+      appTermSetStatus('xterm.js failed to load', 'error');
+      return;
+    }
+    setTimeout(function () { appTermWaitLibs(cb, left - 1); }, 50);
+  }
+
+  function appTermEnsure(pick, host) {
+    if (appTermInstance) return appTermInstance;
+    appTermInstance = new SharedTerminal('xterm-host', {
+      wsUrl: function () { return appTermWsURL(pick, host); },
+      reconnect: false,
+      scrollback: 1000,
+      fontSize: 14,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      theme: {
+        background: '#0a0a0a',
+        foreground: '#e2e8f0',
+        cursor: '#a78bfa',
+        selectionBackground: '#4c1d95',
+      },
+      onStatus: appTermSetStatus,
+    });
+    SharedTerminal.setupResize(appTermInstance);
+    window.containerTerm = appTermInstance;
+    return appTermInstance;
+  }
+
+  function appTermTryConnect(pick, host) {
+    if (!host || !pick || !(pick.value || '').trim()) return;
+    appTermWaitLibs(function () {
+      requestAnimationFrame(function () {
+        appTermEnsure(pick, host).connect();
+      });
+    }, 120);
+  }
+
+  function appTermDestroyIO() {
+    if (appTermIO) {
+      appTermIO.disconnect();
+      appTermIO = null;
+    }
+  }
+
+  function appTermDestroy() {
+    appTermDestroyIO();
+    if (appTermInstance) {
+      appTermInstance.destroy();
+      appTermInstance = null;
+    }
+    window.containerTerm = null;
+  }
+
+  function appTermInit(root) {
+    var scope = appTermScope(root);
+    var host = scope.querySelector('#xterm-host');
+    if (!host) {
+      appTermDestroy();
+      return;
+    }
+    var pick = scope.querySelector('#term-pick');
+    if (!pick) return;
+
+    if (!pick.dataset.termBound) {
+      pick.dataset.termBound = '1';
+      pick.addEventListener('change', function () {
+        if (appTermInstance) appTermInstance.connect();
+        else appTermTryConnect(pick, host);
+      });
+    }
+    if (!appTermVisBound) {
+      appTermVisBound = true;
+      document.addEventListener('visibilitychange', function () {
+        if (!appTermInstance) return;
+        var activePick = document.querySelector('#app-tab-panel #term-pick') || document.getElementById('term-pick');
+        var activeHost = document.querySelector('#app-tab-panel #xterm-host') || document.getElementById('xterm-host');
+        if (!activePick || !activeHost) return;
+        if (document.hidden) appTermInstance.disconnect();
+        else appTermTryConnect(activePick, activeHost);
+      });
+    }
+
+    appTermDestroyIO();
+    if (typeof IntersectionObserver !== 'undefined') {
+      appTermIO = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) appTermTryConnect(pick, host);
+          else if (appTermInstance) appTermInstance.disconnect();
+        });
+      }, { threshold: 0.1 });
+      appTermIO.observe(host);
+    } else {
+      appTermTryConnect(pick, host);
+    }
+  }
+
+  window.AppContainerTerminal = {
+    init: appTermInit,
+    destroy: appTermDestroy,
+  };
 })();

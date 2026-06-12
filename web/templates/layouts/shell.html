@@ -219,21 +219,28 @@
         }
       });
 
+      function initAppContainerTerminal(root) {
+        if (window.AppContainerTerminal) AppContainerTerminal.init(root);
+      }
+
       document.addEventListener('DOMContentLoaded', function () {
         initLogWrap(document);
         scrollDeployPreToBottom();
+        initAppContainerTerminal(document);
       });
       document.addEventListener('htmx:beforeSwap', function (event) {
         var tgt = event.detail && event.detail.target;
-        if (tgt && tgt.id === 'app-tab-panel' && window.containerTerm) {
-          window.containerTerm.destroy();
-          window.containerTerm = null;
+        if (tgt && tgt.id === 'app-tab-panel' && window.AppContainerTerminal) {
+          AppContainerTerminal.destroy();
         }
       });
       document.addEventListener('htmx:afterSwap', function (event) {
         initLogWrap(event.target || document);
         scrollDeployPreToBottom();
         var tgt = event.detail && event.detail.target;
+        if (tgt && (tgt.id === 'app-tab-panel' || tgt.id === 'term-pick-wrap')) {
+          initAppContainerTerminal(document.getElementById('app-tab-panel') || tgt);
+        }
         if (tgt && tgt.id === 'app-tab-panel') {
           var params = new URLSearchParams(window.location.search);
           var tab = params.get('tab') || 'overview';

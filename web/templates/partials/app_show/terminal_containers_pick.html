@@ -1,0 +1,12 @@
+<label class="mb-1 block text-xs font-medium text-muted-foreground" for="term-pick">Container</label>
+{{if .ComposePsMsg}}
+  <p class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{{.ComposePsMsg}}</p>
+{{else if not .ComposeRows}}
+  <p class="text-sm text-muted-foreground">No compose containers yet. Deploy the stack, then refresh this tab.</p>
+{{else}}
+  <select id="term-pick" class="input w-full" aria-describedby="term-status">
+    {{range .ComposeRows}}
+      <option value="{{.Name}}">{{.Name}} · {{.Service}} · {{.State}}</option>
+    {{end}}
+  </select>
+{{end}}

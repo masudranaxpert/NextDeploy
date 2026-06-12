@@ -7,17 +7,17 @@
           <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
           <p class="text-sm text-amber-200">Add a <code class="rounded bg-muted px-1">Dockerfile</code> or <code class="rounded bg-muted px-1">docker-compose.yml</code> and deploy from Overview first.</p>
         </div>
-      {{else if not .ComposeRows}}
-        <p class="text-sm text-muted-foreground">No compose containers yet. Deploy the stack, then open this tab again.</p>
       {{else}}
         <div class="flex flex-wrap items-end gap-3">
-          <div class="min-w-[280px] flex-1 max-w-xl">
+          <div id="term-pick-wrap" class="min-w-[280px] flex-1 max-w-xl"
+               hx-get="/apps/{{.ID}}/partials/terminal-containers"
+               hx-trigger="load"
+               hx-swap="innerHTML">
             <label class="mb-1 block text-xs font-medium text-muted-foreground" for="term-pick">Container</label>
-            <select id="term-pick" class="input w-full" aria-describedby="term-status">
-              {{range .ComposeRows}}
-                <option value="{{.Name}}">{{.Name}} · {{.Service}} · {{.State}}</option>
-              {{end}}
-            </select>
+            <div class="input flex min-h-[2.5rem] w-full items-center gap-2 text-sm text-muted-foreground">
+              <svg class="h-4 w-4 shrink-0 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+              Loading containers…
+            </div>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -31,118 +31,9 @@
               <span class="h-3 w-3 rounded-full bg-amber-500/60"></span>
               <span class="h-3 w-3 rounded-full bg-emerald-500/60"></span>
             </div>
-            <span class="text-xs text-muted-foreground/60 font-mono">terminal</span>
+            <span class="text-xs font-mono text-muted-foreground/60">terminal</span>
           </div>
           <div id="xterm-host" class="h-[min(30rem,58vh)] w-full min-h-[200px] p-1" data-app-id="{{.ID}}"></div>
         </div>
-        <script>
-        (function () {
-          var pick = document.getElementById('term-pick');
-          var statusEl = document.getElementById('term-status');
-          var statusDot = document.getElementById('term-status-dot');
-          var host = document.getElementById('xterm-host');
-          var appId = host ? (host.getAttribute('data-app-id') || '').trim() : '';
-          var connected = false;
-
-          function setStatus(t, state) {
-            statusEl.textContent = t || '';
-            if (state === 'connected') {
-              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgba(52,211,153,0.5)]';
-            } else if (state === 'error') {
-              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-red-400';
-            } else if (state === 'connecting') {
-              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse';
-            } else {
-              statusDot.className = 'inline-block h-2 w-2 rounded-full bg-muted-foreground/40';
-            }
-          }
-
-          function wsURL() {
-            if (!appId) return '';
-            var c = (pick.value || '').trim();
-            if (!c) return '';
-            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            var q = 'app=' + encodeURIComponent(appId) + '&container=' + encodeURIComponent(c) + '&cols=80&rows=24';
-            return proto + '//' + location.host + '/apps/' + appId + '/ws/terminal?' + q;
-          }
-
-          function destroyTerm() {
-            if (window.containerTerm) {
-              window.containerTerm.destroy();
-              window.containerTerm = null;
-            }
-            connected = false;
-          }
-
-          if (window._termSwapCleanup) {
-            document.removeEventListener('htmx:beforeSwap', window._termSwapCleanup);
-          }
-          window._termSwapCleanup = function (e) {
-            var tgt = e.detail && e.detail.target;
-            if (tgt && tgt.id === 'app-tab-panel') destroyTerm();
-          };
-          document.addEventListener('htmx:beforeSwap', window._termSwapCleanup);
-
-          function ensureTerm() {
-            if (window.containerTerm) return window.containerTerm;
-            window.containerTerm = new SharedTerminal('xterm-host', {
-              wsUrl: wsURL,
-              reconnect: false,
-              scrollback: 1000,
-              fontSize: 14,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-              theme: {
-                background: '#0a0a0a',
-                foreground: '#e2e8f0',
-                cursor: '#a78bfa',
-                selectionBackground: '#4c1d95',
-              },
-              onStatus: setStatus,
-            });
-            SharedTerminal.setupResize(window.containerTerm);
-            return window.containerTerm;
-          }
-
-          function connectTerm() {
-            if (!host || connected) return;
-            connected = true;
-            (function waitLibs() {
-              if (typeof SharedTerminal === 'undefined' || typeof Terminal === 'undefined') {
-                setTimeout(waitLibs, 50);
-                return;
-              }
-              requestAnimationFrame(function () {
-                ensureTerm().connect();
-              });
-            })();
-          }
-
-          pick.addEventListener('change', function () {
-            if (window.containerTerm) window.containerTerm.connect();
-            else connectTerm();
-          });
-
-          document.addEventListener('visibilitychange', function () {
-            if (!window.containerTerm) return;
-            if (document.hidden) window.containerTerm.disconnect();
-            else if (connected) window.containerTerm.connect();
-          });
-
-          window.addEventListener('pagehide', destroyTerm);
-          window.addEventListener('beforeunload', destroyTerm);
-
-          if (host && typeof IntersectionObserver !== 'undefined') {
-            var io = new IntersectionObserver(function (entries) {
-              entries.forEach(function (entry) {
-                if (entry.isIntersecting) connectTerm();
-                else if (window.containerTerm) window.containerTerm.disconnect();
-              });
-            }, { threshold: 0.1 });
-            io.observe(host);
-          } else {
-            connectTerm();
-          }
-        })();
-        </script>
       {{end}}
     </div>
