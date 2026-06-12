@@ -73,7 +73,7 @@ func (p *Panel) migrateQuiescePanel(ctx context.Context, logf func(string)) (fun
 			continue
 		}
 		envFiles := p.ComposeEnvFiles(ctx, app.ID)
-		project := p.ActiveComposeProjectName(ctx, app, app.ID)
+		project := p.composeProjectName(app, app.ID)
 		if project == "" {
 			mu.Unlock()
 			continue

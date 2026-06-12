@@ -31,8 +31,34 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
       </svg>
       <div class="space-y-1 text-xs text-amber-200/90">
-        <p class="font-medium text-amber-200">Export stops every app on this panel first, then builds the bundle, then restarts apps that were running.</p>
-        <p class="text-amber-200/80">Large panels (50GB+) can spike RAM and disk during export. A 2–3 GB app often takes <strong class="text-amber-200">5–15 minutes</strong> (stop → archive workspace + volumes → pack). Stay on this page or use <strong class="text-amber-200">View progress</strong> in Recent exports.</p>
+        <p class="font-medium text-amber-200">Export stops apps briefly, archives data, restarts apps, then packs the bundle.</p>
+        <p class="text-amber-200/80">Live logs appear below. A ~2–3 GB app is usually <strong class="text-amber-200">1–3 minutes</strong>. Download link + import command update automatically when ready.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="migrate-progress-card" class="panel-card overflow-hidden {{if not .FocusExportID}}hidden{{end}}">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Export log</h2>
+        <p id="migrate-progress-status" class="mt-0.5 text-xs text-muted-foreground">{{if .FocusExport}}Export #{{index .FocusExport "ID"}} — {{index .FocusExport "Status"}}{{else}}Starting…{{end}}</p>
+      </div>
+      <span id="migrate-progress-badge" class="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide {{if .FocusExport}}{{if eq (index .FocusExport "Status") "ready"}}bg-emerald-500/20 text-emerald-300{{else if eq (index .FocusExport "Status") "failed"}}bg-red-500/20 text-red-300{{else if eq (index .FocusExport "Status") "running"}}bg-amber-500/20 text-amber-300{{else}}bg-muted/50 text-muted-foreground{{end}}{{else}}bg-muted/50 text-muted-foreground{{end}}">{{if .FocusExport}}{{index .FocusExport "Status"}}{{else}}queued{{end}}</span>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <div class="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span>Estimated: <span id="migrate-progress-est" class="text-foreground font-medium">{{if .FocusExport}}{{index .FocusExport "EstimatedHuman"}}{{else}}—{{end}}</span></span>
+        <span>Actual: <span id="migrate-progress-size" class="text-foreground font-medium">{{if .FocusExport}}{{index .FocusExport "SizeHuman"}}{{else}}—{{end}}</span></span>
+      </div>
+      <pre id="migrate-progress-log" class="max-h-64 overflow-y-auto rounded-lg bg-black/40 border border-border/40 p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap">{{if .FocusExport}}{{index .FocusExport "ProgressLog"}}{{end}}</pre>
+      <p id="migrate-progress-error" class="{{if and .FocusExport (index .FocusExport "Error")}}text-xs text-red-400 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2{{else}}hidden text-xs text-red-400{{end}}">{{if .FocusExport}}{{index .FocusExport "Error"}}{{end}}</p>
+      <div id="migrate-download-wrap" class="{{if and .FocusExport (index .FocusExport "DownloadURL")}}rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3{{else}}hidden rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3{{end}}">
+        <p class="text-xs text-emerald-300 mb-2">Bundle ready. Copy the link or download directly (valid 24h):</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input id="migrate-download-url" type="text" readonly value="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{end}}" class="flex-1 min-w-[200px] rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-xs font-mono text-foreground">
+          <button type="button" id="migrate-copy-url" class="btn-secondary h-8 px-3 text-xs">Copy URL</button>
+          <a id="migrate-download-link" href="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{else}}#{{end}}" class="btn-primary h-8 px-3 text-xs inline-flex items-center">Download</a>
+        </div>
       </div>
     </div>
   </div>
@@ -41,7 +67,7 @@
     <div class="border-b border-border/50 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 class="text-sm font-semibold text-foreground">Export bundle</h2>
-        <p class="mt-0.5 text-xs text-muted-foreground">Select apps to include. Panel settings, domains, git providers, and registries are included automatically.</p>
+        <p class="mt-0.5 text-xs text-muted-foreground">Select apps to include. Domains, git config, registries, and panel env are included automatically.</p>
       </div>
       <div class="flex items-center gap-2 text-xs">
         <button type="button" id="migrate-select-all" class="btn-secondary h-8 px-3 text-xs">Select all</button>
@@ -76,40 +102,18 @@
     </div>
   </form>
 
-  <div id="migrate-progress-card" class="panel-card overflow-hidden hidden">
+  <div class="panel-card overflow-hidden">
     <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between gap-3">
       <div>
-        <h2 class="text-sm font-semibold text-foreground">Export progress</h2>
-        <p id="migrate-progress-status" class="mt-0.5 text-xs text-muted-foreground">Starting…</p>
+        <h2 class="text-sm font-semibold text-foreground">Restore on new VPS</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Install NextDeploy on the target server first, then run this command (updates automatically when export succeeds).</p>
       </div>
-      <span id="migrate-progress-badge" class="inline-flex items-center rounded-md bg-muted/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">queued</span>
+      <button type="button" id="migrate-copy-cmd" class="btn-secondary h-8 px-3 text-xs shrink-0">Copy command</button>
     </div>
     <div class="px-5 py-4 space-y-3">
-      <div class="flex flex-wrap gap-4 text-xs text-muted-foreground">
-        <span>Estimated: <span id="migrate-progress-est" class="text-foreground font-medium">—</span></span>
-        <span>Actual: <span id="migrate-progress-size" class="text-foreground font-medium">—</span></span>
-      </div>
-      <pre id="migrate-progress-log" class="max-h-48 overflow-y-auto rounded-lg bg-muted/30 p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap"></pre>
-      <div id="migrate-download-wrap" class="hidden rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
-        <p class="text-xs text-emerald-300 mb-2">Bundle ready. Copy the link or download directly (valid 24h):</p>
-        <div class="flex flex-wrap gap-2 items-center">
-          <input id="migrate-download-url" type="text" readonly class="flex-1 min-w-[200px] rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-xs font-mono text-foreground">
-          <button type="button" id="migrate-copy-url" class="btn-secondary h-8 px-3 text-xs">Copy</button>
-          <a id="migrate-download-link" href="#" class="btn-primary h-8 px-3 text-xs inline-flex items-center">Download</a>
-        </div>
-      </div>
-      <p id="migrate-progress-error" class="hidden text-xs text-red-400"></p>
-    </div>
-  </div>
-
-  <div class="panel-card overflow-hidden">
-    <div class="border-b border-border/50 px-5 py-4">
-      <h2 class="text-sm font-semibold text-foreground">Restore on new VPS</h2>
-      <p class="mt-0.5 text-xs text-muted-foreground">Install NextDeploy on the target server first, then run <code class="font-mono text-[11px] bg-muted/50 px-1 rounded">migrate.sh</code> with the download URL or a local bundle path.</p>
-    </div>
-    <div class="px-5 py-4 space-y-3">
-      <pre class="rounded-lg bg-muted/30 p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto">curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \
-  --url "https://your-panel.example.com/migrate/download/TOKEN"</pre>
+      <pre id="migrate-restore-cmd" class="rounded-lg bg-muted/30 p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto whitespace-pre-wrap">{{if and .FocusExport (index .FocusExport "MigrateCmd")}}{{index .FocusExport "MigrateCmd"}}{{else}}curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \
+  --url "https://your-panel.example.com/migrate/download/TOKEN"{{end}}</pre>
+      <p id="migrate-restore-hint" class="text-xs text-muted-foreground">{{if and .FocusExport (index .FocusExport "MigrateCmd")}}Ready to paste on the target VPS.{{else}}Complete an export above — this command will fill in your real download URL.{{end}}</p>
       <p class="text-xs text-muted-foreground">Or with a local file: <code class="font-mono text-[11px] bg-muted/50 px-1 rounded">sudo bash migrate.sh --file /path/to/bundle.nd-migrate</code></p>
     </div>
   </div>
@@ -125,9 +129,10 @@
         <span class="font-mono text-muted-foreground">#{{.ID}}</span>
         <span class="capitalize {{if eq .Status "ready"}}text-emerald-400{{else if eq .Status "failed"}}text-red-400{{else if eq .Status "running"}}text-amber-400{{else}}text-muted-foreground{{end}}">{{.Status}}</span>
         <span class="text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</span>
-        {{if eq .Status "running"}}
-        <a href="/migrate?export={{.ID}}" class="text-primary/90 hover:text-primary transition-colors">View progress</a>
-        {{else}}
+        {{if or (eq .Status "running") (eq .Status "failed") (eq .Status "ready")}}
+        <a href="/migrate?export={{.ID}}" class="text-primary/90 hover:text-primary transition-colors">View log</a>
+        {{end}}
+        {{if ne .Status "running"}}
         <form method="post" action="/migrate/exports/{{.ID}}/delete" class="inline" onsubmit="return confirm('Delete this export bundle?');">
           <button type="submit" class="text-red-400/80 hover:text-red-300 transition-colors">Delete</button>
         </form>
@@ -144,7 +149,8 @@
 (function () {
   var estimateTimer = null;
   var pollTimer = null;
-  var exportId = null;
+  var focusExportID = {{if .FocusExportID}}{{.FocusExportID}}{{else}}0{{end}};
+  var runningExportFallback = {{if .RunningExportID}}{{.RunningExportID}}{{else}}0{{end}};
 
   function selectedIDs() {
     var ids = [];
@@ -201,11 +207,10 @@
     });
   }
 
-  var runningExportFallback = {{if .RunningExportID}}{{.RunningExportID}}{{else}}0{{end}};
-
   function parseExportFromURL() {
     var m = window.location.search.match(/[?&]export=(\d+)/);
     if (m) return parseInt(m[1], 10);
+    if (focusExportID > 0) return focusExportID;
     return runningExportFallback > 0 ? runningExportFallback : 0;
   }
 
@@ -215,6 +220,33 @@
     var s = sec % 60;
     if (m < 60) return m + 'm ' + s + 's';
     return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  }
+
+  function copyText(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+      return;
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+
+  function updateRestoreCommand(cmd, url) {
+    var pre = document.getElementById('migrate-restore-cmd');
+    var hint = document.getElementById('migrate-restore-hint');
+    if (cmd && pre) pre.textContent = cmd;
+    else if (url && pre) {
+      pre.textContent = 'curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \\\n  --url "' + url + '"';
+    }
+    if (hint && (cmd || url)) {
+      hint.textContent = 'Ready to paste on the target VPS.';
+      hint.className = 'text-xs text-emerald-400';
+    }
   }
 
   function statusBadge(status) {
@@ -233,53 +265,61 @@
     }
   }
 
+  function applyExportStatus(d) {
+    if (!d || d.error) return;
+    var card = document.getElementById('migrate-progress-card');
+    if (card) card.classList.remove('hidden');
+    statusBadge(d.status);
+    var st = document.getElementById('migrate-progress-status');
+    if (st) {
+      var extra = '';
+      if (d.created_at && (d.status === 'running' || d.status === 'queued')) {
+        var started = Date.parse(d.created_at);
+        if (!isNaN(started)) {
+          extra = ' · elapsed ' + formatElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+        }
+      }
+      st.textContent = 'Export #' + d.id + ' — ' + d.status + extra;
+    }
+    var est = document.getElementById('migrate-progress-est');
+    if (est) est.textContent = d.estimated_human || '—';
+    var sz = document.getElementById('migrate-progress-size');
+    if (sz) sz.textContent = d.size_human || '—';
+    var log = document.getElementById('migrate-progress-log');
+    if (log && d.progress_log) {
+      log.textContent = d.progress_log;
+      log.scrollTop = log.scrollHeight;
+    }
+    var errEl = document.getElementById('migrate-progress-error');
+    if (errEl) {
+      if (d.error) {
+        errEl.textContent = d.error;
+        errEl.className = 'text-xs text-red-400 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2';
+      } else {
+        errEl.textContent = '';
+        errEl.className = 'hidden text-xs text-red-400';
+      }
+    }
+    if (d.download_url) {
+      var dlWrap = document.getElementById('migrate-download-wrap');
+      if (dlWrap) dlWrap.classList.remove('hidden');
+      var inp = document.getElementById('migrate-download-url');
+      var link = document.getElementById('migrate-download-link');
+      if (inp) inp.value = d.download_url;
+      if (link) link.href = d.download_url;
+      updateRestoreCommand(d.migrate_cmd, d.download_url);
+    }
+  }
+
   function pollExport(id) {
     fetch('/migrate/exports/' + id + '/status')
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.error) return;
-        var card = document.getElementById('migrate-progress-card');
-        if (card) card.classList.remove('hidden');
-        statusBadge(d.status);
-        var st = document.getElementById('migrate-progress-status');
-        if (st) {
-          var extra = '';
-          if (d.created_at && (d.status === 'running' || d.status === 'queued')) {
-            var started = Date.parse(d.created_at);
-            if (!isNaN(started)) {
-              extra = ' · elapsed ' + formatElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
-            }
-          }
-          st.textContent = 'Export #' + d.id + ' — ' + d.status + extra;
-        }
-        var est = document.getElementById('migrate-progress-est');
-        if (est) est.textContent = d.estimated_human || '—';
-        var sz = document.getElementById('migrate-progress-size');
-        if (sz) sz.textContent = d.size_human || '—';
-        var log = document.getElementById('migrate-progress-log');
-        if (log) log.textContent = d.progress_log || '';
-        if (log) log.scrollTop = log.scrollHeight;
-        var errEl = document.getElementById('migrate-progress-error');
-        if (errEl) {
-          if (d.error) {
-            errEl.textContent = d.error;
-            errEl.classList.remove('hidden');
-          } else {
-            errEl.classList.add('hidden');
-          }
-        }
-        var dlWrap = document.getElementById('migrate-download-wrap');
-        if (dlWrap && d.download_url) {
-          dlWrap.classList.remove('hidden');
-          var inp = document.getElementById('migrate-download-url');
-          var link = document.getElementById('migrate-download-link');
-          if (inp) inp.value = d.download_url;
-          if (link) {
-            link.href = d.download_url;
-          }
-        }
+        applyExportStatus(d);
         if (d.status === 'running' || d.status === 'queued') {
-          pollTimer = setTimeout(function () { pollExport(id); }, 2500);
+          pollTimer = setTimeout(function () { pollExport(id); }, 2000);
+        } else if (d.status === 'ready' && !d.download_url) {
+          pollTimer = setTimeout(function () { pollExport(id); }, 2000);
         }
       })
       .catch(function () {
@@ -287,22 +327,24 @@
       });
   }
 
-  exportId = parseExportFromURL();
+  var exportId = parseExportFromURL();
   if (exportId > 0) {
     pollExport(exportId);
   }
 
-  var copyBtn = document.getElementById('migrate-copy-url');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', function () {
+  var copyUrlBtn = document.getElementById('migrate-copy-url');
+  if (copyUrlBtn) {
+    copyUrlBtn.addEventListener('click', function () {
       var inp = document.getElementById('migrate-download-url');
-      if (!inp || !inp.value) return;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(inp.value);
-        return;
-      }
-      inp.select();
-      document.execCommand('copy');
+      if (inp) copyText(inp.value);
+    });
+  }
+
+  var copyCmdBtn = document.getElementById('migrate-copy-cmd');
+  if (copyCmdBtn) {
+    copyCmdBtn.addEventListener('click', function () {
+      var pre = document.getElementById('migrate-restore-cmd');
+      if (pre) copyText(pre.textContent);
     });
   }
 

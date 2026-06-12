@@ -23,7 +23,10 @@ func writeTarGz(ctx context.Context, outPath string, members []string, baseDir s
 		return err
 	}
 	defer out.Close()
-	gz := gzip.NewWriter(out)
+	gz, err := gzip.NewWriterLevel(out, gzip.BestSpeed)
+	if err != nil {
+		return err
+	}
 	tw := tar.NewWriter(gz)
 	for _, rel := range members {
 		select {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/backup"
@@ -49,6 +50,20 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 	}
 
 	var restorePanel func(context.Context)
+	var restoreOnce sync.Once
+	runRestore := func(msg string) {
+		restoreOnce.Do(func() {
+			if restorePanel == nil {
+				return
+			}
+			if msg != "" {
+				logf(msg)
+			}
+			restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			restorePanel(restoreCtx)
+		})
+	}
 	if deps.QuiescePanel != nil {
 		logf("quiescing panel before export")
 		var qerr error
@@ -56,14 +71,11 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		if qerr != nil {
 			return "", fmt.Errorf("quiesce panel: %w", qerr)
 		}
-		if restorePanel != nil {
-			defer func() {
-				logf("restoring panel after export")
-				restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer cancel()
-				restorePanel(restoreCtx)
-			}()
-		}
+		defer func() {
+			if err != nil {
+				runRestore("restoring apps after failed export")
+			}
+		}()
 	}
 
 	snap := PanelSnapshot{PanelEnvs: map[string]string{}, SourcePanel: deps.SourcePanelURL}
@@ -87,7 +99,7 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		if verr != nil {
 			return "", verr
 		}
-		archivePath, berr := backup.BackupFullWithVolumesOptions(ctx, app.Name, sourceDir, vols, true, func(msg string) {
+		archivePath, berr := backup.BackupFullWithVolumesOptions(ctx, app.Name, sourceDir, vols, false, func(msg string) {
 			logf(app.Name + ": " + msg)
 		})
 		if berr != nil {
@@ -96,10 +108,9 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 
 		destName := app.ID + ".tar.gz"
 		destPath := filepath.Join(workDir, appsDirName, destName)
-		if err := copyFile(archivePath, destPath); err != nil {
+		if err := moveArchive(archivePath, destPath); err != nil {
 			return "", err
 		}
-		_ = os.Remove(archivePath)
 
 		srcType := deps.DB.GetAppSourceType(ctx, app.ID)
 		snap.Apps = append(snap.Apps, AppSnapshot{
@@ -136,6 +147,8 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 			})
 		}
 	}
+
+	runRestore("restarting apps (bundle packing continues in background)")
 
 	for ownerID := range ownerSet {
 		regs, _ := deps.DB.ListPrivateRegistries(ctx, &ownerID)
@@ -179,6 +192,16 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 	}
 	logf("export ready — previous bundles will be replaced")
 	return plain, nil
+}
+
+func moveArchive(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 func copyFile(src, dst string) error {
