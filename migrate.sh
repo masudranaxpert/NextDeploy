@@ -5,20 +5,49 @@ DATA_DIR="${DATA_DIR:-/data}"
 PANEL_CONTAINER="${PANEL_CONTAINER:-panel}"
 BUNDLE_URL=""
 BUNDLE_FILE=""
+BUNDLE_NAME=""
 NO_DEPLOY=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[migrate] $*"; }
+
+normalize_bundle_name() {
+  local n
+  n="$(basename "$1")"
+  n="${n// /_}"
+  if [[ -z "$n" || "$n" == "." || "$n" == ".." ]]; then
+    echo "import-$(date +%s).nd-migrate"
+    return
+  fi
+  if [[ "$n" != *.nd-migrate ]]; then
+    n="${n}.nd-migrate"
+  fi
+  echo "$n"
+}
+
+bundle_name_from_url() {
+  local url="$1"
+  local base
+  base="$(basename "${url%%\?*}")"
+  base="$(basename "${base%%#*}")"
+  if [[ -n "$base" && "$base" != "/" ]]; then
+    normalize_bundle_name "$base"
+    return
+  fi
+  echo "import-$(date +%s).nd-migrate"
+}
 
 usage() {
   cat <<'EOF'
 NextDeploy panel migration import
 
 Usage:
-  migrate.sh --url URL              Download bundle from export link
-  migrate.sh --file PATH            Use local .nd-migrate file
+  migrate.sh --url URL [--name FILE.nd-migrate]
+  migrate.sh --url URL FILE.nd-migrate
+  migrate.sh --file PATH
 
 Options:
+  --name NAME         Save download as this filename (.nd-migrate added if missing)
   --data-dir PATH     Data directory (default: /data)
   --container NAME    Panel container name (default: panel)
   --no-deploy         Skip compose up after import
@@ -26,6 +55,7 @@ Options:
 
 Examples:
   sudo bash migrate.sh --url "https://panel.example.com/migrate/download/TOKEN"
+  sudo bash migrate.sh --url "https://cdn.example.com/bundle" panel-migrate-20260612.nd-migrate
   sudo bash migrate.sh --file /tmp/panel-migrate.nd-migrate
 EOF
 }
@@ -34,11 +64,19 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) BUNDLE_URL="$2"; shift 2 ;;
     --file) BUNDLE_FILE="$2"; shift 2 ;;
+    --name) BUNDLE_NAME="$2"; shift 2 ;;
     --data-dir) DATA_DIR="$2"; shift 2 ;;
     --container) PANEL_CONTAINER="$2"; shift 2 ;;
     --no-deploy) NO_DEPLOY="1"; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "Unknown option: $1 (try --help)" ;;
+    --*) die "Unknown option: $1 (try --help)" ;;
+    *)
+      if [[ -n "$BUNDLE_NAME" ]]; then
+        die "Unexpected extra argument: $1"
+      fi
+      BUNDLE_NAME="$1"
+      shift
+      ;;
   esac
 done
 
@@ -62,11 +100,18 @@ INCOMING="${DATA_DIR}/migrate-incoming"
 mkdir -p "$INCOMING"
 chmod 700 "$INCOMING"
 
-TS="$(date +%s)"
-DEST="${INCOMING}/import-${TS}.nd-migrate"
+if [[ -n "$BUNDLE_URL" ]]; then
+  if [[ -n "$BUNDLE_NAME" ]]; then
+    DEST="${INCOMING}/$(normalize_bundle_name "$BUNDLE_NAME")"
+  else
+    DEST="${INCOMING}/$(bundle_name_from_url "$BUNDLE_URL")"
+  fi
+else
+  DEST="${INCOMING}/$(normalize_bundle_name "$(basename "$BUNDLE_FILE")")"
+fi
 
 if [[ -n "$BUNDLE_URL" ]]; then
-  info "Downloading bundle…"
+  info "Downloading bundle to $(basename "$DEST")…"
   if command -v curl >/dev/null 2>&1; then
     curl -fL -H "Accept-Encoding: identity" --retry 3 --retry-delay 5 -o "$DEST" "$BUNDLE_URL"
   elif command -v wget >/dev/null 2>&1; then
@@ -96,7 +141,7 @@ CONTAINER_PATH="/data/migrate-incoming/$(basename "$DEST")"
 
 if ! docker exec "$PANEL_CONTAINER" tar -tzf "$CONTAINER_PATH" manifest.json >/dev/null 2>&1; then
   rm -f "$DEST"
-  die "Not a valid .nd-migrate bundle (manifest.json missing). The URL must be a direct download to the raw file."
+  die "Not a valid .nd-migrate bundle (manifest.json missing). Use a direct raw-file URL, scp --file, or the source panel /migrate/download/TOKEN link."
 fi
 
 PANEL_BIN="/usr/local/bin/panel"
