@@ -32,7 +32,7 @@
       </svg>
       <div class="space-y-1 text-xs text-amber-200/90">
         <p class="font-medium text-amber-200">Export stops every app on this panel first, then builds the bundle, then restarts apps that were running.</p>
-        <p class="text-amber-200/80">Large panels (50GB+) can spike RAM and disk during export. Expect brief downtime. A new export replaces the previous bundle. Staging orphans auto-clean after 2 hours; download links expire after 24 hours.</p>
+        <p class="text-amber-200/80">Large panels (50GB+) can spike RAM and disk during export. A 2–3 GB app often takes <strong class="text-amber-200">5–15 minutes</strong> (stop → archive workspace + volumes → pack). Stay on this page or use <strong class="text-amber-200">View progress</strong> in Recent exports.</p>
       </div>
     </div>
   </div>
@@ -70,8 +70,8 @@
         <p>Estimated size (all apps): <span class="font-medium text-foreground">{{.EstimateTotal}}</span> · {{.EstimateApps}} apps · {{.EstimateVols}} volumes</p>
         <p id="migrate-estimate-selected" class="text-muted-foreground/80">Select apps to see selection estimate.</p>
       </div>
-      <button type="submit" id="migrate-export-btn" class="btn-primary h-9 px-4 text-sm" {{if not .Apps}}disabled{{end}}>
-        Create export bundle
+      <button type="submit" id="migrate-export-btn" class="btn-primary h-9 px-4 text-sm" {{if or (not .Apps) .ExportRunning}}disabled{{end}}>
+        {{if .ExportRunning}}Export in progress…{{else}}Create export bundle{{end}}
       </button>
     </div>
   </form>
@@ -125,7 +125,9 @@
         <span class="font-mono text-muted-foreground">#{{.ID}}</span>
         <span class="capitalize {{if eq .Status "ready"}}text-emerald-400{{else if eq .Status "failed"}}text-red-400{{else if eq .Status "running"}}text-amber-400{{else}}text-muted-foreground{{end}}">{{.Status}}</span>
         <span class="text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</span>
-        {{if ne .Status "running"}}
+        {{if eq .Status "running"}}
+        <a href="/migrate?export={{.ID}}" class="text-primary/90 hover:text-primary transition-colors">View progress</a>
+        {{else}}
         <form method="post" action="/migrate/exports/{{.ID}}/delete" class="inline" onsubmit="return confirm('Delete this export bundle?');">
           <button type="submit" class="text-red-400/80 hover:text-red-300 transition-colors">Delete</button>
         </form>
@@ -199,9 +201,20 @@
     });
   }
 
+  var runningExportFallback = {{if .RunningExportID}}{{.RunningExportID}}{{else}}0{{end}};
+
   function parseExportFromURL() {
     var m = window.location.search.match(/[?&]export=(\d+)/);
-    return m ? parseInt(m[1], 10) : 0;
+    if (m) return parseInt(m[1], 10);
+    return runningExportFallback > 0 ? runningExportFallback : 0;
+  }
+
+  function formatElapsed(sec) {
+    if (sec < 60) return sec + 's';
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    if (m < 60) return m + 'm ' + s + 's';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   }
 
   function statusBadge(status) {
@@ -229,7 +242,16 @@
         if (card) card.classList.remove('hidden');
         statusBadge(d.status);
         var st = document.getElementById('migrate-progress-status');
-        if (st) st.textContent = 'Export #' + d.id + ' — ' + d.status;
+        if (st) {
+          var extra = '';
+          if (d.created_at && (d.status === 'running' || d.status === 'queued')) {
+            var started = Date.parse(d.created_at);
+            if (!isNaN(started)) {
+              extra = ' · elapsed ' + formatElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+            }
+          }
+          st.textContent = 'Export #' + d.id + ' — ' + d.status + extra;
+        }
         var est = document.getElementById('migrate-progress-est');
         if (est) est.textContent = d.estimated_human || '—';
         var sz = document.getElementById('migrate-progress-size');

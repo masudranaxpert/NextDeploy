@@ -23,16 +23,25 @@ func (p *Panel) MigratePage(c *fiber.Ctx) error {
 	apps, _ := p.DB.ListApps(ctx)
 	recent, _ := p.DB.ListRecentMigrateExports(ctx, 8)
 	est, _ := p.migrateEstimateApps(ctx, apps)
+	exportRunning, _ := p.DB.HasRunningMigrateExport(ctx)
+	runningExportID := int64(0)
+	if exportRunning {
+		if row, err := p.DB.GetRunningMigrateExport(ctx); err == nil {
+			runningExportID = row.ID
+		}
+	}
 	return c.Render("pages/migrate", WithUser(c, fiber.Map{
-		"Nav":           "migrate",
-		"Title":         "Panel Migration",
-		"Apps":          apps,
-		"RecentExports": recent,
-		"EstimateTotal": migrate.FormatBytes(est.TotalBytes()),
-		"EstimateApps":  est.AppCount,
-		"EstimateVols":  est.VolumeCount,
-		"Flash":         utils.ReadFlash(c),
-		"FlashError":    utils.ReadFlashError(c),
+		"Nav":              "migrate",
+		"Title":            "Panel Migration",
+		"Apps":             apps,
+		"RecentExports":    recent,
+		"EstimateTotal":    migrate.FormatBytes(est.TotalBytes()),
+		"EstimateApps":     est.AppCount,
+		"EstimateVols":     est.VolumeCount,
+		"ExportRunning":    exportRunning,
+		"RunningExportID":  runningExportID,
+		"Flash":            utils.ReadFlash(c),
+		"FlashError":       utils.ReadFlashError(c),
 	}), "layouts/shell")
 }
 
@@ -124,6 +133,7 @@ func (p *Panel) MigrateExportStatus(c *fiber.Ctx) error {
 		"size_human":      migrate.FormatBytes(row.SizeBytes),
 		"estimated_bytes": row.EstimatedBytes,
 		"estimated_human": migrate.FormatBytes(row.EstimatedBytes),
+		"created_at":      row.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if row.Status == db.MigrateExportReady {
 		if tok, ok := p.migrateTokens.Load(id); ok {
@@ -164,6 +174,7 @@ func (p *Panel) MigrateDownload(c *fiber.Ctx) error {
 }
 
 func (p *Panel) runMigrateExport(exportID int64, appIDs []string) {
+	_ = p.DB.AppendMigrateExportLog(context.Background(), exportID, "export job started")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Hour)
 	defer cancel()
 	plain, err := migrate.RunExport(ctx, exportID, appIDs, migrate.ExportDeps{

@@ -174,6 +174,29 @@ func (s *Store) ListSupersededMigrateExports(ctx context.Context, keepID int64) 
 	return scanMigrateExports(rows)
 }
 
+func (s *Store) GetRunningMigrateExport(ctx context.Context) (MigrateExport, error) {
+	var row MigrateExport
+	var created, expires string
+	var downloaded sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
+		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
+		 FROM migrate_exports WHERE status = ? ORDER BY id DESC LIMIT 1`, MigrateExportRunning).
+		Scan(&row.ID, &row.Status, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
+			&row.EstimatedBytes, &row.SizeBytes, &row.ProgressLog, &row.Error, &created, &expires, &downloaded)
+	if err != nil {
+		return MigrateExport{}, err
+	}
+	row.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	row.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
+	if downloaded.Valid && strings.TrimSpace(downloaded.String) != "" {
+		t, _ := time.Parse(time.RFC3339, downloaded.String)
+		row.DownloadedAt = &t
+	}
+	return row, nil
+}
+
 func (s *Store) ListRunningMigrateExports(ctx context.Context) ([]MigrateExport, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
