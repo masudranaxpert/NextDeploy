@@ -91,7 +91,7 @@ chmod 600 "$DEST"
 CONTAINER_PATH="/data/migrate-incoming/$(basename "$DEST")"
 
 info "Importing into panel (this may take a while)…"
-IMPORT_ARGS=(migrate import "$CONTAINER_PATH" --delete-after)
+IMPORT_ARGS=(panel migrate import "$CONTAINER_PATH" --delete-after)
 if [[ -n "$NO_DEPLOY" ]]; then
   IMPORT_ARGS+=(--no-deploy)
 fi

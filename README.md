@@ -175,7 +175,7 @@ curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migr
 Local file: `sudo bash migrate.sh --file /path/to/bundle.nd-migrate`  
 Options: `--no-deploy` (skip compose up), `--data-dir`, `--container`.
 
-Manual: `docker exec panel migrate import /data/migrate-incoming/bundle.nd-migrate [--delete-after] [--no-deploy]`
+Manual: `docker exec panel panel migrate import /data/migrate-incoming/bundle.nd-migrate [--delete-after] [--no-deploy]`
 
 ---
 
