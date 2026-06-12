@@ -448,6 +448,28 @@ CREATE TABLE IF NOT EXISTS private_registries (
 		_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES ('apps_owner_migration_done', '1')`)
 	}
 
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS migrate_exports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  token_hash TEXT NOT NULL DEFAULT '',
+  bundle_path TEXT NOT NULL DEFAULT '',
+  work_dir TEXT NOT NULL DEFAULT '',
+  app_ids_json TEXT NOT NULL DEFAULT '[]',
+  estimated_bytes INTEGER NOT NULL DEFAULT 0,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  progress_log TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  downloaded_at TEXT
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_migrate_exports_status ON migrate_exports(status, expires_at);`); err != nil {
+		return err
+	}
+
 	return nil
 }
 

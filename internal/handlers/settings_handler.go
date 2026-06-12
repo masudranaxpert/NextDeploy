@@ -15,6 +15,7 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/migrate"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/runutil"
@@ -44,6 +45,12 @@ var backupStagingDirPatterns = []string{
 	"work-*",
 	"full-*",
 	"restore-*",
+	"export-*",
+	"import-*",
+}
+
+var migrateStagingFilePatterns = []string{
+	"panel-migrate-*.nd-migrate",
 }
 
 // orphanAge is the minimum age before a staging entry is considered safe to
@@ -53,6 +60,13 @@ const orphanAge = 2 * time.Hour
 func backupStagingRoot() string {
 	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
 		return filepath.Join(d, "backup-staging")
+	}
+	return ""
+}
+
+func migrateStagingRoot() string {
+	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
+		return filepath.Join(d, "migrate-staging")
 	}
 	return ""
 }
@@ -115,7 +129,10 @@ func dirSize(root string) int64 {
 }
 
 // ScanPanelTempFiles returns count and total size of orphaned NextDeploy temp files.
-func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
+func ScanPanelTempFiles(protected map[string]struct{}) (count int, totalBytes int64, paths []string) {
+	if protected == nil {
+		protected = map[string]struct{}{}
+	}
 	dirs := []string{os.TempDir(), volumex.HostStagingDir()}
 	seen := map[string]struct{}{}
 	for _, dir := range dirs {
@@ -140,6 +157,7 @@ func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
 		}
 	}
 	stagingFiles, stagingDirs, stagingBytes := scanStagingOrphans()
+	migrateFiles, migrateDirs, migrateBytes := scanMigrateStagingOrphans(protected)
 	for _, f := range stagingFiles {
 		if _, ok := seen[f]; ok {
 			continue
@@ -157,13 +175,73 @@ func ScanPanelTempFiles() (count int, totalBytes int64, paths []string) {
 		paths = append(paths, d)
 	}
 	totalBytes += stagingBytes
+	for _, f := range migrateFiles {
+		if _, ok := seen[f]; ok {
+			continue
+		}
+		seen[f] = struct{}{}
+		count++
+		paths = append(paths, f)
+	}
+	for _, d := range migrateDirs {
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		count++
+		paths = append(paths, d)
+	}
+	totalBytes += migrateBytes
+	return
+}
+
+func scanMigrateStagingOrphans(protected map[string]struct{}) (files []string, dirs []string, totalBytes int64) {
+	root := migrateStagingRoot()
+	if root == "" {
+		return
+	}
+	if protected == nil {
+		protected = map[string]struct{}{}
+	}
+	cutoff := time.Now().Add(-orphanAge)
+	for _, pat := range backupStagingDirPatterns {
+		if !strings.HasPrefix(pat, "export-") && !strings.HasPrefix(pat, "import-") {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		for _, m := range matches {
+			if _, ok := protected[m]; ok {
+				continue
+			}
+			st, err := os.Stat(m)
+			if err != nil || !st.IsDir() || st.ModTime().After(cutoff) {
+				continue
+			}
+			dirs = append(dirs, m)
+			totalBytes += dirSize(m)
+		}
+	}
+	for _, pat := range migrateStagingFilePatterns {
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		for _, m := range matches {
+			if _, ok := protected[m]; ok {
+				continue
+			}
+			st, err := os.Stat(m)
+			if err != nil || st.IsDir() || st.ModTime().After(cutoff) {
+				continue
+			}
+			files = append(files, m)
+			totalBytes += st.Size()
+		}
+	}
 	return
 }
 
 // CleanPanelTempFiles removes all orphaned NextDeploy temp files and returns
 // the number removed and the freed bytes.
-func CleanPanelTempFiles() (removed int, freedBytes int64) {
-	_, _, paths := ScanPanelTempFiles()
+func CleanPanelTempFiles(protected map[string]struct{}) (removed int, freedBytes int64) {
+	_, _, paths := ScanPanelTempFiles(protected)
 	for _, p := range paths {
 		st, err := os.Stat(p)
 		if err != nil {
@@ -587,7 +665,7 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 	}
 	ctx := c.UserContext()
 	cfg, _ := p.DB.GetAllSettings(ctx)
-	tmpCount, tmpBytes, _ := ScanPanelTempFiles()
+	tmpCount, tmpBytes, _ := ScanPanelTempFiles(migrate.ProtectedStagingPaths(p.DB))
 
 	return c.Render("pages/settings", WithUser(c, fiber.Map{
 		"Nav":                        "settings",
@@ -611,7 +689,7 @@ func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
-	removed, freed := CleanPanelTempFiles()
+	removed, freed := CleanPanelTempFiles(migrate.ProtectedStagingPaths(p.DB))
 	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
@@ -625,7 +703,7 @@ func (p *Panel) TempCleanupInfo(c *fiber.Ctx) error {
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
-	count, totalBytes, _ := ScanPanelTempFiles()
+	count, totalBytes, _ := ScanPanelTempFiles(migrate.ProtectedStagingPaths(p.DB))
 	return c.JSON(fiber.Map{
 		"count": count,
 		"size":  formatBytes(totalBytes),
@@ -838,7 +916,9 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.sessionPruneLoop()
 	go p.cleanOrphanTempFiles()
 	go p.orphanStagingSweepLoop()
+	go p.migrateSweepLoop()
 	go p.auditLogPruneLoop()
+	migrate.StartupSweep(p.DB)
 }
 
 func (p *Panel) auditLogPruneLoop() {
@@ -860,7 +940,7 @@ func (p *Panel) prePullAlpineImage() {
 // cleanOrphanTempFiles removes any leftover NextDeploy temp files from a previous
 // run (e.g. after a panel crash mid-download). Runs once at startup.
 func (p *Panel) cleanOrphanTempFiles() {
-	removed, freed := CleanPanelTempFiles()
+	removed, freed := CleanPanelTempFiles(migrate.ProtectedStagingPaths(p.DB))
 	if removed > 0 {
 		msg := fmt.Sprintf("[startup] Removed %d orphaned temp file(s), freed %s.", removed, formatBytes(freed))
 		_ = p.DB.SetSetting(context.Background(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
