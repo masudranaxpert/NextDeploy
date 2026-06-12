@@ -236,7 +236,7 @@ func matchesVolumeKey(name, key string) bool {
 	if key == "" {
 		return false
 	}
-	return name == key || strings.HasPrefix(name, key+"_") || strings.HasPrefix(name, key+"-")
+	return name == key || strings.HasPrefix(name, key+"_")
 }
 
 func isInfraBackupVolumeName(v string) bool {
