@@ -13,7 +13,7 @@ const (
 	BundleType      = "panel-migrate"
 	BundleExtension = ".nd-migrate"
 	OrphanAge       = 2 * time.Hour
-	LinkTTL         = 24 * time.Hour
+	LinkTTL         = 3 * time.Hour
 )
 
 const (
