@@ -13,6 +13,7 @@ import (
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/resmatch"
 
 	"panel/internal/runutil"
 	"panel/internal/volumex"
@@ -231,14 +232,20 @@ func (h *Handler) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, erro
 			return true, nil
 		}
 	}
+	var allUserProjects []string
+	for _, app := range apps {
+		allUserProjects = append(allUserProjects, app.ID)
+		allUserProjects = append(allUserProjects, strings.ReplaceAll(app.ID, "-", "_"))
+		for _, c := range h.P.ComposeProjectCandidates(ctx, app, app.ID) {
+			allUserProjects = append(allUserProjects, c)
+		}
+	}
 	for _, proj := range apps {
-		alt := strings.ReplaceAll(proj.ID, "-", "_")
 		for _, t := range targetImg.RepoTags {
 			if t == "" || t == "<none>" {
 				continue
 			}
-			repo := imageRepoBase(t)
-			if repo == proj.ID || repo == alt || strings.HasPrefix(repo, proj.ID+"_") || strings.HasPrefix(repo, alt+"_") {
+			if resmatch.MatchesImageRepo(imageRepoBase(t), proj.ID, allUserProjects) {
 				return true, nil
 			}
 		}

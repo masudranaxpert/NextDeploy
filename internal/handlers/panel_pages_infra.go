@@ -10,6 +10,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/resmatch"
 	"panel/internal/sandbox"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
@@ -374,7 +375,7 @@ type imageListItem struct {
 }
 
 
-func imageMatchesApp(img dockerapi.ImageRow, projects []string, imageProjects map[string]string, projectSet map[string]bool) bool {
+func imageMatchesApp(img dockerapi.ImageRow, projects []string, imageProjects map[string]string, projectSet map[string]bool, allProjects []string) bool {
 	for imgName, proj := range imageProjects {
 		if projectSet[proj] && imgName != "" && strings.Contains(img.Tags, imgName) {
 			return true
@@ -385,13 +386,11 @@ func imageMatchesApp(img dockerapi.ImageRow, projects []string, imageProjects ma
 		if proj == "" {
 			continue
 		}
-		alt := strings.ReplaceAll(proj, "-", "_")
 		for _, t := range img.RepoTags {
 			if t == "" || t == "<none>" {
 				continue
 			}
-			repo := imageRepoBase(t)
-			if repo == proj || repo == alt || strings.HasPrefix(repo, proj+"_") || strings.HasPrefix(repo, alt+"_") || strings.HasPrefix(repo, proj+"-") || strings.HasPrefix(repo, alt+"-") {
+			if resmatch.MatchesImageRepo(imageRepoBase(t), proj, allProjects) {
 				return true
 			}
 		}
@@ -416,6 +415,7 @@ func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 	}
 
 	items := make([]imageListItem, 0, len(rows))
+	allProjects := p.AllPanelComposeProjects(ctx)
 
 	if isAdmin {
 		apps, _ := p.DB.ListApps(ctx)
@@ -438,7 +438,7 @@ func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 		for _, img := range rows {
 			item := imageListItem{ImageRow: img}
 			for _, m := range matches {
-				if imageMatchesApp(img, m.projects, imageProjects, m.projectSet) {
+				if imageMatchesApp(img, m.projects, imageProjects, m.projectSet, allProjects) {
 					item.Owner = m.owner
 					break
 				}
@@ -456,7 +456,7 @@ func (p *Panel) ImagesPage(c *fiber.Ctx) error {
 					set[proj] = true
 				}
 				for _, img := range rows {
-					if imageMatchesApp(img, projects, imageProjects, set) {
+					if imageMatchesApp(img, projects, imageProjects, set, allProjects) {
 						items = append(items, imageListItem{ImageRow: img})
 					}
 				}
@@ -493,27 +493,29 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 	if isAdmin {
 		apps, _ := p.DB.ListApps(ctx)
 		byUser := p.ownersByUserID(ctx)
+		projectOwner := map[string]ResourceOwner{}
+		allProjects := p.AllPanelComposeProjects(ctx)
 		for _, app := range apps {
 			owner, ok := byUser[app.OwnerID]
 			if !ok {
 				continue
 			}
-			projects := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-			for _, n := range names {
-				if _, taken := ownerByVolume[n]; taken {
+			for _, proj := range append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...) {
+				proj = strings.TrimSpace(proj)
+				if proj == "" {
 					continue
 				}
-				for _, proj := range projects {
-					proj = strings.TrimSpace(proj)
-					if proj == "" {
-						continue
-					}
-					alt := strings.ReplaceAll(proj, "-", "_")
-					if n == proj || n == alt || strings.HasPrefix(n, proj+"_") || strings.HasPrefix(n, alt+"_") {
-						ownerByVolume[n] = owner
-						break
-					}
-				}
+				projectOwner[proj] = owner
+				projectOwner[strings.ReplaceAll(proj, "-", "_")] = owner
+			}
+		}
+		for _, n := range names {
+			ownerProj := resmatch.LongestMatchingProject(n, allProjects, "_")
+			if ownerProj == "" {
+				continue
+			}
+			if o, ok := projectOwner[ownerProj]; ok {
+				ownerByVolume[n] = o
 			}
 		}
 	} else {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"panel/internal/dockerx"
+	"panel/internal/resmatch"
 )
 
 func (p *Panel) ContainerBelongsToApp(ctx context.Context, appID, containerName string) bool {
@@ -19,13 +20,10 @@ func (p *Panel) ContainerBelongsToApp(ctx context.Context, appID, containerName 
 		return false
 	}
 	candidates := p.composeProjectCandidates(ctx, app, appID)
+	allProjects := p.AllPanelComposeProjects(ctx)
 	prefixMatch := false
 	for _, project := range candidates {
-		// Compose names containers "<project>-<service>-<n>" (v1: underscores).
-		// Prefix match instead of substring so project "app" cannot claim "myapp-web-1".
-		if project != "" && (containerName == project ||
-			strings.HasPrefix(containerName, project+"-") ||
-			strings.HasPrefix(containerName, project+"_")) {
+		if project != "" && resmatch.MatchesComposeContainerName(containerName, project, allProjects) {
 			prefixMatch = true
 			break
 		}

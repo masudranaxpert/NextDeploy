@@ -780,6 +780,39 @@ func (p *Panel) composeProjectCandidates(ctx context.Context, app db.App, appID 
 	return p.ComposeProjectCandidates(ctx, app, appID)
 }
 
+func (p *Panel) AllPanelComposeProjects(ctx context.Context) []string {
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return nil
+	}
+	return p.composeProjectsForApps(ctx, apps)
+}
+
+func (p *Panel) composeProjectsForApps(ctx context.Context, apps []db.App) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, app := range apps {
+		add(app.ID)
+		add(strings.ReplaceAll(app.ID, "-", "_"))
+		add(app.Name)
+		for _, c := range p.ComposeProjectCandidates(ctx, app, app.ID) {
+			add(c)
+		}
+	}
+	return out
+}
+
 func (p *Panel) BackupVolumeComposeProjects(ctx context.Context, app db.App, appID string) []string {
 	volProjects := p.composeProjectCandidates(ctx, app, appID)
 	if active, _, pr := p.composeProjectAndPS(ctx, app, appID); pr.OK && strings.TrimSpace(active) != "" {

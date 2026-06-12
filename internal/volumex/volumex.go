@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"panel/internal/perflog"
+	"panel/internal/resmatch"
 	"panel/internal/workspace"
 )
 
@@ -232,11 +233,7 @@ func volumeNameInList(name string, list []string) bool {
 }
 
 func matchesVolumeKey(name, key string) bool {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return false
-	}
-	return name == key || strings.HasPrefix(name, key+"_")
+	return resmatch.MatchesVolumeName(name, key)
 }
 
 func isInfraBackupVolumeName(v string) bool {

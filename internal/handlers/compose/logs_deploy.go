@@ -170,11 +170,12 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 			}
 		}
 	}
+	allProjects := h.P.AllPanelComposeProjects(ctx)
 	for _, project := range candidates {
 		if errs := dockerapi.RemoveContainersByComposeProject(ctx, project); len(errs) > 0 {
 			cleanupErrs = append(cleanupErrs, errs...)
 		}
-		if errs := dockerapi.RemoveAppContainers(ctx, project); len(errs) > 0 {
+		if errs := dockerapi.RemoveAppContainers(ctx, project, allProjects); len(errs) > 0 {
 			cleanupErrs = append(cleanupErrs, errs...)
 		}
 		if errs := dockerapi.RemoveAppImages(ctx, project); len(errs) > 0 {

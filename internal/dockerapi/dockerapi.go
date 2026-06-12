@@ -17,6 +17,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"golang.org/x/sync/errgroup"
+
+	"panel/internal/resmatch"
 )
 
 const composeProjectLabel = "com.docker.compose.project"
@@ -602,7 +604,7 @@ func RemoveContainersByComposeProject(ctx context.Context, projectID string) []s
 	return errs
 }
 
-func RemoveAppContainers(ctx context.Context, projectID string) []string {
+func RemoveAppContainers(ctx context.Context, projectID string, allProjects []string) []string {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return nil
@@ -634,7 +636,7 @@ func RemoveAppContainers(ctx context.Context, projectID string) []string {
 			continue
 		}
 		n := strings.TrimPrefix(name, "/")
-		if n == projectID || strings.HasPrefix(n, projectID+"_") {
+		if resmatch.MatchesComposeContainerName(n, projectID, allProjects) {
 			if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
 				errs = append(errs, name+": "+err.Error())
 			}
