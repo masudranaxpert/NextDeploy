@@ -2,25 +2,52 @@ package migrate
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
+func normalizePanelDomain(domain string) string {
+	domain = strings.TrimSpace(domain)
+	domain = strings.TrimPrefix(domain, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	return strings.TrimRight(domain, "/")
+}
+
 func PublicBaseURL(panelDomain string, enableHTTPS bool, host string, port int) string {
-	domain := strings.TrimSpace(panelDomain)
+	domain := normalizePanelDomain(panelDomain)
 	if domain != "" {
+		scheme := "http"
 		if enableHTTPS {
-			return "https://" + domain
+			scheme = "https"
 		}
-		return "http://" + domain
+		return scheme + "://" + domain
 	}
 	host = strings.TrimSpace(host)
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	if port <= 0 {
-		port = 8080
+	if h, pStr, err := net.SplitHostPort(host); err == nil {
+		host = h
+		if n, err := strconv.Atoi(pStr); err == nil && n > 0 {
+			port = n
+		}
 	}
-	return fmt.Sprintf("http://%s:%d", host, port)
+	if port <= 0 {
+		if enableHTTPS {
+			port = 443
+		} else {
+			port = 80
+		}
+	}
+	scheme := "http"
+	if enableHTTPS {
+		scheme = "https"
+	}
+	if (scheme == "http" && port == 80) || (scheme == "https" && port == 443) {
+		return fmt.Sprintf("%s://%s", scheme, host)
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, host, port)
 }
 
 func DownloadURL(base, token string) string {
