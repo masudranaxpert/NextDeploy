@@ -42,7 +42,7 @@ func (s *Store) CreateMigrateExport(ctx context.Context, appIDs []string, estima
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO migrate_exports (status, app_ids_json, estimated_bytes, progress_log, created_at, expires_at)
 		 VALUES (?, ?, ?, '', ?, ?)`,
-		MigrateExportRunning, string(idsJSON), estimatedBytes, now.Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339))
+		MigrateExportRunning, string(idsJSON), estimatedBytes, now.Format(time.RFC3339), now.Add(3*time.Hour).Format(time.RFC3339))
 	if err != nil {
 		return 0, err
 	}

@@ -74,7 +74,7 @@ func writeTarGz(ctx context.Context, outPath string, members []string, baseDir s
 }
 
 func packBundle(ctx context.Context, workDir, outPath string, manifest BundleManifest) error {
-	members := []string{manifestName, snapshotName}
+	payload := []string{snapshotName}
 	appsDir := filepath.Join(workDir, appsDirName)
 	entries, err := os.ReadDir(appsDir)
 	if err != nil {
@@ -84,10 +84,10 @@ func packBundle(ctx context.Context, workDir, outPath string, manifest BundleMan
 		if e.IsDir() {
 			continue
 		}
-		members = append(members, filepath.Join(appsDirName, e.Name()))
+		payload = append(payload, filepath.Join(appsDirName, e.Name()))
 	}
 	manifest.Checksums = map[string]string{}
-	for _, rel := range members {
+	for _, rel := range payload {
 		abs := filepath.Join(workDir, filepath.FromSlash(rel))
 		sum, err := fileSHA256(abs)
 		if err != nil {
@@ -102,6 +102,7 @@ func packBundle(ctx context.Context, workDir, outPath string, manifest BundleMan
 	if err := os.WriteFile(filepath.Join(workDir, manifestName), mb, 0600); err != nil {
 		return err
 	}
+	members := append([]string{manifestName}, payload...)
 	return writeTarGz(ctx, outPath, members, workDir)
 }
 

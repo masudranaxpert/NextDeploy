@@ -53,7 +53,7 @@
       <pre id="migrate-progress-log" class="max-h-64 overflow-y-auto rounded-lg bg-black/40 border border-border/40 p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap">{{if .FocusExport}}{{index .FocusExport "ProgressLog"}}{{end}}</pre>
       <p id="migrate-progress-error" class="{{if and .FocusExport (index .FocusExport "Error")}}text-xs text-red-400 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2{{else}}hidden text-xs text-red-400{{end}}">{{if .FocusExport}}{{index .FocusExport "Error"}}{{end}}</p>
       <div id="migrate-download-wrap" class="{{if and .FocusExport (index .FocusExport "DownloadURL")}}rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3{{else}}hidden rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3{{end}}">
-        <p class="text-xs text-emerald-300 mb-2">Bundle ready. Copy the link or download directly (valid 24h):</p>
+        <p class="text-xs text-emerald-300 mb-2">Bundle ready. Copy the link or download directly (valid 3 hours):</p>
         <div class="flex flex-wrap gap-2 items-center">
           <input id="migrate-download-url" type="text" readonly value="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{end}}" class="flex-1 min-w-[200px] rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-xs font-mono text-foreground">
           <button type="button" id="migrate-copy-url" class="btn-secondary h-8 px-3 text-xs">Copy URL</button>

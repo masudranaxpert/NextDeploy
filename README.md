@@ -163,7 +163,7 @@ Open `http://localhost:8080` — first visit creates the admin account.
 
 Export selected apps to a `.nd-migrate` bundle (apps, volumes, domains, Git, registries, env). **Users/sessions are not migrated** — set up a fresh admin on the target VPS first.
 
-**Export (source):** Admin → **System → Migration** → select apps → **Create export bundle**. All apps pause briefly during export, then restart. Download link is valid **24h**; a new export replaces the previous one.
+**Export (source):** Admin → **System → Migration** → select apps → **Create export bundle**. All apps pause briefly during export, then restart. Download link is valid **3 hours**; a new export replaces the previous one.
 
 **Import (target):** Install NextDeploy, create admin, then:
 
