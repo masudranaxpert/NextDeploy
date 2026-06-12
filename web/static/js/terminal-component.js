@@ -267,6 +267,45 @@
     }
   }
 
+  var xtermAssetsPromise = null;
+
+  function loadXtermAssets() {
+    if (xtermAssetsPromise) {
+      return xtermAssetsPromise;
+    }
+    xtermAssetsPromise = new Promise(function (resolve, reject) {
+      appTermPublishXtermGlobals();
+      if (typeof window.Terminal !== 'undefined' && typeof window.FitAddon !== 'undefined') {
+        resolve();
+        return;
+      }
+      if (!document.querySelector('link[data-xterm-asset="css"]')) {
+        var css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = '/static/vendor/xterm.min.css';
+        css.setAttribute('data-xterm-asset', 'css');
+        document.head.appendChild(css);
+      }
+      function loadScript(src, next) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.defer = true;
+        s.onload = next;
+        s.onerror = function () { reject(new Error('failed to load ' + src)); };
+        document.head.appendChild(s);
+      }
+      loadScript('/static/vendor/xterm.min.js', function () {
+        loadScript('/static/vendor/xterm-addon-fit.min.js', function () {
+          appTermPublishXtermGlobals();
+          resolve();
+        });
+      });
+    });
+    return xtermAssetsPromise;
+  }
+
+  window.loadXtermAssets = loadXtermAssets;
+
   function appTermLibsReady() {
     appTermPublishXtermGlobals();
     return typeof window.Terminal !== 'undefined' && typeof SharedTerminal !== 'undefined';
@@ -277,11 +316,14 @@
       cb();
       return;
     }
-    if (left <= 0) {
-      appTermSetStatus('xterm.js failed to load', 'error');
-      return;
-    }
-    setTimeout(function () { appTermWaitLibs(cb, left - 1); }, 50);
+    loadXtermAssets().then(cb).catch(function () {
+      if (left <= 0) {
+        appTermSetStatus('xterm.js failed to load', 'error');
+        return;
+      }
+      xtermAssetsPromise = null;
+      setTimeout(function () { appTermWaitLibs(cb, left - 1); }, 50);
+    });
   }
 
   function appTermEnsure(pick, host) {

@@ -185,6 +185,12 @@ func (s *Store) CountBackupHistory(ctx context.Context, appID string) (int, erro
 	return n, err
 }
 
+func (s *Store) AppHasRunningBackup(ctx context.Context, appID string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM backup_history WHERE app_id = ? AND status = 'running'`, appID).Scan(&n)
+	return n > 0, err
+}
+
 // ListBackupHistory returns the newest rows up to limit (no offset). Prefer ListBackupHistoryPage for paged APIs.
 func (s *Store) ListBackupHistory(ctx context.Context, appID string, limit int) ([]BackupHistory, error) {
 	if limit <= 0 {

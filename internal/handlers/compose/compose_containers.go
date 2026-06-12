@@ -87,26 +87,43 @@ func (h *Handler) AppComposePartial(c *fiber.Ctx) error {
 }
 
 func (h *Handler) TerminalContainersPartial(c *fiber.Ctx) error {
-	id := c.Params("id")
+	m, err := h.appContainerPickData(c.Params("id"), c)
+	if err != nil {
+		return err
+	}
+	return c.Render("partials/app_show/terminal_containers_pick", m)
+}
+
+func (h *Handler) LogsContainersPartial(c *fiber.Ctx) error {
+	m, err := h.appContainerPickData(c.Params("id"), c)
+	if err != nil {
+		return err
+	}
+	return c.Render("partials/app_show/logs_containers_pick", m)
+}
+
+func (h *Handler) appContainerPickData(id string, c *fiber.Ctx) (fiber.Map, error) {
 	app, err := h.P.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return c.Status(404).SendString("not found")
+		return nil, c.Status(404).SendString("not found")
 	}
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
 		hasDockerfile, hasCompose := h.P.Store.HasDockerArtifacts(id)
 		if !hasDockerfile || hasCompose {
-			return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+			return fiber.Map{
+				"ID":           id,
 				"ComposeRows":  nil,
 				"ComposePsMsg": "Compose file not found. Set the filename on Overview or upload it in Files.",
-			})
+			}, nil
 		}
 	}
 	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
-		return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+		return fiber.Map{
+			"ID":           id,
 			"ComposeRows":  nil,
 			"ComposePsMsg": err.Error(),
-		})
+		}, nil
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 60*time.Second)
 	defer cancel()
@@ -116,10 +133,11 @@ func (h *Handler) TerminalContainersPartial(c *fiber.Ctx) error {
 		errMsg = res.Output
 		rows = nil
 	}
-	return c.Render("partials/app_show/terminal_containers_pick", fiber.Map{
+	return fiber.Map{
+		"ID":           id,
 		"ComposeRows":  rows,
 		"ComposePsMsg": errMsg,
-	})
+	}, nil
 }
 
 func (h *Handler) renderComposeTable(c *fiber.Ctx, id string) error {

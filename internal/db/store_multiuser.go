@@ -33,6 +33,38 @@ func (s *Store) GetCollaborator(ctx context.Context, appID string, userID int64)
 	return c, nil
 }
 
+type CollaboratorDetail struct {
+	UserID    int64
+	Username  string
+	Role      string
+	CreatedAt time.Time
+}
+
+func (s *Store) ListCollaboratorsWithUsers(ctx context.Context, appID string) ([]CollaboratorDetail, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.user_id, u.username, c.role, c.created_at
+		 FROM app_collaborators c
+		 JOIN users u ON u.id = c.user_id
+		 WHERE c.app_id = ?
+		 ORDER BY c.created_at ASC`,
+		appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CollaboratorDetail
+	for rows.Next() {
+		var d CollaboratorDetail
+		var created string
+		if err := rows.Scan(&d.UserID, &d.Username, &d.Role, &created); err != nil {
+			return nil, err
+		}
+		d.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListCollaborators(ctx context.Context, appID string) ([]AppCollaborator, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT app_id, user_id, role, created_at FROM app_collaborators WHERE app_id = ?`,

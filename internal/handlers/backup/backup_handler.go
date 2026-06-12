@@ -211,12 +211,22 @@ func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
 
 	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
 
+	running, err := h.P.DB.AppHasRunningBackup(c.UserContext(), app.ID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if running {
+		return c.Status(409).JSON(fiber.Map{"error": "a backup is already running for this app"})
+	}
+
 	historyID, err := h.P.DB.CreateBackupHistory(c.UserContext(), app.ID, dest.ID, backupType, "", "running", "", 0)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go h.runBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention, pauseContainers)
+	if !h.spawnBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention, pauseContainers) {
+		return c.Status(503).JSON(fiber.Map{"error": "backup worker busy, try again shortly"})
+	}
 
 	return c.JSON(fiber.Map{"message": "backup started", "history_id": historyID})
 }

@@ -101,9 +101,10 @@ func (p *Panel) Overview(c *fiber.Ctx) error {
 			}
 			totalImages = len(seenImages)
 
+			allVolNames, _ := volumex.List(ctx)
 			for _, app := range apps {
 				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, candidatesByApp[app.ID]...)
-				appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
+				appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
 				totalVolumes += len(appVols)
 
 				if runningApps[app.ID] {
@@ -520,9 +521,10 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 		if err == nil {
 			var filtered []string
 			seen := make(map[string]bool)
+			allVolNames, _ := volumex.List(ctx)
 			for _, app := range apps {
 				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-				appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
+				appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
 				for _, v := range appVols {
 					if !seen[v] {
 						seen[v] = true
@@ -637,9 +639,10 @@ func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, er
 	if err != nil {
 		return false, err
 	}
+	allVolNames, _ := volumex.List(ctx)
 	for _, app := range apps {
 		projCandidates := []string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}
-		appVols, _ := volumex.ListForApp(ctx, app.ID, projCandidates)
+		appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
 		for _, v := range appVols {
 			if v == volumeName {
 				return true, nil

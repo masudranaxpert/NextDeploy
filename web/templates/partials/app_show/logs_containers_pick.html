@@ -1,0 +1,17 @@
+<label class="mb-1 block text-xs font-medium text-muted-foreground" for="log-pick">Container</label>
+{{if .ComposePsMsg}}
+  <p class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{{.ComposePsMsg}}</p>
+{{else if not .ComposeRows}}
+  <p class="text-sm text-muted-foreground">No compose containers yet. Deploy the stack, then refresh this tab.</p>
+{{else}}
+  <select id="log-pick" name="container" class="input w-full"
+          hx-get="/apps/{{.ID}}/partials/logs"
+          hx-include="#log-controls"
+          hx-trigger="change, load"
+          hx-target="#log-view"
+          hx-swap="innerHTML">
+    {{range .ComposeRows}}
+      <option value="{{.Service}}">{{.Service}} · {{.Name}} · {{.State}}</option>
+    {{end}}
+  </select>
+{{end}}

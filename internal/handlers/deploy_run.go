@@ -14,7 +14,10 @@ import (
 	"panel/internal/dockerx"
 )
 
-const deployLogTimeLayout = "2006-Jan-02 15:04:05.000000"
+const (
+	deployLogTimeLayout      = "2006-Jan-02 15:04:05.000000"
+	maxDeployRunOutputBytes  = 2 * 1024 * 1024
+)
 
 type DeployRun struct {
 	Mu        sync.Mutex
@@ -22,6 +25,12 @@ type DeployRun struct {
 	Action    string
 	Output    bytes.Buffer
 	LineCarry []byte
+}
+
+func (p *Panel) RemoveDeployRun(appID string) {
+	p.deployMu.Lock()
+	defer p.deployMu.Unlock()
+	delete(p.deployRuns, appID)
 }
 
 func (p *Panel) GetDeployRun(appID string) *DeployRun {
@@ -52,6 +61,9 @@ type deployRunWriter struct {
 func (r *DeployRun) writeTimestampedLineLocked(line string) {
 	line = strings.TrimRight(line, "\r\n")
 	if line == "" {
+		return
+	}
+	if r.Output.Len() >= maxDeployRunOutputBytes {
 		return
 	}
 	r.Output.WriteString(time.Now().Format(deployLogTimeLayout))

@@ -27,7 +27,7 @@ func ExecPTY(ctx context.Context, container string, cmd []string, height, width 
 	if len(cmd) == 0 {
 		cmd = []string{"/bin/sh", "-i"}
 	}
-	cli, err := newAPIClient()
+	cli, err := apiClient()
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func ExecPTY(ctx context.Context, container string, cmd []string, height, width 
 	}
 	cr, err := cli.ContainerExecCreate(ctx, container, execCfg)
 	if err != nil {
-		_ = cli.Close()
+
 		return nil, err
 	}
 	execID := cr.ID
@@ -50,7 +50,7 @@ func ExecPTY(ctx context.Context, container string, cmd []string, height, width 
 		ConsoleSize: &[2]uint{height, width},
 	})
 	if err != nil {
-		_ = cli.Close()
+
 		return nil, err
 	}
 	return &PTYExecSession{
@@ -71,15 +71,11 @@ func (s *PTYExecSession) Resize(ctx context.Context, height, width uint) error {
 	return s.cli.ContainerExecResize(ctx, s.ExecID, types.ResizeOptions{Height: height, Width: width})
 }
 
-// Close releases the hijacked connection and the Docker API client.
 func (s *PTYExecSession) Close() error {
 	if s == nil {
 		return nil
 	}
 	s.Hijack.Close()
-	if s.cli != nil {
-		return s.cli.Close()
-	}
 	return nil
 }
 

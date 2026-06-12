@@ -71,12 +71,11 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 
 	ctx := c.UserContext()
 
-	// First-time setup: no users exist yet
-	count, err := p.DB.UserCount(ctx)
+	needsSetup, err := p.setupRedirectNeeded(ctx)
 	if err != nil {
 		return c.Status(500).SendString("db error: " + err.Error())
 	}
-	if count == 0 {
+	if needsSetup {
 		return c.Redirect("/setup")
 	}
 
@@ -170,8 +169,8 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 		return c.Redirect("/setup")
 	}
 
+	p.MarkSetupComplete()
 	p.RecordAuditLog(c, "setup_complete", "system", username, "First-time setup completed, admin user created")
-	// Auto-login after setup
 	return p.createSessionAndRedirect(c, userID, "/overview")
 }
 

@@ -35,7 +35,8 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
-	byService := p.composeServiceBelongsToApp(chkCtx, appID, container)
+	project, composeRows, composeRes := p.ComposeProjectAndPS(chkCtx, app, appID)
+	byService := composeRes.OK && p.ComposeServiceInRows(composeRows, container)
 	if container == "" || (!byService && !p.containerBelongsToApp(chkCtx, appID, container)) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("invalid container for this app"))
 		return
@@ -43,7 +44,6 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 
 	var logRef string
 	if byService {
-		project := p.activeComposeProjectName(chkCtx, app, appID)
 		cid, rerr := dockerapi.ContainerIDForComposeService(chkCtx, project, container)
 		if rerr != nil {
 			_ = c.WriteMessage(websocket.TextMessage, []byte("compose logs: "+rerr.Error()))
@@ -136,5 +136,6 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 			break
 		}
 	}
+	_ = logReader.Close()
 	wg.Wait()
 }

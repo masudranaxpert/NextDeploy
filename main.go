@@ -25,6 +25,7 @@ import (
 
 	fws "github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html/v2"
@@ -118,10 +119,19 @@ func main() {
 	})
 
 	app.Use(perflog.Middleware())
+	app.Use(compress.New())
 	app.Use(logger.New(logger.Config{
 		Format:      "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
 	}))
 
+	app.Use("/static", func(c *fiber.Ctx) error {
+		if strings.HasPrefix(c.Path(), "/static/vendor/") {
+			c.Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if strings.HasPrefix(c.Path(), "/static/") {
+			c.Set("Cache-Control", "public, max-age=3600")
+		}
+		return c.Next()
+	})
 	app.Use("/static", filesystem.New(filesystem.Config{
 		Root:   http.FS(staticFS),
 		Browse: false,
@@ -239,6 +249,7 @@ func main() {
 	app.Post("/apps/:id/files/unzip", fbH.BrowseUnzip)
 	app.Get("/apps/:id/partials/compose", compH.AppComposePartial)
 	app.Get("/apps/:id/partials/terminal-containers", compH.TerminalContainersPartial)
+	app.Get("/apps/:id/partials/logs-containers", compH.LogsContainersPartial)
 	app.Get("/apps/:id/partials/deploy-progress", compH.DeployProgressPartial)
 	app.Get("/apps/:id/partials/logs", compH.AppLogPartial)
 	app.Use("/apps/:id/ws/logs", p.WSUpgrade)

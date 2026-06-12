@@ -20,7 +20,7 @@
 <div id="deploy-live"
      data-deploy-live-wrap
      class="rounded-xl border border-border bg-[#060a10] overflow-hidden"
-     {{if .LiveRunning}}hx-get="/apps/{{.ID}}/partials/deploy-progress?oob=1" hx-trigger="load delay:0ms, every 1s" hx-swap="none"{{end}}>
+     {{if .LiveRunning}}hx-get="/apps/{{.ID}}/partials/deploy-progress?oob=1&amp;len={{len .LiveOutput}}" hx-trigger="load delay:0ms, every 2s" hx-swap="none"{{end}}>
   {{if .LiveAction}}
   <div class="flex items-center gap-2 border-b border-border/50 px-4 py-2.5">
     <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{{.LiveAction}}</span>
