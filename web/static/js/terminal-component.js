@@ -269,6 +269,27 @@
 
   var xtermAssetsPromise = null;
 
+  function suppressAmdWhileLoading() {
+    return {
+      define: window.define,
+      require: window.require,
+    };
+  }
+
+  function restoreAmdAfterLoading(snapshot) {
+    if (!snapshot) return;
+    if (snapshot.define !== undefined) {
+      window.define = snapshot.define;
+    } else {
+      try { delete window.define; } catch (e) { window.define = undefined; }
+    }
+    if (snapshot.require !== undefined) {
+      window.require = snapshot.require;
+    } else {
+      try { delete window.require; } catch (e) { window.require = undefined; }
+    }
+  }
+
   function loadXtermAssets() {
     if (xtermAssetsPromise) {
       return xtermAssetsPromise;
@@ -287,11 +308,36 @@
         document.head.appendChild(css);
       }
       function loadScript(src, next) {
+        var selector = 'script[data-xterm-asset="js"][data-src="' + src + '"]';
+        var existing = document.querySelector(selector);
+        if (existing) {
+          if (existing.getAttribute('data-loaded') === '1') {
+            next();
+            return;
+          }
+          existing.addEventListener('load', function () { next(); }, { once: true });
+          existing.addEventListener('error', function () { reject(new Error('failed to load ' + src)); }, { once: true });
+          return;
+        }
+        var amd = suppressAmdWhileLoading();
+        try {
+          window.define = undefined;
+          window.require = undefined;
+        } catch (e) {}
         var s = document.createElement('script');
         s.src = src;
         s.defer = true;
-        s.onload = next;
-        s.onerror = function () { reject(new Error('failed to load ' + src)); };
+        s.setAttribute('data-xterm-asset', 'js');
+        s.setAttribute('data-src', src);
+        s.onload = function () {
+          s.setAttribute('data-loaded', '1');
+          restoreAmdAfterLoading(amd);
+          next();
+        };
+        s.onerror = function () {
+          restoreAmdAfterLoading(amd);
+          reject(new Error('failed to load ' + src));
+        };
         document.head.appendChild(s);
       }
       loadScript('/static/vendor/xterm.min.js', function () {

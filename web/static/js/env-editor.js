@@ -27,7 +27,30 @@
       });
       return;
     }
-    
+    if (document.querySelector('script[data-monaco-loader]')) {
+      function waitSharedMonaco(left) {
+        if (global.monaco && global.monaco.editor) {
+          cb(true);
+          return;
+        }
+        if (global.require) {
+          try {
+            global.require(['vs/editor/editor.main'], function () {
+              cb(!!(global.monaco && global.monaco.editor));
+            });
+            return;
+          } catch (e) {}
+        }
+        if (left <= 0) {
+          cb(false);
+          return;
+        }
+        setTimeout(function () { waitSharedMonaco(left - 1); }, 50);
+      }
+      waitSharedMonaco(120);
+      return;
+    }
+
     global.__panelMonacoPromise = new Promise(function (resolve) {
       function tryLoad(base, fallback) {
         global.MonacoEnvironment = {
@@ -44,6 +67,7 @@
         };
 
         var s = document.createElement('script');
+        s.setAttribute('data-monaco-loader', 'true');
         s.src = base + '/loader.js';
         s.async = true;
         s.onload = function () {
