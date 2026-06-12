@@ -229,12 +229,12 @@ func (p *Panel) MigrateExportDelete(c *fiber.Ctx) error {
 func (p *Panel) migrateVolumeNames(ctx context.Context, app db.App) ([]string, error) {
 	allVolNames, listErr := volumex.List(ctx)
 	if listErr != "" {
-		return nil, fmt.Errorf(listErr)
+		return nil, fmt.Errorf("%s", listErr)
 	}
 	proj := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
 	vols, errMsg := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, proj)
 	if errMsg != "" {
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 	return vols, nil
 }
