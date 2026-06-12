@@ -30,18 +30,30 @@
   copyDelName() {
     var self = this;
     var n = this.delName || '';
-    if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      self.copyHint = 'Clipboard unavailable';
-      setTimeout(function () { self.copyHint = ''; }, 2500);
+    function done(ok, msg) {
+      self.copyHint = msg || (ok ? 'Copied' : 'Copy failed');
+      setTimeout(function () { self.copyHint = ''; }, ok ? 2000 : 2500);
+    }
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(n).then(function () { done(true); }).catch(function () {
+        done(legacyCopy(n), legacyCopy(n) ? 'Copied' : 'Copy failed');
+      });
       return;
     }
-    navigator.clipboard.writeText(n).then(function () {
-      self.copyHint = 'Copied';
-      setTimeout(function () { self.copyHint = ''; }, 2000);
-    }).catch(function () {
-      self.copyHint = 'Copy failed';
-      setTimeout(function () { self.copyHint = ''; }, 2500);
-    });
+    done(legacyCopy(n), legacyCopy(n) ? 'Copied' : 'Copy failed — use HTTPS or select the name manually');
   }
 }">
 

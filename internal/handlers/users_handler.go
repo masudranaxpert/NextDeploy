@@ -312,6 +312,16 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	maxCPUs, _ := strconv.ParseFloat(c.FormValue("max_cpus"), 64)
 	maxStorage, _ := strconv.Atoi(c.FormValue("max_storage_mb"))
 
+	target, terr := p.DB.GetUserByID(c.UserContext(), id)
+	if terr != nil {
+		utils.SetFlashError(c, "User not found")
+		return c.Redirect("/users")
+	}
+	if target.Role == db.RoleAdmin {
+		utils.SetFlashError(c, "Admin accounts have unlimited resources")
+		return c.Redirect("/users/" + idStr + "/edit")
+	}
+
 	if maxApps <= 0 || maxMemory <= 0 || maxCPUs <= 0 || maxStorage <= 0 {
 		utils.SetFlashError(c, "Invalid limits")
 		return c.Redirect("/users/" + idStr + "/edit")
@@ -325,7 +335,7 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 
 	// Push the new limits onto the user's cgroup slice so already-running
 	// containers are re-limited immediately (kernel applies it live).
-	if target, terr := p.DB.GetUserByID(c.UserContext(), id); terr == nil && target.Role != db.RoleAdmin && p.UserSliceSupported(c.UserContext()) {
+	if p.UserSliceSupported(c.UserContext()) {
 		if serr := p.EnsureUserSliceLimits(c.UserContext(), id, maxMemory, maxCPUs); serr != nil {
 			utils.SetFlash(c, "Limits saved, but applying the cgroup limit failed: "+serr.Error())
 			return c.Redirect("/users/" + idStr + "/edit")
@@ -358,9 +368,10 @@ func (p *Panel) UserEditPage(c *fiber.Ctx) error {
 	}
 
 	usedBytes := p.UserStorageBytes(c.UserContext(), target.ID)
+	storageUnlimited := target.Role == db.RoleAdmin
 	maxBytes := int64(target.MaxStorageMB) * 1024 * 1024
 	var storagePct float64
-	if maxBytes > 0 {
+	if !storageUnlimited && maxBytes > 0 {
 		storagePct = (float64(usedBytes) / float64(maxBytes)) * 100.0
 		if storagePct > 100 {
 			storagePct = 100
@@ -368,13 +379,14 @@ func (p *Panel) UserEditPage(c *fiber.Ctx) error {
 	}
 
 	return c.Render("pages/user_edit", fiber.Map{
-		"Nav":            "users",
-		"Title":          "Edit User",
-		"TargetUser":     target,
-		"CurrentUser":    current,
-		"StorageUsed":    HumanStorage(usedBytes),
-		"StorageMax":     HumanStorage(maxBytes),
-		"StoragePercent": storagePct,
+		"Nav":               "users",
+		"Title":             "Edit User",
+		"TargetUser":        target,
+		"CurrentUser":       current,
+		"StorageUsed":       HumanStorage(usedBytes),
+		"StorageMax":        HumanStorage(maxBytes),
+		"StoragePercent":    storagePct,
+		"StorageUnlimited":  storageUnlimited,
 		"Flash":          utils.ReadFlash(c),
 		"Error":          utils.ReadFlashError(c),
 	}, "layouts/shell")

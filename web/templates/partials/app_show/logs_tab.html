@@ -58,11 +58,10 @@
       (function() {
         var controls = document.getElementById('log-controls');
         var logView = document.getElementById('log-view');
-        var pick = document.getElementById('log-pick');
         var tail = document.getElementById('log-tail');
         var status = document.getElementById('log-live-status');
         var label = document.getElementById('log-live-label');
-        if (!controls || !logView || !pick || !tail || !status || !label) return;
+        if (!controls || !logView || !tail || !status || !label) return;
 
         var state = window.__appLogStreamState || {
           ws: null,
@@ -107,7 +106,8 @@
         }
 
         function getSelectedContainer() {
-          return (pick.value || '').trim();
+          var pick = document.getElementById('log-pick');
+          return pick ? (pick.value || '').trim() : '';
         }
 
         function closeSocket() {
@@ -339,7 +339,9 @@
           setLogStatus('connecting', 'Loading history…');
         }
 
-        pick.addEventListener('change', reloadHistoryState);
+        controls.addEventListener('change', function(e) {
+          if (e.target && e.target.id === 'log-pick') reloadHistoryState();
+        });
         tail.addEventListener('change', reloadHistoryState);
 
         function onLogViewSwap(e) {
