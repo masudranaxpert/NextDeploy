@@ -89,6 +89,8 @@ type Panel struct {
 	appStorage sync.Map // app id (string) -> appStorageEntry
 
 	setupDone atomic.Bool
+
+	migrateTokens sync.Map // export id (int64) -> plain download token (string)
 }
 
 func (p *Panel) MarkSetupComplete() {

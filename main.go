@@ -35,6 +35,11 @@ import (
 var webRoot embed.FS
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "migrate" {
+		runMigrateCLI(os.Args[2:])
+		return
+	}
+
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
 		dataDir = "./data"
@@ -167,6 +172,7 @@ func main() {
 	app.Post("/logout", p.Logout)
 	app.Post("/webhooks/github/provider", gitH.ProviderGitHubWebhook)
 	app.Post("/webhooks/github/:id", gitH.GitHubWebhook)
+	app.Get("/migrate/download/:token", p.MigrateDownload)
 
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)
@@ -176,6 +182,7 @@ func main() {
 	app.Use("/terminal", p.RequireAdminMiddleware)
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
+	app.Use("/migrate", p.RequireAdminMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
@@ -208,6 +215,11 @@ func main() {
 	app.Post("/settings/tmp/clean", p.RequireAdminMiddleware, p.TempCleanupRun)
 	app.Get("/settings/tmp/info", p.RequireAdminMiddleware, p.TempCleanupInfo)
 	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, audit.AuditLogsPage(database))
+	app.Get("/migrate", p.MigratePage)
+	app.Post("/migrate/export", p.MigrateExportStart)
+	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
+	app.Post("/migrate/exports/:id/delete", p.MigrateExportDelete)
+	app.Get("/migrate/estimate", p.MigrateEstimate)
 	app.Get("/settings", p.RequireAdminMiddleware, p.SettingsPage)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
 	app.Get("/registries", p.RegistriesPage)

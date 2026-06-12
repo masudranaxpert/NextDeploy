@@ -1,0 +1,292 @@
+<div class="page-shell max-w-4xl">
+
+  <div class="section-header">
+    <div class="min-w-0">
+      <h1 class="page-title">Panel Migration</h1>
+      <p class="page-subtitle">Export selected apps into a portable bundle and restore on another VPS.</p>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3" role="status">
+    <svg class="h-4 w-4 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm text-emerald-300">{{.Flash}}</p>
+  </div>
+  {{end}}
+
+  {{if .FlashError}}
+  <div class="flex items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3" role="alert">
+    <svg class="h-4 w-4 shrink-0 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+    </svg>
+    <p class="text-sm text-red-300">{{.FlashError}}</p>
+  </div>
+  {{end}}
+
+  <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+    <div class="flex gap-3">
+      <svg class="h-4 w-4 shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+      </svg>
+      <div class="space-y-1 text-xs text-amber-200/90">
+        <p class="font-medium text-amber-200">Export stops every app on this panel first, then builds the bundle, then restarts apps that were running.</p>
+        <p class="text-amber-200/80">Large panels (50GB+) can spike RAM and disk during export. Expect brief downtime. A new export replaces the previous bundle. Staging orphans auto-clean after 2 hours; download links expire after 24 hours.</p>
+      </div>
+    </div>
+  </div>
+
+  <form id="migrate-export-form" method="post" action="/migrate/export" class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Export bundle</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Select apps to include. Panel settings, domains, git providers, and registries are included automatically.</p>
+      </div>
+      <div class="flex items-center gap-2 text-xs">
+        <button type="button" id="migrate-select-all" class="btn-secondary h-8 px-3 text-xs">Select all</button>
+        <button type="button" id="migrate-select-none" class="btn-secondary h-8 px-3 text-xs">Clear</button>
+      </div>
+    </div>
+
+    <div class="divide-y divide-border/40 max-h-72 overflow-y-auto">
+      {{if .Apps}}
+        {{range .Apps}}
+        <label class="flex items-center gap-3 px-5 py-3 hover:bg-muted/20 cursor-pointer transition-colors">
+          <input type="checkbox" name="app_ids" value="{{.ID}}" class="migrate-app-cb rounded border-border bg-muted/30 text-primary focus:ring-primary/40">
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-medium text-foreground truncate">{{.Name}}</span>
+            <span class="block text-[11px] text-muted-foreground font-mono truncate">{{.ID}}</span>
+          </span>
+        </label>
+        {{end}}
+      {{else}}
+        <p class="px-5 py-8 text-center text-sm text-muted-foreground">No apps to export.</p>
+      {{end}}
+    </div>
+
+    <div class="border-t border-border/50 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div id="migrate-estimate" class="text-xs text-muted-foreground space-y-0.5">
+        <p>Estimated size (all apps): <span class="font-medium text-foreground">{{.EstimateTotal}}</span> · {{.EstimateApps}} apps · {{.EstimateVols}} volumes</p>
+        <p id="migrate-estimate-selected" class="text-muted-foreground/80">Select apps to see selection estimate.</p>
+      </div>
+      <button type="submit" id="migrate-export-btn" class="btn-primary h-9 px-4 text-sm" {{if not .Apps}}disabled{{end}}>
+        Create export bundle
+      </button>
+    </div>
+  </form>
+
+  <div id="migrate-progress-card" class="panel-card overflow-hidden hidden">
+    <div class="border-b border-border/50 px-5 py-4 flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Export progress</h2>
+        <p id="migrate-progress-status" class="mt-0.5 text-xs text-muted-foreground">Starting…</p>
+      </div>
+      <span id="migrate-progress-badge" class="inline-flex items-center rounded-md bg-muted/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">queued</span>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <div class="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span>Estimated: <span id="migrate-progress-est" class="text-foreground font-medium">—</span></span>
+        <span>Actual: <span id="migrate-progress-size" class="text-foreground font-medium">—</span></span>
+      </div>
+      <pre id="migrate-progress-log" class="max-h-48 overflow-y-auto rounded-lg bg-muted/30 p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap"></pre>
+      <div id="migrate-download-wrap" class="hidden rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
+        <p class="text-xs text-emerald-300 mb-2">Bundle ready. Copy the link or download directly (valid 24h):</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input id="migrate-download-url" type="text" readonly class="flex-1 min-w-[200px] rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-xs font-mono text-foreground">
+          <button type="button" id="migrate-copy-url" class="btn-secondary h-8 px-3 text-xs">Copy</button>
+          <a id="migrate-download-link" href="#" class="btn-primary h-8 px-3 text-xs inline-flex items-center">Download</a>
+        </div>
+      </div>
+      <p id="migrate-progress-error" class="hidden text-xs text-red-400"></p>
+    </div>
+  </div>
+
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h2 class="text-sm font-semibold text-foreground">Restore on new VPS</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Install NextDeploy on the target server first, then run <code class="font-mono text-[11px] bg-muted/50 px-1 rounded">migrate.sh</code> with the download URL or a local bundle path.</p>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <pre class="rounded-lg bg-muted/30 p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto">curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \
+  --url "https://your-panel.example.com/migrate/download/TOKEN"</pre>
+      <p class="text-xs text-muted-foreground">Or with a local file: <code class="font-mono text-[11px] bg-muted/50 px-1 rounded">sudo bash migrate.sh --file /path/to/bundle.nd-migrate</code></p>
+    </div>
+  </div>
+
+  {{if .RecentExports}}
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/50 px-5 py-4">
+      <h2 class="text-sm font-semibold text-foreground">Recent exports</h2>
+    </div>
+    <div class="divide-y divide-border/40">
+      {{range .RecentExports}}
+      <div class="px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <span class="font-mono text-muted-foreground">#{{.ID}}</span>
+        <span class="capitalize {{if eq .Status "ready"}}text-emerald-400{{else if eq .Status "failed"}}text-red-400{{else if eq .Status "running"}}text-amber-400{{else}}text-muted-foreground{{end}}">{{.Status}}</span>
+        <span class="text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</span>
+        {{if ne .Status "running"}}
+        <form method="post" action="/migrate/exports/{{.ID}}/delete" class="inline" onsubmit="return confirm('Delete this export bundle?');">
+          <button type="submit" class="text-red-400/80 hover:text-red-300 transition-colors">Delete</button>
+        </form>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+
+</div>
+
+<script>
+(function () {
+  var estimateTimer = null;
+  var pollTimer = null;
+  var exportId = null;
+
+  function selectedIDs() {
+    var ids = [];
+    document.querySelectorAll('.migrate-app-cb:checked').forEach(function (cb) {
+      ids.push(cb.value);
+    });
+    return ids;
+  }
+
+  function refreshEstimate() {
+    var ids = selectedIDs();
+    var el = document.getElementById('migrate-estimate-selected');
+    if (!el) return;
+    if (ids.length === 0) {
+      el.textContent = 'Select apps to see selection estimate.';
+      return;
+    }
+    el.textContent = 'Calculating…';
+    fetch('/migrate/estimate?apps=' + encodeURIComponent(ids.join(',')))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) {
+          el.textContent = d.error;
+          return;
+        }
+        el.textContent = 'Selection: ' + d.total_human + ' · ' + d.app_count + ' apps · ' + d.volume_count + ' volumes';
+      })
+      .catch(function () {
+        el.textContent = 'Could not estimate selection.';
+      });
+  }
+
+  function scheduleEstimate() {
+    if (estimateTimer) clearTimeout(estimateTimer);
+    estimateTimer = setTimeout(refreshEstimate, 300);
+  }
+
+  document.querySelectorAll('.migrate-app-cb').forEach(function (cb) {
+    cb.addEventListener('change', scheduleEstimate);
+  });
+
+  var selectAll = document.getElementById('migrate-select-all');
+  var selectNone = document.getElementById('migrate-select-none');
+  if (selectAll) {
+    selectAll.addEventListener('click', function () {
+      document.querySelectorAll('.migrate-app-cb').forEach(function (cb) { cb.checked = true; });
+      scheduleEstimate();
+    });
+  }
+  if (selectNone) {
+    selectNone.addEventListener('click', function () {
+      document.querySelectorAll('.migrate-app-cb').forEach(function (cb) { cb.checked = false; });
+      scheduleEstimate();
+    });
+  }
+
+  function parseExportFromURL() {
+    var m = window.location.search.match(/[?&]export=(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  function statusBadge(status) {
+    var el = document.getElementById('migrate-progress-badge');
+    if (!el) return;
+    el.textContent = status || 'unknown';
+    el.className = 'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ';
+    if (status === 'ready' || status === 'downloaded') {
+      el.className += 'bg-emerald-500/20 text-emerald-300';
+    } else if (status === 'failed' || status === 'expired') {
+      el.className += 'bg-red-500/20 text-red-300';
+    } else if (status === 'running') {
+      el.className += 'bg-amber-500/20 text-amber-300';
+    } else {
+      el.className += 'bg-muted/50 text-muted-foreground';
+    }
+  }
+
+  function pollExport(id) {
+    fetch('/migrate/exports/' + id + '/status')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) return;
+        var card = document.getElementById('migrate-progress-card');
+        if (card) card.classList.remove('hidden');
+        statusBadge(d.status);
+        var st = document.getElementById('migrate-progress-status');
+        if (st) st.textContent = 'Export #' + d.id + ' — ' + d.status;
+        var est = document.getElementById('migrate-progress-est');
+        if (est) est.textContent = d.estimated_human || '—';
+        var sz = document.getElementById('migrate-progress-size');
+        if (sz) sz.textContent = d.size_human || '—';
+        var log = document.getElementById('migrate-progress-log');
+        if (log) log.textContent = d.progress_log || '';
+        if (log) log.scrollTop = log.scrollHeight;
+        var errEl = document.getElementById('migrate-progress-error');
+        if (errEl) {
+          if (d.error) {
+            errEl.textContent = d.error;
+            errEl.classList.remove('hidden');
+          } else {
+            errEl.classList.add('hidden');
+          }
+        }
+        var dlWrap = document.getElementById('migrate-download-wrap');
+        if (dlWrap && d.download_url) {
+          dlWrap.classList.remove('hidden');
+          var inp = document.getElementById('migrate-download-url');
+          var link = document.getElementById('migrate-download-link');
+          if (inp) inp.value = d.download_url;
+          if (link) {
+            link.href = d.download_url;
+          }
+        }
+        if (d.status === 'running' || d.status === 'queued') {
+          pollTimer = setTimeout(function () { pollExport(id); }, 2500);
+        }
+      })
+      .catch(function () {
+        pollTimer = setTimeout(function () { pollExport(id); }, 5000);
+      });
+  }
+
+  exportId = parseExportFromURL();
+  if (exportId > 0) {
+    pollExport(exportId);
+  }
+
+  var copyBtn = document.getElementById('migrate-copy-url');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var inp = document.getElementById('migrate-download-url');
+      if (!inp || !inp.value) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(inp.value);
+        return;
+      }
+      inp.select();
+      document.execCommand('copy');
+    });
+  }
+
+  window.addEventListener('beforeunload', function () {
+    if (pollTimer) clearTimeout(pollTimer);
+    if (estimateTimer) clearTimeout(estimateTimer);
+  });
+})();
+</script>
