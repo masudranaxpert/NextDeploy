@@ -776,6 +776,22 @@ func (p *Panel) ComposeProjectCandidates(ctx context.Context, app db.App, appID 
 	return dedupeStringsPreserveOrder(merged)
 }
 
+func (p *Panel) AppVolumeQuery(ctx context.Context, app db.App, allPanelProjects []string, extraProjects ...string) volumex.AppVolumeQuery {
+	projects := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+	projects = append(projects, extraProjects...)
+	return volumex.AppVolumeQuery{
+		AppID:            app.ID,
+		AppDisplayName:   app.Name,
+		WorkspaceRoot:    filepath.Clean(p.Store.Path(app.ID)),
+		ComposeProjects:  dedupeStringsPreserveOrder(projects),
+		AllPanelProjects: allPanelProjects,
+	}
+}
+
+func (p *Panel) appVolumeQuery(ctx context.Context, app db.App, allPanelProjects []string, extraProjects ...string) volumex.AppVolumeQuery {
+	return p.AppVolumeQuery(ctx, app, allPanelProjects, extraProjects...)
+}
+
 func (p *Panel) composeProjectCandidates(ctx context.Context, app db.App, appID string) []string {
 	return p.ComposeProjectCandidates(ctx, app, appID)
 }
@@ -906,7 +922,8 @@ func (p *Panel) ResolveRequestedBackupVolume(ctx context.Context, app db.App, re
 		return requested, ""
 	}
 	volProjects := p.BackupVolumeComposeProjects(ctx, app, app.ID)
-	return volumex.ResolveBackupDataVolumeName(ctx, app.ID, app.Name, volProjects)
+	allProjects := p.AllPanelComposeProjects(ctx)
+	return volumex.ResolveBackupDataVolumeName(ctx, p.AppVolumeQuery(ctx, app, allProjects, volProjects...))
 }
 
 func (p *Panel) resolveRequestedBackupVolume(ctx context.Context, app db.App, requested string) (string, string) {

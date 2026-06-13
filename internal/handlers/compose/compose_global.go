@@ -270,9 +270,12 @@ func (h *Handler) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, 
 	if listErr != "" {
 		return false, fmt.Errorf("%s", listErr)
 	}
+	allProjects := h.P.AllPanelComposeProjects(ctx)
+	matcher := volumex.SharedMatcher(ctx)
 	for _, app := range apps {
 		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, h.P.ComposeProjectCandidates(ctx, app, app.ID)...)
-		appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
+		q := h.P.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
+		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
 		for _, v := range appVols {
 			if v == volumeName {
 				return true, nil

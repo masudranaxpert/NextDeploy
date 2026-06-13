@@ -184,9 +184,9 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 		if errs := dockerapi.RemoveAppNetworks(ctx, project); len(errs) > 0 {
 			cleanupErrs = append(cleanupErrs, errs...)
 		}
-		if msg := volumex.RemoveMatching(ctx, project); msg != "" {
-			cleanupErrs = append(cleanupErrs, msg)
-		}
+	}
+	if msg := volumex.RemoveMatching(ctx, h.P.AppVolumeQuery(ctx, app, allProjects)); msg != "" {
+		cleanupErrs = append(cleanupErrs, msg)
 	}
 	if len(cleanupErrs) > 0 {
 		msg := strings.Join(cleanupErrs, "\n")

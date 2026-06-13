@@ -103,9 +103,12 @@ func (p *Panel) Overview(c *fiber.Ctx) error {
 			totalImages = len(seenImages)
 
 			allVolNames, _ := volumex.List(ctx)
+			allProjects := p.AllPanelComposeProjects(ctx)
+			matcher := volumex.SharedMatcher(ctx)
 			for _, app := range apps {
 				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, candidatesByApp[app.ID]...)
-				appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
+				q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
+				appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
 				totalVolumes += len(appVols)
 
 				if runningApps[app.ID] {
@@ -493,29 +496,27 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 	if isAdmin {
 		apps, _ := p.DB.ListApps(ctx)
 		byUser := p.ownersByUserID(ctx)
-		projectOwner := map[string]ResourceOwner{}
 		allProjects := p.AllPanelComposeProjects(ctx)
+		matcher := volumex.SharedMatcher(ctx)
+		queries := make([]volumex.AppVolumeQuery, 0, len(apps))
 		for _, app := range apps {
-			owner, ok := byUser[app.OwnerID]
-			if !ok {
+			if _, ok := byUser[app.OwnerID]; !ok {
 				continue
 			}
-			for _, proj := range append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...) {
-				proj = strings.TrimSpace(proj)
-				if proj == "" {
-					continue
-				}
-				projectOwner[proj] = owner
-				projectOwner[strings.ReplaceAll(proj, "-", "_")] = owner
-			}
+			queries = append(queries, p.AppVolumeQuery(ctx, app, allProjects))
 		}
 		for _, n := range names {
-			ownerProj := resmatch.LongestMatchingProject(n, allProjects, "_")
-			if ownerProj == "" {
+			appID := matcher.MatchAppIDForVolume(n, queries)
+			if appID == "" {
 				continue
 			}
-			if o, ok := projectOwner[ownerProj]; ok {
-				ownerByVolume[n] = o
+			for _, app := range apps {
+				if app.ID == appID {
+					if owner, ok := byUser[app.OwnerID]; ok {
+						ownerByVolume[n] = owner
+					}
+					break
+				}
 			}
 		}
 	} else {
@@ -524,9 +525,12 @@ func (p *Panel) VolumesPage(c *fiber.Ctx) error {
 			var filtered []string
 			seen := make(map[string]bool)
 			allVolNames, _ := volumex.List(ctx)
+			allProjects := p.AllPanelComposeProjects(ctx)
+			matcher := volumex.SharedMatcher(ctx)
 			for _, app := range apps {
 				projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-				appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
+				q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
+				appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
 				for _, v := range appVols {
 					if !seen[v] {
 						seen[v] = true
@@ -642,9 +646,12 @@ func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, er
 		return false, err
 	}
 	allVolNames, _ := volumex.List(ctx)
+	allProjects := p.AllPanelComposeProjects(ctx)
+	matcher := volumex.SharedMatcher(ctx)
 	for _, app := range apps {
-		projCandidates := []string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}
-		appVols, _ := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, projCandidates)
+		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+		q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
+		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
 		for _, v := range appVols {
 			if v == volumeName {
 				return true, nil

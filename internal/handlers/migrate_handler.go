@@ -306,7 +306,7 @@ func (p *Panel) migrateVolumeNames(ctx context.Context, app db.App) ([]string, e
 		return nil, fmt.Errorf("%s", listErr)
 	}
 	proj := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-	vols, errMsg := volumex.ListForAppFromNames(ctx, app.ID, allVolNames, proj)
+	vols, errMsg := volumex.ListForAppFromNames(ctx, p.AppVolumeQuery(ctx, app, p.AllPanelComposeProjects(ctx), proj...), allVolNames)
 	if errMsg != "" {
 		return nil, fmt.Errorf("%s", errMsg)
 	}

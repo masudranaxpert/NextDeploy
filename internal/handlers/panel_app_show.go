@@ -153,7 +153,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 				tr.Field("vol_project", active)
 			}
 		}
-		appVols, appVolErr = volumex.ListForApp(reqCtx, id, volProjects)
+		appVols, appVolErr = volumex.ListForApp(reqCtx, p.AppVolumeQuery(reqCtx, app, p.AllPanelComposeProjects(reqCtx), volProjects...))
 		tr.StepDur("volumes", mark)
 		tr.Field("vol_count", fmt.Sprintf("%d", len(appVols)))
 	}

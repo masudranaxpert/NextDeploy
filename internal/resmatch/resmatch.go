@@ -51,11 +51,19 @@ func MatchesVolumeName(vol, project string) bool {
 		strings.HasPrefix(vol, project+"_") || strings.HasPrefix(vol, alt+"_")
 }
 
-func MatchesComposeContainerName(name, project string, allProjects []string) bool {
-	if OwnedByProject(name, project, "-", allProjects) {
-		return true
+func longestComposeOwner(name string, candidates []string) string {
+	if best := LongestMatchingProject(name, candidates, "_"); best != "" {
+		return best
 	}
-	return OwnedByProject(name, project, "_", allProjects)
+	return LongestMatchingProject(name, candidates, "-")
+}
+
+func MatchesComposeContainerName(name, project string, allProjects []string) bool {
+	project = strings.TrimSpace(project)
+	if project == "" || len(allProjects) == 0 {
+		return false
+	}
+	return longestComposeOwner(name, allProjects) == project
 }
 
 func MatchesImageRepo(repo, project string, allProjects []string) bool {

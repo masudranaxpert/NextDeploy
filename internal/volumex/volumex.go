@@ -170,10 +170,9 @@ func FilterForApp(appID string, allNames []string, composeProjects []string) []s
 	return out
 }
 
-func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]string, string) {
+func ListForApp(ctx context.Context, q AppVolumeQuery) ([]string, string) {
 	start := time.Now()
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
+	if strings.TrimSpace(q.AppID) == "" {
 		return nil, "app id is required"
 	}
 	names, errMsg := List(ctx)
@@ -181,46 +180,19 @@ func ListForApp(ctx context.Context, appID string, composeProjects []string) ([]
 		perflog.DockerOp("ListForApp", time.Since(start), "list error")
 		return nil, errMsg
 	}
-	out, errMsg := mergeAppVolumes(ctx, appID, names, composeProjects)
-	perflog.DockerOp("ListForApp", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
+	out, errMsg := listAppVolumes(ctx, SharedMatcher(ctx), q, names)
+	perflog.DockerOp("ListForApp", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", q.AppID, len(q.ComposeProjects), len(out)))
 	return out, errMsg
 }
 
-func ListForAppFromNames(ctx context.Context, appID string, allNames []string, composeProjects []string) ([]string, string) {
+func ListForAppFromNames(ctx context.Context, q AppVolumeQuery, allNames []string) ([]string, string) {
 	start := time.Now()
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
+	if strings.TrimSpace(q.AppID) == "" {
 		return nil, "app id is required"
 	}
-	out, errMsg := mergeAppVolumes(ctx, appID, allNames, composeProjects)
-	perflog.DockerOp("ListForAppFromNames", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", appID, len(composeProjects), len(out)))
+	out, errMsg := listAppVolumes(ctx, SharedMatcher(ctx), q, allNames)
+	perflog.DockerOp("ListForAppFromNames", time.Since(start), fmt.Sprintf("app=%s projects=%d matched=%d", q.AppID, len(q.ComposeProjects), len(out)))
 	return out, errMsg
-}
-
-func mergeAppVolumes(ctx context.Context, appID string, names []string, composeProjects []string) ([]string, string) {
-	seen := map[string]struct{}{}
-	var out []string
-	add := func(vol string) {
-		if _, ok := seen[vol]; ok {
-			return
-		}
-		seen[vol] = struct{}{}
-		out = append(out, vol)
-	}
-	for _, proj := range composeProjects {
-		matched, msg := listByComposeProjectLabel(ctx, proj)
-		if msg != "" {
-			return nil, msg
-		}
-		for _, vol := range matched {
-			add(vol)
-		}
-	}
-	for _, vol := range FilterForApp(appID, names, composeProjects) {
-		add(vol)
-	}
-	sort.Strings(out)
-	return out, ""
 }
 
 func volumeNameInList(name string, list []string) bool {
@@ -244,16 +216,15 @@ func isInfraBackupVolumeName(v string) bool {
 // ResolveBackupDataVolumeName picks the Docker volume for panel "volume" backup and restore.
 // composeProjectCandidates should match the Volumes tab: active compose project first, then composeProjectCandidates (see Panel.backupVolumeComposeProjects).
 // This replaces the old app.Name+"_data" heuristic, which breaks when COMPOSE_PROJECT_NAME / folder slug differs from the display name.
-func ResolveBackupDataVolumeName(ctx context.Context, appID, appDisplayName string, composeProjectCandidates []string) (string, string) {
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
+func ResolveBackupDataVolumeName(ctx context.Context, q AppVolumeQuery) (string, string) {
+	if strings.TrimSpace(q.AppID) == "" {
 		return "", "app id is required"
 	}
-	vols, errMsg := ListForApp(ctx, appID, composeProjectCandidates)
+	vols, errMsg := ListForApp(ctx, q)
 	if errMsg != "" {
 		return "", errMsg
 	}
-	return PickBackupDataVolumeName(ctx, appDisplayName, composeProjectCandidates, vols)
+	return PickBackupDataVolumeName(ctx, q.AppDisplayName, q.ComposeProjects, vols)
 }
 
 func PickBackupDataVolumeName(ctx context.Context, appDisplayName string, composeProjectCandidates []string, vols []string) (string, string) {
@@ -338,14 +309,14 @@ func PickBackupDataVolumeName(ctx context.Context, appDisplayName string, compos
 	return vols[0], ""
 }
 
-// RemoveMatching deletes Docker volumes whose names match ListForApp filters (best-effort).
-func RemoveMatching(ctx context.Context, appID string) string {
-	names, errMsg := ListForApp(ctx, appID, nil)
+// RemoveMatching deletes Docker volumes matched for the app (best-effort).
+func RemoveMatching(ctx context.Context, q AppVolumeQuery) string {
+	vols, errMsg := ListForApp(ctx, q)
 	if errMsg != "" {
 		return errMsg
 	}
 	var errs []string
-	for _, n := range names {
+	for _, n := range vols {
 		cmd := exec.CommandContext(ctx, "docker", "volume", "rm", "-f", n)
 		var b bytes.Buffer
 		cmd.Stderr = &b
