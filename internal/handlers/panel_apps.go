@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/dockerapi"
+	"panel/internal/dockerx"
 	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
-	"golang.org/x/sync/errgroup"
 )
 
-// appListItem holds per-app state for the apps list page.
 type appListItem struct {
 	db.App
 	State          string
@@ -32,29 +32,28 @@ type appListItem struct {
 	OwnerIsAdmin   bool
 }
 
-const (
-	// appsListOverallTimeout caps the entire /apps request (batch DB + all compose probes).
-	appsListOverallTimeout = 90 * time.Second
-	// appsListComposePerAppTimeout bounds docker compose ps work per app so one hung daemon
-	// cannot block siblings when the list is loaded concurrently.
-	appsListComposePerAppTimeout = 10 * time.Second
-)
+const appsListOverallTimeout = 10 * time.Second
 
-// fetchAppStateForAppsList resolves container state for one app. Safe for concurrent use:
-// each goroutine writes only to items[i] on the list page. hint comes from BatchAppComposeHints
-// so we avoid N+1 DB queries. Docker state uses composeProjectAndPSHint, which runs at most
-// one compose ps when project slug equals app ID, and at most two when a legacy ID fallback exists.
-func (p *Panel) fetchAppStateForAppsList(ctx context.Context, app db.App, hint db.AppComposeHint) appListItem {
-	item := appListItem{App: app, State: "not deployed"}
+type composeContainerIndex map[string][]dockerx.ComposePsRow
 
-	tctx, cancel := context.WithTimeout(ctx, appsListComposePerAppTimeout)
-	defer cancel()
-
-	_, rows, res := p.composeProjectAndPSHint(tctx, app, app.ID, hint)
-	if !res.OK {
-		return item
+func buildComposeContainerIndex(containers []dockerapi.ComposeContainerRow) composeContainerIndex {
+	idx := make(composeContainerIndex)
+	for _, c := range containers {
+		if c.Project == "" {
+			continue
+		}
+		idx[c.Project] = append(idx[c.Project], dockerx.ComposePsRow{
+			Name:       c.Name,
+			State:      c.State,
+			Status:     c.Status,
+			WorkingDir: c.WorkingDir,
+		})
 	}
+	return idx
+}
 
+func appListItemFromRows(app db.App, rows []dockerx.ComposePsRow) appListItem {
+	item := appListItem{App: app, State: "not deployed"}
 	for _, row := range rows {
 		item.ContainerCount++
 		state := strings.ToLower(strings.TrimSpace(row.State))
@@ -65,7 +64,6 @@ func (p *Panel) fetchAppStateForAppsList(ctx context.Context, app db.App, hint d
 		case "paused":
 			item.PausedCount++
 		case "exited":
-			// exited(0) = completed successfully (migrate, init containers) — treat as ok
 			if strings.Contains(status, "exited (0)") {
 				item.RunningCount++
 			} else {
@@ -92,10 +90,21 @@ func (p *Panel) fetchAppStateForAppsList(ctx context.Context, app db.App, hint d
 	return item
 }
 
-// AppsPage renders the /apps list. Compose probes run concurrently (errgroup); each app has its
-// own deadline under appsListComposePerAppTimeout. errgroup is used without WithContext so one
-// failing/slow app does not cancel others; goroutines always return nil and errors show as
-// "not deployed" via fetchAppStateForAppsList.
+func (p *Panel) appListItemFromIndex(app db.App, index composeContainerIndex) appListItem {
+	item := appListItem{App: app, State: "not deployed"}
+	for _, proj := range p.legacyProjectNames(app, app.ID) {
+		rows := index[proj]
+		if len(rows) == 0 {
+			continue
+		}
+		if !p.composeRowsBelongToApp(app.ID, rows) {
+			continue
+		}
+		return appListItemFromRows(app, rows)
+	}
+	return item
+}
+
 func (p *Panel) AppsPage(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok {
@@ -115,28 +124,13 @@ func (p *Panel) AppsPage(c *fiber.Ctx) error {
 	listCtx, cancel := context.WithTimeout(c.UserContext(), appsListOverallTimeout)
 	defer cancel()
 
-	ids := make([]string, 0, len(list))
-	for _, a := range list {
-		ids = append(ids, a.ID)
-	}
-	hints, err := p.DB.BatchAppComposeHints(listCtx, ids)
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
+	containers, _ := dockerapi.ListComposeContainers(listCtx)
+	index := buildComposeContainerIndex(containers)
 
 	items := make([]appListItem, len(list))
-	var eg errgroup.Group
-
 	for i, app := range list {
-		i, app := i, app
-		hint := hints[app.ID]
-		eg.Go(func() error {
-			items[i] = p.fetchAppStateForAppsList(listCtx, app, hint)
-			return nil
-		})
+		items[i] = p.appListItemFromIndex(app, index)
 	}
-
-	_ = eg.Wait()
 
 	isAdmin := u.Role == db.RoleAdmin
 	if isAdmin {
@@ -192,8 +186,8 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 		return c.Status(400).SendString("an app with this name already exists")
 	}
 	if u.Role != db.RoleAdmin {
-		apps, err := p.DB.ListAppsForUser(ctx, u.ID)
-		if err == nil && len(apps) >= u.MaxApps {
+		count, err := p.DB.CountAppsOwnedByUser(ctx, u.ID)
+		if err == nil && u.MaxApps > 0 && count >= u.MaxApps {
 			return c.Status(400).SendString("maximum app limit reached")
 		}
 	}

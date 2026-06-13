@@ -127,6 +127,20 @@ services:
 	}
 }
 
+func TestValidateAndClampCompose_SecurityOptBlock(t *testing.T) {
+	composeYAML := `
+services:
+  web:
+    image: nginx:alpine
+    security_opt:
+      - seccomp:unconfined
+`
+	_, err := ValidateAndClampCompose([]byte(composeYAML), 2.0, 1024)
+	if err == nil {
+		t.Fatal("Expected error due to security_opt, got nil")
+	}
+}
+
 func TestValidateAndClampCompose_PortBindingBlock(t *testing.T) {
 	composeYAML := `
 services:

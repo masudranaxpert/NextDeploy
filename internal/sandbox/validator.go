@@ -200,6 +200,18 @@ func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, max
 		if _, ok := svc["cgroup_parent"]; ok {
 			return nil, fmt.Errorf("cgroup_parent is blocked on service %q; it is managed automatically by NextDeploy", svcName)
 		}
+		if _, ok := svc["security_opt"]; ok {
+			return nil, fmt.Errorf("security_opt is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["devices"]; ok {
+			return nil, fmt.Errorf("devices is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["device_cgroup_rules"]; ok {
+			return nil, fmt.Errorf("device_cgroup_rules is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["sysctls"]; ok {
+			return nil, fmt.Errorf("sysctls is blocked on service %q for security reasons", svcName)
+		}
 
 		if netMode, ok := svc["network_mode"].(string); ok && netMode != "" {
 			return nil, fmt.Errorf("custom network_mode %q is blocked on service %q", netMode, svcName)

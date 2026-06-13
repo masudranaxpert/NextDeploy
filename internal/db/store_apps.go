@@ -57,7 +57,7 @@ func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps ORDER BY datetime(created_at) DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error
 		SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active')
 		FROM apps
 		WHERE owner_id = ? OR id IN (SELECT app_id FROM app_collaborators WHERE user_id = ?)
-		ORDER BY datetime(created_at) DESC`, userID, userID)
+		ORDER BY created_at DESC`, userID, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,12 +18,23 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/shirou/gopsutil/v3/mem"
 	"golang.org/x/sync/errgroup"
 
 	"panel/internal/resmatch"
 )
 
 const composeProjectLabel = "com.docker.compose.project"
+const composeWorkingDirLabel = "com.docker.compose.project.working_dir"
+
+func containerStatsEligible(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "running", "paused":
+		return true
+	default:
+		return false
+	}
+}
 
 var (
 	apiClientOnce sync.Once
@@ -155,6 +168,40 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 	return out, ""
 }
 
+type ComposeContainerRow struct {
+	Name       string
+	State      string
+	Status     string
+	Project    string
+	WorkingDir string
+}
+
+func ListComposeContainers(ctx context.Context) ([]ComposeContainerRow, string) {
+	cli, err := apiClient()
+	if err != nil {
+		return nil, err.Error()
+	}
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err.Error()
+	}
+	out := make([]ComposeContainerRow, 0, len(list))
+	for _, c := range list {
+		proj := strings.TrimSpace(c.Labels[composeProjectLabel])
+		if proj == "" {
+			continue
+		}
+		out = append(out, ComposeContainerRow{
+			Name:       containerName(c),
+			State:      c.State,
+			Status:     c.Status,
+			Project:    proj,
+			WorkingDir: strings.TrimSpace(c.Labels[composeWorkingDirLabel]),
+		})
+	}
+	return out, ""
+}
+
 func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, mountDestination string) (project, source string, err error) {
 	cli, err := apiClient()
 	if err != nil {
@@ -217,7 +264,9 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 
 	ids := make([]string, 0, len(list))
 	for _, c := range list {
-		ids = append(ids, c.ID)
+		if containerStatsEligible(c.State) {
+			ids = append(ids, c.ID)
+		}
 	}
 
 	statsMap := fetchStatsSnapshot(ctx, cli, ids)
@@ -370,7 +419,9 @@ func HumanBytes(n uint64) string {
 
 func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string) (statsJSON, error) {
 	var out statsJSON
-	stats, err := cli.ContainerStatsOneShot(ctx, id)
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	stats, err := cli.ContainerStatsOneShot(cctx, id)
 	if err != nil {
 		return out, err
 	}
@@ -385,6 +436,35 @@ func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string)
 	return out, nil
 }
 
+func autoStatsConcurrency() int {
+	if v := strings.TrimSpace(os.Getenv("PANEL_STATS_CONCURRENCY")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 32 {
+			return n
+		}
+	}
+
+	ramGB := 2.0
+	if v, err := mem.VirtualMemory(); err == nil && v != nil {
+		ramGB = float64(v.Available) / (1024 * 1024 * 1024)
+	}
+
+	cores := runtime.NumCPU()
+	switch {
+	case ramGB <= 1.0:
+		return 4
+	case ramGB <= 2.0 && cores <= 2:
+		return 6
+	case ramGB <= 2.0:
+		return 10
+	default:
+		limit := cores * 4
+		if limit > 16 {
+			limit = 16
+		}
+		return limit
+	}
+}
+
 func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) map[string]statsJSON {
 	if len(ids) == 0 {
 		return nil
@@ -392,7 +472,7 @@ func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) m
 	var mu sync.Mutex
 	out := make(map[string]statsJSON, len(ids))
 	eg, gctx := errgroup.WithContext(ctx)
-	eg.SetLimit(12)
+	eg.SetLimit(autoStatsConcurrency())
 	for _, id := range ids {
 		id := id
 		eg.Go(func() error {
@@ -621,11 +701,7 @@ func RemoveAppContainers(ctx context.Context, projectID string, allProjects []st
 	var errs []string
 	for _, c := range list {
 		name := containerName(c)
-		insp, err := cli.ContainerInspect(ctx, c.ID)
-		if err != nil {
-			continue
-		}
-		lbl := strings.TrimSpace(insp.Config.Labels[composeProjectLabel])
+		lbl := strings.TrimSpace(c.Labels[composeProjectLabel])
 		if lbl == projectID {
 			if err := cli.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
 				errs = append(errs, name+": "+err.Error())

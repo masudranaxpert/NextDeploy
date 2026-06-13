@@ -165,6 +165,20 @@ func (s *Store) ListPrivateRegistries(ctx context.Context, userID *int64) ([]Pri
 	return out, rows.Err()
 }
 
+func (s *Store) GetLimitedUserResourceSummary(ctx context.Context) (count int, memoryMB int64, cpus float64, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(max_memory_mb), 0), COALESCE(SUM(max_cpus), 0)
+		 FROM users WHERE role != 'admin' AND status = 'active'`).
+		Scan(&count, &memoryMB, &cpus)
+	return
+}
+
+func (s *Store) CountAppsOwnedByUser(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM apps WHERE owner_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 func (s *Store) GetGlobalAllocatedResources(ctx context.Context) (totalMemoryMB int64, totalCPUs float64, err error) {
 	err = s.db.QueryRowContext(ctx, 
 		`SELECT COALESCE(SUM(max_memory_mb), 0), COALESCE(SUM(max_cpus), 0) FROM users WHERE status = 'active'`).Scan(&totalMemoryMB, &totalCPUs)

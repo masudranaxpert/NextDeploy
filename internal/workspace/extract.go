@@ -39,6 +39,21 @@ func (s *Store) WriteMeta(wsID string, name string) error {
 
 const maxUncompressedZipBytes = 2 << 30
 
+func DeclaredUncompressedZipBytes(r io.ReaderAt, size int64) (int64, error) {
+	zr, err := zip.NewReader(r, size)
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, f := range zr.File {
+		total += f.UncompressedSize64
+		if total > maxUncompressedZipBytes {
+			return 0, fmt.Errorf("zip archive too large: declared uncompressed total exceeds %d bytes", maxUncompressedZipBytes)
+		}
+	}
+	return int64(total), nil
+}
+
 func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 	base := s.Path(wsID)
 	if err := os.MkdirAll(base, 0750); err != nil {

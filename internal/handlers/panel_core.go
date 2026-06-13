@@ -91,6 +91,11 @@ type Panel struct {
 	setupDone atomic.Bool
 
 	migrateTokens sync.Map // export id (int64) -> plain download token (string)
+
+	loginFailMu sync.Mutex
+	loginFails  map[string]loginFailEntry
+
+	monitorCache monitorCache
 }
 
 func (p *Panel) MarkSetupComplete() {

@@ -83,6 +83,7 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 		if err := os.MkdirAll(full, 0750); err != nil {
 			return respond(500, false, err.Error())
 		}
+		h.p.InvalidateAfterAppWorkspaceChange(id)
 		return respond(200, true, "Folder created")
 	}
 
@@ -92,6 +93,7 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 	if err := os.WriteFile(full, nil, 0640); err != nil {
 		return respond(500, false, err.Error())
 	}
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return respond(200, true, "File created")
 }
 
@@ -133,7 +135,7 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 			errs = append(errs, fmt.Sprintf("%s: %v", pth, err))
 		}
 	}
-	h.p.InvalidateAppStorageCache(id)
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	if wantJSON {
 		if len(errs) > 0 {
 			return c.JSON(fiber.Map{"ok": false, "message": strings.Join(errs, "; ")})
@@ -317,5 +319,6 @@ func (h *Handler) BrowseRename(c *fiber.Ctx) error {
 	if err := os.Rename(oldFull, newFull); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "renamed successfully"})
 }

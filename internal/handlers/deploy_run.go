@@ -151,6 +151,11 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 		r.Running = false
 		r.Mu.Unlock()
 		_ = p.DB.InsertDeployLog(context.Background(), id, action, res.OK, saved)
+		if res.OK {
+			p.InvalidateAfterAppDeployChange(id)
+		} else {
+			p.InvalidateAfterDockerChange()
+		}
 	}()
 	return nil
 }

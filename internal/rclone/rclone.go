@@ -24,6 +24,21 @@ func rclonePath() string {
 	return "rclone"
 }
 
+func copyFileContents(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
 func humanBytes(n int64) string {
 	if n < 1024 {
 		return fmt.Sprintf("%d B", n)
@@ -444,12 +459,7 @@ func DownloadFromGoogleDrive(ctx context.Context, clientID, clientSecret, token,
 	src := filepath.Join(outDir, files[0].Name())
 	finalPath := filepath.Join(jobDir, files[0].Name())
 	if err := os.Rename(src, finalPath); err != nil {
-		data, rerr := os.ReadFile(src)
-		if rerr != nil {
-			os.RemoveAll(jobDir)
-			return "", rerr
-		}
-		if err := os.WriteFile(finalPath, data, 0600); err != nil {
+		if err := copyFileContents(src, finalPath, 0600); err != nil {
 			os.RemoveAll(jobDir)
 			return "", err
 		}
@@ -534,12 +544,7 @@ func DownloadFromCloudflareR2(ctx context.Context, accountID, accessKeyID, secre
 	src := filepath.Join(outDir, files[0].Name())
 	finalPath := filepath.Join(jobDir, files[0].Name())
 	if err := os.Rename(src, finalPath); err != nil {
-		data, rerr := os.ReadFile(src)
-		if rerr != nil {
-			os.RemoveAll(jobDir)
-			return "", rerr
-		}
-		if err := os.WriteFile(finalPath, data, 0600); err != nil {
+		if err := copyFileContents(src, finalPath, 0600); err != nil {
 			os.RemoveAll(jobDir)
 			return "", err
 		}

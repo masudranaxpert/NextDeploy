@@ -2,16 +2,63 @@ package filebrowser
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+const maxURLDownloadBytes = 512 << 20
+
+type urlLimitReporter struct {
+	max int64
+}
+
+func (l *urlLimitReporter) Header() http.Header       { return http.Header{} }
+func (l *urlLimitReporter) Write([]byte) (int, error) { return 0, fmt.Errorf("response exceeds size limit (%d bytes)", l.max) }
+func (l *urlLimitReporter) WriteHeader(int)             {}
+
+func fetchRemoteURL(ctx context.Context, rawURL string) (*http.Response, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("only http and https URLs are allowed")
+	}
+	if strings.TrimSpace(u.Host) == "" {
+		return nil, fmt.Errorf("missing host")
+	}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = http.MaxBytesReader(&urlLimitReporter{max: maxURLDownloadBytes}, resp.Body, maxURLDownloadBytes)
+	return resp, nil
+}
 
 func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -35,7 +82,7 @@ func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "url is required"})
 	}
 
-	resp, err := http.Get(req.URL)
+	resp, err := fetchRemoteURL(c.UserContext(), req.URL)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to fetch URL: %v", err)})
 	}
@@ -81,7 +128,7 @@ func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 	if _, err := h.p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save file: %v", err)})
 	}
-	h.p.InvalidateAppStorageCache(id)
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Downloaded to server."})
 }
@@ -133,7 +180,7 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save %s: %v", file.Filename, err)})
 		}
 	}
-	h.p.InvalidateAppStorageCache(id)
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Files uploaded successfully"})
 }
@@ -184,6 +231,7 @@ func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 		_ = os.Rename(oldFull, newFull)
 	}
 
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Moved successfully"})
 }
 
@@ -232,6 +280,7 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 		_ = copyRecursively(srcFull, dstFull)
 	}
 
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Copied successfully"})
 }
 
@@ -264,6 +313,7 @@ func (h *Handler) BrowseMkdir(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Directory created"})
 }
 
@@ -343,6 +393,7 @@ func (h *Handler) BrowseZip(c *fiber.Ctx) error {
 		})
 	}
 
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Compressed successfully"})
 }
 
@@ -376,14 +427,18 @@ func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
 
 	stat, _ := f.Stat()
 	if stat != nil {
-		if err := h.p.CheckStorageQuota(c.UserContext(), id, stat.Size()); err != nil {
+		uncompressed, uerr := workspace.DeclaredUncompressedZipBytes(f, stat.Size())
+		if uerr != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": uerr.Error()})
+		}
+		if err := h.p.CheckStorageQuota(c.UserContext(), id, uncompressed); err != nil {
 			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
 		}
 	}
-	defer h.p.InvalidateAppStorageCache(id)
 	if err := h.p.Store.ExtractZip(id, f, stat.Size()); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": "Extract failed: " + err.Error()})
 	}
+	h.p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Extracted successfully"})
 }

@@ -14,7 +14,7 @@ import (
 	"panel/internal/db"
 )
 
-const appStorageCacheTTL = 60 * time.Second
+const appStorageCacheTTL = 5 * time.Minute
 
 type appStorageEntry struct {
 	size int64
@@ -65,6 +65,18 @@ func (p *Panel) UserStorageBytes(ctx context.Context, userID int64) int64 {
 	return total
 }
 
+func (p *Panel) userStorageBytesUncached(ctx context.Context, userID int64) int64 {
+	apps, err := p.DB.ListAppsForUser(ctx, userID)
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, app := range apps {
+		total += dirSizeBytes(p.Store.Path(app.ID))
+	}
+	return total
+}
+
 // CheckStorageQuota returns an error when writing incomingBytes more into the
 // app would push its owner past their storage limit. Admins are unlimited.
 func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingBytes int64) error {
@@ -77,7 +89,7 @@ func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingByt
 		return nil
 	}
 	maxBytes := int64(owner.MaxStorageMB) * 1024 * 1024
-	used := p.UserStorageBytes(ctx, owner.ID)
+	used := p.userStorageBytesUncached(ctx, owner.ID)
 	if used+incomingBytes > maxBytes {
 		return fmt.Errorf("storage limit exceeded: using %s of %s (upload needs %s more)",
 			humanStorage(used), humanStorage(maxBytes), humanStorage(incomingBytes))

@@ -191,6 +191,7 @@ func (h *Handler) ContainerStartOp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerStart(ctx, name)
+	h.P.InvalidateAfterDockerChange()
 	return h.renderComposeTable(c, id)
 }
 
@@ -206,6 +207,7 @@ func (h *Handler) ContainerStopOp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerStop(ctx, name)
+	h.P.InvalidateAfterDockerChange()
 	return h.renderComposeTable(c, id)
 }
 
@@ -221,6 +223,7 @@ func (h *Handler) ContainerRestartOp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerRestart(ctx, name)
+	h.P.InvalidateAfterDockerChange()
 	return h.renderComposeTable(c, id)
 }
 
@@ -236,6 +239,7 @@ func (h *Handler) ContainerRemoveOp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
 	_ = dockerx.ContainerRemove(ctx, name)
+	h.P.InvalidateAfterDockerChange()
 	return h.renderComposeTable(c, id)
 }
 
@@ -258,6 +262,7 @@ func (h *Handler) ContainerRemoveSelectedOp(c *fiber.Ctx) error {
 		}
 		_ = dockerx.ContainerRemove(ctx, name)
 	}
+	h.P.InvalidateAfterDockerChange()
 	return h.renderComposeTable(c, id)
 }
 

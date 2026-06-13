@@ -12,11 +12,19 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	d, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_busy_timeout=5000")
+	connStr := path + "?_pragma=foreign_keys(1)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=temp_store(MEMORY)" +
+		"&_pragma=mmap_size(67108864)" +
+		"&_pragma=cache_size(-32000)" +
+		"&_busy_timeout=5000"
+	d, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, err
 	}
-	d.SetMaxOpenConns(1)
+	d.SetMaxOpenConns(4)
+	d.SetMaxIdleConns(2)
 	s := &Store{db: d}
 	if err := s.migrate(); err != nil {
 		_ = d.Close()

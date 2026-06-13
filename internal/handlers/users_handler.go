@@ -98,6 +98,7 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "Username already taken")
 		return c.Redirect("/users")
 	}
+	p.InvalidateAfterUserChange()
 	utils.SetFlash(c, "User created successfully")
 	return c.Redirect("/users")
 }
@@ -141,6 +142,7 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "Delete failed")
 		return c.Redirect("/users")
 	}
+	p.InvalidateAfterUserChange()
 	if count, err := p.DB.UserCount(ctx); err == nil && count == 0 {
 		p.ClearSetupComplete()
 	}
@@ -235,6 +237,7 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
+	p.InvalidateAfterUserChange()
 	utils.SetFlash(c, "Role updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }
@@ -291,6 +294,7 @@ func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 		}
 	}
 
+	p.InvalidateAfterUserChange()
 	utils.SetFlash(c, "User status updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }
@@ -342,6 +346,7 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 		}
 	}
 
+	p.InvalidateAfterUserChange()
 	utils.SetFlash(c, "Limits updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }

@@ -268,6 +268,7 @@ func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
 		h.p.SetGitTabErrorCookie(c, appID, "Configuration saved, but repository sync failed: "+err.Error())
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 	}
+	h.p.InvalidateAfterAppWorkspaceChange(appID)
 	h.p.SetGitTabFlashCookie(c, appID, "saved_synced")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
@@ -624,6 +625,7 @@ func (h *Handler) GitSync(c *fiber.Ctx) error {
 	if _, err := h.syncGitAppSource(ctx, appID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.p.InvalidateAfterAppWorkspaceChange(appID)
 	h.p.SetGitTabFlashCookie(c, appID, "synced")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
@@ -728,6 +730,7 @@ func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
 			_ = h.p.DB.InsertDeployLog(bg, appID, "Webhook sync", false, err.Error())
 			return
 		}
+		h.p.InvalidateAfterAppWorkspaceChange(appID)
 		gitPreamble := strings.TrimSpace(gitOut)
 		if gitPreamble == "" {
 			gitPreamble = "Repository sync completed."

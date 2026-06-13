@@ -205,6 +205,7 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 	h.P.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	h.P.InvalidateAfterAppDeployChange(id)
 	if err := os.RemoveAll(dir); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
@@ -283,6 +284,7 @@ func (h *Handler) UploadZip(c *fiber.Ctx) error {
 	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterAppWorkspaceChange(id)
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
 }
 
@@ -313,5 +315,6 @@ func (h *Handler) UploadFile(c *fiber.Ctx) error {
 	if _, err := h.P.Store.SaveUploadedFile(id, targetPath, src); err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
+	h.P.InvalidateAfterAppWorkspaceChange(id)
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
 }

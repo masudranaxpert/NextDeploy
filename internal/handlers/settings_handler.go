@@ -918,6 +918,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.orphanStagingSweepLoop()
 	go p.migrateSweepLoop()
 	go p.auditLogPruneLoop()
+	go p.StartMonitorCollector()
 	migrate.StartupSweep(p.DB)
 }
 

@@ -31,7 +31,7 @@ func (s *Store) trimDeployLogs(ctx context.Context, appID string, keep int) erro
 	_, err := s.db.ExecContext(ctx, `
 DELETE FROM deploy_logs WHERE app_id = ? AND id NOT IN (
   SELECT id FROM (
-    SELECT id FROM deploy_logs WHERE app_id = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT ?
+    SELECT id FROM deploy_logs WHERE app_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
   )
 )`, appID, appID, keep)
 	return err
@@ -42,7 +42,7 @@ func (s *Store) ListDeployLogs(ctx context.Context, appID string, limit int) ([]
 		limit = 5
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, action, ok, output, created_at FROM deploy_logs WHERE app_id = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT ?`,
+		`SELECT id, action, ok, output, created_at FROM deploy_logs WHERE app_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
 		appID, limit)
 	if err != nil {
 		return nil, err

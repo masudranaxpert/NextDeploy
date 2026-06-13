@@ -86,7 +86,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	}
 	userID, expiresAt, err := p.DB.GetSession(ctx, token)
 	if err != nil || time.Now().After(expiresAt) {
-		c.Cookie(&fiber.Cookie{Name: sessionCookie, Value: "", MaxAge: -1, HTTPOnly: true, SameSite: "Lax"})
+		c.Cookie(sessionCookieClear())
 		return c.Redirect("/login?next=" + c.Path())
 	}
 	user, err := p.DB.GetUserByID(ctx, userID)
@@ -94,7 +94,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 	if user.Status == db.UserStatusSuspended {
-		c.Cookie(&fiber.Cookie{Name: sessionCookie, Value: "", MaxAge: -1, HTTPOnly: true, SameSite: "Lax"})
+		c.Cookie(sessionCookieClear())
 		return c.Status(fiber.StatusForbidden).SendString("Your account has been suspended.")
 	}
 	c.Locals(contextUserKey, user)
@@ -195,17 +195,26 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 	password := c.FormValue("password")
 	next := validateRedirectPath(c.FormValue("next"))
 
+	if allowed, wait := p.checkLoginAllowed(username); !allowed {
+		if wait > 2*time.Second {
+			time.Sleep(2 * time.Second)
+		}
+		utils.SetFlashError(c, "Too many failed attempts. Try again in about 30 seconds.")
+		return c.Status(fiber.StatusTooManyRequests).Redirect("/login")
+	}
+
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
+		p.recordLoginFailure(username)
 		p.RecordAuditLog(c, "login_failed", "user", username, "Failed login attempt")
 		utils.SetFlashError(c, "Invalid username or password")
-		// Keep ?next= in URL so the login form can re-submit to the right destination.
 		if next != "" && next != "/" {
 			return c.Redirect("/login?next=" + url.QueryEscape(next))
 		}
 		return c.Redirect("/login")
 	}
 
+	p.clearLoginFailures(username)
 	c.Locals(contextUserKey, user)
 	p.RecordAuditLog(c, "login_success", "user", user.Username, "Successfully logged in")
 	return p.createSessionAndRedirect(c, user.ID, next)
@@ -220,13 +229,7 @@ func (p *Panel) Logout(c *fiber.Ctx) error {
 	if token != "" {
 		_ = p.DB.DeleteSession(c.UserContext(), token)
 	}
-	c.Cookie(&fiber.Cookie{
-		Name:     sessionCookie,
-		Value:    "",
-		MaxAge:   -1,
-		HTTPOnly: true,
-		SameSite: "Lax",
-	})
+	c.Cookie(sessionCookieClear())
 	return c.Redirect("/login")
 }
 
@@ -241,13 +244,6 @@ func (p *Panel) createSessionAndRedirect(c *fiber.Ctx, userID int64, next string
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
-	c.Cookie(&fiber.Cookie{
-		Name:     sessionCookie,
-		Value:    token,
-		Expires:  expiresAt,
-		HTTPOnly: true,
-		SameSite: "Lax",
-		Path:     "/",
-	})
+	c.Cookie(sessionCookieSet(token, expiresAt))
 	return c.Redirect(next)
 }

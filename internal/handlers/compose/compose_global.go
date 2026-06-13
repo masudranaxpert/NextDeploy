@@ -53,6 +53,7 @@ func (h *Handler) GlobalImageRemove(c *fiber.Ctx) error {
 	if err := dockerapi.RemoveImageByID(c.UserContext(), imageID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/images")
 }
 
@@ -72,6 +73,7 @@ func (h *Handler) GlobalContainerRemove(c *fiber.Ctx) error {
 	if err := dockerapi.RemoveContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
@@ -102,6 +104,7 @@ func (h *Handler) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 	for _, name := range names {
 		_ = dockerapi.RemoveContainerByName(ctx, name)
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
@@ -121,6 +124,7 @@ func (h *Handler) GlobalContainerRestart(c *fiber.Ctx) error {
 	if err := dockerapi.RestartContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
@@ -140,6 +144,7 @@ func (h *Handler) GlobalVolumeRemove(c *fiber.Ctx) error {
 	if err := dockerapi.RemoveVolumeByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/volumes")
 }
 
@@ -152,6 +157,7 @@ func (h *Handler) GlobalImagePrune(c *fiber.Ctx) error {
 	if err := dockerapi.PruneImages(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/images")
 }
 
@@ -164,6 +170,7 @@ func (h *Handler) GlobalContainerPrune(c *fiber.Ctx) error {
 	if err := dockerapi.PruneContainers(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	h.P.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
@@ -326,6 +333,7 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 		if gitSyncPreamble == "" {
 			gitSyncPreamble = "Repository sync completed."
 		}
+		h.P.InvalidateAfterAppWorkspaceChange(id)
 	}
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {

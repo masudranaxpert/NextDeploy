@@ -550,6 +550,16 @@ func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
 		jobCtx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
 		defer cancel()
 		errMsg := h.runRestoreJob(jobCtx, app, dest, history, configMap)
+		if errMsg == "" {
+			switch history.BackupType {
+			case "volume":
+				h.P.InvalidateAfterDockerChange()
+			case "app":
+				h.P.InvalidateAfterAppWorkspaceChange(appID)
+			default:
+				h.P.InvalidateAfterAppDeployChange(appID)
+			}
+		}
 		h.P.FinishBackupRestore(appID, historyIDLocal, errMsg)
 	}()
 

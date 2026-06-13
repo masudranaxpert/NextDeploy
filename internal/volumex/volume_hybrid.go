@@ -46,6 +46,12 @@ func SharedMatcher(ctx context.Context) *Matcher {
 	return &Matcher{index: matcherIndex}
 }
 
+func InvalidateSharedMatcher() {
+	matcherMu.Lock()
+	matcherAt = time.Time{}
+	matcherMu.Unlock()
+}
+
 func workspaceDirContainedInApp(appRoot, workDir string) bool {
 	if appRoot == "" || workDir == "" {
 		return false
