@@ -12,9 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creack/pty"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+
+	"github.com/creack/pty"
 
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
@@ -184,19 +185,9 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	cols := parseDim(c.Query("cols"), 80)
 	rows := parseDim(c.Query("rows"), 24)
 
-	shell := "/bin/sh"
-	if sh := os.Getenv("SHELL"); sh != "" {
-		shell = sh
-	}
-	// Try bash first, fall back to sh
-	if _, err := exec.LookPath("bash"); err == nil {
-		shell = "bash"
-	}
-
-	cmd := exec.Command(shell)
+	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
-		"PS1=panel:\\w\\$ ",
 	)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: uint16(rows),

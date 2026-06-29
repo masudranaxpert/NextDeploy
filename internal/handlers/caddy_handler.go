@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -218,6 +219,10 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	var err error
 	switch action {
 	case "start":
+		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+	case "force_start":
+		killScript := "systemctl stop apache2 2>/dev/null || true; systemctl stop nginx 2>/dev/null || true; fuser -k 80/tcp 2>/dev/null || true; fuser -k 443/tcp 2>/dev/null || true"
+		_ = exec.Command("docker", "run", "--rm", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
 	case "restart":
 		err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
