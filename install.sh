@@ -550,21 +550,46 @@ wait_for_panel() {
   warn "Panel did not respond within 60s. Check logs: nextdeploy-logs"
 }
 
-get_server_ip() {
+get_public_ip() {
+  local ip=""
+  # Resolve external public IPv4 address with fast timeout
+  if command -v curl &>/dev/null; then
+    ip=$(curl -4 -fsSL --max-time 3 https://api.ipify.org 2>/dev/null || \
+         curl -4 -fsSL --max-time 3 https://ifconfig.io 2>/dev/null || \
+         curl -4 -fsSL --max-time 3 https://icanhazip.com 2>/dev/null)
+  elif command -v wget &>/dev/null; then
+    ip=$(wget -qO- --timeout=3 https://api.ipify.org 2>/dev/null || \
+         wget -qO- --timeout=3 https://ifconfig.io 2>/dev/null)
+  fi
+
+  # Validate that resolved string matches standard IPv4 pattern
+  if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    echo "$ip"
+  fi
+}
+
+get_private_ip() {
   ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || \
   hostname -I 2>/dev/null | awk '{print $1}' || \
-  echo "YOUR_SERVER_IP"
+  echo ""
 }
 
 print_summary() {
-  local ip
-  ip=$(get_server_ip)
+  local pub_ip priv_ip display_ip
+  pub_ip=$(get_public_ip)
+  priv_ip=$(get_private_ip)
+  display_ip="${pub_ip:-$priv_ip}"
+  [[ -z "$display_ip" ]] && display_ip="YOUR_SERVER_IP"
+
   echo ""
   echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo -e "${BOLD}${GREEN}  NextDeploy installed successfully${RESET}"
   echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo ""
-  echo -e "  ${BOLD}Panel URL:${RESET}      http://${ip}:8080"
+  echo -e "  ${BOLD}Panel URL:${RESET}      http://${display_ip}:8080"
+  if [[ -n "$pub_ip" && -n "$priv_ip" && "$pub_ip" != "$priv_ip" ]]; then
+    echo -e "  ${BOLD}Internal IP:${RESET}    http://${priv_ip}:8080 (LAN / local network)"
+  fi
   if [[ -n "$PANEL_DOMAIN" ]]; then
     echo -e "  ${BOLD}Custom domain:${RESET}  https://${PANEL_DOMAIN}  (after DNS + panel settings)"
   fi
