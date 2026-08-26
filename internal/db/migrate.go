@@ -14,9 +14,6 @@ CREATE TABLE IF NOT EXISTS apps (
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_apps_created ON apps(created_at);`); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_apps_owner ON apps(owner_id);`); err != nil {
-		return err
-	}
 	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN compose_file TEXT DEFAULT 'docker-compose.yml'`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
@@ -380,6 +377,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
 		}
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_apps_owner ON apps(owner_id);`); err != nil {
+		return err
 	}
 	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
