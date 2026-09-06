@@ -1,0 +1,145 @@
+{{$sshHost := .SSHHost}}
+{{$path := .StoragePath}}
+
+{{if .DevModeSaved}}
+<div class="mb-4 flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+  <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+  Development settings saved. Deploy once to apply them to the running containers.
+</div>
+{{end}}
+
+{{if .DevTargetInvalid}}
+<div class="mb-4 flex items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+  <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+  Container path must be an absolute path other than <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/</code>, and cannot contain a colon. Nothing was saved.
+</div>
+{{end}}
+
+<div class="panel-card overflow-hidden">
+  <div class="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+    <div class="flex min-w-0 items-start gap-3">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/25">
+        <svg class="h-4 w-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25M6.75 17.25 1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+      </div>
+      <div class="min-w-0">
+        <h2 class="text-sm font-semibold text-foreground">Development mode</h2>
+        <p class="mt-0.5 text-xs text-muted-foreground">Mount the workspace into the container so code edits apply without rebuilding.</p>
+      </div>
+    </div>
+    {{if .DevMode}}
+    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-orange-500/15 px-2.5 py-1 text-[11px] font-medium text-orange-300 ring-1 ring-orange-500/25">
+      <span class="h-1.5 w-1.5 rounded-full bg-orange-400"></span> Enabled
+    </span>
+    {{else}}
+    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-border/50">Disabled</span>
+    {{end}}
+  </div>
+
+  <form method="post" action="/apps/{{.ID}}/dev-mode" class="space-y-5 p-4 sm:p-5">
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30">
+      <input type="checkbox" name="dev_mode" id="dev-mode-toggle" class="mt-0.5 h-4 w-4 rounded accent-orange-500" {{if .DevMode}}checked{{end}} onchange="ndDevToggleFields()">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-foreground">Enable development mode</p>
+        <p class="mt-1 text-xs leading-relaxed text-muted-foreground/80">While enabled, <span class="font-medium text-foreground/80">Deploy</span> runs <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">up -d</code> without rebuilding the image, and Git apps skip the repository sync so edits made here are never overwritten. <span class="font-medium text-foreground/80">Redeploy</span> still does a full pull and rebuild.</p>
+      </div>
+    </label>
+
+    <div id="dev-mode-fields" class="grid gap-4 sm:grid-cols-2 {{if not .DevMode}}opacity-50{{end}}">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Service</label>
+        <select class="input w-full" name="dev_service">
+          <option value="">All services that build from source</option>
+          {{range .DevServices}}
+          <option value="{{.}}" {{if eq $.DevService .}}selected{{end}}>{{.}}</option>
+          {{end}}
+        </select>
+        <p class="mt-1 text-[11px] text-muted-foreground/60">Services running a prebuilt image (databases, caches) are never mounted.</p>
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Container path</label>
+        <input class="input w-full font-mono text-xs" name="dev_target" placeholder="/app" value="{{.DevTarget}}">
+        <p class="mt-1 text-[11px] text-muted-foreground/60">Where the workspace is mounted inside the container. Must match your Dockerfile <code class="font-mono">WORKDIR</code>.</p>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
+      <p class="text-xs leading-relaxed text-amber-200/90">
+        <span class="font-medium">You still supply the reload command.</span>
+        Mounting only makes files visible — the process inside the container decides whether it picks them up. Use a watching command in your compose file, for example
+        <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">npm run dev</code>,
+        <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">uvicorn main:app --reload</code>, or
+        <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">air</code>.
+        Adding a new dependency still needs a normal deploy with a rebuild.
+      </p>
+    </div>
+
+    <div class="pt-1">
+      <button type="submit" class="btn-primary w-full px-5 py-2.5 text-sm sm:w-auto">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+        Save development settings
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="panel-card mt-6 overflow-hidden">
+  <div class="flex items-start gap-3 border-b border-border/60 px-4 py-3 sm:px-5 sm:py-4">
+    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 ring-1 ring-primary/25">
+      <svg class="h-4 w-4 text-primary/90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+    </div>
+    <div class="min-w-0">
+      <h2 class="text-sm font-semibold text-foreground">Edit over SSH</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">Open this app's workspace in your own editor. Saved files reach the container immediately while dev mode is on.</p>
+    </div>
+  </div>
+
+  <div class="space-y-3 p-4 sm:p-5">
+    <div class="rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Workspace path</p>
+        <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" data-nd-copy="{{$path}}" onclick="ndDevCopy(this)">Copy</button>
+      </div>
+      <p class="mt-2 break-all font-mono text-[11px] leading-relaxed text-foreground sm:text-xs">{{$path}}</p>
+    </div>
+
+    <div class="rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">SSH into the workspace</p>
+        <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" data-nd-copy="ssh -t root@{{$sshHost}} 'cd {{$path}} && exec $SHELL -l'" onclick="ndDevCopy(this)">Copy</button>
+      </div>
+      <p class="mt-2 break-all font-mono text-[11px] leading-relaxed text-foreground sm:text-xs">ssh -t root@{{$sshHost}} 'cd {{$path}} &amp;&amp; exec $SHELL -l'</p>
+    </div>
+
+    <div class="rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Open in VS Code / Cursor</p>
+        <button type="button" class="rounded-md px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" data-nd-copy="vscode-remote://ssh-remote+root@{{$sshHost}}{{$path}}" onclick="ndDevCopy(this)">Copy</button>
+      </div>
+      <p class="mt-2 break-all font-mono text-[11px] leading-relaxed text-foreground sm:text-xs">vscode-remote://ssh-remote+root@{{$sshHost}}{{$path}}</p>
+      <p class="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">Or use <span class="font-medium text-foreground/80">Remote-SSH: Connect to Host</span>, then open the folder above.</p>
+    </div>
+
+    <p class="text-[11px] leading-relaxed text-muted-foreground/60">
+      Replace <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">root</code> and <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{{$sshHost}}</code> if you reach this server under a different user or address. SSH is served by the host, not by the panel.
+    </p>
+  </div>
+</div>
+
+<script>
+function ndDevCopy(btn) {
+  if (!btn) return;
+  var text = btn.getAttribute('data-nd-copy');
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function () {
+    var original = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function () { btn.textContent = original; }, 1500);
+  });
+}
+function ndDevToggleFields() {
+  var toggle = document.getElementById('dev-mode-toggle');
+  var fields = document.getElementById('dev-mode-fields');
+  if (!toggle || !fields) return;
+  fields.classList.toggle('opacity-50', !toggle.checked);
+}
+</script>

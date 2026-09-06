@@ -1,4 +1,14 @@
-﻿    {{if and .IsGitApp .HasGitConfig}}
+﻿    {{if .DevMode}}
+    <div class="flex items-start gap-3 rounded-xl border border-orange-500/25 bg-orange-500/10 px-4 py-3">
+      <svg class="mt-0.5 h-4 w-4 shrink-0 text-orange-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25M6.75 17.25 1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+      <p class="text-xs leading-relaxed text-orange-200/90">
+        <span class="font-medium">Development mode is on.</span>
+        <span class="font-medium">Deploy</span> starts the stack without rebuilding the image{{if .IsGitApp}} and skips the Git sync so workspace edits are kept{{end}}. Use <span class="font-medium">Redeploy</span> to force a rebuild.
+        <a href="/apps/{{.ID}}?tab=dev" class="font-medium underline underline-offset-2 hover:text-orange-100">Manage in the Dev tab</a>.
+      </p>
+    </div>
+    {{end}}
+    {{if and .IsGitApp .HasGitConfig}}
     <div class="panel-card overflow-hidden">
       <div class="border-b border-border/60 bg-muted/10 px-4 py-4 sm:px-5">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
@@ -60,7 +62,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	isGitApp, gitCfg, hasGitCfg := p.AppGitMetadata(reqCtx, id)
 	tr.StepDur("git_meta", mark)
 	switch tab {
-	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup", "collaborators":
+	case "overview", "files", "logs", "containers", "environment", "deployment", "volumes", "terminal", "domains", "git", "backup", "collaborators", "dev":
 	default:
 		tab = "overview"
 	}
@@ -171,6 +173,24 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	if tab == "git" || tab == "deployment" {
 		panelDomain = p.DB.GetSetting(reqCtx, settingPanelDomain)
 	}
+
+	devTarget := strings.TrimSpace(app.DevTarget)
+	if devTarget == "" {
+		devTarget = caddy.DefaultDevTarget
+	}
+	var devServices []string
+	sshHost := ""
+	if tab == "dev" {
+		mark = time.Now()
+		devServices = p.loadComposeServices(reqCtx, id)
+		// The SSH endpoint is the Docker host, which is the same machine serving the
+		// panel; the request host is the closest thing the panel can know about it.
+		sshHost = c.Hostname()
+		if h, _, err := net.SplitHostPort(sshHost); err == nil {
+			sshHost = h
+		}
+		tr.StepDur("dev_data", mark)
+	}
 	var gitSaved, gitSynced bool
 	var gitErrFlash string
 	if tab == "git" {
@@ -275,6 +295,13 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"ComposeFileSetting":     composeDisplay,
 		"ID":                     id,
 		"StoragePath":            storagePath,
+		"DevMode":                app.DevMode,
+		"DevService":             app.DevService,
+		"DevTarget":              devTarget,
+		"DevServices":            devServices,
+		"SSHHost":                sshHost,
+		"DevModeSaved":           appShowFlash == "devModeSaved",
+		"DevTargetInvalid":       appShowFlash == "devTargetInvalid",
 		"UploadZipTarget":        fmt.Sprintf("/apps/%s/upload-zip", id),
 		"UploadFileTarget":       fmt.Sprintf("/apps/%s/upload", id),
 		"ComposeRows":            composeRows,
