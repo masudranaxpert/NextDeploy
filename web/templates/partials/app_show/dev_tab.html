@@ -36,40 +36,71 @@
   </div>
 
   <form method="post" action="/apps/{{.ID}}/dev-mode" class="space-y-5 p-4 sm:p-5">
-    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30">
-      <input type="checkbox" name="dev_mode" id="dev-mode-toggle" class="mt-0.5 h-4 w-4 rounded accent-orange-500" {{if .DevMode}}checked{{end}} onchange="ndDevToggleFields()">
-      <div class="min-w-0">
-        <p class="text-sm font-medium text-foreground">Enable development mode</p>
-        <p class="mt-1 text-xs leading-relaxed text-muted-foreground/80">While enabled, <span class="font-medium text-foreground/80">Deploy</span> runs <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">up -d</code> without rebuilding, Git apps skip the repository sync, and webhook auto-deploys are paused. <span class="font-medium text-foreground/80">Redeploy</span> still rebuilds the image from the current workspace (without pulling remote Git). Use <span class="font-medium text-foreground/80">Sync repository</span> only when you intentionally want to discard local edits.</p>
+    <div class="rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+      <div class="flex items-start gap-3">
+        <input type="checkbox" name="dev_mode" id="dev-mode-toggle" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded accent-orange-500" {{if .DevMode}}checked{{end}} onchange="ndDevToggleFields()">
+        <div class="min-w-0 flex-1">
+          <p class="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+            <label for="dev-mode-toggle" class="cursor-pointer select-none">Enable development mode</label>
+            <button type="button" onclick="document.getElementById('dev-mode-help').classList.toggle('hidden')"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-500/40 text-amber-400 transition hover:border-amber-400 hover:bg-amber-500/10"
+              aria-label="How development mode works" title="How development mode works">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
+            </button>
+          </p>
+          <p id="dev-mode-help" class="mt-2 hidden rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100/90">
+            <span class="font-medium">Deploy</span> runs <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">up -d</code> without rebuilding.
+            Git apps skip repository sync, and webhook auto-deploys are paused.
+            <span class="font-medium">Redeploy</span> still rebuilds from the current workspace (without pulling remote Git).
+            Use <span class="font-medium">Sync repository</span> only when you intentionally want to discard local edits.
+          </p>
+        </div>
       </div>
-    </label>
+    </div>
 
     <div id="dev-mode-fields" class="grid gap-4 sm:grid-cols-2 {{if not .DevMode}}opacity-50{{end}}">
       <div>
-        <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Service</label>
+        <label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          Service
+          <button type="button" onclick="document.getElementById('dev-service-help').classList.toggle('hidden')"
+            class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] font-bold leading-none text-muted-foreground transition hover:border-primary hover:text-primary"
+            aria-label="Which service is mounted?" title="Which service is mounted?">?</button>
+        </label>
         <select class="input w-full" name="dev_service">
           <option value="">All services that build from source</option>
           {{range .DevServices}}
           <option value="{{.}}" {{if eq $.DevService .}}selected{{end}}>{{.}}</option>
           {{end}}
         </select>
-        <p class="mt-1 text-[11px] text-muted-foreground/60">Default skips prebuilt-image services (databases, caches). Picking a service mounts that one only — including image-only services.</p>
+        <p id="dev-service-help" class="mt-1.5 hidden rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          Leave blank to mount only services with a <code class="font-mono text-[10px]">build:</code> section (your app code).
+          Databases and caches that use a ready-made image are left alone.
+          Pick a specific service only if you want that one mounted — including an image-only service if you really mean it.
+        </p>
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Container path</label>
         <input class="input w-full font-mono text-xs" name="dev_target" placeholder="/app" value="{{.DevTarget}}">
-        <p class="mt-1 text-[11px] text-muted-foreground/60">Where the workspace is mounted inside the container. Must match your Dockerfile <code class="font-mono">WORKDIR</code>.</p>
+        <p class="mt-1 text-[11px] text-muted-foreground/60">Must match your Dockerfile <code class="font-mono">WORKDIR</code>.</p>
       </div>
     </div>
 
     <div class="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
-      <p class="text-xs leading-relaxed text-amber-200/90">
-        <span class="font-medium">You still supply the reload command.</span>
-        Mounting only makes files visible — the process inside the container decides whether it picks them up. Use a watching command in your compose file, for example
+      <p class="flex flex-wrap items-center gap-2 text-xs font-medium text-amber-200/90">
+        You still supply the reload command
+        <button type="button" onclick="document.getElementById('dev-reload-help').classList.toggle('hidden')"
+          class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-500/40 text-amber-400 transition hover:border-amber-400 hover:bg-amber-500/10"
+          aria-label="About the reload command" title="About the reload command">
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
+        </button>
+      </p>
+      <p id="dev-reload-help" class="mt-2 hidden text-[11px] leading-relaxed text-amber-100/80">
+        Mounting only makes files visible — the process inside the container decides whether it picks them up.
+        Use a watching command in your compose file, for example
         <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">npm run dev</code>,
         <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">uvicorn main:app --reload</code>, or
         <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">air</code>.
-        Adding a new dependency still needs a normal deploy with a rebuild.
+        Adding a new dependency still needs Redeploy.
       </p>
     </div>
 
