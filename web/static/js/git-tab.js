@@ -25,11 +25,11 @@ var gitAppId = ndGitAppId();
       publicFields.classList.add('hidden');
       githubAppFields.classList.add('hidden');
       if (gitlabTokenFields) gitlabTokenFields.classList.add('hidden');
-      if (autoDeploySection) autoDeploySection.classList.add('hidden');
+      // Auto-deploy toggle is always available for every access mode.
+      if (autoDeploySection) autoDeploySection.classList.remove('hidden');
 
       if (mode === 'github_app') {
         githubAppFields.classList.remove('hidden');
-        if (autoDeploySection) autoDeploySection.classList.remove('hidden');
         if (providerHidden) providerHidden.value = 'github';
       } else if (mode === 'gitlab_token') {
         if (gitlabTokenFields) gitlabTokenFields.classList.remove('hidden');
