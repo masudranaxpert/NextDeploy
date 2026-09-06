@@ -34,7 +34,7 @@
             </div>
             <div class="min-w-0">
               <h2 class="text-sm font-semibold text-foreground">Repository</h2>
-              <p class="mt-0.5 text-xs text-muted-foreground">Bind this app to a global provider, then deploy from GitHub or GitLab.</p>
+              <p class="mt-0.5 text-xs text-muted-foreground">{{if .HasGitConfig}}Connected Git source for this app.{{else}}Bind this app to a global provider, then deploy from GitHub or GitLab.{{end}}</p>
             </div>
           </div>
           {{if .HasGitConfig}}
@@ -46,6 +46,38 @@
           </form>
           {{end}}
         </div>
+
+        {{if and .HasGitConfig .GitConfig.RepoURL}}
+        <div class="border-b border-border/60 bg-muted/10 px-4 py-4 sm:px-5">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-border/60 bg-background/60 px-3 py-3 sm:px-4">
+              <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Connected repository</p>
+              <p class="mt-1.5 break-all font-mono text-xs leading-relaxed text-foreground">{{.GitConfig.RepoURL}}</p>
+              {{if .GitConfig.RepoFullName}}
+              <p class="mt-1 text-[11px] text-muted-foreground">{{.GitConfig.RepoFullName}}</p>
+              {{end}}
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 px-3 py-3 sm:px-4">
+              <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Branch</p>
+              <p class="mt-1.5 font-mono text-sm font-medium text-foreground">{{if .GitConfig.Branch}}{{.GitConfig.Branch}}{{else}}main{{end}}</p>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                {{if .GitConfig.AutoDeploy}}
+                <span class="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">Auto-deploy on</span>
+                {{else}}
+                <span class="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">Auto-deploy off</span>
+                {{end}}
+                {{if eq .GitConfig.AuthMode "github_app"}}
+                <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/25">GitHub App</span>
+                {{else if eq .GitConfig.AuthMode "gitlab_token"}}
+                <span class="inline-flex items-center rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300 ring-1 ring-orange-500/25">GitLab</span>
+                {{else}}
+                <span class="inline-flex items-center rounded-full bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/50">Public</span>
+                {{end}}
+              </div>
+            </div>
+          </div>
+        </div>
+        {{end}}
 
         <form method="post" action="/apps/{{.ID}}/git" class="space-y-5 p-4 sm:p-5" id="git-config-form" onsubmit="syncGitLabProviderID()">
           <input type="hidden" name="provider" id="git-provider-hidden" value="{{if .HasGitConfig}}{{.GitConfig.Provider}}{{else}}github{{end}}">
@@ -162,12 +194,12 @@
             </div>
           </div>
 
-          <div id="git-auto-deploy-section" class="hidden">
+          <div id="git-auto-deploy-section">
             <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30">
               <input type="checkbox" name="auto_deploy" class="mt-0.5 h-4 w-4 rounded accent-orange-500" {{if or (not .HasGitConfig) .GitConfig.AutoDeploy}}checked{{end}}>
               <div>
                 <p class="text-sm font-medium text-foreground">Auto deploy on push</p>
-                <p class="mt-0.5 text-xs text-muted-foreground/70">NextDeploy will create or update the repository webhook automatically.</p>
+                <p class="mt-0.5 text-xs text-muted-foreground/70">When enabled, pushes to the selected branch trigger a deploy. Webhook details are on the Deployment tab.</p>
               </div>
             </label>
           </div>

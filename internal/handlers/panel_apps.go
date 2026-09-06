@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
@@ -281,6 +282,35 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 		"HasDockerfile":      hasDF,
 		"ComposePathSaved":   saved,
 	})
+}
+
+// SaveAppDevMode stores the development mode settings and regenerates the compose
+// override so the workspace bind mount is added or removed right away.
+func (p *Panel) SaveAppDevMode(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return utils.RespondAppNotFound(c)
+	}
+	enabled := c.FormValue("dev_mode") == "on"
+	service := strings.TrimSpace(c.FormValue("dev_service"))
+	target := strings.TrimSpace(c.FormValue("dev_target"))
+	if target != "" && !caddy.ValidDevTarget(target) {
+		utils.SetFlash(c, "devTargetInvalid")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
+	}
+	if err := p.DB.UpdateAppDevMode(c.UserContext(), id, enabled, service, target); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.syncAppCaddyOverride(c, id); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	utils.SetFlash(c, "devModeSaved")
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	p.RecordAuditLog(c, "app_dev_mode", "app", id, "Development mode "+state)
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 }
 
 func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {

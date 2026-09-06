@@ -146,7 +146,8 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent)
+	dev := caddy.DevMount{Enabled: app.DevMode, Service: app.DevService, Target: app.DevTarget}
+	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent, dev)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}

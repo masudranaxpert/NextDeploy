@@ -74,6 +74,17 @@
       Files
     </a>
     {{end}}
+    <a href="/apps/{{.App.ID}}?tab=dev"
+       class="app-tab {{if eq .Tab "dev"}}app-tab-active{{else}}app-tab-inactive{{end}}"
+       hx-get="/apps/{{.App.ID}}?tab=dev&amp;partial=tab"
+       hx-target="#app-tab-panel"
+       hx-indicator="#global-htmx-indicator"
+       hx-swap="innerHTML"
+       hx-push-url="/apps/{{.App.ID}}?tab=dev">
+      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25M6.75 17.25 1.5 12l5.25-5.25m7.5-3-4.5 16.5"/></svg>
+      Dev
+      {{if .DevMode}}<span class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-orange-400"></span>{{end}}
+    </a>
     <a href="/apps/{{.App.ID}}?tab=environment"
        class="app-tab {{if eq .Tab "environment"}}app-tab-active{{else}}app-tab-inactive{{end}}"
        hx-get="/apps/{{.App.ID}}?tab=environment&amp;partial=tab"

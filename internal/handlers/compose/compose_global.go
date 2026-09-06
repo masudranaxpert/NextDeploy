@@ -315,25 +315,41 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 	if err != nil {
 		return utils.RespondAppNotFound(c)
 	}
+	// Dev mode deploys from the workspace as-is: a Git sync would discard local
+	// edits, and rebuilding the image would defeat the workspace bind mount.
 	var gitSyncPreamble string
 	if h.P.IsGitApp(c.UserContext(), id) {
-		ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
-		out, err := h.P.GitSyncer.SyncGitAppSource(ctx, id)
-		if err != nil {
-			cancel()
-			msg := "[error]\nGit sync failed.\n\n" + err.Error()
-			if strings.TrimSpace(out) != "" {
-				msg += "\n\n" + out
+		if app.DevMode {
+			gitSyncPreamble = "Dev mode is on — skipped Git sync so local workspace edits are kept."
+		} else {
+			ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
+			out, err := h.P.GitSyncer.SyncGitAppSource(ctx, id)
+			if err != nil {
+				cancel()
+				msg := "[error]\nGit sync failed.\n\n" + err.Error()
+				if strings.TrimSpace(out) != "" {
+					msg += "\n\n" + out
+				}
+				_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+				return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 			}
-			_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+			cancel()
+			gitSyncPreamble = strings.TrimSpace(out)
+			if gitSyncPreamble == "" {
+				gitSyncPreamble = "Repository sync completed."
+			}
+			h.P.InvalidateAfterAppWorkspaceChange(id)
 		}
-		cancel()
-		gitSyncPreamble = strings.TrimSpace(out)
-		if gitSyncPreamble == "" {
-			gitSyncPreamble = "Repository sync completed."
+	}
+	// Redeploy stays a full pull-and-build so there is still a way to rebuild
+	// without leaving dev mode.
+	if app.DevMode && action == "Deploy" {
+		// `up -d` still builds when the image is missing, so the first dev deploy works.
+		fn = dockerx.ComposeApply
+		if gitSyncPreamble != "" {
+			gitSyncPreamble += "\n"
 		}
-		h.P.InvalidateAfterAppWorkspaceChange(id)
+		gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
 	}
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
