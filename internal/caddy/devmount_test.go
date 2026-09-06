@@ -63,6 +63,40 @@ func TestDevMountFallsBackOnUnusableTarget(t *testing.T) {
 	}
 }
 
+func TestDevMountSkipsExistingTargetWithOptions(t *testing.T) {
+	base := []byte(`services:
+  web:
+    build: .
+    volumes:
+      - ./:/app:ro
+`)
+	out, err := GenerateMergedCompose(base, "proj", nil, "", "", DevMount{Enabled: true, Service: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(out), "./:/app") != 1 {
+		t.Fatalf("expected existing :ro mount to count as the same target:\n%s", out)
+	}
+}
+
+func TestDevMountSkipsExistingLongFormTarget(t *testing.T) {
+	base := []byte(`services:
+  web:
+    build: .
+    volumes:
+      - type: bind
+        source: ./src
+        target: /app
+`)
+	out, err := GenerateMergedCompose(base, "proj", nil, "", "", DevMount{Enabled: true, Service: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "./:/app") {
+		t.Fatalf("expected long-form target /app to block the short mount:\n%s", out)
+	}
+}
+
 func TestDevMountIsIdempotent(t *testing.T) {
 	once, err := GenerateMergedCompose([]byte(devBase), "proj", nil, "", "", DevMount{Enabled: true})
 	if err != nil {

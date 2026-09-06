@@ -102,7 +102,9 @@ While dev mode is on:
 
 - **Deploy** runs `docker compose up -d` **without** rebuilding the image
 - Git-backed apps **skip the repository sync**, so local edits are never overwritten by `git checkout -f`
-- **Redeploy** still does a full pull and rebuild — use it after adding a dependency
+- **Webhook auto-deploy is paused** — pushes are acknowledged but do not sync or redeploy
+- **Redeploy** still rebuilds the image from the **current workspace** (without pulling remote Git) — use it after adding a dependency
+- **Sync repository** still works and will discard local edits — use it only on purpose
 
 By default only services that **build from source** are mounted, so databases and other prebuilt-image services keep their own filesystem. You can instead pick a single service, and change the container path (default `/app`) to match your Dockerfile's `WORKDIR`.
 

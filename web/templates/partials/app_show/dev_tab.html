@@ -40,7 +40,7 @@
       <input type="checkbox" name="dev_mode" id="dev-mode-toggle" class="mt-0.5 h-4 w-4 rounded accent-orange-500" {{if .DevMode}}checked{{end}} onchange="ndDevToggleFields()">
       <div class="min-w-0">
         <p class="text-sm font-medium text-foreground">Enable development mode</p>
-        <p class="mt-1 text-xs leading-relaxed text-muted-foreground/80">While enabled, <span class="font-medium text-foreground/80">Deploy</span> runs <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">up -d</code> without rebuilding the image, and Git apps skip the repository sync so edits made here are never overwritten. <span class="font-medium text-foreground/80">Redeploy</span> still does a full pull and rebuild.</p>
+        <p class="mt-1 text-xs leading-relaxed text-muted-foreground/80">While enabled, <span class="font-medium text-foreground/80">Deploy</span> runs <code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">up -d</code> without rebuilding, Git apps skip the repository sync, and webhook auto-deploys are paused. <span class="font-medium text-foreground/80">Redeploy</span> still rebuilds the image from the current workspace (without pulling remote Git). Use <span class="font-medium text-foreground/80">Sync repository</span> only when you intentionally want to discard local edits.</p>
       </div>
     </label>
 
@@ -53,7 +53,7 @@
           <option value="{{.}}" {{if eq $.DevService .}}selected{{end}}>{{.}}</option>
           {{end}}
         </select>
-        <p class="mt-1 text-[11px] text-muted-foreground/60">Services running a prebuilt image (databases, caches) are never mounted.</p>
+        <p class="mt-1 text-[11px] text-muted-foreground/60">Default skips prebuilt-image services (databases, caches). Picking a service mounts that one only — including image-only services.</p>
       </div>
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted-foreground">Container path</label>

@@ -373,15 +373,39 @@ func appendServiceVolume(service map[string]interface{}, mount string) {
 			return
 		}
 		for _, item := range existing {
-			if s, ok3 := item.(string); ok3 {
-				if parts := strings.SplitN(s, ":", 2); len(parts) == 2 && parts[1] == target {
-					return
-				}
+			if volumeTarget(item) == target {
+				return
 			}
 			list = append(list, item)
 		}
 	}
 	service["volumes"] = append(list, mount)
+}
+
+// volumeTarget returns the container path from a short- or long-syntax volume entry.
+func volumeTarget(item interface{}) string {
+	switch v := item.(type) {
+	case string:
+		parts := strings.Split(v, ":")
+		if len(parts) >= 2 {
+			return parts[1]
+		}
+	case map[string]interface{}:
+		if t, ok := v["target"].(string); ok {
+			return t
+		}
+		if t, ok := v["destination"].(string); ok {
+			return t
+		}
+	case map[interface{}]interface{}:
+		if t, ok := v["target"].(string); ok {
+			return t
+		}
+		if t, ok := v["destination"].(string); ok {
+			return t
+		}
+	}
+	return ""
 }
 
 // GenerateMergedCompose returns a merged compose YAML with normalized volumes, Caddy labels,

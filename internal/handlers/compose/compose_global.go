@@ -349,7 +349,7 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 		if gitSyncPreamble != "" {
 			gitSyncPreamble += "\n"
 		}
-		gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to force a rebuild."
+		gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
 	}
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
