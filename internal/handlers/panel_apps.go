@@ -363,19 +363,20 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 	if s := strings.TrimSpace(app.DevService); s != "" {
 		targetServices = []string{s}
 	} else {
-		// Target services extracted from the dev volume names (format: nddev_<appID>_<svcKey>_...)
+		// Forward-match volume names against known compose services using longest prefix match.
+		// This avoids corrupting service names that contain underscores (e.g. "api_worker" vs "api").
+		svcs := p.loadComposeServices(c.UserContext(), id)
 		svcSet := make(map[string]bool)
 		for _, v := range vols {
-			trimmed := strings.TrimPrefix(v, volPrefix)
-			if idx := strings.Index(trimmed, "_"); idx > 0 {
-				svcSet[trimmed[:idx]] = true
+			if s := dev.MatchDevVolumeService(v, volPrefix, svcs); s != "" {
+				svcSet[s] = true
 			}
 		}
 		for s := range svcSet {
 			targetServices = append(targetServices, s)
 		}
 		if len(targetServices) == 0 {
-			targetServices = p.loadComposeServices(c.UserContext(), id)
+			targetServices = svcs
 		}
 	}
 
@@ -395,21 +396,32 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 		// 1. Stop and remove only the targeted dev service containers (e.g. web, worker). Databases keep running!
 		_ = dockerx.ComposeRmServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
 
-		// 2. Remove the app-scoped dev dependency named volumes
+		// 2. Remove the app-scoped dev dependency named volumes, capturing errors
+		var volErrs []string
 		for _, v := range vols {
-			_ = exec.CommandContext(bgCtx, "docker", "volume", "rm", "-f", v).Run()
+			if out, err := exec.CommandContext(bgCtx, "docker", "volume", "rm", "-f", v).CombinedOutput(); err != nil {
+				msg := strings.TrimSpace(string(out))
+				if msg == "" {
+					msg = err.Error()
+				}
+				volErrs = append(volErrs, fmt.Sprintf("%s (%s)", v, msg))
+			}
 		}
 
 		// 3. Recreate and start the targeted services with fresh volumes from image
 		res := dockerx.ComposeApplyServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
 
+		ok := res.OK && len(volErrs) == 0
 		statusMsg := fmt.Sprintf("Reset %d development dependency volume(s) for service(s) [%s]:\n%s\n\nContainers recreated with fresh image dependencies.",
 			len(vols), strings.Join(targetServices, ", "), strings.Join(vols, "\n"))
+		if len(volErrs) > 0 {
+			statusMsg += "\n\n[error] Failed to delete volume(s):\n" + strings.Join(volErrs, "\n")
+		}
 		if !res.OK {
-			statusMsg += "\n\nWarning during service start:\n" + strings.TrimSpace(res.Output)
+			statusMsg += "\n\n[error] Service start warning/failure:\n" + strings.TrimSpace(res.Output)
 		}
 
-		_ = p.DB.InsertDeployLog(bgCtx, id, "Reset dev dependencies", res.OK, statusMsg)
+		_ = p.DB.InsertDeployLog(bgCtx, id, "Reset dev dependencies", ok, statusMsg)
 	}()
 
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))

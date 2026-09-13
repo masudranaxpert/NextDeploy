@@ -136,6 +136,28 @@ func TestDevVolumeNameNoCollision(t *testing.T) {
 	}
 }
 
+func TestMatchDevVolumeService(t *testing.T) {
+	known := []string{"api", "api_worker", "celery_beat", "web"}
+	prefix := "nddev_app1_"
+
+	cases := []struct {
+		vol  string
+		want string
+	}{
+		{"nddev_app1_web_node_modules", "web"},
+		{"nddev_app1_api_worker_node_modules", "api_worker"},
+		{"nddev_app1_celery_beat_dot_venv", "celery_beat"},
+		{"nddev_app1_api_node_modules", "api"},
+		{"nddev_app1_other_node_modules", ""},
+		{"nddev_otherapp_web_node_modules", ""},
+	}
+	for _, tc := range cases {
+		if got := MatchDevVolumeService(tc.vol, prefix, known); got != tc.want {
+			t.Errorf("MatchDevVolumeService(%q) = %q, want %q", tc.vol, got, tc.want)
+		}
+	}
+}
+
 func TestApplyTargetsBuildServicesOnly(t *testing.T) {
 	services := map[string]interface{}{
 		"web": map[string]interface{}{

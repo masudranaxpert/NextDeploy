@@ -41,6 +41,19 @@ func DevVolumeName(appID, svcKey, relPath string) string {
 	return fmt.Sprintf("nddev_%s_%s_%s", appID, svcKey, sanitized)
 }
 
+// MatchDevVolumeService finds the compose service name that owns the given dev volume name.
+// It uses longest prefix matching against known service names to safely handle service names
+// containing underscores (e.g. "api_worker" vs "api").
+func MatchDevVolumeService(volName, volPrefix string, knownServices []string) string {
+	best := ""
+	for _, s := range knownServices {
+		if strings.HasPrefix(volName, volPrefix+s+"_") && len(s) > len(best) {
+			best = s
+		}
+	}
+	return best
+}
+
 // DefaultTarget is the default container path used when dev mode is enabled without specifying one.
 const DefaultTarget = "/app"
 
