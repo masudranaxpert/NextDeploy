@@ -261,7 +261,13 @@
       window.scrollDeployPreToBottom = scrollDeployPreToBottom;
     })();
   </script>
-  <script defer src="/static/vendor/alpine.min.js"></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+  <script>
+    // Re-initialize Alpine after each hx-boost navigation so x-cloak elements become visible.
+    document.addEventListener('htmx:afterSwap', function (evt) {
+      if (window.Alpine) Alpine.initTree(evt.detail.elt);
+    });
+  </script>
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body hx-boost="true" hx-indicator="#global-htmx-indicator" class="min-h-full bg-background text-foreground antialiased" style="font-family: 'Inter', system-ui, sans-serif;">

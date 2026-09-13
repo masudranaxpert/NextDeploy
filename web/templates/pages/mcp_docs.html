@@ -577,7 +577,7 @@
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
          @click.stop 
-         x-data="{ allowReveal: false, tokenName: '' }"
+         x-data="{ allowReveal: false }"
          x-transition:enter="transition ease-out duration-200" 
          x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
          x-transition:enter-end="opacity-100 scale-100 translate-y-0"
@@ -618,7 +618,6 @@
                    id="token_name" 
                    name="name" 
                    required 
-                   x-model="tokenName"
                    placeholder="e.g. Cursor (MacBook Pro), Claude Code Laptop" 
                    class="input w-full bg-background/50 border-border/70 focus:bg-background focus:border-primary focus:ring-2 focus:ring-primary/25 placeholder:text-muted-foreground/45 transition-all text-sm h-10 px-3.5 rounded-xl" 
                    autofocus>
@@ -627,10 +626,10 @@
           <!-- Quick Preset Chips for convenient 1-click filling -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
             <span class="text-[11px] text-muted-foreground/60 mr-1">Quick presets:</span>
-            <button type="button" @click="tokenName = 'Cursor (Desktop)'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Cursor</button>
-            <button type="button" @click="tokenName = 'Claude Code'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Claude Code</button>
-            <button type="button" @click="tokenName = 'Windsurf IDE'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Windsurf</button>
-            <button type="button" @click="tokenName = 'CI / CD Agent'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">CI / CD</button>
+            <button type="button" onclick="document.getElementById('token_name').value='Cursor (Desktop)'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Cursor</button>
+            <button type="button" onclick="document.getElementById('token_name').value='Claude Code'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Claude Code</button>
+            <button type="button" onclick="document.getElementById('token_name').value='Windsurf IDE'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Windsurf</button>
+            <button type="button" onclick="document.getElementById('token_name').value='CI / CD Agent'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">CI / CD</button>
           </div>
         </div>
 
