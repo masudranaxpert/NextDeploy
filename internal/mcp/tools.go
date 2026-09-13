@@ -123,7 +123,7 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "deploy",
-			Description: "Trigger an asynchronous deployment (docker compose up). Returns a job_id immediately so you can poll deploy_status without timing out.",
+			Description: "Trigger an asynchronous deployment (docker compose up). If the application is connected to a Git repository (and Dev Mode is disabled), automatically pulls latest changes from Git before deploying. Returns a job_id immediately so you can poll deploy_status without timing out.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
@@ -281,7 +281,7 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "deploy_and_wait",
-			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. Max timeout 300s.",
+			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. If the application is connected to a Git repository (and Dev Mode is disabled), automatically pulls latest changes from Git before deploying. Max timeout 300s.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
@@ -310,6 +310,21 @@ func AllTools() []Tool {
 				Type: "object",
 				Properties: map[string]ToolProperty{
 					"app_id": {Type: "string", Description: "The application ID"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name:        "file_search",
+			Description: "Fast workspace search. Find files matching a glob pattern (e.g. *.go, *.env) or search line-by-line for text content (grep). Automatically skips .git, node_modules, and binary files for maximum speed.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":      {Type: "string", Description: "The application ID"},
+					"query":       {Type: "string", Description: "Optional text to search for inside files (case-insensitive grep). If omitted, only matching filenames are returned."},
+					"pattern":     {Type: "string", Description: "Optional filename or glob pattern to filter files (e.g. *.go, *.json, Dockerfile*). Defaults to *."},
+					"path":        {Type: "string", Description: "Optional subdirectory inside workspace to scope the search"},
+					"max_results": {Type: "integer", Description: "Maximum number of results to return (default 50, max 200)"},
 				},
 				Required: []string{"app_id"},
 			},

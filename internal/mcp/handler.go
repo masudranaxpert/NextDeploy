@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -118,6 +119,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleFilePatch(ctx, u, params.Arguments)
 	case "app_health_check":
 		return h.handleAppHealthCheck(ctx, u, params.Arguments)
+	case "file_search":
+		return h.handleFileSearch(ctx, u, params.Arguments)
 	default:
 		return CallToolResult{
 			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Unknown tool: %s", params.Name)}},
@@ -471,6 +474,18 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	if app.DevMode && action == "Deploy" {
 		fn = dockerx.ComposeApply
 	}
+
+	// Synchronize latest code from Git if app is Git-connected and Dev Mode is off (matches panel web UI).
+	if h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
+		syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
+		_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
+		syncCancel()
+		if syncErr != nil {
+			return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
+		}
+		h.p.InvalidateAfterAppWorkspaceChange(appID)
+	}
+
 	if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
 		return errorResult(fmt.Errorf("caddy sync failed: %w", err))
 	}
@@ -1192,6 +1207,154 @@ func truncateLogLines(s string, maxLines int) string {
 		return s
 	}
 	return strings.Join(lines[len(lines)-maxLines:], "\n")
+}
+
+func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	query := getStringArg(args, "query")
+	pattern := strings.TrimSpace(getStringArg(args, "pattern"))
+	subPath := strings.TrimSpace(getStringArg(args, "path"))
+	maxResults := getIntArg(args, "max_results", 50)
+	if maxResults <= 0 {
+		maxResults = 50
+	}
+	if maxResults > 200 {
+		maxResults = 200
+	}
+	if pattern == "" {
+		pattern = "*"
+	}
+
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
+	_ = app
+	if err != nil {
+		return errorResult(err)
+	}
+
+	rootPath := h.p.Store.Path(appID)
+	targetDir := rootPath
+	if subPath != "" {
+		var err error
+		targetDir, err = h.p.Store.SafeFilePath(appID, subPath)
+		if err != nil {
+			return errorResult(fmt.Errorf("invalid path: %w", err))
+		}
+	}
+
+	type ContentMatch struct {
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Content string `json:"content"`
+	}
+
+	var contentMatches []ContentMatch
+	var fileMatches []string
+	filesSearched := 0
+	lowerQuery := strings.ToLower(query)
+
+	ignoredDirs := map[string]bool{
+		".git":         true,
+		"node_modules": true,
+		"vendor":       true,
+		".venv":        true,
+		"venv":         true,
+		"__pycache__":   true,
+		"dist":         true,
+		"build":        true,
+		".next":        true,
+		".nuxt":        true,
+		".turbo":       true,
+	}
+
+	err = filepath.WalkDir(targetDir, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if ignoredDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		matched, _ := filepath.Match(pattern, name)
+		if !matched && pattern != "*" {
+			return nil
+		}
+
+		rel, err := filepath.Rel(rootPath, p)
+		if err != nil {
+			rel = p
+		}
+		rel = filepath.ToSlash(rel)
+
+		if query == "" {
+			fileMatches = append(fileMatches, rel)
+			if len(fileMatches) >= maxResults {
+				return filepath.SkipAll
+			}
+			return nil
+		}
+
+		filesSearched++
+		file, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		defer file.Close()
+
+		header := make([]byte, 512)
+		n, _ := file.Read(header)
+		if bytes.IndexByte(header[:n], 0) != -1 {
+			return nil
+		}
+		_, _ = file.Seek(0, io.SeekStart)
+
+		scanner := bufio.NewScanner(file)
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, 256*1024)
+		lineNum := 1
+		for scanner.Scan() {
+			lineText := scanner.Text()
+			if strings.Contains(strings.ToLower(lineText), lowerQuery) {
+				trimmed := strings.TrimSpace(lineText)
+				if len(trimmed) > 300 {
+					trimmed = trimmed[:297] + "..."
+				}
+				contentMatches = append(contentMatches, ContentMatch{
+					File:    rel,
+					Line:    lineNum,
+					Content: trimmed,
+				})
+				if len(contentMatches) >= maxResults {
+					return filepath.SkipAll
+				}
+			}
+			lineNum++
+		}
+		return nil
+	})
+
+	if err != nil && !errors.Is(err, filepath.SkipAll) {
+		return errorResult(fmt.Errorf("search error: %w", err))
+	}
+
+	resMap := map[string]interface{}{
+		"app_id":  appID,
+		"pattern": pattern,
+	}
+	if query != "" {
+		resMap["query"] = query
+		resMap["matches"] = contentMatches
+		resMap["total_matches"] = len(contentMatches)
+		resMap["files_searched"] = filesSearched
+	} else {
+		resMap["files"] = fileMatches
+		resMap["total_files"] = len(fileMatches)
+	}
+
+	return jsonResult(resMap)
 }
 
 func textResult(s string) (CallToolResult, error) {

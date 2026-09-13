@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 26 {
-		t.Errorf("expected 26 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 27 {
+		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -118,6 +118,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 		"container_exec", "server_exec",
 		"git_pull", "file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
+		"file_search",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -128,8 +129,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	// No-permission token hides restricted tools.
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 23 {
-		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 24 {
+		t.Errorf("expected 24 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -957,6 +958,58 @@ func TestMCP_NewTools(t *testing.T) {
 	}
 	if healthOut["app_id"] != appID {
 		t.Errorf("expected app_id %s, got %v", appID, healthOut["app_id"])
+	}
+
+	// 5. Test file_search by content query (grep)
+	searchGrepParams, _ := json.Marshal(CallToolParams{
+		Name: "file_search",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"query":  "patched",
+		},
+	})
+	grepResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      207,
+		Method:  "tools/call",
+		Params:  searchGrepParams,
+	})
+	grepRes := grepResp.Result.(CallToolResult)
+	if grepRes.IsError {
+		t.Fatalf("file_search (grep) failed: %+v", grepRes)
+	}
+	var grepOut map[string]interface{}
+	if err := json.Unmarshal([]byte(grepRes.Content[0].Text), &grepOut); err != nil {
+		t.Fatalf("failed to parse grep output JSON: %v", err)
+	}
+	if grepOut["total_matches"].(float64) < 1 {
+		t.Errorf("expected at least 1 match for 'patched', got %v", grepOut["total_matches"])
+	}
+
+	// 6. Test file_search by glob pattern (find)
+	searchFindParams, _ := json.Marshal(CallToolParams{
+		Name: "file_search",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"pattern": "*.txt",
+		},
+	})
+	findResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      208,
+		Method:  "tools/call",
+		Params:  searchFindParams,
+	})
+	findRes := findResp.Result.(CallToolResult)
+	if findRes.IsError {
+		t.Fatalf("file_search (find) failed: %+v", findRes)
+	}
+	var findOut map[string]interface{}
+	if err := json.Unmarshal([]byte(findRes.Content[0].Text), &findOut); err != nil {
+		t.Fatalf("failed to parse find output JSON: %v", err)
+	}
+	if findOut["total_files"].(float64) < 2 {
+		t.Errorf("expected at least 2 files matching '*.txt', got %v", findOut["total_files"])
 	}
 }
 
