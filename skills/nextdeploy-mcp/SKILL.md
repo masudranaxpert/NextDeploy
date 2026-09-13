@@ -30,6 +30,7 @@ Unlike basic SSH bind mounts where an agent can edit files but cannot deploy or 
 │   4. Poll build output    →   deploy_status(job_id)         │
 │   5. Read runtime logs    →   container_logs, deploy_tail   │
 │   6. Dev hot-reload       →   dev_mode_set, reset_dev_deps  │
+│   7. Terminal execution   →   container_exec, server_exec   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -87,7 +88,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **19 tools** across 6 core functional areas:
+The NextDeploy MCP server provides **21 tools** across 7 core functional areas:
 
 ### Area 1: Application Discovery
 - **`app_list`**: Lists all applications the user can access.
@@ -150,6 +151,23 @@ Deployments are **non-blocking**. They acquire the app's `ComposeMu` lock, trigg
     - `command` (string, optional, e.g. `"npm run dev"` or `"uvicorn main:app --reload"`)
 - **`reset_dev_deps`**: Deletes app-scoped named volumes (`nddev_<appID>_*`) and recreates containers with fresh image dependencies with zero database downtime.
   - Arguments: `app_id` (string, required).
+
+### Area 7: Terminal & Command Execution
+- **`container_exec`**: Runs commands inside an application container (or specific compose service) and returns stdout/stderr with exit status. Essential for running database migrations (`php artisan migrate`, `python manage.py migrate`, `npx prisma migrate deploy`), executing test suites (`npm test`, `pytest`, `go test`), and inspecting live container states.
+  - Arguments:
+    - `app_id` (string, required)
+    - `command` (string, required, e.g. `"npm test"` or `"php artisan migrate"`)
+    - `service` (string, optional, e.g. `"web"`; defaults to primary running container)
+    - `work_dir` (string, optional, e.g. `"/app"`)
+    - `timeout_seconds` (integer, optional, default 60, max 300)
+  - *RBAC*: Developer or Admin role required. Suspended apps cannot be executed in.
+  - Returns: `{"app_id": "...", "container": "...", "service": "...", "command": "...", "ok": true|false, "output": "..."}`
+- **`server_exec`**: Runs shell commands in the NextDeploy server / panel environment with Docker CLI access (strictly restricted to Admin role). Useful for host diagnostics, Docker system pruning, and VPS status inspection.
+  - Arguments:
+    - `command` (string, required, e.g. `"docker ps"`, `"df -h"`, `"uptime"`)
+    - `timeout_seconds` (integer, optional, default 60, max 300)
+  - *RBAC*: Strictly Admin role required.
+  - Returns: `{"command": "...", "ok": true|false, "output": "..."}`
 
 ---
 

@@ -100,8 +100,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 19 {
-		t.Errorf("expected 19 tools, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 21 {
+		t.Errorf("expected 21 tools, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -113,6 +113,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"app_list", "app_get", "file_list", "file_read", "file_write", "file_delete",
 		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
+		"container_exec", "server_exec",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -670,5 +671,123 @@ func TestMCP_DocsPageAuth(t *testing.T) {
 	}
 	if enabled := store.GetSetting(ctx, "mcp_enabled"); enabled != "1" {
 		t.Errorf("expected mcp_enabled to be 1 after second toggle, got %s", enabled)
+	}
+}
+
+func TestMCP_TerminalTools(t *testing.T) {
+	p, store, tmpDir, adminUser := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	regularUserID, err := store.CreateUser(ctx, "regular", "hash", db.RoleUser)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	regularUser, err := store.GetUserByID(ctx, regularUserID)
+	if err != nil {
+		t.Fatalf("GetUserByID failed: %v", err)
+	}
+
+	appID := "terminal-test-app"
+	if err := store.CreateApp(ctx, appID, "Terminal Test App", regularUserID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	srv := NewServer(p)
+
+	// 1. Non-admin calls server_exec -> must be forbidden
+	serverParams, _ := json.Marshal(CallToolParams{
+		Name: "server_exec",
+		Arguments: map[string]interface{}{
+			"command": "echo forbidden_test",
+		},
+	})
+	resp := srv.ProcessRPC(ctx, regularUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      101,
+		Method:  "tools/call",
+		Params:  serverParams,
+	})
+	if resp.Result == nil {
+		t.Fatalf("expected CallToolResult, got nil")
+	}
+	callRes := resp.Result.(CallToolResult)
+	if !callRes.IsError || len(callRes.Content) == 0 || !strings.Contains(callRes.Content[0].Text, "forbidden") {
+		t.Errorf("expected forbidden error for regular user calling server_exec, got %+v", callRes)
+	}
+
+	// 2. Admin calls server_exec -> must succeed
+	adminServerParams, _ := json.Marshal(CallToolParams{
+		Name: "server_exec",
+		Arguments: map[string]interface{}{
+			"command": "echo admin_server_exec_ok",
+		},
+	})
+	respAdmin := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      102,
+		Method:  "tools/call",
+		Params:  adminServerParams,
+	})
+	if respAdmin.Result == nil {
+		t.Fatalf("expected CallToolResult for admin, got nil")
+	}
+	callResAdmin := respAdmin.Result.(CallToolResult)
+	if callResAdmin.IsError {
+		t.Errorf("expected success for admin server_exec, got error: %+v", callResAdmin)
+	}
+	if len(callResAdmin.Content) == 0 || !strings.Contains(callResAdmin.Content[0].Text, "admin_server_exec_ok") {
+		t.Errorf("expected admin_server_exec_ok in output, got %+v", callResAdmin.Content)
+	}
+
+	// 3. User with viewer role calling container_exec -> must be forbidden
+	viewerUserID, err := store.CreateUser(ctx, "viewer", "hash", db.RoleUser)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	viewerUser, err := store.GetUserByID(ctx, viewerUserID)
+	if err != nil {
+		t.Fatalf("GetUserByID failed: %v", err)
+	}
+	if err := store.AddCollaborator(ctx, appID, viewerUserID, db.CollabRoleViewer); err != nil {
+		t.Fatalf("AddCollaborator failed: %v", err)
+	}
+
+	viewerParams, _ := json.Marshal(CallToolParams{
+		Name: "container_exec",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"command": "ls -la",
+		},
+	})
+	respViewer := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      103,
+		Method:  "tools/call",
+		Params:  viewerParams,
+	})
+	callResViewer := respViewer.Result.(CallToolResult)
+	if !callResViewer.IsError || len(callResViewer.Content) == 0 || !strings.Contains(callResViewer.Content[0].Text, "forbidden") {
+		t.Errorf("expected forbidden for viewer user calling container_exec, got %+v", callResViewer)
+	}
+
+	// 4. App owner (developer access) calls container_exec when no container deployed
+	ownerParams, _ := json.Marshal(CallToolParams{
+		Name: "container_exec",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"command": "ls -la",
+		},
+	})
+	respOwner := srv.ProcessRPC(ctx, regularUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      104,
+		Method:  "tools/call",
+		Params:  ownerParams,
+	})
+	callResOwner := respOwner.Result.(CallToolResult)
+	if !callResOwner.IsError || len(callResOwner.Content) == 0 || !strings.Contains(callResOwner.Content[0].Text, "no running container found") {
+		t.Errorf("expected 'no running container found' error, got %+v", callResOwner)
 	}
 }

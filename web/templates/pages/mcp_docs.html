@@ -530,6 +530,7 @@
         <button type="button" @click="activeCategory = 'file'" :class="activeCategory === 'file' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Files</button>
         <button type="button" @click="activeCategory = 'deploy'" :class="activeCategory === 'deploy' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Deploy</button>
         <button type="button" @click="activeCategory = 'logs'" :class="activeCategory === 'logs' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Logs</button>
+        <button type="button" @click="activeCategory = 'terminal'" :class="activeCategory === 'terminal' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Terminal</button>
         <button type="button" @click="activeCategory = 'dev'" :class="activeCategory === 'dev' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Dev Mode</button>
       </div>
     </div>
@@ -540,6 +541,7 @@
                   (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get')) ||
                   (activeCategory === 'file' && ('{{.Name}}' === 'file_list' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete')) ||
                   (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'redeploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status')) ||
+                  (activeCategory === 'terminal' && ('{{.Name}}' === 'container_exec' || '{{.Name}}' === 'server_exec')) ||
                   (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail')) ||
                   (activeCategory === 'dev' && ('{{.Name}}' === 'dev_mode_set' || '{{.Name}}' === 'reset_dev_deps'))"
         class="rounded-xl border border-border/60 bg-muted/10 p-3.5 space-y-2.5 transition-all hover:border-border hover:bg-muted/20">

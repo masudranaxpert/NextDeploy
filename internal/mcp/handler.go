@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/handlers"
+	"panel/internal/runutil"
 	"panel/internal/sandbox"
 )
 
@@ -99,6 +101,10 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleDevModeSet(ctx, u, params.Arguments)
 	case "reset_dev_deps":
 		return h.handleResetDevDeps(ctx, u, params.Arguments)
+	case "container_exec":
+		return h.handleContainerExec(ctx, u, params.Arguments)
+	case "server_exec":
+		return h.handleServerExec(ctx, u, params.Arguments)
 	default:
 		return CallToolResult{
 			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Unknown tool: %s", params.Name)}},
@@ -615,6 +621,114 @@ func (h *Handler) handleResetDevDeps(ctx context.Context, u db.User, args map[st
 	}()
 
 	return textResult(fmt.Sprintf("Resetting %d dev volume(s) for service(s) [%s] in the background.", len(vols), strings.Join(targetServices, ", ")))
+}
+
+func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+	command := getStringArg(args, "command")
+	if command == "" {
+		return errorResult(errors.New("command is required"))
+	}
+	service := strings.TrimSpace(getStringArg(args, "service"))
+	workDir := strings.TrimSpace(getStringArg(args, "work_dir"))
+	timeoutSec := getIntArg(args, "timeout_seconds", 60)
+	if timeoutSec < 1 {
+		timeoutSec = 1
+	} else if timeoutSec > 300 {
+		timeoutSec = 300
+	}
+
+	project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
+	targetContainer := ""
+	matchedService := service
+
+	if service != "" {
+		if composeRes.OK && h.p.ComposeServiceInRows(composeRows, service) {
+			cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, service)
+			if rerr == nil && cid != "" {
+				targetContainer = cid
+			}
+		}
+		if targetContainer == "" {
+			for _, row := range composeRows {
+				if strings.EqualFold(row.Name, service) || strings.EqualFold(row.Service, service) {
+					targetContainer = row.Name
+					matchedService = row.Service
+					break
+				}
+			}
+		}
+		if targetContainer == "" && h.p.ContainerBelongsToApp(ctx, appID, service) {
+			targetContainer = service
+		}
+		if targetContainer == "" {
+			return errorResult(fmt.Errorf("service or container %q not found for app %q", service, appID))
+		}
+	} else {
+		for _, row := range composeRows {
+			if strings.EqualFold(row.State, "running") {
+				targetContainer = row.Name
+				matchedService = row.Service
+				break
+			}
+		}
+		if targetContainer == "" && len(composeRows) > 0 {
+			targetContainer = composeRows[0].Name
+			matchedService = composeRows[0].Service
+		}
+		if targetContainer == "" {
+			return errorResult(fmt.Errorf("no running container found for app %q. Deploy the application stack first", appID))
+		}
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	res := dockerx.DockerExecWorkDir(execCtx, targetContainer, command, workDir)
+	return jsonResult(map[string]interface{}{
+		"app_id":    appID,
+		"container": targetContainer,
+		"service":   matchedService,
+		"command":   command,
+		"ok":        res.OK,
+		"output":    res.Output,
+	})
+}
+
+func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	if u.Role != db.RoleAdmin {
+		return errorResult(errors.New("forbidden: server_exec requires admin role"))
+	}
+	command := getStringArg(args, "command")
+	if command == "" {
+		return errorResult(errors.New("command is required"))
+	}
+	timeoutSec := getIntArg(args, "timeout_seconds", 60)
+	if timeoutSec < 1 {
+		timeoutSec = 1
+	} else if timeoutSec > 300 {
+		timeoutSec = 300
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	var res runutil.Result
+	if runtime.GOOS == "windows" {
+		res = runutil.Run(execCtx, ".", nil, "cmd", "/c", command)
+	} else {
+		res = runutil.Run(execCtx, ".", nil, "sh", "-c", command)
+	}
+
+	return jsonResult(map[string]interface{}{
+		"command": command,
+		"ok":      res.OK,
+		"output":  res.Output,
+	})
 }
 
 func textResult(s string) (CallToolResult, error) {

@@ -328,24 +328,40 @@ func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	return Result{OK: ok, Output: out}
 }
 
-func DockerExec(ctx context.Context, container, shellCmd string) Result {
+func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string) Result {
 	container = strings.TrimSpace(container)
 	shellCmd = strings.TrimSpace(shellCmd)
+	workDir = strings.TrimSpace(workDir)
 	if container == "" {
 		return Result{OK: false, Output: "no container selected"}
 	}
 	if shellCmd == "" {
 		return Result{OK: false, Output: "empty command"}
 	}
+	var args []string
+	if workDir != "" {
+		args = []string{"docker", "exec", "-i", "-w", workDir, container, "sh", "-c", shellCmd}
+	} else {
+		args = []string{"docker", "exec", "-i", container, "sh", "-c", shellCmd}
+	}
 	// Try with sh -c first
-	r := run(ctx, ".", "docker", "exec", "-i", container, "sh", "-c", shellCmd)
+	r := run(ctx, ".", args...)
 	if !r.OK && strings.Contains(r.Output, "executable file not found") {
 		// Fallback: try running the command directly without shell
 		parts := strings.Fields(shellCmd)
 		if len(parts) > 0 {
-			r = run(ctx, ".", append([]string{"docker", "exec", "-i", container}, parts...)...)
+			base := []string{"docker", "exec", "-i"}
+			if workDir != "" {
+				base = append(base, "-w", workDir)
+			}
+			base = append(base, container)
+			r = run(ctx, ".", append(base, parts...)...)
 		}
 	}
 	return r
+}
+
+func DockerExec(ctx context.Context, container, shellCmd string) Result {
+	return DockerExecWorkDir(ctx, container, shellCmd, "")
 }
 

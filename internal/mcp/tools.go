@@ -228,5 +228,32 @@ func AllTools() []Tool {
 				Required: []string{"app_id"},
 			},
 		},
+		{
+			Name:        "container_exec",
+			Description: "Execute a shell command inside an application container (or specific compose service) and return stdout/stderr and exit status",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":          {Type: "string", Description: "The application ID"},
+					"command":         {Type: "string", Description: "Shell command to execute inside the container"},
+					"service":         {Type: "string", Description: "Optional compose service name or container name (defaults to primary running container)"},
+					"work_dir":        {Type: "string", Description: "Optional working directory inside the container"},
+					"timeout_seconds": {Type: "integer", Description: "Command timeout in seconds (default 60, max 300)"},
+				},
+				Required: []string{"app_id", "command"},
+			},
+		},
+		{
+			Name:        "server_exec",
+			Description: "Execute a shell command in the NextDeploy host / panel environment (strictly restricted to Admin role)",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"command":         {Type: "string", Description: "Shell command to execute on the server"},
+					"timeout_seconds": {Type: "integer", Description: "Command timeout in seconds (default 60, max 300)"},
+				},
+				Required: []string{"command"},
+			},
+		},
 	}
 }
