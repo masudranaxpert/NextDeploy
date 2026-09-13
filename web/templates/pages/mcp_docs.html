@@ -557,9 +557,9 @@
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {{range .Tools}}
       <div x-show="activeCategory === 'all' || 
-                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get')) ||
-                  (activeCategory === 'file' && ('{{.Name}}' === 'file_list' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete')) ||
-                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'redeploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status')) ||
+                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get' || '{{.Name}}' === 'app_health_check' || '{{.Name}}' === 'git_pull')) ||
+                  (activeCategory === 'file' && ('{{.Name}}' === 'file_list' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete' || '{{.Name}}' === 'file_write_batch' || '{{.Name}}' === 'file_patch')) ||
+                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'redeploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'deploy_and_wait')) ||
                   (activeCategory === 'terminal' && ('{{.Name}}' === 'container_exec' || '{{.Name}}' === 'server_exec')) ||
                   (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail')) ||
                   (activeCategory === 'dev' && ('{{.Name}}' === 'dev_mode_set' || '{{.Name}}' === 'reset_dev_deps'))"

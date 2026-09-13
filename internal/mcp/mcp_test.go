@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 21 {
-		t.Errorf("expected 21 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 26 {
+		t.Errorf("expected 26 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -117,6 +117,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 		"container_exec", "server_exec",
+		"git_pull", "file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -127,8 +128,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	// No-permission token hides restricted tools.
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 18 {
-		t.Errorf("expected 18 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 23 {
+		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -811,3 +812,151 @@ func TestMCP_TerminalTools(t *testing.T) {
 		t.Errorf("expected 'no running container found' error, got %+v", callResOwner)
 	}
 }
+
+func TestMCP_NewTools(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "newtoolsapp"
+	if err := store.CreateApp(ctx, appID, "New Tools App", user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	srv := NewServer(p)
+
+	// 1. Test file_write_batch
+	batchParams, _ := json.Marshal(CallToolParams{
+		Name: "file_write_batch",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"files": []map[string]string{
+				{"path": "batch1.txt", "content": "hello batch 1\nend\n"},
+				{"path": "nested/batch2.txt", "content": "hello batch 2\n"},
+			},
+		},
+	})
+	resp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      201,
+		Method:  "tools/call",
+		Params:  batchParams,
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected RPC error: %+v", resp.Error)
+	}
+	res := resp.Result.(CallToolResult)
+	if res.IsError {
+		t.Fatalf("file_write_batch failed: %+v", res)
+	}
+	var batchOut map[string]interface{}
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &batchOut); err != nil {
+		t.Fatalf("failed to parse batch output JSON: %v", err)
+	}
+	if batchOut["count"].(float64) != 2 {
+		t.Errorf("expected count 2, got %v", batchOut["count"])
+	}
+
+	// Read one of the written files to verify disk persistence
+	readParams, _ := json.Marshal(CallToolParams{
+		Name: "file_read",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"path":   "nested/batch2.txt",
+		},
+	})
+	readResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      202,
+		Method:  "tools/call",
+		Params:  readParams,
+	})
+	readRes := readResp.Result.(CallToolResult)
+	if readRes.IsError || readRes.Content[0].Text != "hello batch 2\n" {
+		t.Errorf("expected 'hello batch 2\\n', got %+v", readRes)
+	}
+
+	// 2. Test file_patch
+	patch := "--- a/batch1.txt\n+++ b/batch1.txt\n@@ -1,2 +1,2 @@\n-hello batch 1\n+hello patched 1\n end\n"
+	patchParams, _ := json.Marshal(CallToolParams{
+		Name: "file_patch",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"patch":  patch,
+		},
+	})
+	patchResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      203,
+		Method:  "tools/call",
+		Params:  patchParams,
+	})
+	patchRes := patchResp.Result.(CallToolResult)
+	if patchRes.IsError {
+		t.Fatalf("file_patch failed: %+v", patchRes)
+	}
+
+	// Verify the patch was applied
+	readPatchParams, _ := json.Marshal(CallToolParams{
+		Name: "file_read",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"path":   "batch1.txt",
+		},
+	})
+	readPatchResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      204,
+		Method:  "tools/call",
+		Params:  readPatchParams,
+	})
+	readPatchRes := readPatchResp.Result.(CallToolResult)
+	if readPatchRes.IsError || !strings.Contains(readPatchRes.Content[0].Text, "hello patched 1") {
+		t.Errorf("patch not reflected in file content, got: %+v", readPatchRes)
+	}
+
+	// 3. Test git_pull on app without git repository
+	gitParams, _ := json.Marshal(CallToolParams{
+		Name: "git_pull",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	gitResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      205,
+		Method:  "tools/call",
+		Params:  gitParams,
+	})
+	gitRes := gitResp.Result.(CallToolResult)
+	if !gitRes.IsError || !strings.Contains(gitRes.Content[0].Text, "no git repository configured") {
+		t.Errorf("expected 'no git repository configured' error, got %+v", gitRes)
+	}
+
+	// 4. Test app_health_check
+	healthParams, _ := json.Marshal(CallToolParams{
+		Name: "app_health_check",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	healthResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      206,
+		Method:  "tools/call",
+		Params:  healthParams,
+	})
+	healthRes := healthResp.Result.(CallToolResult)
+	if healthRes.IsError {
+		t.Fatalf("app_health_check failed: %+v", healthRes)
+	}
+	var healthOut map[string]interface{}
+	if err := json.Unmarshal([]byte(healthRes.Content[0].Text), &healthOut); err != nil {
+		t.Fatalf("failed to parse health output JSON: %v", err)
+	}
+	if healthOut["app_id"] != appID {
+		t.Errorf("expected app_id %s, got %v", appID, healthOut["app_id"])
+	}
+}
+

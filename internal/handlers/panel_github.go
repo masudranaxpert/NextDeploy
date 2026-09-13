@@ -193,7 +193,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	// If the repository URL changed, drop the old checkout so the next sync clones the new remote.
 	if oldCfgErr == nil && strings.TrimSpace(old.RepoURL) != "" &&
 		normalizeRepoURL(old.RepoURL) != normalizeRepoURL(cfg.RepoURL) {
-		_ = os.RemoveAll(p.appCheckoutPath(appID))
+		_ = os.RemoveAll(p.AppCheckoutPath(appID))
 	}
 
 	// Best practice: persist config then immediately materialize workspace (clone/fetch) so branch/URL changes apply.
@@ -221,7 +221,7 @@ func (p *Panel) GitConfigDelete(c *fiber.Ctx) error {
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=overview", appID))
 }
 
-func (p *Panel) appCheckoutPath(appID string) string {
+func (p *Panel) AppCheckoutPath(appID string) string {
 	return filepath.Join(p.Store.ReservedPath(appID), "repo")
 }
 
@@ -237,7 +237,7 @@ func (p *Panel) SyncGitAppSource(ctx context.Context, appID string) (string, err
 	if err := p.ensureGitWorkspace(appID); err != nil {
 		return "", err
 	}
-	repoDir := p.appCheckoutPath(appID)
+	repoDir := p.AppCheckoutPath(appID)
 
 	_ = os.Remove(filepath.Join(repoDir, ".git", "index.lock"))
 
@@ -706,7 +706,7 @@ func (p *Panel) gitRepoBrowserGate(c *fiber.Ctx, appID string) int {
 	if _, err := p.DB.GetAppGitConfig(c.UserContext(), appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	if !gitx.RepoExists(p.appCheckoutPath(appID)) {
+	if !gitx.RepoExists(p.AppCheckoutPath(appID)) {
 		return fiber.StatusNotFound
 	}
 	return 0

@@ -255,5 +255,65 @@ func AllTools() []Tool {
 				Required: []string{"command"},
 			},
 		},
+		{
+			Name:        "git_pull",
+			Description: "Pull latest changes from the configured Git repository for an application into its workspace, synchronize environment variables, and update deployment reference",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"branch": {Type: "string", Description: "Optional branch name to pull. Defaults to configured branch."},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name:        "file_write_batch",
+			Description: "Write or update multiple files in the application workspace in a single batch operation. Avoids multiple round trips.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"files":  {Type: "array", Description: "Array of file objects, each containing 'path' (relative file path) and 'content' (file text content)"},
+				},
+				Required: []string{"app_id", "files"},
+			},
+		},
+		{
+			Name:        "deploy_and_wait",
+			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. Max timeout 300s.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":          {Type: "string", Description: "The application ID"},
+					"timeout_seconds": {Type: "integer", Description: "Maximum time to wait in seconds (default 180, max 300)"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name:        "file_patch",
+			Description: "Apply a unified diff patch to the application workspace using git apply. Automatically handles line recount, context, and whitespace.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"patch":  {Type: "string", Description: "Unified diff patch content (output of git diff or standard unidiff)"},
+				},
+				Required: []string{"app_id", "patch"},
+			},
+		},
+		{
+			Name:        "app_health_check",
+			Description: "Perform an end-to-end health check of an application, verifying container running states and making HTTP health probes against configured domains",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
 	}
 }
+

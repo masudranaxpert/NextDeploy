@@ -1,11 +1,13 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ import (
 	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/gitx"
 	"panel/internal/handlers"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
@@ -105,6 +108,16 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleContainerExec(ctx, u, params.Arguments)
 	case "server_exec":
 		return h.handleServerExec(ctx, u, params.Arguments)
+	case "git_pull":
+		return h.handleGitPull(ctx, u, params.Arguments)
+	case "file_write_batch":
+		return h.handleFileWriteBatch(ctx, u, params.Arguments)
+	case "deploy_and_wait":
+		return h.handleDeployAndWait(ctx, u, params.Arguments)
+	case "file_patch":
+		return h.handleFilePatch(ctx, u, params.Arguments)
+	case "app_health_check":
+		return h.handleAppHealthCheck(ctx, u, params.Arguments)
 	default:
 		return CallToolResult{
 			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Unknown tool: %s", params.Name)}},
@@ -229,6 +242,33 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 	return textResult(string(b))
 }
 
+func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, content string) error {
+	full, err := h.p.Store.SafeFilePath(app.ID, path)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+	if filepath.Base(path) == ".nextdeploy.generated.compose.yml" {
+		return errors.New(".nextdeploy.generated.compose.yml is managed by NextDeploy; edit docker-compose.yml instead")
+	}
+	cleanRel := filepath.ToSlash(strings.Trim(path, "/"))
+	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
+		if err := sandbox.CheckComposeSecurity([]byte(content)); err != nil {
+			return fmt.Errorf("compose security validation failed: %w", err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
+		return err
+	}
+	h.p.InvalidateAfterAppWorkspaceChange(app.ID)
+	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == app.ComposeFile {
+		_ = h.p.SyncAppCaddyOverrideCtx(ctx, app.ID)
+	}
+	return nil
+}
+
 func (h *Handler) handleFileWrite(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
@@ -237,30 +277,45 @@ func (h *Handler) handleFileWrite(ctx context.Context, u db.User, args map[strin
 	if err != nil {
 		return errorResult(err)
 	}
-	full, err := h.p.Store.SafeFilePath(appID, path)
-	if err != nil {
-		return errorResult(fmt.Errorf("invalid path: %w", err))
-	}
-	if filepath.Base(path) == ".nextdeploy.generated.compose.yml" {
-		return errorResult(errors.New(".nextdeploy.generated.compose.yml is managed by NextDeploy; edit docker-compose.yml instead"))
-	}
-	cleanRel := filepath.ToSlash(strings.Trim(path, "/"))
-	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
-		if err := sandbox.CheckComposeSecurity([]byte(content)); err != nil {
-			return errorResult(fmt.Errorf("compose security validation failed: %w", err))
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+	if err := h.writeWorkspaceFile(ctx, app, path, content); err != nil {
 		return errorResult(err)
-	}
-	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
-		return errorResult(err)
-	}
-	h.p.InvalidateAfterAppWorkspaceChange(appID)
-	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == app.ComposeFile {
-		_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
 	}
 	return textResult(fmt.Sprintf("Saved %d bytes to %s", len(content), path))
+}
+
+func (h *Handler) handleFileWriteBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+	rawFiles, ok := args["files"].([]interface{})
+	if !ok || len(rawFiles) == 0 {
+		return errorResult(errors.New("'files' must be a non-empty array of objects with 'path' and 'content'"))
+	}
+	var written []string
+	for i, item := range rawFiles {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			return errorResult(fmt.Errorf("file item at index %d is invalid", i))
+		}
+		p, _ := m["path"].(string)
+		c, _ := m["content"].(string)
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return errorResult(fmt.Errorf("file item at index %d has empty path", i))
+		}
+		if err := h.writeWorkspaceFile(ctx, app, p, c); err != nil {
+			return errorResult(fmt.Errorf("failed writing %s: %w", p, err))
+		}
+		written = append(written, p)
+	}
+	return jsonResult(map[string]interface{}{
+		"app_id":  appID,
+		"written": written,
+		"count":   len(written),
+		"message": fmt.Sprintf("Successfully wrote %d file(s)", len(written)),
+	})
 }
 
 func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -772,6 +827,371 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 		"ok":      res.OK,
 		"output":  res.Output,
 	})
+}
+
+func (h *Handler) handleGitPull(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	branch := strings.TrimSpace(getStringArg(args, "branch"))
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	cfg, err := h.p.DB.GetAppGitConfig(ctx, appID)
+	if err != nil || strings.TrimSpace(cfg.RepoURL) == "" {
+		return errorResult(errors.New("no git repository configured for this app. Connect a git repo in the panel first"))
+	}
+
+	if branch != "" && branch != cfg.Branch {
+		cfg.Branch = branch
+		_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
+	}
+
+	out, err := h.p.SyncGitAppSource(ctx, appID)
+	if err != nil {
+		return errorResult(fmt.Errorf("git pull failed: %w", err))
+	}
+
+	h.p.InvalidateAfterAppWorkspaceChange(appID)
+	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
+
+	repoDir := h.p.AppCheckoutPath(appID)
+	commit := gitx.CurrentCommit(ctx, repoDir)
+	subject := gitx.CurrentCommitSubject(ctx, repoDir)
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_git_pull",
+			TargetType: "app",
+			TargetID:   appID,
+			Details:    fmt.Sprintf("Pulled git commit %s (%s) for app %s", commit, subject, app.Name),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	return jsonResult(map[string]interface{}{
+		"app_id":  appID,
+		"branch":  cfg.Branch,
+		"commit":  commit,
+		"subject": subject,
+		"output":  out,
+	})
+}
+
+func (h *Handler) handleDeployAndWait(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	timeoutSec := getIntArg(args, "timeout_seconds", 180)
+	if timeoutSec <= 0 {
+		timeoutSec = 180
+	}
+	if timeoutSec > 300 {
+		timeoutSec = 300
+	}
+
+	res, err := h.handleDeploy(ctx, u, args, "Deploy", dockerx.ComposeUp)
+	if err != nil || res.IsError {
+		return res, err
+	}
+
+	var startInfo map[string]interface{}
+	if len(res.Content) > 0 {
+		_ = json.Unmarshal([]byte(res.Content[0].Text), &startInfo)
+	}
+	jobID, _ := startInfo["job_id"].(string)
+	if jobID == "" {
+		return errorResult(errors.New("failed to retrieve job_id for deployment"))
+	}
+
+	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
+	pollInterval := 1500 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			return errorResult(ctx.Err())
+		default:
+		}
+
+		job, found := h.p.GetDeployJob(jobID)
+		if !found {
+			return errorResult(fmt.Errorf("deploy job %s disappeared", jobID))
+		}
+
+		if !job.Running {
+			output := truncateLogLines(job.Output, 60)
+			return jsonResult(map[string]interface{}{
+				"job_id":      job.JobID,
+				"app_id":      job.AppID,
+				"action":      job.Action,
+				"ok":          job.OK,
+				"running":     false,
+				"duration_s":  time.Since(job.CreatedAt).Round(time.Second).Seconds(),
+				"output_tail": output,
+			})
+		}
+
+		if time.Now().After(deadline) {
+			output := truncateLogLines(job.Output, 40)
+			return jsonResult(map[string]interface{}{
+				"job_id":      job.JobID,
+				"app_id":      job.AppID,
+				"action":      job.Action,
+				"status":      "timeout",
+				"running":     true,
+				"message":     fmt.Sprintf("Deployment still running after %d seconds. Continue checking with deploy_status.", timeoutSec),
+				"output_tail": output,
+			})
+		}
+
+		time.Sleep(pollInterval)
+	}
+}
+
+func (h *Handler) handleFilePatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	patch := getStringArg(args, "patch")
+	if strings.TrimSpace(patch) == "" {
+		return errorResult(errors.New("patch content is required"))
+	}
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	workDir := h.p.ComposeWorkspaceRoot(ctx, appID)
+
+	if strings.Contains(patch, ".nextdeploy.generated.compose.yml") {
+		return errorResult(errors.New("cannot patch .nextdeploy.generated.compose.yml"))
+	}
+
+	outStr, applyErr := applyUnifiedPatch(ctx, workDir, patch)
+	if applyErr != nil {
+		return errorResult(fmt.Errorf("failed to apply patch: %w", applyErr))
+	}
+
+	// Validate compose security if a compose file might have been modified
+	composeFiles := []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", app.ComposeFile}
+	for _, cf := range composeFiles {
+		if cf == "" {
+			continue
+		}
+		if strings.Contains(patch, cf) {
+			cp := filepath.Join(workDir, cf)
+			if b, err := os.ReadFile(cp); err == nil {
+				if secErr := sandbox.CheckComposeSecurity(b); secErr != nil {
+					_ = revertUnifiedPatch(ctx, workDir, patch)
+					return errorResult(fmt.Errorf("patch produced insecure compose file (%s): %w (reverted)", cf, secErr))
+				}
+			}
+		}
+	}
+
+	h.p.InvalidateAfterAppWorkspaceChange(appID)
+	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_file_patch",
+			TargetType: "app",
+			TargetID:   appID,
+			Details:    fmt.Sprintf("Applied patch to app %s", app.Name),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	msg := "Patch applied successfully"
+	if outStr != "" {
+		msg += ":\n" + outStr
+	}
+	return textResult(msg)
+}
+
+func applyUnifiedPatch(ctx context.Context, dir string, patch string) (string, error) {
+	if !strings.HasSuffix(patch, "\n") {
+		patch += "\n"
+	}
+	tmpFile, err := os.CreateTemp("", "nextdeploy_patch_*.diff")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(patch); err != nil {
+		_ = tmpFile.Close()
+		return "", err
+	}
+	_ = tmpFile.Close()
+
+	cmd := exec.CommandContext(ctx, "git", "apply", "--ignore-whitespace", "--inaccurate-eof", tmpFile.Name())
+	cmd.Dir = dir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err = cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(out.String()), nil
+	}
+
+	cmd0 := exec.CommandContext(ctx, "git", "apply", "-p0", "--ignore-whitespace", "--inaccurate-eof", tmpFile.Name())
+	cmd0.Dir = dir
+	var out0 bytes.Buffer
+	cmd0.Stdout = &out0
+	cmd0.Stderr = &out0
+	err0 := cmd0.Run()
+	if err0 == nil {
+		return strings.TrimSpace(out0.String()), nil
+	}
+
+	errMsg := strings.TrimSpace(out.String())
+	if errMsg == "" {
+		errMsg = strings.TrimSpace(out0.String())
+	}
+	if errMsg == "" {
+		errMsg = err.Error()
+	}
+	return "", errors.New(errMsg)
+}
+
+func revertUnifiedPatch(ctx context.Context, dir string, patch string) error {
+	if !strings.HasSuffix(patch, "\n") {
+		patch += "\n"
+	}
+	tmpFile, err := os.CreateTemp("", "nextdeploy_revert_*.diff")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(patch); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	_ = tmpFile.Close()
+
+	cmd := exec.CommandContext(ctx, "git", "apply", "-R", "--ignore-whitespace", "--inaccurate-eof", tmpFile.Name())
+	cmd.Dir = dir
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+	cmd0 := exec.CommandContext(ctx, "git", "apply", "-p0", "-R", "--ignore-whitespace", "--inaccurate-eof", tmpFile.Name())
+	cmd0.Dir = dir
+	return cmd0.Run()
+}
+
+func (h *Handler) handleAppHealthCheck(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	project, psRows, psRes := h.p.ComposeProjectAndPS(ctx, app, appID)
+	containers := make([]map[string]interface{}, 0, len(psRows))
+	allRunning := len(psRows) > 0
+	for _, row := range psRows {
+		isUp := strings.EqualFold(row.State, "running")
+		if !isUp {
+			allRunning = false
+		}
+		containers = append(containers, map[string]interface{}{
+			"service": row.Service,
+			"name":    row.Name,
+			"state":   row.State,
+			"status":  row.Status,
+		})
+	}
+	if len(psRows) == 0 {
+		allRunning = false
+	}
+
+	domains, _ := h.p.DB.ListAppDomains(ctx, appID)
+	type HttpCheckResult struct {
+		Domain     string `json:"domain"`
+		URL        string `json:"url"`
+		StatusCode int    `json:"status_code,omitempty"`
+		LatencyMS  int64  `json:"latency_ms"`
+		OK         bool   `json:"ok"`
+		Error      string `json:"error,omitempty"`
+	}
+	httpChecks := make([]HttpCheckResult, 0, len(domains))
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return errors.New("stopped after 3 redirects")
+			}
+			return nil
+		},
+	}
+
+	allHttpOK := true
+	for _, d := range domains {
+		targetURL := fmt.Sprintf("https://%s", d.Domain)
+		start := time.Now()
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+		var resp *http.Response
+		if reqErr == nil {
+			resp, reqErr = client.Do(req)
+		}
+		if reqErr != nil {
+			targetURL = fmt.Sprintf("http://%s", d.Domain)
+			reqHttp, _ := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+			start = time.Now()
+			resp, reqErr = client.Do(reqHttp)
+		}
+		latency := time.Since(start).Milliseconds()
+
+		if reqErr != nil {
+			allHttpOK = false
+			httpChecks = append(httpChecks, HttpCheckResult{
+				Domain:    d.Domain,
+				URL:       targetURL,
+				LatencyMS: latency,
+				OK:        false,
+				Error:     reqErr.Error(),
+			})
+		} else {
+			_ = resp.Body.Close()
+			okStatus := resp.StatusCode >= 200 && resp.StatusCode < 400
+			if !okStatus {
+				allHttpOK = false
+			}
+			httpChecks = append(httpChecks, HttpCheckResult{
+				Domain:     d.Domain,
+				URL:        targetURL,
+				StatusCode: resp.StatusCode,
+				LatencyMS:  latency,
+				OK:         okStatus,
+			})
+		}
+	}
+
+	healthy := allRunning && (len(domains) == 0 || allHttpOK)
+
+	return jsonResult(map[string]interface{}{
+		"app_id":      appID,
+		"app_name":    app.Name,
+		"project":     project,
+		"healthy":     healthy,
+		"containers":  containers,
+		"http_checks": httpChecks,
+		"compose_ok":  psRes.OK,
+	})
+}
+
+func truncateLogLines(s string, maxLines int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= maxLines {
+		return s
+	}
+	return strings.Join(lines[len(lines)-maxLines:], "\n")
 }
 
 func textResult(s string) (CallToolResult, error) {
