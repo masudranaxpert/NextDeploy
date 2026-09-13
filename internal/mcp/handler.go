@@ -22,7 +22,6 @@ import (
 	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
-	"panel/internal/gitx"
 	"panel/internal/handlers"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
@@ -109,8 +108,6 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleContainerExec(ctx, u, params.Arguments)
 	case "server_exec":
 		return h.handleServerExec(ctx, u, params.Arguments)
-	case "git_pull":
-		return h.handleGitPull(ctx, u, params.Arguments)
 	case "file_write_batch":
 		return h.handleFileWriteBatch(ctx, u, params.Arguments)
 	case "deploy_and_wait":
@@ -841,59 +838,6 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 		"command": command,
 		"ok":      res.OK,
 		"output":  res.Output,
-	})
-}
-
-func (h *Handler) handleGitPull(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	appID := getStringArg(args, "app_id")
-	branch := strings.TrimSpace(getStringArg(args, "branch"))
-	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
-	if err != nil {
-		return errorResult(err)
-	}
-
-	cfg, err := h.p.DB.GetAppGitConfig(ctx, appID)
-	if err != nil || strings.TrimSpace(cfg.RepoURL) == "" {
-		return errorResult(errors.New("no git repository configured for this app. Connect a git repo in the panel first"))
-	}
-
-	if branch != "" && branch != cfg.Branch {
-		cfg.Branch = branch
-		_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
-	}
-
-	out, err := h.p.SyncGitAppSource(ctx, appID)
-	if err != nil {
-		return errorResult(fmt.Errorf("git pull failed: %w", err))
-	}
-
-	h.p.InvalidateAfterAppWorkspaceChange(appID)
-	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
-
-	repoDir := h.p.AppCheckoutPath(appID)
-	commit := gitx.CurrentCommit(ctx, repoDir)
-	subject := gitx.CurrentCommitSubject(ctx, repoDir)
-
-	go func() {
-		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
-			UserID:     u.ID,
-			Username:   u.Username,
-			Action:     "mcp_git_pull",
-			TargetType: "app",
-			TargetID:   appID,
-			Details:    fmt.Sprintf("Pulled git commit %s (%s) for app %s", commit, subject, app.Name),
-			CreatedAt:  time.Now(),
-		})
-	}()
-
-	return jsonResult(map[string]interface{}{
-		"app_id":  appID,
-		"branch":  cfg.Branch,
-		"commit":  commit,
-		"subject": subject,
-		"output":  out,
 	})
 }
 

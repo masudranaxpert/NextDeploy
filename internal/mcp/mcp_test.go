@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 27 {
-		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 26 {
+		t.Errorf("expected 26 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -117,7 +117,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 		"container_exec", "server_exec",
-		"git_pull", "file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
+		"file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
 		"file_search",
 	}
 	for _, name := range expectedTools {
@@ -129,8 +129,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	// No-permission token hides restricted tools.
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 24 {
-		t.Errorf("expected 24 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 23 {
+		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -917,25 +917,7 @@ func TestMCP_NewTools(t *testing.T) {
 		t.Errorf("patch not reflected in file content, got: %+v", readPatchRes)
 	}
 
-	// 3. Test git_pull on app without git repository
-	gitParams, _ := json.Marshal(CallToolParams{
-		Name: "git_pull",
-		Arguments: map[string]interface{}{
-			"app_id": appID,
-		},
-	})
-	gitResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
-		JSONRPC: "2.0",
-		ID:      205,
-		Method:  "tools/call",
-		Params:  gitParams,
-	})
-	gitRes := gitResp.Result.(CallToolResult)
-	if !gitRes.IsError || !strings.Contains(gitRes.Content[0].Text, "no git repository configured") {
-		t.Errorf("expected 'no git repository configured' error, got %+v", gitRes)
-	}
-
-	// 4. Test app_health_check
+	// 3. Test app_health_check
 	healthParams, _ := json.Marshal(CallToolParams{
 		Name: "app_health_check",
 		Arguments: map[string]interface{}{

@@ -256,18 +256,6 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name:        "git_pull",
-			Description: "Pull latest changes from the configured Git repository for an application into its workspace, synchronize environment variables, and update deployment reference",
-			InputSchema: ToolInputSchema{
-				Type: "object",
-				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
-					"branch": {Type: "string", Description: "Optional branch name to pull. Defaults to configured branch."},
-				},
-				Required: []string{"app_id"},
-			},
-		},
-		{
 			Name:        "file_write_batch",
 			Description: "Write or update multiple files in the application workspace in a single batch operation. Avoids multiple round trips.",
 			InputSchema: ToolInputSchema{
