@@ -472,8 +472,11 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		fn = dockerx.ComposeApply
 	}
 
-	// Synchronize latest code from Git if app is Git-connected and Dev Mode is off (matches panel web UI).
-	if h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
+	skipGitPull := getBoolArg(args, "skip_git_pull")
+
+	// Synchronize latest code from Git if app is Git-connected and Dev Mode is off (matches panel web UI),
+	// unless skip_git_pull is explicitly requested (e.g. to deploy directly from workspace files).
+	if !skipGitPull && h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
 		syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
 		_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
 		syncCancel()
@@ -1341,8 +1344,11 @@ func getBoolArg(args map[string]interface{}, key string) bool {
 		return false
 	}
 	if v, ok := args[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
+		switch val := v.(type) {
+		case bool:
+			return val
+		case string:
+			return strings.EqualFold(val, "true") || val == "1"
 		}
 	}
 	return false

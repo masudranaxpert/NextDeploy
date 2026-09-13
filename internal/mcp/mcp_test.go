@@ -126,6 +126,14 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
+	for _, tool := range listRes.Tools {
+		if tool.Name == "deploy" || tool.Name == "redeploy" || tool.Name == "deploy_and_wait" {
+			if _, ok := tool.InputSchema.Properties["skip_git_pull"]; !ok {
+				t.Errorf("tool %s missing skip_git_pull property in schema", tool.Name)
+			}
+		}
+	}
+
 	// No-permission token hides restricted tools.
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
@@ -429,6 +437,69 @@ func TestMCP_DeployJobTracking(t *testing.T) {
 	toolRes := resp.Result.(CallToolResult)
 	if toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, jobID) {
 		t.Errorf("deploy_status failed: %+v", toolRes)
+	}
+}
+
+func TestMCP_DeploySkipGitPull(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "deployapp_skipgit"
+	if err := store.CreateApp(ctx, appID, "Deploy App", user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, appID)
+	_ = os.MkdirAll(appDir, 0750)
+	_ = os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx\n"), 0640)
+
+	srv := NewServer(p)
+
+	// Call deploy with skip_git_pull: true
+	deployParams, _ := json.Marshal(CallToolParams{
+		Name: "deploy",
+		Arguments: map[string]interface{}{
+			"app_id":        appID,
+			"skip_git_pull": true,
+		},
+	})
+	resp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      35,
+		Method:  "tools/call",
+		Params:  deployParams,
+	})
+	toolRes := resp.Result.(CallToolResult)
+	if toolRes.IsError {
+		t.Fatalf("deploy with skip_git_pull failed: %+v", toolRes)
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(toolRes.Content[0].Text), &out); err != nil {
+		t.Fatalf("failed to unmarshal deploy response: %v", err)
+	}
+	if out["status"] != "started" {
+		t.Errorf("expected status 'started', got %v", out["status"])
+	}
+
+	// Call redeploy with skip_git_pull: true
+	redeployParams, _ := json.Marshal(CallToolParams{
+		Name: "redeploy",
+		Arguments: map[string]interface{}{
+			"app_id":        appID,
+			"skip_git_pull": true,
+		},
+	})
+	redeployResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      36,
+		Method:  "tools/call",
+		Params:  redeployParams,
+	})
+	redeployRes := redeployResp.Result.(CallToolResult)
+	if redeployRes.IsError {
+		t.Fatalf("redeploy with skip_git_pull failed: %+v", redeployRes)
 	}
 }
 

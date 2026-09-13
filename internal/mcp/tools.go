@@ -123,22 +123,24 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "deploy",
-			Description: "Trigger an asynchronous deployment (docker compose up). If the application is connected to a Git repository (and Dev Mode is disabled), automatically pulls latest changes from Git before deploying. Returns a job_id immediately so you can poll deploy_status without timing out.",
+			Description: "Trigger an asynchronous deployment (docker compose up). If the application is connected to a Git repository and Dev Mode is disabled, automatically pulls latest changes from Git unless skip_git_pull is set to true. Returns a job_id immediately so you can poll deploy_status without timing out.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
+					"app_id":        {Type: "string", Description: "The application ID"},
+					"skip_git_pull": {Type: "boolean", Description: "Optional. If true, skips Git pull and deploys directly from current workspace files"},
 				},
 				Required: []string{"app_id"},
 			},
 		},
 		{
 			Name:        "redeploy",
-			Description: "Trigger an asynchronous full redeployment with image pull and rebuild. Returns a job_id for polling.",
+			Description: "Trigger an asynchronous full redeployment with image pull and rebuild. If connected to Git and Dev Mode is off, pulls latest changes unless skip_git_pull is set to true. Returns a job_id for polling.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
+					"app_id":        {Type: "string", Description: "The application ID"},
+					"skip_git_pull": {Type: "boolean", Description: "Optional. If true, skips Git pull and rebuilds from current workspace files"},
 				},
 				Required: []string{"app_id"},
 			},
@@ -269,11 +271,12 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "deploy_and_wait",
-			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. If the application is connected to a Git repository (and Dev Mode is disabled), automatically pulls latest changes from Git before deploying. Max timeout 300s.",
+			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. If the application is connected to a Git repository and Dev Mode is disabled, automatically pulls latest changes from Git unless skip_git_pull is set to true. Max timeout 300s.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
 					"app_id":          {Type: "string", Description: "The application ID"},
+					"skip_git_pull":   {Type: "boolean", Description: "Optional. If true, skips Git pull and deploys directly from current workspace files"},
 					"timeout_seconds": {Type: "integer", Description: "Maximum time to wait in seconds (default 180, max 300)"},
 				},
 				Required: []string{"app_id"},
