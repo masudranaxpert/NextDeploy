@@ -128,8 +128,8 @@ func TestMCP_ToolsList(t *testing.T) {
 
 	for _, tool := range listRes.Tools {
 		if tool.Name == "deploy" || tool.Name == "redeploy" || tool.Name == "deploy_and_wait" {
-			if _, ok := tool.InputSchema.Properties["skip_git_pull"]; !ok {
-				t.Errorf("tool %s missing skip_git_pull property in schema", tool.Name)
+			if _, ok := tool.InputSchema.Properties["git_pull"]; !ok {
+				t.Errorf("tool %s missing git_pull property in schema", tool.Name)
 			}
 		}
 	}
@@ -440,13 +440,16 @@ func TestMCP_DeployJobTracking(t *testing.T) {
 	}
 }
 
-func TestMCP_DeploySkipGitPull(t *testing.T) {
+// TestMCP_DeployGitPullFlag verifies that:
+// 1. deploy/redeploy succeed with git_pull:true on non-git app (no-op).
+// 2. deploy without git_pull succeeds (dirty-check path, no git repo = clean = skip gracefully).
+func TestMCP_DeployGitPullFlag(t *testing.T) {
 	p, store, tmpDir, user := setupTestPanel(t)
 	defer store.Close()
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	appID := "deployapp_skipgit"
+	appID := "deployapp_gitflag"
 	if err := store.CreateApp(ctx, appID, "Deploy App", user.ID); err != nil {
 		t.Fatalf("CreateApp failed: %v", err)
 	}
@@ -457,12 +460,12 @@ func TestMCP_DeploySkipGitPull(t *testing.T) {
 
 	srv := NewServer(p)
 
-	// Call deploy with skip_git_pull: true
+	// 1. deploy with git_pull:true on a non-git app should succeed (git sync block not entered).
 	deployParams, _ := json.Marshal(CallToolParams{
 		Name: "deploy",
 		Arguments: map[string]interface{}{
-			"app_id":        appID,
-			"skip_git_pull": true,
+			"app_id":   appID,
+			"git_pull": true,
 		},
 	})
 	resp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
@@ -473,7 +476,7 @@ func TestMCP_DeploySkipGitPull(t *testing.T) {
 	})
 	toolRes := resp.Result.(CallToolResult)
 	if toolRes.IsError {
-		t.Fatalf("deploy with skip_git_pull failed: %+v", toolRes)
+		t.Fatalf("deploy with git_pull:true failed: %+v", toolRes)
 	}
 	var out map[string]interface{}
 	if err := json.Unmarshal([]byte(toolRes.Content[0].Text), &out); err != nil {
@@ -483,23 +486,39 @@ func TestMCP_DeploySkipGitPull(t *testing.T) {
 		t.Errorf("expected status 'started', got %v", out["status"])
 	}
 
-	// Call redeploy with skip_git_pull: true
+	// 2. deploy without git_pull on non-git app should also succeed.
+	deployParams2, _ := json.Marshal(CallToolParams{
+		Name:      "deploy",
+		Arguments: map[string]interface{}{"app_id": appID},
+	})
+	resp2 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      36,
+		Method:  "tools/call",
+		Params:  deployParams2,
+	})
+	toolRes2 := resp2.Result.(CallToolResult)
+	if toolRes2.IsError {
+		t.Fatalf("deploy without git_pull failed: %+v", toolRes2)
+	}
+
+	// 3. redeploy with git_pull:true should also succeed.
 	redeployParams, _ := json.Marshal(CallToolParams{
 		Name: "redeploy",
 		Arguments: map[string]interface{}{
-			"app_id":        appID,
-			"skip_git_pull": true,
+			"app_id":   appID,
+			"git_pull": true,
 		},
 	})
 	redeployResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
 		JSONRPC: "2.0",
-		ID:      36,
+		ID:      37,
 		Method:  "tools/call",
 		Params:  redeployParams,
 	})
 	redeployRes := redeployResp.Result.(CallToolResult)
 	if redeployRes.IsError {
-		t.Fatalf("redeploy with skip_git_pull failed: %+v", redeployRes)
+		t.Fatalf("redeploy with git_pull:true failed: %+v", redeployRes)
 	}
 }
 

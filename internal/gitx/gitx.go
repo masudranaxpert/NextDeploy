@@ -121,6 +121,28 @@ func CurrentCommit(ctx context.Context, repoDir string) string {
 	return strings.TrimSpace(res.Output)
 }
 
+// IsDirty returns true when the working tree has any tracked modifications or untracked files
+// not covered by .gitignore. Excludes .env since that is panel-managed and intentionally untracked.
+func IsDirty(ctx context.Context, repoDir string) bool {
+	res := run(ctx, repoDir, nil, "git", "status", "--porcelain")
+	if !res.OK {
+		return false // can't determine; treat as clean so we don't block deploy
+	}
+	for _, line := range strings.Split(res.Output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip panel-managed .env (always untracked; git pull also restores it anyway)
+		if strings.HasSuffix(line, ".env") && (strings.HasPrefix(line, "?? ") || strings.HasPrefix(line, "!! ")) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+
 // CurrentCommitSubject returns the first line of the latest commit message (git log -1 %s).
 func CurrentCommitSubject(ctx context.Context, repoDir string) string {
 	res := run(ctx, repoDir, nil, "git", "log", "-1", "--pretty=%s")

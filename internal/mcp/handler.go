@@ -22,6 +22,7 @@ import (
 	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/gitx"
 	"panel/internal/handlers"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
@@ -280,7 +281,17 @@ func (h *Handler) handleFileWrite(ctx context.Context, u db.User, args map[strin
 	if err := h.writeWorkspaceFile(ctx, app, path, content); err != nil {
 		return errorResult(err)
 	}
-	return textResult(fmt.Sprintf("Saved %d bytes to %s", len(content), path))
+	res := map[string]interface{}{
+		"path":    path,
+		"bytes":   len(content),
+		"message": fmt.Sprintf("Saved %d bytes to %s", len(content), path),
+	}
+	if h.p.IsGitApp(ctx, appID) {
+		// Inform agent: local edits are safe; next deploy will see the dirty workspace and skip git pull.
+		res["git_app_notice"] = "App uses Git. Local edits are preserved on deploy (dirty workspace auto-skips git pull). " +
+			"Use git_pull:true on deploy only when you want to discard local changes and sync from remote."
+	}
+	return jsonResult(res)
 }
 
 func (h *Handler) handleFileWriteBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -310,12 +321,17 @@ func (h *Handler) handleFileWriteBatch(ctx context.Context, u db.User, args map[
 		}
 		written = append(written, p)
 	}
-	return jsonResult(map[string]interface{}{
+	res := map[string]interface{}{
 		"app_id":  appID,
 		"written": written,
 		"count":   len(written),
 		"message": fmt.Sprintf("Successfully wrote %d file(s)", len(written)),
-	})
+	}
+	if h.p.IsGitApp(ctx, appID) {
+		res["git_app_notice"] = "App uses Git. Local edits are preserved on deploy (dirty workspace auto-skips git pull). " +
+			"Use git_pull:true on deploy only when you want to discard local changes and sync from remote."
+	}
+	return jsonResult(res)
 }
 
 func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -472,18 +488,36 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		fn = dockerx.ComposeApply
 	}
 
-	skipGitPull := getBoolArg(args, "skip_git_pull")
-
-	// Synchronize latest code from Git if app is Git-connected and Dev Mode is off (matches panel web UI),
-	// unless skip_git_pull is explicitly requested (e.g. to deploy directly from workspace files).
-	if !skipGitPull && h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
-		syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
-		_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
-		syncCancel()
-		if syncErr != nil {
-			return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
+	// git_pull:true = force sync from remote (discards local workspace edits).
+	// Default (omitted/false): perform a dirty-check first; skip sync if workspace has local
+	// changes so that file_write → deploy workflows are never silently destructive.
+	var gitSyncWarning string
+	forceGitPull := getBoolArg(args, "git_pull")
+	if h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
+		repoDir := h.p.AppCheckoutPath(appID)
+		if forceGitPull {
+			// Caller explicitly requested a git pull — proceed even if workspace is dirty.
+			syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
+			_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
+			syncCancel()
+			if syncErr != nil {
+				return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
+			}
+			h.p.InvalidateAfterAppWorkspaceChange(appID)
+		} else if gitx.IsDirty(ctx, repoDir) {
+			// Workspace has local edits — protect them by skipping the destructive pull.
+			gitSyncWarning = "Git pull skipped: workspace has local changes (dirty). Deploying from current files. " +
+				"Pass git_pull:true to force-sync from remote (WARNING: discards all local workspace edits)."
+		} else {
+			// Clean workspace — safe to pull.
+			syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
+			_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
+			syncCancel()
+			if syncErr != nil {
+				return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
+			}
+			h.p.InvalidateAfterAppWorkspaceChange(appID)
 		}
-		h.p.InvalidateAfterAppWorkspaceChange(appID)
 	}
 
 	if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
@@ -503,13 +537,17 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	if err != nil {
 		return errorResult(fmt.Errorf("failed to start %s job: %w", action, err))
 	}
-	return jsonResult(map[string]interface{}{
+	out := map[string]interface{}{
 		"job_id":  jobID,
 		"app_id":  appID,
 		"action":  action,
 		"status":  "started",
 		"message": "Deployment job started in background. Poll deploy_status with job_id for progress.",
-	})
+	}
+	if gitSyncWarning != "" {
+		out["git_sync_warning"] = gitSyncWarning
+	}
+	return jsonResult(out)
 }
 
 func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {

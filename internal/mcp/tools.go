@@ -47,8 +47,9 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name:        "file_write",
-			Description: "Create or overwrite a file in the workspace. Automatically validates compose files and guards against path traversal.",
+			Name: "file_write",
+			Description: "Create or overwrite a file in the workspace. Validates compose files and guards against path traversal. " +
+				"IMPORTANT for Git-connected apps: written files are preserved on next deploy — the deploy tool auto-detects local edits and skips git pull to protect them.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
@@ -122,25 +123,30 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name:        "deploy",
-			Description: "Trigger an asynchronous deployment (docker compose up). If the application is connected to a Git repository and Dev Mode is disabled, automatically pulls latest changes from Git unless skip_git_pull is set to true. Returns a job_id immediately so you can poll deploy_status without timing out.",
+			Name: "deploy",
+			Description: "Trigger an asynchronous deployment (docker compose up). " +
+				"For Git-connected apps (Dev Mode off): automatically checks workspace state first — if workspace has local edits (dirty), git pull is SKIPPED to protect your files; if workspace is clean, latest code is pulled from Git. " +
+				"Pass git_pull:true to force-pull from remote regardless (WARNING: discards all local workspace edits). " +
+				"Returns a job_id immediately so you can poll deploy_status without timing out.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id":        {Type: "string", Description: "The application ID"},
-					"skip_git_pull": {Type: "boolean", Description: "Optional. If true, skips Git pull and deploys directly from current workspace files"},
+					"app_id":   {Type: "string", Description: "The application ID"},
+					"git_pull": {Type: "boolean", Description: "Optional. If true, force-pulls from Git remote before deploying (discards local workspace edits). Default: auto-detect via dirty-check."},
 				},
 				Required: []string{"app_id"},
 			},
 		},
 		{
-			Name:        "redeploy",
-			Description: "Trigger an asynchronous full redeployment with image pull and rebuild. If connected to Git and Dev Mode is off, pulls latest changes unless skip_git_pull is set to true. Returns a job_id for polling.",
+			Name: "redeploy",
+			Description: "Trigger an asynchronous full redeployment with image pull and rebuild. " +
+				"Same Git-sync behavior as deploy: dirty workspace skips git pull (protects local edits); clean workspace auto-pulls. " +
+				"Pass git_pull:true to force-pull from remote (discards local edits). Returns a job_id for polling.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id":        {Type: "string", Description: "The application ID"},
-					"skip_git_pull": {Type: "boolean", Description: "Optional. If true, skips Git pull and rebuilds from current workspace files"},
+					"app_id":   {Type: "string", Description: "The application ID"},
+					"git_pull": {Type: "boolean", Description: "Optional. If true, force-pulls from Git remote before rebuilding (discards local workspace edits). Default: auto-detect via dirty-check."},
 				},
 				Required: []string{"app_id"},
 			},
@@ -258,8 +264,9 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name:        "file_write_batch",
-			Description: "Write or update multiple files in the application workspace in a single batch operation. Avoids multiple round trips.",
+			Name: "file_write_batch",
+			Description: "Write or update multiple files in the application workspace in a single batch operation. Avoids multiple round trips. " +
+				"IMPORTANT for Git-connected apps: written files are preserved on next deploy — the deploy tool auto-detects local edits and skips git pull to protect them.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
@@ -270,13 +277,15 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name:        "deploy_and_wait",
-			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. If the application is connected to a Git repository and Dev Mode is disabled, automatically pulls latest changes from Git unless skip_git_pull is set to true. Max timeout 300s.",
+			Name: "deploy_and_wait",
+			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. " +
+				"Same Git-sync behavior as deploy: dirty workspace skips git pull; clean workspace auto-pulls. " +
+				"Pass git_pull:true to force-pull from remote (discards local edits). Max timeout 300s.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
 					"app_id":          {Type: "string", Description: "The application ID"},
-					"skip_git_pull":   {Type: "boolean", Description: "Optional. If true, skips Git pull and deploys directly from current workspace files"},
+					"git_pull":        {Type: "boolean", Description: "Optional. If true, force-pulls from Git remote before deploying (discards local workspace edits). Default: auto-detect via dirty-check."},
 					"timeout_seconds": {Type: "integer", Description: "Maximum time to wait in seconds (default 180, max 300)"},
 				},
 				Required: []string{"app_id"},
