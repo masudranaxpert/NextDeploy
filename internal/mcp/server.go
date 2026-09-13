@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -74,68 +73,35 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 	if token == "" {
 		token = strings.TrimSpace(c.Get("X-API-Key"))
 	}
-	if token == "" {
-		token = strings.TrimSpace(c.Query("token"))
-	}
-	if token == "" {
-		token = c.Cookies("nd_session")
-	}
 
 	if token == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"jsonrpc": "2.0",
 			"error": fiber.Map{
 				"code":    ErrCodeInvalidRequest,
-				"message": "Unauthorized: API token or session required via Authorization Bearer header or ?token query",
+				"message": "Unauthorized: API token required via Authorization Bearer header or X-API-Key",
 			},
 		})
 	}
 
 	ctx := c.UserContext()
 
-	// 1. Try validating as an API Token
+	// Validate API Token against database
 	user, apiToken, err := s.p.DB.ValidateAPIToken(ctx, token)
-	if err == nil && user.ID > 0 {
-		c.Locals("auth_user", user)
-		c.Locals("api_token", apiToken)
-		c.SetUserContext(context.WithValue(c.UserContext(), apiTokenContextKey{}, apiToken))
-		return c.Next()
+	if err != nil || user.ID == 0 {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"jsonrpc": "2.0",
+			"error": fiber.Map{
+				"code":    ErrCodeInvalidRequest,
+				"message": "Unauthorized: invalid or expired API token",
+			},
+		})
 	}
 
-	// 2. Try validating as a Session Token
-	userID, expiresAt, serr := s.p.DB.GetSession(ctx, token)
-	if serr == nil && time.Now().Before(expiresAt) {
-		if u, uerr := s.p.DB.GetUserByID(ctx, userID); uerr == nil {
-			c.Locals("auth_user", u)
-			return c.Next()
-		}
-	}
-
-	// 3. Fallback: Check MCP_API_TOKEN environment variable
-	envToken := os.Getenv("MCP_API_TOKEN")
-	if envToken != "" && token == envToken {
-		users, lerr := s.p.DB.ListUsers(ctx)
-		if lerr == nil {
-			for _, u := range users {
-				if u.Role == db.RoleAdmin {
-					c.Locals("auth_user", u)
-					return c.Next()
-				}
-			}
-			if len(users) > 0 {
-				c.Locals("auth_user", users[0])
-				return c.Next()
-			}
-		}
-	}
-
-	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-		"jsonrpc": "2.0",
-		"error": fiber.Map{
-			"code":    ErrCodeInvalidRequest,
-			"message": "Unauthorized: invalid or expired token",
-		},
-	})
+	c.Locals("auth_user", user)
+	c.Locals("api_token", apiToken)
+	c.SetUserContext(context.WithValue(c.UserContext(), apiTokenContextKey{}, apiToken))
+	return c.Next()
 }
 
 // ProcessRPC handles a single JSON-RPC 2.0 message.

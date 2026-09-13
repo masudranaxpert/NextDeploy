@@ -298,15 +298,9 @@ func (h *Handler) handleEnvReveal(ctx context.Context, u db.User, args map[strin
 		return errorResult(err)
 	}
 
-	// Permission check: token must have AllowEnvReveal enabled, or admin session
-	var allowReveal bool
-	if tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken); ok {
-		allowReveal = tok.AllowEnvReveal
-	} else if u.Role == db.RoleAdmin {
-		allowReveal = true
-	}
-
-	if !allowReveal {
+	// Permission check: token must explicitly have AllowEnvReveal enabled
+	tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken)
+	if !ok || !tok.AllowEnvReveal {
 		return errorResult(errors.New("permission denied: env_reveal is restricted. Enable 'Allow env_reveal' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
 	}
 

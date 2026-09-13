@@ -22,14 +22,14 @@ import (
 
 func setupTestPanel(t *testing.T) (*handlers.Panel, *db.Store, string, db.User) {
 	t.Helper()
-	store, err := db.Open(":memory:")
-	if err != nil {
-		t.Fatalf("db.Open failed: %v", err)
-	}
-
 	tmpDir, err := os.MkdirTemp("", "mcp_test_*")
 	if err != nil {
 		t.Fatalf("os.MkdirTemp failed: %v", err)
+	}
+
+	store, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
 	}
 
 	wsStore := workspace.NewStore(tmpDir)
@@ -333,6 +333,24 @@ func TestMCP_EnvTools(t *testing.T) {
 	if toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "8080") {
 		t.Errorf("env_reveal with permission failed: %+v", toolRes)
 	}
+
+	// 5. Test that even an ADMIN cannot env_reveal if their API token does not have AllowEnvReveal
+	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+	_ = rawAdminSafeToken
+	adminSafeCtx := context.WithValue(ctx, apiTokenContextKey{}, adminSafeToken)
+	resp = srv.ProcessRPC(adminSafeCtx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      24,
+		Method:  "tools/call",
+		Params:  revealParams,
+	})
+	toolRes = resp.Result.(CallToolResult)
+	if !toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "permission denied") {
+		t.Errorf("admin env_reveal without AllowEnvReveal MUST fail, got: %+v", toolRes)
+	}
 }
 
 func TestMCP_DeployJobTracking(t *testing.T) {
@@ -447,6 +465,42 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	respBytes, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(respBytes), "nextdeploy-mcp") {
 		t.Errorf("response missing server name: %s", string(respBytes))
+	}
+
+	// 4. Authenticated GET /mcp with X-API-Key header -> 200
+	req = httptest.NewRequest("GET", "/mcp", nil)
+	req.Header.Set("X-API-Key", rawToken)
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 with X-API-Key, got %d", resp.StatusCode)
+	}
+
+	// 5. Session cookie MUST be rejected -> 401 Unauthorized
+	sessionToken := "test_session_token_xyz"
+	if err := store.CreateSession(ctx, sessionToken, user.ID, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	req = httptest.NewRequest("GET", "/mcp", nil)
+	req.AddCookie(&http.Cookie{Name: "nd_session", Value: sessionToken})
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for session cookie, got %d", resp.StatusCode)
+	}
+
+	// 6. Query string ?token= MUST be rejected -> 401 Unauthorized
+	req = httptest.NewRequest("GET", "/mcp?token="+rawToken, nil)
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for query param ?token, got %d", resp.StatusCode)
 	}
 }
 
