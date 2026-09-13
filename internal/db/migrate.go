@@ -434,6 +434,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 			return err
 		}
 	}
+	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN dev_command TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
 
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS app_collaborators (

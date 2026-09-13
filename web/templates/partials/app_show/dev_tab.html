@@ -115,6 +115,19 @@
         <p class="mt-1 text-[11px] text-muted-foreground/60">Must match the <code class="font-mono text-foreground/80">WORKDIR</code> instruction in your Dockerfile (default: <code class="font-mono text-foreground/80">/app</code>).</p>
       </div>
 
+      <div class="sm:col-span-2">
+        <label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          Development start command (Optional)
+          <button type="button" onclick="ndDevToggleHelp('dev-command-help', this)"
+            class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] font-bold leading-none text-muted-foreground transition hover:border-primary hover:text-primary"
+            aria-label="What is this command used for?" aria-expanded="false" title="What is this command used for?">?</button>
+        </label>
+        <input class="input w-full font-mono text-xs" name="dev_command" placeholder="e.g. npm run dev, python manage.py runserver 0.0.0.0:8000" value="{{.DevCommand}}">
+        <p id="dev-command-help" class="mt-1.5 hidden rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          Overrides the container's production startup command (<code class="font-mono text-[10px] text-foreground/80">CMD</code>) while Dev Mode is enabled so file-watching dev servers (e.g. Next.js dev, Vite, Nodemon, Flask reload) run automatically. Reverts to production command when Dev Mode is turned off.
+        </p>
+      </div>
+
       {{if .DevPreservePaths}}
       <!-- Anti-shadowing Protected Volumes -->
       <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3.5 sm:col-span-2">

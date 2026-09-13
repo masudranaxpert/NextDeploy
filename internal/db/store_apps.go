@@ -110,8 +110,8 @@ func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	var a App
 	var created string
 	var devMode int
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(dev_mode, 0), COALESCE(dev_service,''), COALESCE(dev_target,'') FROM apps WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &devMode, &a.DevService, &a.DevTarget)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(dev_mode, 0), COALESCE(dev_service,''), COALESCE(dev_target,''), COALESCE(dev_command,'') FROM apps WHERE id = ?`, id).
+		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &devMode, &a.DevService, &a.DevTarget, &a.DevCommand)
 	if err != nil {
 		return App{}, err
 	}
@@ -125,12 +125,13 @@ func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 }
 
 // UpdateAppDevMode persists the per-app development mode toggle and its mount settings.
-func (s *Store) UpdateAppDevMode(ctx context.Context, id string, enabled bool, service, target string) error {
+func (s *Store) UpdateAppDevMode(ctx context.Context, id string, enabled bool, service, target, command string) error {
 	service = strings.TrimSpace(service)
 	target = strings.TrimSpace(target)
+	command = strings.TrimSpace(command)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE apps SET dev_mode = ?, dev_service = ?, dev_target = ? WHERE id = ?`,
-		boolInt(enabled), service, target, id)
+		`UPDATE apps SET dev_mode = ?, dev_service = ?, dev_target = ?, dev_command = ? WHERE id = ?`,
+		boolInt(enabled), service, target, command, id)
 	return err
 }
 

@@ -116,7 +116,7 @@ func fixLineEndings(projectDir string) {
 
 func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
-	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build", "--renew-anon-volumes")
 }
 
 func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
@@ -154,7 +154,7 @@ func ComposePullUp(ctx context.Context, projectDir string, composeFiles []string
 	if !pull.OK {
 		return pull
 	}
-	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build", "--renew-anon-volumes")
 }
 
 func ComposeLogs(ctx context.Context, projectDir string, composeFiles []string, project string, tail int, envFiles []string) Result {

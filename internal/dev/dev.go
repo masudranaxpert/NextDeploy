@@ -2,6 +2,7 @@
 package dev
 
 import (
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,6 +20,8 @@ type DevMount struct {
 	Target string
 	// HostRoot is the host-side absolute workspace directory. If empty, "./" is used.
 	HostRoot string
+	// DevCommand overrides the container startup command in dev mode (e.g. "npm run dev").
+	DevCommand string
 	// PreservePaths holds sub-paths inside Target (e.g. "node_modules", ".venv") to preserve via anonymous volumes.
 	PreservePaths []string
 }
@@ -32,14 +35,24 @@ func ValidTarget(target string) bool {
 	if !strings.HasPrefix(target, "/") || target == "/" || strings.Contains(target, ":") {
 		return false
 	}
-	// Disallow mounting over essential container OS system directories
-	blocked := map[string]bool{
-		"/bin": true, "/boot": true, "/dev": true, "/etc": true,
-		"/lib": true, "/lib64": true, "/proc": true, "/root": true,
-		"/run": true, "/sbin": true, "/sys": true, "/usr": true,
-		"/var": true, "/var/run": true, "/var/lib/postgresql": true, "/var/lib/mysql": true,
+	// Disallow mounting directly over root or sensitive system directories
+	if target == "/var" || target == "/usr" {
+		return false
 	}
-	return !blocked[target]
+	// Prefix-blocked system roots where mounting would break container OS or services
+	blockedPrefixes := []string{
+		"/bin", "/sbin", "/boot", "/dev", "/etc",
+		"/lib", "/lib64", "/proc", "/root", "/sys", "/run",
+		"/data/db", "/bitnami", "/var/run", "/var/lock", "/var/lib",
+		"/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
+		"/usr/local/bin", "/usr/local/sbin", "/usr/include",
+	}
+	for _, prefix := range blockedPrefixes {
+		if target == prefix || strings.HasPrefix(target, prefix+"/") {
+			return false
+		}
+	}
+	return true
 }
 
 // Apply injects the workspace bind mount and dependency preservation volumes into selected services.
@@ -64,11 +77,13 @@ func Apply(services map[string]interface{}, dev DevMount) {
 		}
 	}
 
-	// 2. Validate specific service target. If specified service is missing, fallback to all app services.
+	// 2. Validate specific service target. If specified service is missing, do NOT fallback
+	// silently to all services to avoid modifying unintended containers.
 	only := strings.TrimSpace(dev.Service)
 	if only != "" {
 		if _, exists := services[only]; !exists {
-			only = "" // Service was renamed/deleted; fallback to all app services instead of silent no-op
+			log.Printf("[dev] WARNING: configured dev service %q not found in compose services; skipping dev mount", only)
+			return
 		}
 	}
 
@@ -100,6 +115,9 @@ func Apply(services map[string]interface{}, dev DevMount) {
 			if p = strings.TrimSpace(p); p != "" {
 				appendServiceVolume(svc, path.Join(target, p))
 			}
+		}
+		if cmd := strings.TrimSpace(dev.DevCommand); cmd != "" {
+			svc["command"] = cmd
 		}
 		services[svcKey] = svc
 	}

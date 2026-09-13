@@ -14,11 +14,21 @@ func TestValidTarget(t *testing.T) {
 		{"/app", true},
 		{"/workspace", true},
 		{"/var/www/html", true},
+		{"/usr/src/app", true},
+		{"/home/node/app", true},
 		{"/", false},
 		{"/etc", false},
+		{"/etc/nginx", false},
 		{"/usr", false},
+		{"/usr/local/bin", false},
+		{"/usr/bin", false},
+		{"/var", false},
 		{"/var/run", false},
 		{"/var/lib/postgresql", false},
+		{"/var/lib/postgresql/data", false},
+		{"/var/lib/mysql", false},
+		{"/data/db", false},
+		{"/bitnami/redis", false},
 		{"app", false},
 		{"/app:ro", false},
 		{"", false},
@@ -27,6 +37,42 @@ func TestValidTarget(t *testing.T) {
 		if got := ValidTarget(tc.target); got != tc.want {
 			t.Errorf("ValidTarget(%q) = %v, want %v", tc.target, got, tc.want)
 		}
+	}
+}
+
+func TestApplyMissingServiceDoesNotOverreach(t *testing.T) {
+	services := map[string]interface{}{
+		"worker": map[string]interface{}{
+			"build": ".",
+		},
+		"db": map[string]interface{}{
+			"image": "postgres:16",
+		},
+	}
+	// Target "web" which doesn't exist
+	Apply(services, DevMount{Enabled: true, Service: "web"})
+
+	worker := services["worker"].(map[string]interface{})
+	if _, hasVols := worker["volumes"]; hasVols {
+		t.Fatalf("expected worker to NOT be mounted when missing target service 'web' was requested, got %v", worker["volumes"])
+	}
+}
+
+func TestApplyDevCommandOverride(t *testing.T) {
+	services := map[string]interface{}{
+		"web": map[string]interface{}{
+			"build":   ".",
+			"command": "npm start",
+		},
+	}
+	Apply(services, DevMount{
+		Enabled:    true,
+		DevCommand: "npm run dev",
+	})
+
+	web := services["web"].(map[string]interface{})
+	if cmd, ok := web["command"].(string); !ok || cmd != "npm run dev" {
+		t.Fatalf("expected command 'npm run dev', got %v", web["command"])
 	}
 }
 

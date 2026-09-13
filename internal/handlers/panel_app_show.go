@@ -299,6 +299,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"DevMode":                app.DevMode,
 		"DevService":             app.DevService,
 		"DevTarget":              devTarget,
+		"DevCommand":             app.DevCommand,
 		"DevServices":            devServices,
 		"DevPreservePaths":       dev.DetectPreservePaths(p.composeWorkspaceRoot(c.UserContext(), id)),
 		"SSHHost":                sshHost,

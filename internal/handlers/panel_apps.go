@@ -1,14 +1,14 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"panel/internal/handlers/utils"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strings"
 	"time"
@@ -294,11 +294,12 @@ func (p *Panel) SaveAppDevMode(c *fiber.Ctx) error {
 	enabled := c.FormValue("dev_mode") == "on"
 	service := strings.TrimSpace(c.FormValue("dev_service"))
 	target := strings.TrimSpace(c.FormValue("dev_target"))
+	command := strings.TrimSpace(c.FormValue("dev_command"))
 	if target != "" && !dev.ValidTarget(target) {
 		utils.SetFlash(c, "devTargetInvalid")
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 	}
-	if err := p.DB.UpdateAppDevMode(c.UserContext(), id, enabled, service, target); err != nil {
+	if err := p.DB.UpdateAppDevMode(c.UserContext(), id, enabled, service, target, command); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.syncAndApplyBackground(c, id); err != nil {

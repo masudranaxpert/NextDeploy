@@ -145,11 +145,19 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	devMount := dev.DevMount{Enabled: app.DevMode, Service: app.DevService, Target: app.DevTarget}
+	devMount := dev.DevMount{
+		Enabled:    app.DevMode,
+		Service:    app.DevService,
+		Target:     app.DevTarget,
+		DevCommand: app.DevCommand,
+	}
 	if app.DevMode {
 		root := p.composeWorkspaceRoot(ctx, appID)
 		devMount.PreservePaths = dev.DetectPreservePaths(root)
 		devMount.HostRoot = p.discoverHostWorkspaceRoot(ctx, appID)
+		if devMount.HostRoot == "" {
+			log.Printf("[dev] WARNING: Could not discover host workspace root for app %s; falling back to relative path './'. Bind mounts may fail if panel runs inside a container with custom data mounts.", appID)
+		}
 	}
 	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent, devMount)
 	if err != nil {

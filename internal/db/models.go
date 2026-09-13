@@ -60,6 +60,8 @@ type App struct {
 	DevService string
 	// DevTarget is the container path the workspace is mounted at (default /app).
 	DevTarget string
+	// DevCommand is an optional container startup command override in dev mode (e.g. "npm run dev").
+	DevCommand string
 }
 
 type AppCollaborator struct {
