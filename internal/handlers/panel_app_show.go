@@ -14,6 +14,7 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/dev"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
@@ -299,6 +300,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"DevService":             app.DevService,
 		"DevTarget":              devTarget,
 		"DevServices":            devServices,
+		"DevPreservePaths":       dev.DetectPreservePaths(p.composeWorkspaceRoot(c.UserContext(), id)),
 		"SSHHost":                sshHost,
 		"DevModeSaved":           appShowFlash == "devModeSaved",
 		"DevTargetInvalid":       appShowFlash == "devTargetInvalid",

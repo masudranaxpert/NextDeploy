@@ -11,14 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/sandbox"
@@ -146,12 +145,46 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	project := p.activeComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	dev := caddy.DevMount{Enabled: app.DevMode, Service: app.DevService, Target: app.DevTarget}
-	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent, dev)
+	devMount := dev.DevMount{Enabled: app.DevMode, Service: app.DevService, Target: app.DevTarget}
+	if app.DevMode {
+		root := p.composeWorkspaceRoot(ctx, appID)
+		devMount.PreservePaths = dev.DetectPreservePaths(root)
+		devMount.HostRoot = p.discoverHostWorkspaceRoot(ctx, appID)
+	}
+	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent, devMount)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
 	return atomicWriteFile(overridePath, content, 0640)
+}
+
+// discoverHostWorkspaceRoot resolves the true host path of an app workspace when
+// the panel runs in Docker with custom host mounts (e.g. -v /mnt/data:/data).
+func (p *Panel) discoverHostWorkspaceRoot(ctx context.Context, appID string) string {
+	workspaceRoot := p.composeWorkspaceRoot(ctx, appID)
+	if h := strings.TrimSpace(os.Getenv("HOST_WORKSPACES_ROOT")); h != "" {
+		rel, err := filepath.Rel(p.Store.Root, workspaceRoot)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Join(h, rel)
+		}
+	}
+	// Inspect running panel container mounts
+	_, source, err := dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", p.Store.Root)
+	if err == nil && strings.TrimSpace(source) != "" {
+		rel, relErr := filepath.Rel(p.Store.Root, workspaceRoot)
+		if relErr == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Join(source, rel)
+		}
+	}
+	dataDir := filepath.Dir(p.Store.Root)
+	_, source, err = dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", dataDir)
+	if err == nil && strings.TrimSpace(source) != "" {
+		rel, relErr := filepath.Rel(dataDir, workspaceRoot)
+		if relErr == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Join(source, rel)
+		}
+	}
+	return ""
 }
 
 // syncAndApplyBackground writes the Caddy override then runs `docker compose up -d`
@@ -486,41 +519,7 @@ func (p *Panel) loadComposeServices(ctx context.Context, appID string) []string 
 	if !ok {
 		return nil
 	}
-	return parseComposeServiceNames(data)
-}
-
-// parseComposeServiceNames extracts service names from a docker-compose YAML
-// using a simple regex — avoids adding a yaml dependency.
-func parseComposeServiceNames(data []byte) []string {
-	// Find the services: block and extract top-level keys under it.
-	// This is a best-effort parser for well-formatted compose files.
-	lines := strings.Split(string(data), "\n")
-	inServices := false
-	serviceRe := regexp.MustCompile(`^  ([a-zA-Z0-9_\-]+)\s*:`)
-	var names []string
-	seen := map[string]bool{}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "services:" {
-			inServices = true
-			continue
-		}
-		if inServices {
-			// A top-level key (no leading spaces) ends the services block
-			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
-				inServices = false
-				continue
-			}
-			if m := serviceRe.FindStringSubmatch(line); len(m) == 2 {
-				name := m[1]
-				if !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-	}
-	sort.Strings(names)
-	return names
+	return caddy.ParseComposeServiceNames(data)
 }
 
 func (p *Panel) WriteDockerRegistryConfig(ctx context.Context, appID string, ownerID int64) error {

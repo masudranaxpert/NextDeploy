@@ -11,12 +11,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/dev"
 
 	"gopkg.in/yaml.v3"
 )
@@ -309,103 +311,58 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 
 // DevMount describes the development-mode workspace bind mount. The source is always
 // the compose project directory ("./"), which Docker resolves to the app workspace on
-// the host, so edits made over SSH or the file manager reach the container immediately.
-type DevMount struct {
-	Enabled bool
-	// Service limits the mount to a single compose service. Empty means every
-	// service that builds from source (services running prebuilt images are skipped
-	// so databases and caches keep their own image contents).
-	Service string
-	// Target is the container path. Defaults to /app.
-	Target string
-}
+// DevMount is an alias to dev.DevMount for backward compatibility.
+type DevMount = dev.DevMount
 
 // DefaultDevTarget is the container path used when an app enables dev mode without
 // specifying one.
-const DefaultDevTarget = "/app"
+const DefaultDevTarget = dev.DefaultTarget
 
-// ValidDevTarget reports whether target is usable as the container side of a short
-// syntax bind mount. A colon would split the mount into the wrong fields, and mounting
-// over the container root replaces the image filesystem entirely.
+// ValidDevTarget reports whether target is usable as the container side of a short syntax bind mount.
 func ValidDevTarget(target string) bool {
-	target = strings.TrimSpace(target)
-	return strings.HasPrefix(target, "/") && target != "/" && !strings.Contains(target, ":")
+	return dev.ValidTarget(target)
 }
 
-// applyDevMount injects the workspace bind mount into the services selected by dev.
-func applyDevMount(services map[string]interface{}, dev DevMount) {
-	if !dev.Enabled {
-		return
+// ParseComposeServiceNames extracts service names from compose YAML, supporting any indentation.
+func ParseComposeServiceNames(data []byte) []string {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(data, &doc); err == nil {
+		if services, ok := toStringMap(doc["services"]); ok && len(services) > 0 {
+			names := make([]string, 0, len(services))
+			for name := range services {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			return names
+		}
 	}
-	target := strings.TrimSpace(dev.Target)
-	if !ValidDevTarget(target) {
-		target = DefaultDevTarget
-	}
-	only := strings.TrimSpace(dev.Service)
-	for svcKey, rawSvc := range services {
-		svc, ok := toStringMap(rawSvc)
-		if !ok {
+	// Fallback regex for loose or templated compose YAML with arbitrary indentation.
+	lines := strings.Split(string(data), "\n")
+	inServices := false
+	serviceRe := regexp.MustCompile(`^[ \t]+([a-zA-Z0-9_\-]+)\s*:`)
+	var names []string
+	seen := map[string]bool{}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "services:" {
+			inServices = true
 			continue
 		}
-		if only != "" {
-			if svcKey != only {
+		if inServices {
+			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
+				inServices = false
 				continue
 			}
-		} else if _, buildsFromSource := svc["build"]; !buildsFromSource {
-			continue
-		}
-		appendServiceVolume(svc, "./:"+target)
-		services[svcKey] = svc
-	}
-}
-
-// appendServiceVolume adds a short-syntax bind mount, leaving the service untouched
-// if something is already mounted at the same container path.
-func appendServiceVolume(service map[string]interface{}, mount string) {
-	target := mount
-	if i := strings.Index(mount, ":"); i >= 0 {
-		target = mount[i+1:]
-	}
-	var list []interface{}
-	if raw, ok := service["volumes"]; ok {
-		existing, ok2 := raw.([]interface{})
-		if !ok2 {
-			return
-		}
-		for _, item := range existing {
-			if volumeTarget(item) == target {
-				return
+			if m := serviceRe.FindStringSubmatch(line); len(m) == 2 {
+				name := m[1]
+				if !seen[name] {
+					seen[name] = true
+					names = append(names, name)
+				}
 			}
-			list = append(list, item)
 		}
 	}
-	service["volumes"] = append(list, mount)
-}
-
-// volumeTarget returns the container path from a short- or long-syntax volume entry.
-func volumeTarget(item interface{}) string {
-	switch v := item.(type) {
-	case string:
-		parts := strings.Split(v, ":")
-		if len(parts) >= 2 {
-			return parts[1]
-		}
-	case map[string]interface{}:
-		if t, ok := v["target"].(string); ok {
-			return t
-		}
-		if t, ok := v["destination"].(string); ok {
-			return t
-		}
-	case map[interface{}]interface{}:
-		if t, ok := v["target"].(string); ok {
-			return t
-		}
-		if t, ok := v["destination"].(string); ok {
-			return t
-		}
-	}
-	return ""
+	sort.Strings(names)
+	return names
 }
 
 // GenerateMergedCompose returns a merged compose YAML with normalized volumes, Caddy labels,
@@ -414,7 +371,7 @@ func volumeTarget(item interface{}) string {
 // When cgroupParent is non-empty it is forced onto every service so all of the owner's
 // containers run under a single cgroup with a shared, kernel-enforced resource limit.
 // When dev is enabled the workspace is bind-mounted into the selected services.
-func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string, dev DevMount) ([]byte, error) {
+func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string, devMount DevMount) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -452,7 +409,7 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 		}
 	}
 
-	applyDevMount(services, dev)
+	dev.Apply(services, devMount)
 
 	byService := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {

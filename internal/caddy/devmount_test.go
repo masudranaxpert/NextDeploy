@@ -110,3 +110,51 @@ func TestDevMountIsIdempotent(t *testing.T) {
 		t.Fatalf("re-generating duplicated the mount:\n%s", twice)
 	}
 }
+
+func TestDevMountPreservesDependencies(t *testing.T) {
+	out, err := GenerateMergedCompose([]byte(devBase), "proj", nil, "", "", DevMount{
+		Enabled:       true,
+		PreservePaths: []string{"node_modules", ".venv", "vendor"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, expected := range []string{"/app/node_modules", "/app/.venv", "/app/vendor"} {
+		if !strings.Contains(s, expected) {
+			t.Fatalf("expected anonymous volume %q, got:\n%s", expected, s)
+		}
+	}
+
+	// Re-run to verify idempotency on anonymous volumes
+	twice, err := GenerateMergedCompose(out, "proj", nil, "", "", DevMount{
+		Enabled:       true,
+		PreservePaths: []string{"node_modules", ".venv", "vendor"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"/app/node_modules", "/app/.venv", "/app/vendor"} {
+		if strings.Count(string(twice), expected) != strings.Count(s, expected) {
+			t.Fatalf("anonymous volume %q was duplicated on re-merge:\n%s", expected, string(twice))
+		}
+	}
+}
+
+func TestParseComposeServiceNamesIndentation(t *testing.T) {
+	fourSpaces := `services:
+    postgres:
+        image: postgres:17
+    redis:
+        image: redis:7
+    web:
+        build: .
+    worker:
+        build: .
+`
+	names := ParseComposeServiceNames([]byte(fourSpaces))
+	if len(names) != 4 || names[0] != "postgres" || names[1] != "redis" || names[2] != "web" || names[3] != "worker" {
+		t.Fatalf("unexpected services parsed: %v", names)
+	}
+}
+

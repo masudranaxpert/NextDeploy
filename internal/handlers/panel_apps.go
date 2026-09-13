@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/workspace"
@@ -294,14 +294,14 @@ func (p *Panel) SaveAppDevMode(c *fiber.Ctx) error {
 	enabled := c.FormValue("dev_mode") == "on"
 	service := strings.TrimSpace(c.FormValue("dev_service"))
 	target := strings.TrimSpace(c.FormValue("dev_target"))
-	if target != "" && !caddy.ValidDevTarget(target) {
+	if target != "" && !dev.ValidTarget(target) {
 		utils.SetFlash(c, "devTargetInvalid")
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 	}
 	if err := p.DB.UpdateAppDevMode(c.UserContext(), id, enabled, service, target); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAppCaddyOverride(c, id); err != nil {
+	if err := p.syncAndApplyBackground(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	utils.SetFlash(c, "devModeSaved")

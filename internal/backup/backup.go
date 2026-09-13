@@ -343,11 +343,11 @@ func firstExistingComposePath(restoreDir string, preferred string) string {
 	}
 
 	add(preferred)
-	add(filepath.Join(restoreDir, generatedComposeName))
 	add(filepath.Join(restoreDir, "docker-compose.yml"))
 	add(filepath.Join(restoreDir, "docker-compose.yaml"))
 	add(filepath.Join(restoreDir, "compose.yml"))
 	add(filepath.Join(restoreDir, "compose.yaml"))
+	add(filepath.Join(restoreDir, generatedComposeName))
 
 	for _, p := range candidates {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
