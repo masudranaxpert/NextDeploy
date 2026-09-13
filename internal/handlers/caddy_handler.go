@@ -196,27 +196,31 @@ func (p *Panel) discoverHostWorkspaceRoot(ctx context.Context, appID string) str
 	return ""
 }
 
-// syncAndApplyBackground writes the Caddy override then runs `docker compose up -d`
-// in a background goroutine so domain add/edit/delete handlers return immediately.
-func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
-	if err := p.syncAppCaddyOverride(c, appID); err != nil {
+// SyncAndApplyBackground writes the Caddy override then runs `docker compose up -d`
+// in a background goroutine so callers return immediately.
+func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error {
+	if err := p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
 		return err
 	}
-	app, err := p.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		return err
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		project := p.activeComposeProjectName(ctx, app, appID)
-		p.stopOtherComposeStacks(ctx, app, appID, project)
-		dir := p.appSourcePath(ctx, appID)
-		if res := dockerx.ComposeApply(ctx, dir, p.effectiveComposePaths(ctx, app, appID), project, nil, p.composeEnvFiles(ctx, appID)); !res.OK {
+		project := p.ActiveComposeProjectName(bgCtx, app, appID)
+		p.StopOtherComposeStacks(bgCtx, app, appID, project)
+		dir := p.AppSourcePath(bgCtx, appID)
+		if res := dockerx.ComposeApply(bgCtx, dir, p.EffectiveComposePaths(bgCtx, app, appID), project, nil, p.ComposeEnvFiles(bgCtx, appID)); !res.OK {
 			log.Printf("compose apply app=%s project=%s: %s", appID, project, strings.TrimSpace(res.Output))
 		}
 	}()
 	return nil
+}
+
+func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
+	return p.SyncAndApplyBackground(c.UserContext(), appID)
 }
 
 // ── Caddy global page ─────────────────────────────────────────────────────────

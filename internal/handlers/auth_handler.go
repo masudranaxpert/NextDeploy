@@ -65,6 +65,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 
 	// Always allow static assets and auth routes
 	if strings.HasPrefix(path, "/static/") ||
+		strings.HasPrefix(path, "/mcp") ||
 		path == "/login" || path == "/setup" {
 		return c.Next()
 	}

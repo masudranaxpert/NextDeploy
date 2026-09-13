@@ -752,7 +752,7 @@ func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
 		stopCtx, stopCancel := context.WithTimeout(bg, 5*time.Minute)
 		h.p.StopOtherComposeStacks(stopCtx, app, appID, project)
 		stopCancel()
-		_ = h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
+		_, _ = h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
 	}()
 	return c.SendStatus(fiber.StatusOK)
 }

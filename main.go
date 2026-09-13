@@ -20,6 +20,7 @@ import (
 	"panel/internal/handlers/compose"
 	"panel/internal/handlers/filebrowser"
 	"panel/internal/handlers/git"
+	"panel/internal/mcp"
 	"panel/internal/perflog"
 	"panel/internal/workspace"
 
@@ -173,6 +174,10 @@ func main() {
 	app.Post("/webhooks/github/provider", gitH.ProviderGitHubWebhook)
 	app.Post("/webhooks/github/:id", gitH.GitHubWebhook)
 	app.Get("/migrate/download/:token", p.MigrateDownload)
+
+	// Model Context Protocol (MCP) server endpoints for external AI coding agents
+	mcpServer := mcp.NewServer(p)
+	mcpServer.RegisterRoutes(app)
 
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)

@@ -20,11 +20,26 @@ const (
 )
 
 type DeployRun struct {
-	Mu        sync.Mutex
-	Running   bool
-	Action    string
-	Output    bytes.Buffer
-	LineCarry []byte
+	Mu         sync.Mutex
+	JobID      string
+	Running    bool
+	Action     string
+	Output     bytes.Buffer
+	LineCarry  []byte
+	OK         bool
+	FinishedAt time.Time
+}
+
+// DeployJobRecord stores snapshot info for deploy jobs trackable by agents/polling.
+type DeployJobRecord struct {
+	JobID      string    `json:"job_id"`
+	AppID      string    `json:"app_id"`
+	Action     string    `json:"action"`
+	Running    bool      `json:"running"`
+	OK         bool      `json:"ok"`
+	Output     string    `json:"output"`
+	CreatedAt  time.Time `json:"created_at"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
 }
 
 func (p *Panel) RemoveDeployRun(appID string) {
@@ -52,6 +67,57 @@ func (p *Panel) DeploySnapshot(appID string) (out, action string, running bool) 
 	r.Mu.Lock()
 	defer r.Mu.Unlock()
 	return r.Output.String(), r.Action, r.Running
+}
+
+// GetDeployJob returns the job status by job ID.
+func (p *Panel) GetDeployJob(jobID string) (DeployJobRecord, bool) {
+	p.deployMu.Lock()
+	defer p.deployMu.Unlock()
+	if p.deployJobs == nil {
+		return DeployJobRecord{}, false
+	}
+	rec, ok := p.deployJobs[jobID]
+	if !ok {
+		return DeployJobRecord{}, false
+	}
+	out := *rec
+	if out.Running {
+		if r, has := p.deployRuns[out.AppID]; has && r.JobID == jobID {
+			r.Mu.Lock()
+			out.Output = r.Output.String()
+			r.Mu.Unlock()
+		}
+	}
+	return out, true
+}
+
+// LatestDeployJobForApp returns the most recent deploy job for an app.
+func (p *Panel) LatestDeployJobForApp(appID string) (DeployJobRecord, bool) {
+	p.deployMu.Lock()
+	defer p.deployMu.Unlock()
+	if p.deployJobs == nil {
+		return DeployJobRecord{}, false
+	}
+	var latest *DeployJobRecord
+	for _, job := range p.deployJobs {
+		if job.AppID == appID {
+			if latest == nil || job.CreatedAt.After(latest.CreatedAt) {
+				latest = job
+			}
+		}
+	}
+	if latest == nil {
+		return DeployJobRecord{}, false
+	}
+	out := *latest
+	if out.Running {
+		if r, has := p.deployRuns[appID]; has && r.JobID == out.JobID {
+			r.Mu.Lock()
+			out.Output = r.Output.String()
+			r.Mu.Unlock()
+		}
+	}
+	return out, true
 }
 
 type deployRunWriter struct {
@@ -108,18 +174,22 @@ func (w *deployRunWriter) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-func (p *Panel) StartComposeJob(id, project string, composePaths []string, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result, gitSyncOut string) error {
+func (p *Panel) StartComposeJob(id, project string, composePaths []string, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result, gitSyncOut string) (string, error) {
 	dir := p.AppSourcePath(context.Background(), id)
 	r := p.GetDeployRun(id)
 	r.Mu.Lock()
 	if r.Running {
 		r.Mu.Unlock()
-		return fmt.Errorf("busy")
+		return "", fmt.Errorf("busy")
 	}
+	jobID := fmt.Sprintf("job_%s_%d", id, time.Now().UnixNano()/1e6)
+	r.JobID = jobID
 	r.Running = true
 	r.Action = action
 	r.Output.Reset()
 	r.LineCarry = nil
+	r.OK = false
+	r.FinishedAt = time.Time{}
 	if s := strings.TrimSpace(gitSyncOut); s != "" {
 		r.writeTimestampedLineLocked("[git sync]")
 		r.writeTimestampedBlockLocked(s)
@@ -128,6 +198,20 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 	r.writeTimestampedLineLocked(fmt.Sprintf("Starting %s — docker compose is running in the background (builds may take several minutes).", action))
 	r.writeTimestampedLineLocked("----------------------------------------")
 	r.Mu.Unlock()
+
+	p.deployMu.Lock()
+	if p.deployJobs == nil {
+		p.deployJobs = make(map[string]*DeployJobRecord)
+	}
+	jobRec := &DeployJobRecord{
+		JobID:     jobID,
+		AppID:     id,
+		Action:    action,
+		Running:   true,
+		CreatedAt: time.Now(),
+	}
+	p.deployJobs[jobID] = jobRec
+	p.deployMu.Unlock()
 
 	go func() {
 		runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -148,8 +232,21 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 		}
 		r.writeTimestampedLineLocked("----------------------------------------")
 		saved := r.Output.String()
+		now := time.Now()
 		r.Running = false
+		r.OK = res.OK
+		r.FinishedAt = now
 		r.Mu.Unlock()
+
+		p.deployMu.Lock()
+		if jobRec != nil {
+			jobRec.Running = false
+			jobRec.OK = res.OK
+			jobRec.Output = saved
+			jobRec.FinishedAt = now
+		}
+		p.deployMu.Unlock()
+
 		_ = p.DB.InsertDeployLog(context.Background(), id, action, res.OK, saved)
 		if res.OK {
 			p.InvalidateAfterAppDeployChange(id)
@@ -157,5 +254,5 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 			p.InvalidateAfterDockerChange()
 		}
 	}()
-	return nil
+	return jobID, nil
 }

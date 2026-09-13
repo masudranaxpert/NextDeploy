@@ -392,7 +392,7 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 		downCancel()
 	}
 	h.P.RecordAuditLog(c, "compose_"+strings.ToLower(strings.ReplaceAll(action, " ", "_")), "app", id, "Triggered compose action: "+action)
-	if err := h.P.StartComposeJob(id, project, h.P.EffectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
+	if _, err := h.P.StartComposeJob(id, project, h.P.EffectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment&busy=1", id))
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))

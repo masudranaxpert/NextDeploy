@@ -71,6 +71,7 @@ type Panel struct {
 	WorkspacesRoot   string
 	deployMu         sync.Mutex
 	deployRuns       map[string]*DeployRun
+	deployJobs       map[string]*DeployJobRecord
 	VolRestoreMu     sync.Mutex
 	volRestoreJobs   map[string]*VolumeRestoreJob
 	VolRestoreActive sync.Map
@@ -135,6 +136,9 @@ func (p *Panel) InitDeployRuns() {
 	defer p.deployMu.Unlock()
 	if p.deployRuns == nil {
 		p.deployRuns = make(map[string]*DeployRun)
+	}
+	if p.deployJobs == nil {
+		p.deployJobs = make(map[string]*DeployJobRecord)
 	}
 	p.VolRestoreMu.Lock()
 	if p.volRestoreJobs == nil {
