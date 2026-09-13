@@ -60,7 +60,7 @@
     {{end}}
   </div>
 
-  <form method="post" action="/apps/{{.ID}}/dev-mode" class="space-y-5 p-4 sm:p-5">
+  <form method="post" action="/apps/{{.ID}}/dev-mode" id="dev-mode-form" class="space-y-5 p-4 sm:p-5">
     <!-- Accessible Toggle Switch -->
     <div class="rounded-xl border border-border/70 bg-card/60 p-4 transition-colors">
       <div class="flex items-center justify-between gap-4">
@@ -182,7 +182,10 @@
         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
         Save development settings
       </button>
-      <span class="text-xs text-muted-foreground/70">Applies instantly to running containers in the background.</span>
+      <div class="flex items-center gap-2 text-xs text-muted-foreground/70">
+        <kbd class="hidden sm:inline-block rounded border border-border/70 bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground font-medium">Ctrl+S</kbd>
+        <span>Applies instantly to running containers in the background.</span>
+      </div>
     </div>
   </form>
 </div>
@@ -281,11 +284,11 @@ function ndDevCopy(btn) {
     var icon = btn.querySelector('.nd-copy-icon');
     var originalText = label.textContent;
     label.textContent = 'Copied!';
-    btn.classList.add('border-emerald-500/50', 'text-emerald-300', 'bg-emerald-950/40');
+    btn.classList.add('border-emerald-500/50', 'text-emerald-300', 'bg-emerald-950/40', 'scale-[1.03]');
     if (icon) icon.classList.add('text-emerald-300');
     setTimeout(function () {
       label.textContent = originalText;
-      btn.classList.remove('border-emerald-500/50', 'text-emerald-300', 'bg-emerald-950/40');
+      btn.classList.remove('border-emerald-500/50', 'text-emerald-300', 'bg-emerald-950/40', 'scale-[1.03]');
       if (icon) icon.classList.remove('text-emerald-300');
     }, 1500);
   }
@@ -329,6 +332,20 @@ function ndDevToggleFields() {
   }
 }
 window.ndDevToggleFields = ndDevToggleFields;
+
+// Keyboard accelerator: Ctrl+S / Cmd+S submits development settings when visible
+if (!window._ndDevKeyBound) {
+  window._ndDevKeyBound = true;
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      var form = document.getElementById('dev-mode-form');
+      if (form && form.offsetParent !== null) {
+        e.preventDefault();
+        form.submit();
+      }
+    }
+  });
+}
 </script>
 
 
