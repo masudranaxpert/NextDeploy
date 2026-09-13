@@ -258,29 +258,48 @@
             <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
             <td class="px-4 py-3 font-mono text-muted-foreground">{{.TokenPrefix}}</td>
             <td class="px-4 py-3">
+            <div class="flex flex-col gap-1.5">
+              <!-- env_reveal badge -->
               <div class="flex items-center gap-2">
                 {{if .AllowEnvReveal}}
                   <span class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
                     <svg class="h-3 w-3 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
-                    Secrets Allowed
+                    Secrets
                   </span>
                   <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-reveal" class="inline">
-                    <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors" title="Revoke env_reveal secrets permission">
-                      Disable
-                    </button>
+                    <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
                   </form>
                 {{else}}
                   <span class="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
                     <svg class="h-3 w-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-2.18-7.915a48.507 48.507 0 00-4.048.455m7.854 0a48.508 48.508 0 014.048.455c.18.025.358.057.535.094a2.25 2.25 0 011.83 2.18 48.208 48.208 0 01-.607 7.104 2.25 2.25 0 01-1.391 1.776l-5.69 2.133a2.25 2.25 0 01-1.572 0l-5.69-2.133a2.25 2.25 0 01-1.39-1.776 48.207 48.207 0 01-.608-7.104 2.25 2.25 0 011.83-2.18c.177-.037.355-.069.535-.094"/></svg>
-                    Safe (Keys Only)
+                    Safe
                   </span>
                   <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-reveal" class="inline">
-                    <button type="submit" class="text-[10px] font-medium text-amber-400/80 hover:text-amber-300 underline decoration-dotted transition-colors" title="Allow env_reveal permission for this token">
-                      Allow Secrets
-                    </button>
+                    <button type="submit" class="text-[10px] font-medium text-amber-400/80 hover:text-amber-300 underline decoration-dotted transition-colors">Allow Secrets</button>
                   </form>
                 {{end}}
               </div>
+              <!-- server_exec badge -->
+              <div class="flex items-center gap-2">
+                {{if .AllowServerExec}}
+                  <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                    <svg class="h-3 w-3 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                    Exec Allowed
+                  </span>
+                  <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-exec" class="inline">
+                    <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                  </form>
+                {{else}}
+                  <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                    No Exec
+                  </span>
+                  <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-exec" class="inline">
+                    <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Exec</button>
+                  </form>
+                {{end}}
+              </div>
+            </div>
             </td>
             <td class="px-4 py-3 text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
             <td class="px-4 py-3 text-muted-foreground">
@@ -577,7 +596,7 @@
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
          @click.stop 
-         x-data="{ allowReveal: false }"
+         x-data="{ allowReveal: false, allowExec: false }"
          x-transition:enter="transition ease-out duration-200" 
          x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
          x-transition:enter-end="opacity-100 scale-100 translate-y-0"
@@ -699,7 +718,47 @@
           </div>
         </div>
 
-        <!-- Modal Footer Actions -->
+        <!-- Permission Level: Terminal Exec (server_exec / container_exec) Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowExec ? 'border-rose-500/50 bg-rose-500/[0.06] ring-1 ring-rose-500/20 shadow-md shadow-rose-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+
+          <input type="checkbox" name="allow_server_exec" value="1" x-model="allowExec" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowExec = !allowExec">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowExec ? 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowExec ? 'text-rose-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
+                </svg>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow server_exec / container_exec</span>
+                  <template x-if="!allowExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
+                  </template>
+                  <template x-if="allowExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[9px] font-bold text-rose-300 uppercase tracking-wider animate-pulse">CRITICAL PRIVILEGE</span>
+                  </template>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowExec">Shell commands cannot be executed via this token. Recommended for most AI coding agents.</span>
+                  <span x-show="allowExec" class="text-rose-200/90" x-cloak><strong>Critical:</strong> Allows arbitrary shell commands inside containers (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">container_exec</code>) and on the panel server (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">server_exec</code>). Only for fully trusted agents.</span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" role="switch" :aria-checked="allowExec" @click.stop="allowExec = !allowExec"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowExec ? 'bg-rose-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle exec permission</span>
+              <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowExec ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
         <div class="flex items-center justify-end gap-3 pt-3 border-t border-border/50">
           <button type="button" 
                   @click="tokenModal = false" 
