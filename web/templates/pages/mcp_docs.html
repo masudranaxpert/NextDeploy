@@ -279,12 +279,32 @@
                   </form>
                 {{end}}
               </div>
+              <!-- container_exec badge -->
+              <div class="flex items-center gap-2">
+                {{if .AllowContainerExec}}
+                  <span class="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">
+                    <svg class="h-3 w-3 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                    Container Exec
+                  </span>
+                  <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-container-exec" class="inline">
+                    <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                  </form>
+                {{else}}
+                  <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                    No Container
+                  </span>
+                  <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-container-exec" class="inline">
+                    <button type="submit" class="text-[10px] font-medium text-indigo-400/80 hover:text-indigo-300 underline decoration-dotted transition-colors">Allow Container</button>
+                  </form>
+                {{end}}
+              </div>
               <!-- server_exec badge -->
               <div class="flex items-center gap-2">
                 {{if .AllowServerExec}}
                   <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
                     <svg class="h-3 w-3 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
-                    Exec Allowed
+                    Server Exec
                   </span>
                   <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-exec" class="inline">
                     <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
@@ -292,10 +312,10 @@
                 {{else}}
                   <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                     <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
-                    No Exec
+                    No Server
                   </span>
                   <form method="post" action="/mcp-docs/tokens/{{.ID}}/toggle-exec" class="inline">
-                    <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Exec</button>
+                    <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Server</button>
                   </form>
                 {{end}}
               </div>
@@ -596,7 +616,7 @@
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
          @click.stop 
-         x-data="{ allowReveal: false, allowExec: false }"
+         x-data="{ allowReveal: false, allowContainerExec: false, allowServerExec: false }"
          x-transition:enter="transition ease-out duration-200" 
          x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
          x-transition:enter-end="opacity-100 scale-100 translate-y-0"
@@ -718,44 +738,86 @@
           </div>
         </div>
 
-        <!-- Permission Level: Terminal Exec (server_exec / container_exec) Toggle Card -->
+        <!-- Permission Level: Container Exec (container_exec) Toggle Card -->
         <div class="rounded-2xl border transition-all duration-200 p-4"
-             :class="allowExec ? 'border-rose-500/50 bg-rose-500/[0.06] ring-1 ring-rose-500/20 shadow-md shadow-rose-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+             :class="allowContainerExec ? 'border-indigo-500/50 bg-indigo-500/[0.06] ring-1 ring-indigo-500/20 shadow-md shadow-indigo-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
 
-          <input type="checkbox" name="allow_server_exec" value="1" x-model="allowExec" class="sr-only">
+          <input type="checkbox" name="allow_container_exec" value="1" x-model="allowContainerExec" class="sr-only">
 
-          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowExec = !allowExec">
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowContainerExec = !allowContainerExec">
             <div class="flex items-start gap-3 min-w-0">
               <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
-                   :class="allowExec ? 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
-                <svg class="h-4 w-4" :class="allowExec ? 'text-rose-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                   :class="allowContainerExec ? 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowContainerExec ? 'text-indigo-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+                </svg>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow container_exec (Container Shell)</span>
+                  <template x-if="!allowContainerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
+                  </template>
+                  <template x-if="allowContainerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-indigo-500/20 border border-indigo-500/40 px-1.5 py-0.5 text-[9px] font-bold text-indigo-300 uppercase tracking-wider">Active</span>
+                  </template>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowContainerExec">Commands cannot be executed inside containers. Safe default for coding agents that only edit files.</span>
+                  <span x-show="allowContainerExec" class="text-indigo-200/90" x-cloak>Allows arbitrary shell commands inside application Docker containers (<code class="px-1 py-0.5 rounded bg-indigo-500/20 font-mono text-[10px] text-indigo-200">container_exec</code>). Isolated inside container workspace.</span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" role="switch" :aria-checked="allowContainerExec" @click.stop="allowContainerExec = !allowContainerExec"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowContainerExec ? 'bg-indigo-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle container exec permission</span>
+              <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowContainerExec ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Permission Level: Host Server Exec (server_exec) Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowServerExec ? 'border-rose-500/50 bg-rose-500/[0.06] ring-1 ring-rose-500/20 shadow-md shadow-rose-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+
+          <input type="checkbox" name="allow_server_exec" value="1" x-model="allowServerExec" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowServerExec = !allowServerExec">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowServerExec ? 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowServerExec ? 'text-rose-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
                 </svg>
               </div>
 
               <div class="space-y-1 min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-xs font-semibold text-foreground">Allow server_exec / container_exec</span>
-                  <template x-if="!allowExec">
+                  <span class="text-xs font-semibold text-foreground">Allow server_exec (Host VPS Shell)</span>
+                  <template x-if="!allowServerExec">
                     <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
                   </template>
-                  <template x-if="allowExec">
+                  <template x-if="allowServerExec">
                     <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[9px] font-bold text-rose-300 uppercase tracking-wider animate-pulse">CRITICAL PRIVILEGE</span>
                   </template>
                 </div>
                 <p class="text-[11px] text-muted-foreground leading-relaxed">
-                  <span x-show="!allowExec">Shell commands cannot be executed via this token. Recommended for most AI coding agents.</span>
-                  <span x-show="allowExec" class="text-rose-200/90" x-cloak><strong>Critical:</strong> Allows arbitrary shell commands inside containers (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">container_exec</code>) and on the panel server (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">server_exec</code>). Only for fully trusted agents.</span>
+                  <span x-show="!allowServerExec">Shell commands on the panel host server cannot be executed via this token. Recommended.</span>
+                  <span x-show="allowServerExec" class="text-rose-200/90" x-cloak><strong>Critical:</strong> Allows arbitrary shell commands directly on the panel host server (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">server_exec</code>). Only for fully trusted admin agents.</span>
                 </p>
               </div>
             </div>
 
-            <button type="button" role="switch" :aria-checked="allowExec" @click.stop="allowExec = !allowExec"
+            <button type="button" role="switch" :aria-checked="allowServerExec" @click.stop="allowServerExec = !allowServerExec"
                     class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                    :class="allowExec ? 'bg-rose-500' : 'bg-muted/70'">
-              <span class="sr-only">Toggle exec permission</span>
+                    :class="allowServerExec ? 'bg-rose-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle server exec permission</span>
               <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
-                    :class="allowExec ? 'translate-x-5' : 'translate-x-0'"></span>
+                    :class="allowServerExec ? 'translate-x-5' : 'translate-x-0'"></span>
             </button>
           </div>
         </div>

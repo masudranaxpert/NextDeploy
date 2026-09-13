@@ -223,6 +223,7 @@ func main() {
 	app.Post("/mcp-docs/tokens", mcpServer.CreateAPITokenPost)
 	app.Post("/mcp-docs/tokens/:id/delete", mcpServer.DeleteAPITokenPost)
 	app.Post("/mcp-docs/tokens/:id/toggle-reveal", mcpServer.ToggleAPITokenEnvRevealPost)
+	app.Post("/mcp-docs/tokens/:id/toggle-container-exec", mcpServer.ToggleAPITokenContainerExecPost)
 	app.Post("/mcp-docs/tokens/:id/toggle-exec", mcpServer.ToggleAPITokenServerExecPost)
 	app.Post("/mcp-docs/toggle-status", mcpServer.ToggleMCPStatusPost)
 	app.Get("/apps", p.AppsPage)

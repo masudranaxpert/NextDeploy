@@ -238,7 +238,7 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "container_exec",
-			Description: "Execute a shell command inside an application container (or specific compose service) and return stdout/stderr and exit status",
+			Description: "Execute a shell command inside an application container (or specific compose service). Requires explicit 'Allow container_exec' token permission.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
@@ -253,7 +253,7 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "server_exec",
-			Description: "Execute a shell command in the NextDeploy host / panel environment (strictly restricted to Admin role)",
+			Description: "Execute a shell command on the NextDeploy host server (strictly restricted to Admin role and 'Allow server_exec' token permission)",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{

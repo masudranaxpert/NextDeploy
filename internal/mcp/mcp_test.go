@@ -92,8 +92,8 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	// Full-permission token sees all 21 tools.
-	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true}
+	// Full-permission token sees all 26 tools.
+	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true}
 	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
 	resp := srv.ProcessRPC(fullCtx, user, req)
 	if resp.Error != nil {
@@ -134,7 +134,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools.
+	// No-permission token hides restricted tools (23 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
 	if len(noPermList.Tools) != 23 {
@@ -144,6 +144,48 @@ func TestMCP_ToolsList(t *testing.T) {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
 			t.Errorf("restricted tool %q must not appear without permission", tool.Name)
 		}
+	}
+
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (24 tools).
+	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
+	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
+	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
+	containerList := containerResp.Result.(ToolsListResult)
+	if len(containerList.Tools) != 24 {
+		t.Errorf("expected 24 tools with container-only perms, got %d", len(containerList.Tools))
+	}
+	hasContainerExec := false
+	for _, tool := range containerList.Tools {
+		if tool.Name == "server_exec" || tool.Name == "env_reveal" {
+			t.Errorf("unpermitted tool %q appeared in container-only list", tool.Name)
+		}
+		if tool.Name == "container_exec" {
+			hasContainerExec = true
+		}
+	}
+	if !hasContainerExec {
+		t.Errorf("expected container_exec to be present for AllowContainerExec token")
+	}
+
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (24 tools).
+	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
+	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
+	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
+	serverList := serverResp.Result.(ToolsListResult)
+	if len(serverList.Tools) != 24 {
+		t.Errorf("expected 24 tools with server-only perms, got %d", len(serverList.Tools))
+	}
+	hasServerExec := false
+	for _, tool := range serverList.Tools {
+		if tool.Name == "container_exec" || tool.Name == "env_reveal" {
+			t.Errorf("unpermitted tool %q appeared in server-only list", tool.Name)
+		}
+		if tool.Name == "server_exec" {
+			hasServerExec = true
+		}
+	}
+	if !hasServerExec {
+		t.Errorf("expected server_exec to be present for AllowServerExec token")
 	}
 }
 
@@ -317,7 +359,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	regUser, _ := store.GetUserByID(ctx, regularUserID)
 	_ = store.AddCollaborator(ctx, appID, regularUserID, "developer")
 
-	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false, false)
+	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -361,7 +403,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	}
 
 	// 5. Test that even an ADMIN cannot env_reveal if their API token does not have AllowEnvReveal
-	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false, false)
+	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -528,7 +570,7 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -621,7 +663,7 @@ func TestMCP_ServerDisabledByDefault(t *testing.T) {
 	// Disable MCP explicitly
 	_ = store.SetSetting(ctx, "mcp_enabled", "0")
 
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -882,8 +924,8 @@ func TestMCP_TerminalTools(t *testing.T) {
 		t.Errorf("expected access error for viewer user calling container_exec, got %+v", callResViewer)
 	}
 
-	// App owner (developer access) with AllowServerExec token calls container_exec -> no running container
-	ownerToken := db.APIToken{ID: 998, UserID: regularUser.ID, AllowServerExec: true}
+	// App owner (developer access) with AllowContainerExec token calls container_exec -> no running container
+	ownerToken := db.APIToken{ID: 998, UserID: regularUser.ID, AllowContainerExec: true}
 	ownerExecCtx := context.WithValue(ctx, apiTokenContextKey{}, ownerToken)
 	ownerParams, _ := json.Marshal(CallToolParams{
 		Name: "container_exec",
@@ -901,6 +943,20 @@ func TestMCP_TerminalTools(t *testing.T) {
 	callResOwner := respOwner.Result.(CallToolResult)
 	if !callResOwner.IsError || len(callResOwner.Content) == 0 || !strings.Contains(callResOwner.Content[0].Text, "no running container found") {
 		t.Errorf("expected 'no running container found' error, got %+v", callResOwner)
+	}
+
+	// App owner with token WITHOUT AllowContainerExec (even if AllowServerExec is true) calling container_exec -> must be permission denied
+	noContainerToken := db.APIToken{ID: 997, UserID: regularUser.ID, AllowContainerExec: false, AllowServerExec: true}
+	noContainerCtx := context.WithValue(ctx, apiTokenContextKey{}, noContainerToken)
+	respNoContainer := srv.ProcessRPC(noContainerCtx, regularUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      105,
+		Method:  "tools/call",
+		Params:  ownerParams,
+	})
+	callResNoContainer := respNoContainer.Result.(CallToolResult)
+	if !callResNoContainer.IsError || len(callResNoContainer.Content) == 0 || !strings.Contains(callResNoContainer.Content[0].Text, "permission denied: container_exec is restricted") {
+		t.Errorf("expected permission denied for container_exec without AllowContainerExec, got %+v", callResNoContainer)
 	}
 }
 
