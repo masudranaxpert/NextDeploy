@@ -612,7 +612,7 @@
   </div>
 
   <!-- Generate Token Modal -->
-  <div x-show="tokenModal" x-cloak class="modal-overlay" @keydown.escape.window="tokenModal = false">
+  <div x-show="tokenModal" x-cloak class="modal-overlay !m-0" @keydown.escape.window="tokenModal = false">
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
          @click.stop 

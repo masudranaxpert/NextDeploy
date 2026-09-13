@@ -380,6 +380,7 @@
   /* ── Modal overlay ── */
   .modal-overlay {
     @apply fixed inset-0 z-50 flex items-center justify-center;
+    margin: 0 !important;
     padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(4px);
