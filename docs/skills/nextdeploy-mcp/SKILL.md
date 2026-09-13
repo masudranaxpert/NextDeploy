@@ -25,7 +25,7 @@ Unlike basic SSH bind mounts where an agent can edit files but cannot deploy or 
 │                    NextDeploy Panel (VPS)                   │
 │                                                             │
 │   1. Read code & env      →   file_read, env_list          │
-│   2. Apply code edits     →   file_write (sandboxed)        │
+│   2. Apply code edits     →   file_write (direct to workspace) │
 │   3. Trigger deployment   →   deploy / redeploy (async)     │
 │   4. Poll build output    →   deploy_status(job_id)         │
 │   5. Read runtime logs    →   container_logs, deploy_tail   │
