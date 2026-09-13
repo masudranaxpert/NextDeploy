@@ -611,3 +611,64 @@ func TestMCP_CollaboratorRBAC(t *testing.T) {
 		t.Errorf("developer should be allowed to call file_write: %+v", toolRes)
 	}
 }
+
+func TestMCP_DocsPageAuth(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	app := fiber.New()
+	srv := NewServer(p)
+
+	// Register routes like main.go
+	srv.RegisterRoutes(app)
+	app.Use(p.AuthMiddleware)
+	app.Get("/mcp-docs", srv.MCPDocsPage)
+	app.Post("/mcp-docs/toggle-status", srv.ToggleMCPStatusPost)
+
+	// 1. Unauthenticated request to /mcp-docs should redirect to /login
+	req := httptest.NewRequest("GET", "/mcp-docs", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 redirect for unauthenticated /mcp-docs, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "/login") {
+		t.Errorf("expected redirect to /login, got %s", loc)
+	}
+
+	// 2. Authenticated admin session toggles status
+	sessionToken := "admin_session_test_xyz"
+	if err := store.CreateSession(ctx, sessionToken, user.ID, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	req = httptest.NewRequest("POST", "/mcp-docs/toggle-status", nil)
+	req.AddCookie(&http.Cookie{Name: "nd_session", Value: sessionToken})
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 redirect after toggle, got %d", resp.StatusCode)
+	}
+
+	// Verify setting was toggled in DB (from 1 to 0)
+	if enabled := store.GetSetting(ctx, "mcp_enabled"); enabled != "0" {
+		t.Errorf("expected mcp_enabled to be 0 after toggle, got %s", enabled)
+	}
+
+	// Toggle again from 0 to 1
+	req = httptest.NewRequest("POST", "/mcp-docs/toggle-status", nil)
+	req.AddCookie(&http.Cookie{Name: "nd_session", Value: sessionToken})
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if enabled := store.GetSetting(ctx, "mcp_enabled"); enabled != "1" {
+		t.Errorf("expected mcp_enabled to be 1 after second toggle, got %s", enabled)
+	}
+}

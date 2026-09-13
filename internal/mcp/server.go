@@ -39,13 +39,12 @@ func NewServer(p *handlers.Panel) *Server {
 
 // RegisterRoutes registers the MCP server endpoints onto the Fiber router.
 func (s *Server) RegisterRoutes(app *fiber.App) {
-	// MCP group with dedicated token authentication
-	mcpGroup := app.Group("/mcp", s.AuthMiddleware)
+	mcpGroup := app.Group("/mcp")
 
-	mcpGroup.Get("/sse", s.HandleSSE)
-	mcpGroup.Post("/messages", s.HandleMessages)
-	mcpGroup.Post("/", s.HandleDirectJSONRPC)
-	mcpGroup.Get("/", s.HandleGetInfoOrSSE)
+	mcpGroup.Get("/sse", s.AuthMiddleware, s.HandleSSE)
+	mcpGroup.Post("/messages", s.AuthMiddleware, s.HandleMessages)
+	mcpGroup.Post("/", s.AuthMiddleware, s.HandleDirectJSONRPC)
+	mcpGroup.Get("/", s.AuthMiddleware, s.HandleGetInfoOrSSE)
 }
 
 // IsEnabled reports whether the NextDeploy MCP server is enabled in system settings (default: false/disabled).
@@ -53,8 +52,13 @@ func (s *Server) IsEnabled(ctx context.Context) bool {
 	return s.p.DB.GetSetting(ctx, "mcp_enabled") == "1"
 }
 
-// AuthMiddleware extracts and validates Bearer token, X-API-Key, or query token.
+// AuthMiddleware extracts and validates Bearer token or X-API-Key for MCP endpoints.
 func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
+	path := c.Path()
+	if path != "/mcp" && !strings.HasPrefix(path, "/mcp/") {
+		return c.Next()
+	}
+
 	if !s.IsEnabled(c.UserContext()) {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"jsonrpc": "2.0",
@@ -315,7 +319,10 @@ func generateSessionID() string {
 // MCPDocsPage renders the dedicated MCP documentation and setup page.
 func (s *Server) MCPDocsPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
-	u, _ := c.Locals("auth_user").(db.User)
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok || u.ID == 0 {
+		return c.Redirect("/login?next=/mcp-docs")
+	}
 
 	tokens, err := s.p.DB.ListAPITokensForUser(ctx, u.ID)
 	if err != nil {

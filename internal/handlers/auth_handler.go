@@ -63,9 +63,9 @@ func validateRedirectPath(next string) string {
 func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	path := c.Path()
 
-	// Always allow static assets and auth routes
+	// Always allow static assets, MCP API endpoints, and auth routes
 	if strings.HasPrefix(path, "/static/") ||
-		strings.HasPrefix(path, "/mcp") ||
+		path == "/mcp" || strings.HasPrefix(path, "/mcp/") ||
 		path == "/login" || path == "/setup" {
 		return c.Next()
 	}
