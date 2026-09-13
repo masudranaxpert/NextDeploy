@@ -1,0 +1,432 @@
+{{/* NextDeploy MCP Server & AI Integration Documentation. Layout: layouts/shell. */}}
+<div class="page-shell max-w-6xl space-y-8" x-data="{ 
+  activeTab: 'cursor', 
+  activeCategory: 'all',
+  tokenModal: false,
+  copiedId: '',
+  copyText(text, id) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      this.copiedId = id;
+      setTimeout(() => { if (this.copiedId === id) this.copiedId = ''; }, 2500);
+    }
+  }
+}">
+
+  <!-- Header & Status Banner -->
+  <div class="section-header">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex min-w-0 items-center gap-3">
+        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent ring-1 ring-primary/30 shadow-lg shadow-primary/10">
+          <svg class="h-6 w-6 text-primary" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="page-title">Model Context Protocol (MCP)</h1>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/30">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Live & Ready
+            </span>
+          </div>
+          <p class="page-subtitle">Connect Cursor, Claude Code, Windsurf & local AI agents to edit, deploy, and inspect NextDeploy apps remotely.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" @click="tokenModal = true" class="btn btn-primary inline-flex items-center gap-2">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Generate API Token
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {{if .Flash}}
+  <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3" role="status">
+    <svg class="h-5 w-5 shrink-0 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm font-medium text-emerald-300">{{.Flash}}</p>
+  </div>
+  {{end}}
+
+  {{if .NewToken}}
+  <!-- Newly Created Token Banner (Only Shown Once) -->
+  <div class="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent p-5 shadow-xl shadow-amber-500/5">
+    <div class="flex items-start gap-3">
+      <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-amber-200">New API Token Created: {{.NewTokenName}}</h3>
+          <span class="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">Shown Once Only</span>
+        </div>
+        <p class="text-xs text-amber-300/80">Copy this token now and paste it into your AI assistant configuration. For security reasons, it cannot be retrieved again.</p>
+        <div class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-background/80 px-3 py-2">
+          <code class="flex-1 font-mono text-xs font-semibold text-foreground select-all break-all">{{.NewToken}}</code>
+          <button type="button" @click="copyText('{{.NewToken}}', 'new_token')" class="btn btn-secondary shrink-0 text-xs py-1.5 px-3">
+            <span x-text="copiedId === 'new_token' ? 'Copied!' : 'Copy Token'">Copy Token</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {{end}}
+
+  <!-- Endpoint Discovery Cards -->
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="panel-card p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SSE Endpoint (Recommended)</span>
+        <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Streaming</span>
+      </div>
+      <div class="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+        <code class="truncate text-xs font-mono text-foreground">{{.BaseURL}}/mcp/sse</code>
+        <button type="button" @click="copyText('{{.BaseURL}}/mcp/sse', 'sse_url')" class="ml-2 text-muted-foreground hover:text-foreground">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+        </button>
+      </div>
+      <p class="text-[11px] text-muted-foreground">Used by Claude Code, Cursor, and Windsurf.</p>
+    </div>
+
+    <div class="panel-card p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">HTTP JSON-RPC 2.0</span>
+        <span class="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">Streamable</span>
+      </div>
+      <div class="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+        <code class="truncate text-xs font-mono text-foreground">{{.BaseURL}}/mcp</code>
+        <button type="button" @click="copyText('{{.BaseURL}}/mcp', 'http_url')" class="ml-2 text-muted-foreground hover:text-foreground">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+        </button>
+      </div>
+      <p class="text-[11px] text-muted-foreground">Direct POST endpoint for custom scripts or agents.</p>
+    </div>
+
+    <div class="panel-card p-4 space-y-2 sm:col-span-2 lg:col-span-1">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Server Specifications</span>
+        <span class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">v{{.Protocol}}</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="rounded-lg bg-muted/20 p-2 text-center">
+          <div class="text-sm font-bold text-foreground">18</div>
+          <div class="text-[10px] text-muted-foreground">Registered Tools</div>
+        </div>
+        <div class="rounded-lg bg-muted/20 p-2 text-center">
+          <div class="text-sm font-bold text-emerald-400">Async</div>
+          <div class="text-[10px] text-muted-foreground">Non-Blocking Deploys</div>
+        </div>
+      </div>
+      <p class="text-[11px] text-muted-foreground">Path-traversal hardened & RBAC enforced.</p>
+    </div>
+  </div>
+
+  <!-- Interactive Setup Guides -->
+  <div class="panel-card p-5 space-y-5">
+    <div>
+      <h2 class="text-sm font-semibold text-foreground">Connect Your AI Assistant</h2>
+      <p class="text-xs text-muted-foreground">Choose your client below for copy-paste instructions and configuration files.</p>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex flex-wrap items-center gap-1 border-b border-border/60 pb-2">
+      <button type="button" @click="activeTab = 'cursor'" 
+        :class="activeTab === 'cursor' ? 'bg-primary/20 text-primary ring-1 ring-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+        Cursor
+      </button>
+      <button type="button" @click="activeTab = 'claude_code'" 
+        :class="activeTab === 'claude_code' ? 'bg-primary/20 text-primary ring-1 ring-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+        Claude Code
+      </button>
+      <button type="button" @click="activeTab = 'windsurf'" 
+        :class="activeTab === 'windsurf' ? 'bg-primary/20 text-primary ring-1 ring-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+        Windsurf
+      </button>
+      <button type="button" @click="activeTab = 'claude_desktop'" 
+        :class="activeTab === 'claude_desktop' ? 'bg-primary/20 text-primary ring-1 ring-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+        Claude Desktop
+      </button>
+      <button type="button" @click="activeTab = 'curl'" 
+        :class="activeTab === 'curl' ? 'bg-primary/20 text-primary ring-1 ring-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold transition-all">
+        cURL / HTTP Test
+      </button>
+    </div>
+
+    <!-- Cursor Tab -->
+    <div x-show="activeTab === 'cursor'" class="space-y-4" x-cloak>
+      <ol class="list-decimal list-inside space-y-2 text-xs text-muted-foreground">
+        <li>In Cursor, open <strong class="text-foreground">Cursor Settings</strong> (<kbd class="rounded bg-muted px-1.5 py-0.5 text-[10px]">Ctrl+,</kbd> or <kbd class="rounded bg-muted px-1.5 py-0.5 text-[10px]">Cmd+,</kbd>).</li>
+        <li>Navigate to <strong class="text-foreground">Features &gt; MCP &gt; Add New MCP Server</strong>.</li>
+        <li>Enter the configuration below or edit your <code class="text-foreground font-mono">~/.cursor/mcp.json</code> directly:</li>
+      </ol>
+
+      <div class="relative rounded-xl border border-border/60 bg-muted/20 p-4 font-mono text-xs">
+        <button type="button" @click="copyText(`{\n  &quot;mcpServers&quot;: {\n    &quot;nextdeploy&quot;: {\n      &quot;url&quot;: &quot;{{.BaseURL}}/mcp/sse&quot;,\n      &quot;headers&quot;: {\n        &quot;Authorization&quot;: &quot;Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}&quot;\n      }\n    }\n  }\n}`, 'cursor_json')"
+          class="absolute right-3 top-3 btn btn-secondary py-1 px-2.5 text-[11px]">
+          <span x-text="copiedId === 'cursor_json' ? 'Copied!' : 'Copy JSON'">Copy JSON</span>
+        </button>
+        <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed"><code>{
+  "mcpServers": {
+    "nextdeploy": {
+      "url": "{{.BaseURL}}/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}"
+      }
+    }
+  }
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Claude Code Tab -->
+    <div x-show="activeTab === 'claude_code'" class="space-y-4" x-cloak>
+      <p class="text-xs text-muted-foreground">Run this single CLI command from your laptop terminal to add NextDeploy to your global Claude Code configuration:</p>
+
+      <div class="relative rounded-xl border border-border/60 bg-muted/20 p-4 font-mono text-xs">
+        <button type="button" @click="copyText('claude mcp add --transport sse nextdeploy {{.BaseURL}}/mcp/sse --header &quot;Authorization: Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}&quot;', 'claude_cli')"
+          class="absolute right-3 top-3 btn btn-secondary py-1 px-2.5 text-[11px]">
+          <span x-text="copiedId === 'claude_cli' ? 'Copied!' : 'Copy Command'">Copy Command</span>
+        </button>
+        <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed pr-24"><code>claude mcp add --transport sse nextdeploy {{.BaseURL}}/mcp/sse --header "Authorization: Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}"</code></pre>
+      </div>
+      <p class="text-[11px] text-muted-foreground">Claude Code will automatically detect all 18 NextDeploy tools without installing Node.js or Docker on your laptop!</p>
+    </div>
+
+    <!-- Windsurf Tab -->
+    <div x-show="activeTab === 'windsurf'" class="space-y-4" x-cloak>
+      <p class="text-xs text-muted-foreground">Add to your Windsurf configuration in <code class="text-foreground font-mono">~/.codeium/windsurf/mcp_config.json</code>:</p>
+
+      <div class="relative rounded-xl border border-border/60 bg-muted/20 p-4 font-mono text-xs">
+        <button type="button" @click="copyText(`{\n  &quot;mcpServers&quot;: {\n    &quot;nextdeploy&quot;: {\n      &quot;url&quot;: &quot;{{.BaseURL}}/mcp/sse&quot;,\n      &quot;headers&quot;: {\n        &quot;Authorization&quot;: &quot;Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}&quot;\n      }\n    }\n  }\n}`, 'windsurf_json')"
+          class="absolute right-3 top-3 btn btn-secondary py-1 px-2.5 text-[11px]">
+          <span x-text="copiedId === 'windsurf_json' ? 'Copied!' : 'Copy JSON'">Copy JSON</span>
+        </button>
+        <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed"><code>{
+  "mcpServers": {
+    "nextdeploy": {
+      "url": "{{.BaseURL}}/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}"
+      }
+    }
+  }
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Claude Desktop Tab -->
+    <div x-show="activeTab === 'claude_desktop'" class="space-y-4" x-cloak>
+      <p class="text-xs text-muted-foreground">Add to your Claude Desktop config (<code class="text-foreground font-mono">claude_desktop_config.json</code>):</p>
+
+      <div class="relative rounded-xl border border-border/60 bg-muted/20 p-4 font-mono text-xs">
+        <button type="button" @click="copyText(`{\n  &quot;mcpServers&quot;: {\n    &quot;nextdeploy&quot;: {\n      &quot;url&quot;: &quot;{{.BaseURL}}/mcp/sse&quot;,\n      &quot;headers&quot;: {\n        &quot;Authorization&quot;: &quot;Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}&quot;\n      }\n    }\n  }\n}`, 'desktop_json')"
+          class="absolute right-3 top-3 btn btn-secondary py-1 px-2.5 text-[11px]">
+          <span x-text="copiedId === 'desktop_json' ? 'Copied!' : 'Copy JSON'">Copy JSON</span>
+        </button>
+        <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed"><code>{
+  "mcpServers": {
+    "nextdeploy": {
+      "url": "{{.BaseURL}}/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}"
+      }
+    }
+  }
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- cURL Tab -->
+    <div x-show="activeTab === 'curl'" class="space-y-4" x-cloak>
+      <p class="text-xs text-muted-foreground">Test the JSON-RPC endpoint from your terminal:</p>
+
+      <div class="relative rounded-xl border border-border/60 bg-muted/20 p-4 font-mono text-xs">
+        <button type="button" @click="copyText('curl -X POST {{.BaseURL}}/mcp -H &quot;Authorization: Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}&quot; -H &quot;Content-Type: application/json&quot; -d &quot;{\\&quot;jsonrpc\\&quot;:\\&quot;2.0\\&quot;,\\&quot;id\\&quot;:1,\\&quot;method\\&quot;:\\&quot;tools/list\\&quot;}&quot;', 'curl_cmd')"
+          class="absolute right-3 top-3 btn btn-secondary py-1 px-2.5 text-[11px]">
+          <span x-text="copiedId === 'curl_cmd' ? 'Copied!' : 'Copy Command'">Copy Command</span>
+        </button>
+        <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed pr-24"><code>curl -X POST {{.BaseURL}}/mcp \
+  -H "Authorization: Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Why MCP: 3 Key Advantages -->
+  <div class="grid gap-4 md:grid-cols-3">
+    <div class="panel-card p-4 space-y-2 border-primary/20 bg-primary/5">
+      <div class="flex items-center gap-2 text-primary font-semibold text-xs">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+        Zero VPS Overhead
+      </div>
+      <p class="text-xs text-muted-foreground">No need to run 4GB RAM Node.js or heavy AI assistants inside your VPS. The agent runs locally on your workstation, sending only lightweight tool calls to NextDeploy.</p>
+    </div>
+
+    <div class="panel-card p-4 space-y-2 border-emerald-500/20 bg-emerald-500/5">
+      <div class="flex items-center gap-2 text-emerald-400 font-semibold text-xs">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-2.18-7.915a48.507 48.507 0 00-4.048.455m7.854 0a48.508 48.508 0 014.048.455c.18.025.358.057.535.094a2.25 2.25 0 011.83 2.18 48.208 48.208 0 01-.607 7.104 2.25 2.25 0 01-1.391 1.776l-5.69 2.133a2.25 2.25 0 01-1.572 0l-5.69-2.133a2.25 2.25 0 01-1.39-1.776 48.207 48.207 0 01-.608-7.104 2.25 2.25 0 011.83-2.18c.177-.037.355-.069.535-.094"/></svg>
+        No Permission or Root Issues
+      </div>
+      <p class="text-xs text-muted-foreground">NextDeploy panel manages all file edits, named volumes, and container restarts internally. No UID/GID mismatch, root-owned file conflicts, or broad SSH access required.</p>
+    </div>
+
+    <div class="panel-card p-4 space-y-2 border-amber-500/20 bg-amber-500/5">
+      <div class="flex items-center gap-2 text-amber-400 font-semibold text-xs">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+        Closed Development Loop
+      </div>
+      <p class="text-xs text-muted-foreground">With SSH + bind-mounts, agents can't trigger deploys or inspect build logs. With MCP, the entire loop (edit &rarr; deploy &rarr; log tail &rarr; diagnosis &rarr; hotfix) is automated without human intervention.</p>
+    </div>
+  </div>
+
+  <!-- API Tokens Management -->
+  <div class="panel-card p-5 space-y-4">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border/50 pb-3">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Active API Tokens</h2>
+        <p class="text-xs text-muted-foreground">Tokens allow external agents to access your NextDeploy apps securely without sharing passwords.</p>
+      </div>
+      <button type="button" @click="tokenModal = true" class="btn btn-secondary text-xs py-1.5 px-3">
+        + Create New Token
+      </button>
+    </div>
+
+    {{if .Tokens}}
+    <div class="overflow-x-auto rounded-xl border border-border/50 bg-muted/5">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-border/50 bg-muted/20 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <th class="px-4 py-3">Name</th>
+            <th class="px-4 py-3">Token Prefix</th>
+            <th class="px-4 py-3">Created</th>
+            <th class="px-4 py-3">Last Used</th>
+            <th class="px-4 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border/40 text-xs">
+          {{range .Tokens}}
+          <tr class="hover:bg-muted/10 transition-colors">
+            <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+            <td class="px-4 py-3 font-mono text-muted-foreground">{{.TokenPrefix}}</td>
+            <td class="px-4 py-3 text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="px-4 py-3 text-muted-foreground">
+              {{if .LastUsedAt}}
+                <span class="text-emerald-400 font-medium">{{.LastUsedAt.Format "2006-01-02 15:04"}}</span>
+              {{else}}
+                <span class="text-muted-foreground/60 italic">Never</span>
+              {{end}}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <form method="post" action="/mcp-docs/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this API token immediately?')">
+                <button type="submit" class="text-rose-400 hover:text-rose-300 font-medium transition-colors">
+                  Revoke
+                </button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="rounded-xl border border-dashed border-border/60 bg-muted/5 py-8 text-center">
+      <p class="text-xs text-muted-foreground">No API tokens generated yet. Click "Generate API Token" above to get started.</p>
+    </div>
+    {{end}}
+  </div>
+
+  <!-- Available MCP Tools Reference -->
+  <div class="panel-card p-5 space-y-6">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/50 pb-4">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Available MCP Tools (18)</h2>
+        <p class="text-xs text-muted-foreground">These tools are automatically registered and called by your AI assistant.</p>
+      </div>
+      <!-- Tool Category Filter -->
+      <div class="flex flex-wrap gap-1">
+        <button type="button" @click="activeCategory = 'all'" :class="activeCategory === 'all' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">All (18)</button>
+        <button type="button" @click="activeCategory = 'apps'" :class="activeCategory === 'apps' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">Apps</button>
+        <button type="button" @click="activeCategory = 'files'" :class="activeCategory === 'files' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">Files</button>
+        <button type="button" @click="activeCategory = 'deploy'" :class="activeCategory === 'deploy' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">Deploy</button>
+        <button type="button" @click="activeCategory = 'logs'" :class="activeCategory === 'logs' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">Logs</button>
+        <button type="button" @click="activeCategory = 'dev'" :class="activeCategory === 'dev' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'" class="rounded px-2.5 py-1 text-[11px] font-medium transition-colors">Dev Mode</button>
+      </div>
+    </div>
+
+    <!-- Tools Grid -->
+    <div class="grid gap-4 md:grid-cols-2">
+      {{range .Tools}}
+      <div class="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3 transition-colors hover:border-primary/30"
+        x-show="activeCategory === 'all' 
+          || (activeCategory === 'apps' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get'))
+          || (activeCategory === 'files' && ('{{.Name}}' === 'file_list' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete'))
+          || (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'redeploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'compose_get'))
+          || (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail'))
+          || (activeCategory === 'dev' && ('{{.Name}}' === 'dev_mode_set' || '{{.Name}}' === 'reset_dev_deps'))"
+        x-cloak>
+        <div class="flex items-center justify-between">
+          <code class="font-mono text-xs font-bold text-primary">{{.Name}}</code>
+          <span class="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground uppercase">Tool</span>
+        </div>
+        <p class="text-xs text-muted-foreground leading-relaxed">{{.Description}}</p>
+
+        {{if .InputSchema.Properties}}
+        <div class="space-y-1.5 border-t border-border/40 pt-2.5">
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Parameters</div>
+          <div class="space-y-1">
+            {{range $key, $val := .InputSchema.Properties}}
+            <div class="flex items-baseline justify-between gap-2 text-[11px]">
+              <div class="flex items-center gap-1.5 font-mono">
+                <span class="text-foreground">{{$key}}</span>
+                <span class="text-[10px] text-muted-foreground/70">({{$val.Type}})</span>
+              </div>
+              <span class="text-[11px] text-muted-foreground text-right truncate max-w-[200px]" title="{{$val.Description}}">{{$val.Description}}</span>
+            </div>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Generate Token Modal -->
+  <div x-show="tokenModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm" x-cloak>
+    <div @click.away="tokenModal = false" class="panel-card w-full max-w-md p-6 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-border/50 pb-3">
+        <h3 class="text-sm font-semibold text-foreground">Generate New API Token</h3>
+        <button type="button" @click="tokenModal = false" class="text-muted-foreground hover:text-foreground">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form method="post" action="/mcp-docs/tokens" class="space-y-4">
+        <div>
+          <label for="token_name" class="block text-xs font-medium text-muted-foreground mb-1.5">Token Name / Client Description</label>
+          <input type="text" id="token_name" name="name" required placeholder="e.g. Cursor MacBook, Claude Code Local" class="input w-full">
+          <p class="mt-1 text-[11px] text-muted-foreground">Give this token an identifiable name so you know which device is connected.</p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button type="button" @click="tokenModal = false" class="btn btn-secondary text-xs">Cancel</button>
+          <button type="submit" class="btn btn-primary text-xs">Generate Token</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>

@@ -15,6 +15,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/handlers"
+	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/valyala/fasthttp"
@@ -326,4 +327,81 @@ func generateSessionID() string {
 		return fmt.Sprintf("session_%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+// MCPDocsPage renders the dedicated MCP documentation and setup page.
+func (s *Server) MCPDocsPage(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, _ := c.Locals("auth_user").(db.User)
+
+	tokens, err := s.p.DB.ListAPITokensForUser(ctx, u.ID)
+	if err != nil {
+		log.Printf("error listing API tokens: %v", err)
+	}
+
+	protocol := "2024-11-05"
+	scheme := "https"
+	if c.Protocol() == "http" && strings.HasPrefix(c.Hostname(), "localhost") {
+		scheme = "http"
+	}
+	baseURL := fmt.Sprintf("%s://%s", scheme, c.Hostname())
+
+	return c.Render("pages/mcp_docs", handlers.WithUser(c, fiber.Map{
+		"Nav":          "mcp",
+		"Title":        "MCP Server & AI Integration",
+		"Host":         c.Hostname(),
+		"BaseURL":      baseURL,
+		"Protocol":     protocol,
+		"Tokens":       tokens,
+		"Tools":        AllTools(),
+		"NewToken":     c.Query("new_token"),
+		"NewTokenName": c.Query("token_name"),
+		"Flash":        utils.ReadFlash(c),
+	}), "layouts/shell")
+}
+
+// CreateAPITokenPost handles generating a new API token for the current user.
+func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		name = "AI Assistant Token"
+	}
+
+	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil)
+	if err != nil {
+		utils.SetFlash(c, "Failed to create API token: "+err.Error())
+		return c.Redirect("/mcp-docs")
+	}
+
+	s.p.RecordAuditLog(c, "create_api_token", "api_token", name, "Created API token for MCP/API")
+	return c.Redirect(fmt.Sprintf("/mcp-docs?new_token=%s&token_name=%s", rawToken, name))
+}
+
+// DeleteAPITokenPost removes a token owned by the current user.
+func (s *Server) DeleteAPITokenPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+
+	if err := s.p.DB.DeleteAPIToken(ctx, int64(id), u.ID); err != nil {
+		utils.SetFlash(c, "Failed to delete token: "+err.Error())
+		return c.Redirect("/mcp-docs")
+	}
+
+	s.p.RecordAuditLog(c, "delete_api_token", "api_token", fmt.Sprintf("%d", id), "Revoked API token")
+	utils.SetFlash(c, "API Token revoked successfully.")
+	return c.Redirect("/mcp-docs")
 }

@@ -92,13 +92,8 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, er
 		return User{}, err
 	}
 
-	// Update last_used_at in background without blocking
-	go func(id int64) {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = s.db.ExecContext(bgCtx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`,
-			time.Now().UTC().Format(time.RFC3339), id)
-	}(tokenID)
+	_, _ = s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`,
+		nowStr, tokenID)
 
 	return s.GetUserByID(ctx, userID)
 }
