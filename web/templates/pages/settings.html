@@ -78,6 +78,37 @@
     </div>
   </div>
 
+  <!-- ── Dev Mode Feature Flag (Beta) ─────────────────────────────── -->
+  <div class="panel-card space-y-5 p-4 sm:p-5">
+    <div class="flex flex-col gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <p id="devmode-label" class="text-sm font-medium text-foreground">Enable Development Mode (Dev Tab)</p>
+          <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 ring-1 ring-amber-500/30">Beta</span>
+        </div>
+        <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Shows a <strong class="font-medium text-foreground/90">Dev</strong> tab inside each app, allowing live bind-mount hot-reload development without image rebuilds. Disabled by default.
+          When enabled, the panel mounts the app workspace into running containers on demand.
+        </p>
+      </div>
+      <form method="POST" action="/settings" class="shrink-0">
+        {{/* include hidden cleanup fields so save still works */}}
+        <input type="hidden" name="cleanup_enabled" value="{{if .CleanupEnabled}}on{{end}}">
+        <input type="hidden" name="cleanup_interval" value="{{.CleanupInterval}}">
+        <input type="hidden" name="cleanup_include_build_cache" value="{{if .CleanupIncludeBuildCache}}on{{end}}">
+        <div class="flex items-center justify-end">
+          <label class="relative inline-flex cursor-pointer items-center" for="devmode-toggle">
+            <input type="checkbox" id="devmode-toggle" name="dev_mode_feature_enabled" value="on" class="peer sr-only"
+              {{if .DevModeFeatureEnabled}}checked{{end}}
+              aria-labelledby="devmode-label"
+              onchange="this.form.submit()">
+            <span aria-hidden="true" class="relative h-7 w-11 shrink-0 rounded-full bg-muted-foreground/25 shadow-inner transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-checked:bg-amber-500 after:pointer-events-none after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-md after:transition-transform peer-checked:after:translate-x-5"></span>
+          </label>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ── Docker Cleanup ─────────────────────────────────────── -->
   <div class="panel-card space-y-5 p-4 sm:p-5">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">

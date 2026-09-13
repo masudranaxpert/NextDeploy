@@ -297,6 +297,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"ID":                     id,
 		"StoragePath":            storagePath,
 		"DevMode":                app.DevMode,
+		"ShowDevTab":             settingBool(p.DB.GetSetting(reqCtx, "dev_mode_feature_enabled"), false),
 		"DevService":             app.DevService,
 		"DevTarget":              devTarget,
 		"DevCommand":             app.DevCommand,
