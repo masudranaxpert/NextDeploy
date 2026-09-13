@@ -96,18 +96,43 @@ func TestApplyDevCommandOverride(t *testing.T) {
 	}
 
 	// Multiple services with explicit target: ONLY web gets overridden
-	Apply(multiSvc, DevMount{
+	// Scraper pattern: web builds image, worker reuses built image without build: block
+	scraperSvc := map[string]interface{}{
+		"web": map[string]interface{}{
+			"build":   ".",
+			"image":   "mimscraper:latest",
+			"command": "gunicorn app:app",
+		},
+		"worker": map[string]interface{}{
+			"image":   "mimscraper:latest",
+			"command": "celery -A app worker",
+		},
+	}
+	Apply(scraperSvc, DevMount{
 		Enabled:    true,
-		Service:    "web",
 		DevCommand: "uvicorn main:app --reload",
 	})
-	webMulti := multiSvc["web"].(map[string]interface{})
-	if cmd, _ := webMulti["command"].(string); cmd != "uvicorn main:app --reload" {
-		t.Fatalf("web command should have been overridden, got %v", cmd)
+	scraperWeb := scraperSvc["web"].(map[string]interface{})
+	scraperWorker := scraperSvc["worker"].(map[string]interface{})
+	if cmd, _ := scraperWeb["command"].(string); cmd != "uvicorn main:app --reload" {
+		t.Fatalf("expected web command to be overridden, got %v", cmd)
 	}
-	workerMulti := multiSvc["worker"].(map[string]interface{})
-	if cmd, _ := workerMulti["command"].(string); cmd != "celery -A app worker" {
-		t.Fatalf("worker command should NOT have been touched, got %v", cmd)
+	if cmd, _ := scraperWorker["command"].(string); cmd != "celery -A app worker" {
+		t.Fatalf("worker command should NOT have been touched in scraper pattern, got %v", cmd)
+	}
+}
+
+func TestDevVolumeNameNoCollision(t *testing.T) {
+	vDot := DevVolumeName("app1", "web", ".venv")
+	vNoDot := DevVolumeName("app1", "web", "venv")
+	if vDot == vNoDot {
+		t.Fatalf("collision: .venv and venv both produced %q", vDot)
+	}
+	if vDot != "nddev_app1_web_dot_venv" {
+		t.Errorf("expected nddev_app1_web_dot_venv, got %q", vDot)
+	}
+	if vNoDot != "nddev_app1_web_venv" {
+		t.Errorf("expected nddev_app1_web_venv, got %q", vNoDot)
 	}
 }
 
@@ -182,7 +207,7 @@ func TestApplyPreservesDependencies(t *testing.T) {
 	expected := []string{
 		"./:/app",
 		"nddev_app1_web_node_modules:/app/node_modules",
-		"nddev_app1_web_venv:/app/.venv",
+		"nddev_app1_web_dot_venv:/app/.venv",
 		"nddev_app1_web_vendor:/app/vendor",
 	}
 
@@ -196,7 +221,7 @@ func TestApplyPreservesDependencies(t *testing.T) {
 	}
 
 	topVols := doc["volumes"].(map[string]interface{})
-	for _, expNamed := range []string{"nddev_app1_web_node_modules", "nddev_app1_web_venv", "nddev_app1_web_vendor"} {
+	for _, expNamed := range []string{"nddev_app1_web_node_modules", "nddev_app1_web_dot_venv", "nddev_app1_web_vendor"} {
 		if _, ok := topVols[expNamed]; !ok {
 			t.Errorf("expected top-level volume %q in doc, got %v", expNamed, topVols)
 		}

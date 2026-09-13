@@ -129,6 +129,13 @@ func ComposeApplyServices(ctx context.Context, projectDir string, composeFiles [
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
 }
 
+// ComposeRmServices stops and removes specific service containers so their volumes are released.
+func ComposeRmServices(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	fixLineEndings(projectDir)
+	args := append([]string{"rm", "-f", "-s"}, services...)
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
+}
+
 func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down")
 }

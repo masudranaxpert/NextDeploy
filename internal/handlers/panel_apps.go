@@ -340,11 +340,11 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 	}
 
 	volPrefix := fmt.Sprintf("nddev_%s_", id)
-	ctx, cancel := context.WithTimeout(c.UserContext(), 90*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "docker", "volume", "ls", "-q", "--filter", "name="+volPrefix)
+	listCtx, listCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	cmd := exec.CommandContext(listCtx, "docker", "volume", "ls", "-q", "--filter", "name="+volPrefix)
 	out, _ := cmd.Output()
+	listCancel()
+
 	var vols []string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -358,24 +358,60 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 	}
 
-	project := p.activeComposeProjectName(ctx, app, id)
-	dir := p.appSourcePath(ctx, id)
-	paths := p.effectiveComposePaths(ctx, app, id)
-	envFiles := p.composeEnvFiles(ctx, id)
-
-	// Stop containers to release volume lock, remove nddev volumes, then bring stack back up
-	_ = dockerx.ComposeDown(ctx, dir, paths, project, nil, envFiles)
-	for _, v := range vols {
-		_ = exec.CommandContext(ctx, "docker", "volume", "rm", "-f", v).Run()
+	// Identify services to stop/restart (so databases keep running with zero downtime)
+	var targetServices []string
+	if s := strings.TrimSpace(app.DevService); s != "" {
+		targetServices = []string{s}
+	} else {
+		// Target services extracted from the dev volume names (format: nddev_<appID>_<svcKey>_...)
+		svcSet := make(map[string]bool)
+		for _, v := range vols {
+			trimmed := strings.TrimPrefix(v, volPrefix)
+			if idx := strings.Index(trimmed, "_"); idx > 0 {
+				svcSet[trimmed[:idx]] = true
+			}
+		}
+		for s := range svcSet {
+			targetServices = append(targetServices, s)
+		}
+		if len(targetServices) == 0 {
+			targetServices = p.loadComposeServices(c.UserContext(), id)
+		}
 	}
-	_ = dockerx.ComposeApply(ctx, dir, paths, project, nil, envFiles)
-
-	_ = p.DB.InsertDeployLog(ctx, id, "Reset dev dependencies", true,
-		fmt.Sprintf("Reset %d development dependency volume(s):\n%s\nContainers recreated with fresh image dependencies.",
-			len(vols), strings.Join(vols, "\n")))
 
 	p.RecordAuditLog(c, "app_dev_deps_reset", "app", id, fmt.Sprintf("Reset %d dev volumes", len(vols)))
 	utils.SetFlash(c, "devDepsResetSuccess")
+
+	// Run recreate in background with context.Background() so client disconnection does not abort the reset
+	go func() {
+		bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer bgCancel()
+
+		project := p.activeComposeProjectName(bgCtx, app, id)
+		dir := p.appSourcePath(bgCtx, id)
+		paths := p.effectiveComposePaths(bgCtx, app, id)
+		envFiles := p.composeEnvFiles(bgCtx, id)
+
+		// 1. Stop and remove only the targeted dev service containers (e.g. web, worker). Databases keep running!
+		_ = dockerx.ComposeRmServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
+
+		// 2. Remove the app-scoped dev dependency named volumes
+		for _, v := range vols {
+			_ = exec.CommandContext(bgCtx, "docker", "volume", "rm", "-f", v).Run()
+		}
+
+		// 3. Recreate and start the targeted services with fresh volumes from image
+		res := dockerx.ComposeApplyServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
+
+		statusMsg := fmt.Sprintf("Reset %d development dependency volume(s) for service(s) [%s]:\n%s\n\nContainers recreated with fresh image dependencies.",
+			len(vols), strings.Join(targetServices, ", "), strings.Join(vols, "\n"))
+		if !res.OK {
+			statusMsg += "\n\nWarning during service start:\n" + strings.TrimSpace(res.Output)
+		}
+
+		_ = p.DB.InsertDeployLog(bgCtx, id, "Reset dev dependencies", res.OK, statusMsg)
+	}()
+
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 }
 

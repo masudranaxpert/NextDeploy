@@ -35,8 +35,9 @@ func DevVolumeName(appID, svcKey, relPath string) string {
 	if appID == "" {
 		appID = "app"
 	}
-	sanitized := strings.NewReplacer("/", "_", ".", "", "-", "_", "\\", "_").Replace(relPath)
-	sanitized = strings.Trim(sanitized, "_")
+	// Encode dots as "dot_" so hidden directories like .venv and normal dirs like venv do not collide
+	r := strings.NewReplacer("/", "_", "\\", "_", ".", "dot_")
+	sanitized := strings.Trim(r.Replace(relPath), "_")
 	return fmt.Sprintf("nddev_%s_%s_%s", appID, svcKey, sanitized)
 }
 
@@ -80,13 +81,15 @@ func Apply(services map[string]interface{}, dev DevMount, doc ...map[string]inte
 		target = DefaultTarget
 	}
 
-	// 1. Identify built images across services (so worker services that reuse the image get dev mounted)
+	// 1. Identify built images across services and track the build service name
 	builtImages := make(map[string]bool)
+	var buildSvcName string
 	var buildServiceCount int
-	for _, rawSvc := range services {
+	for svcName, rawSvc := range services {
 		if s, ok := toStringMap(rawSvc); ok {
 			if _, hasBuild := s["build"]; hasBuild {
 				buildServiceCount++
+				buildSvcName = svcName
 				if img, ok := s["image"].(string); ok && strings.TrimSpace(img) != "" {
 					builtImages[strings.TrimSpace(img)] = true
 				}
@@ -148,14 +151,15 @@ func Apply(services map[string]interface{}, dev DevMount, doc ...map[string]inte
 		}
 
 		// DevCommand must only override the command on the intended service:
-		// either explicitly targeted by dev.Service, or when there is only a single service.
-		// This prevents worker/scraper/queue services from accidentally running web servers.
+		// either explicitly targeted by dev.Service, or when there is exactly one
+		// service with a build: block (and only on that specific service, not on
+		// secondary services like workers that reuse the built image).
 		if cmd := strings.TrimSpace(dev.DevCommand); cmd != "" {
 			canApplyCommand := false
-			if only != "" && svcKey == only {
-				canApplyCommand = true
-			} else if only == "" && buildServiceCount == 1 {
-				canApplyCommand = true
+			if only != "" {
+				canApplyCommand = (svcKey == only)
+			} else {
+				canApplyCommand = (buildServiceCount == 1 && svcKey == buildSvcName)
 			}
 			if canApplyCommand {
 				svc["command"] = cmd
