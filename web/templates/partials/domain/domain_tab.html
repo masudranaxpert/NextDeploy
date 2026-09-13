@@ -271,13 +271,47 @@ function showLabels(domainId, appId) {
 }
 
 function copyLabels(btn) {
-  var text = document.getElementById('labels-preview').textContent;
-  navigator.clipboard.writeText(text).then(function() {
+  var el = document.getElementById('labels-preview');
+  if (!el) return;
+  var text = el.textContent;
+  if (!text) return;
+
+  function flash() {
     var orig = btn.innerHTML;
     btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Copied!';
     setTimeout(function(){ btn.innerHTML = orig; }, 2000);
-  });
+  }
+
+  function fallbackCopy() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    var ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (e) {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    if (ok) {
+      flash();
+    }
+  }
+
+  // Clipboard API requires secure context (HTTPS/localhost); fallback to execCommand over plain HTTP.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flash).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
 }
+window.copyLabels = copyLabels;
 
 // ── DNS Validate ──────────────────────────────────────────────────────────────
 function validateDNS(domainId, appId) {

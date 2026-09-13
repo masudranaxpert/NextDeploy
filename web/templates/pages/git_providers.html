@@ -297,11 +297,47 @@
 
 <script>
 function copyGLCallback() {
-  var url = document.getElementById('gl-callback-url').textContent.trim();
-  navigator.clipboard.writeText(url).then(function() {
-    var btn = event.target;
-    btn.textContent = 'Copied!';
-    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
-  });
+  var el = document.getElementById('gl-callback-url');
+  if (!el) return;
+  var url = el.textContent.trim();
+  if (!url) return;
+  var btn = event ? (event.currentTarget || event.target) : null;
+
+  function flash() {
+    if (btn) {
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+    }
+  }
+
+  function fallbackCopy() {
+    var ta = document.createElement('textarea');
+    ta.value = url;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    var ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (e) {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    if (ok) {
+      flash();
+    }
+  }
+
+  // Clipboard API requires secure context (HTTPS/localhost); fallback to execCommand over plain HTTP.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(flash).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
 }
+window.copyGLCallback = copyGLCallback;
 </script>

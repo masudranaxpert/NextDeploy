@@ -175,7 +175,28 @@
 
       <!-- Compose actions -->
       <div>
-        <h3 class="mb-3 text-sm font-semibold text-foreground">Compose actions</h3>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-foreground">Compose actions</h3>
+            <button type="button"
+                    onclick="document.getElementById('build-cache-modal').classList.remove('hidden')"
+                    class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border/80 bg-muted/40 text-muted-foreground transition hover:border-primary hover:bg-primary/15 hover:text-primary"
+                    title="Why is Docker rebuilding without cache? Click for guide"
+                    aria-label="Docker build cache guide">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM12 21a9 9 0 100-18 9 9 0 000 18z"/>
+              </svg>
+            </button>
+          </div>
+          <button type="button"
+                  onclick="document.getElementById('build-cache-modal').classList.remove('hidden')"
+                  class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors">
+            <svg class="h-3.5 w-3.5 text-primary/80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+            </svg>
+            Build cache tips
+          </button>
+        </div>
         <div class="flex flex-wrap gap-2">
           <form method="post" action="/apps/{{.ID}}/compose/up">
             <button type="submit" class="btn-deploy text-sm"
@@ -208,8 +229,126 @@
         </div>
         <p class="mt-3 text-xs leading-relaxed text-muted-foreground">
           <strong class="font-medium text-foreground/80">Deploy</strong> = build + up.
-          <strong class="font-medium text-orange-400">Redeploy</strong> = pull latest images + up (no rebuild).
+          <strong class="font-medium text-orange-400">Redeploy</strong> = pull latest images + up.
           Runs in the background — watch output in <a class="font-medium text-primary hover:underline" href="/apps/{{.ID}}?tab=deployment">Deploy</a> tab.
         </p>
       </div>
     </div>
+
+<!-- Docker Build Cache Guide Modal -->
+<div id="build-cache-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="build-cache-modal-title">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('build-cache-modal').classList.add('hidden')" aria-hidden="true"></div>
+  <div class="modal-box max-w-2xl w-full max-h-[min(90vh,780px)] overflow-y-auto space-y-5 rounded-2xl border border-border/80 bg-card p-5 sm:p-6 shadow-2xl ring-1 ring-border/40" onclick="event.stopPropagation()">
+    <!-- Header -->
+    <div class="flex items-start justify-between gap-3 border-b border-border/50 pb-4">
+      <div class="flex items-start gap-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/25">
+          <svg class="h-5 w-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 id="build-cache-modal-title" class="text-base font-semibold text-foreground">Docker Build Cache Guide</h2>
+          <p class="text-xs text-muted-foreground mt-0.5">Why builds re-run from scratch and how to keep them fast with layer caching</p>
+        </div>
+      </div>
+      <button type="button" class="btn-icon text-muted-foreground hover:text-foreground" onclick="document.getElementById('build-cache-modal').classList.add('hidden')" aria-label="Close modal">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Core Principle Alert -->
+    <div class="rounded-xl border border-sky-500/25 bg-sky-500/10 p-3.5 text-xs text-sky-200">
+      <p class="font-medium text-sky-100">How Docker layer caching works:</p>
+      <p class="mt-1 leading-relaxed text-sky-200/90">Docker builds and caches images top-to-bottom. If any instruction's files change, Docker invalidates that layer <strong>and all subsequent layers</strong>, forcing them to re-execute from scratch.</p>
+    </div>
+
+    <!-- Checklist & Causes -->
+    <div class="space-y-4 text-xs">
+      <!-- 1. Layer Order -->
+      <div class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-2.5">
+        <div class="flex items-center gap-2">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">1</span>
+          <h3 class="font-semibold text-foreground text-sm">Install dependencies BEFORE copying application code</h3>
+        </div>
+        <p class="leading-relaxed text-muted-foreground">
+          Never place <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">COPY . .</code> before package managers (<code class="font-mono text-[11px]">npm install</code>, <code class="font-mono text-[11px]">pip install</code>, <code class="font-mono text-[11px]">go mod download</code>). Any source file edit changes the hash and makes Docker download and install all libraries again.
+        </p>
+        <div class="grid gap-2 sm:grid-cols-2 pt-1 font-mono text-[11px]">
+          <div class="rounded-lg border border-red-500/30 bg-red-950/20 p-2.5 text-red-300">
+            <p class="font-sans font-semibold text-red-400 mb-1 text-[10px] uppercase tracking-wide">❌ Bad (Busts cache on every edit):</p>
+            <code>COPY . .<br>RUN pip install -r requirements.txt</code>
+          </div>
+          <div class="rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-2.5 text-emerald-300">
+            <p class="font-sans font-semibold text-emerald-400 mb-1 text-[10px] uppercase tracking-wide">✅ Recommended (Cached):</p>
+            <code>COPY requirements.txt .<br>RUN pip install -r requirements.txt<br>COPY . .</code>
+          </div>
+        </div>
+        <div class="rounded-lg border border-border/50 bg-black/40 p-2.5 text-[11px] text-muted-foreground">
+          <p class="font-sans font-medium text-foreground/80 mb-1 text-[10px] uppercase tracking-wide">Universal Pattern by Ecosystem:</p>
+          <ul class="list-disc list-inside space-y-0.5 font-sans">
+            <li><strong>Node.js:</strong> <code class="font-mono">COPY package*.json ./</code> &rarr; <code class="font-mono">RUN npm ci</code> &rarr; <code class="font-mono">COPY . .</code></li>
+            <li><strong>Go:</strong> <code class="font-mono">COPY go.mod go.sum ./</code> &rarr; <code class="font-mono">RUN go mod download</code> &rarr; <code class="font-mono">COPY . .</code></li>
+            <li><strong>PHP:</strong> <code class="font-mono">COPY composer.* ./</code> &rarr; <code class="font-mono">RUN composer install ...</code> &rarr; <code class="font-mono">COPY . .</code></li>
+            <li><strong>Rust:</strong> <code class="font-mono">COPY Cargo.* ./</code> &rarr; compile dummy build &rarr; <code class="font-mono">COPY src ./src</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 2. .dockerignore -->
+      <div class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">2</span>
+          <h3 class="font-semibold text-foreground text-sm">Always include a complete .dockerignore file</h3>
+        </div>
+        <p class="leading-relaxed text-muted-foreground">
+          Without <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">.dockerignore</code>, local temporary files like <code class="font-mono text-[11px]">.git/</code>, <code class="font-mono text-[11px]">.env</code>, local virtual environments, and log files are sent into the build context. Their timestamps and checksums change constantly, breaking Docker build cache on every single deploy.
+        </p>
+        <pre class="rounded-lg border border-border/50 bg-black/40 p-2.5 font-mono text-[11px] text-foreground/90 overflow-x-auto">.git
+.env
+__pycache__
+*.pyc
+node_modules
+venv
+.venv
+*.log
+*.sqlite3</pre>
+      </div>
+
+      <!-- 3. Docker Compose multi-service build -->
+      <div class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">3</span>
+          <h3 class="font-semibold text-foreground text-sm">Tag shared images in multi-service compose stacks</h3>
+        </div>
+        <p class="leading-relaxed text-muted-foreground">
+          If your <code class="font-mono text-[11px]">docker-compose.yml</code> has multiple services (e.g. <code class="font-mono text-[11px]">web</code> and <code class="font-mono text-[11px]">worker</code>) building from the same directory (<code class="font-mono text-[11px]">build: .</code>) without an <code class="font-mono text-[11px]">image:</code> tag, Docker builds two separate images sequentially.
+        </p>
+        <div class="rounded-lg border border-border/50 bg-black/40 p-2.5 font-mono text-[11px] text-foreground/90">
+          <code>services:<br>&nbsp;&nbsp;web:<br>&nbsp;&nbsp;&nbsp;&nbsp;build: .<br>&nbsp;&nbsp;&nbsp;&nbsp;image: myapp:latest<br>&nbsp;&nbsp;worker:<br>&nbsp;&nbsp;&nbsp;&nbsp;image: myapp:latest  # Reuses the image without a second build</code>
+        </div>
+      </div>
+
+      <!-- 4. NextDeploy Dev Mode -->
+      <div class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">4</span>
+          <h3 class="font-semibold text-amber-200 text-sm">Need zero build time? Use Dev Mode</h3>
+        </div>
+        <p class="leading-relaxed text-amber-100/90">
+          In the <a href="/apps/{{.ID}}?tab=dev" class="font-medium text-amber-300 underline underline-offset-2 hover:text-amber-200">Dev</a> tab, you can enable <strong>Development Mode</strong>. This live-mounts your project files directly into the container (<code class="font-mono text-[11px]">/app</code>).
+        </p>
+        <p class="leading-relaxed text-amber-100/80">
+          With Dev Mode on, clicking <strong>Deploy</strong> updates the running stack <em>without rebuilding images</em>, letting watch tools (<code class="font-mono text-[11px]">npm run dev</code>, <code class="font-mono text-[11px]">uvicorn --reload</code>, <code class="font-mono text-[11px]">air</code>) reload code instantly.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="flex justify-end pt-2 border-t border-border/50">
+      <button type="button" class="btn-secondary px-4 py-2 text-xs" onclick="document.getElementById('build-cache-modal').classList.add('hidden')">
+        Close
+      </button>
+    </div>
+  </div>
+</div>
