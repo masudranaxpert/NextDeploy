@@ -21,7 +21,7 @@
               </div>
               <div class="flex shrink-0 items-center gap-1.5">
                 <a class="btn-secondary inline-flex h-7 items-center gap-1 px-2.5 text-xs" href="/volumes/browse?name={{urlquery .}}&from_app={{urlquery $.ID}}">Browse</a>
-                <a class="btn-ghost inline-flex h-7 items-center gap-1 px-2.5 text-xs" href="/volumes/download?name={{urlquery .}}">Backup</a>
+                <a class="btn-ghost inline-flex h-7 items-center gap-1 px-2.5 text-xs" hx-boost="false" href="/volumes/download?name={{urlquery .}}">Backup</a>
               </div>
             </div>
           {{end}}

@@ -57,7 +57,7 @@
         <div class="flex flex-wrap gap-2 items-center">
           <input id="migrate-download-url" type="text" readonly value="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{end}}" class="flex-1 min-w-[200px] rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-xs font-mono text-foreground">
           <button type="button" id="migrate-copy-url" class="btn-secondary h-8 px-3 text-xs">Copy URL</button>
-          <a id="migrate-download-link" href="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{else}}#{{end}}" class="btn-primary h-8 px-3 text-xs inline-flex items-center">Download</a>
+          <a id="migrate-download-link" href="{{if .FocusExport}}{{index .FocusExport "DownloadURL"}}{{else}}#{{end}}" hx-boost="false" class="btn-primary h-8 px-3 text-xs inline-flex items-center">Download</a>
         </div>
       </div>
     </div>

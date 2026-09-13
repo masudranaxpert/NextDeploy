@@ -465,4 +465,8 @@
     init: appTermInit,
     destroy: appTermDestroy,
   };
+
+  if (document.getElementById('xterm-host')) {
+    appTermInit(document);
+  }
 })();
