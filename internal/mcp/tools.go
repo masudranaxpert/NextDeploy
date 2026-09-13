@@ -73,11 +73,26 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "env_list",
-			Description: "List environment variables (keys and values) configured for an application",
+			Description: "List environment variable keys (without revealing sensitive values) configured for an application",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
 					"app_id": {Type: "string", Description: "The application ID"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name:        "env_reveal",
+			Description: "Reveal sensitive environment variable values for an application. Requires explicit 'Allow env_reveal' permission enabled for the API token in NextDeploy Panel.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"keys": {
+						Type:        "array",
+						Description: "Optional list of specific environment variable keys to reveal. If omitted, all keys are revealed.",
+					},
 				},
 				Required: []string{"app_id"},
 			},

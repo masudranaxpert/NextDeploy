@@ -100,3 +100,7 @@ type CallToolResult struct {
 type ToolsListResult struct {
 	Tools []Tool `json:"tools"`
 }
+
+// apiTokenContextKey is used to store and retrieve the authenticated db.APIToken from context.
+type apiTokenContextKey struct{}
+

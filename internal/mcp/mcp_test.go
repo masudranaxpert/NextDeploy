@@ -50,6 +50,7 @@ func setupTestPanel(t *testing.T) (*handlers.Panel, *db.Store, string, db.User) 
 		WorkspacesRoot: tmpDir,
 	}
 	p.InitDeployRuns()
+	_ = store.SetSetting(ctx, "mcp_enabled", "1")
 
 	return p, store, tmpDir, adminUser
 }
@@ -99,8 +100,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 18 {
-		t.Errorf("expected 18 tools, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 19 {
+		t.Errorf("expected 19 tools, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -110,7 +111,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	}
 	expectedTools := []string{
 		"app_list", "app_get", "file_list", "file_read", "file_write", "file_delete",
-		"env_list", "env_set", "compose_get", "deploy", "redeploy", "restart",
+		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 	}
 	for _, name := range expectedTools {
@@ -264,7 +265,7 @@ func TestMCP_EnvTools(t *testing.T) {
 		t.Fatalf("env_set error: %+v", resp.Error)
 	}
 
-	// List env vars
+	// List env vars (should only return keys, not values)
 	listParams, _ := json.Marshal(CallToolParams{
 		Name: "env_list",
 		Arguments: map[string]interface{}{
@@ -278,8 +279,59 @@ func TestMCP_EnvTools(t *testing.T) {
 		Params:  listParams,
 	})
 	toolRes := resp.Result.(CallToolResult)
+	if toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "PORT") {
+		t.Errorf("env_list failed to return key: %+v", toolRes)
+	}
+	if strings.Contains(toolRes.Content[0].Text, "8080") {
+		t.Errorf("env_list leaked secret value 8080: %+v", toolRes)
+	}
+
+	// 3. Test env_reveal without permission
+	regularUserID, _ := store.CreateUser(ctx, "devuser", "hash", db.RoleUser)
+	regUser, _ := store.GetUserByID(ctx, regularUserID)
+	_ = store.AddCollaborator(ctx, appID, regularUserID, "developer")
+
+	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+	_ = rawSafeToken
+
+	safeCtx := context.WithValue(ctx, apiTokenContextKey{}, safeToken)
+	revealParams, _ := json.Marshal(CallToolParams{
+		Name: "env_reveal",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	resp = srv.ProcessRPC(safeCtx, regUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      22,
+		Method:  "tools/call",
+		Params:  revealParams,
+	})
+	toolRes = resp.Result.(CallToolResult)
+	if !toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "permission denied") {
+		t.Errorf("env_reveal without permission should fail, got: %+v", toolRes)
+	}
+
+	// 4. Toggle permission on the token and test env_reveal again
+	_, err = store.ToggleAPITokenEnvReveal(ctx, safeToken.ID, regUser.ID)
+	if err != nil {
+		t.Fatalf("ToggleAPITokenEnvReveal failed: %v", err)
+	}
+	safeToken.AllowEnvReveal = true
+	permittedCtx := context.WithValue(ctx, apiTokenContextKey{}, safeToken)
+
+	resp = srv.ProcessRPC(permittedCtx, regUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      23,
+		Method:  "tools/call",
+		Params:  revealParams,
+	})
+	toolRes = resp.Result.(CallToolResult)
 	if toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "8080") {
-		t.Errorf("env_list failed: %+v", toolRes)
+		t.Errorf("env_reveal with permission failed: %+v", toolRes)
 	}
 }
 
@@ -299,12 +351,10 @@ func TestMCP_DeployJobTracking(t *testing.T) {
 	_ = os.MkdirAll(appDir, 0750)
 	_ = os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx\n"), 0640)
 
-	// Test StartComposeJob directly
 	jobID, err := p.StartComposeJob(appID, "testproj", []string{filepath.Join(appDir, "docker-compose.yml")}, "Test deploy", func(ctx context.Context, dir string, paths []string, project string, w io.Writer, envs []string) dockerx.Result {
 		_, _ = w.Write([]byte("Step 1: building\nStep 2: done\n"))
 		return dockerx.Result{OK: true}
 	}, "")
-
 	if err != nil {
 		t.Fatalf("StartComposeJob failed: %v", err)
 	}
@@ -352,7 +402,7 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -397,5 +447,113 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	respBytes, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(respBytes), "nextdeploy-mcp") {
 		t.Errorf("response missing server name: %s", string(respBytes))
+	}
+}
+
+func TestMCP_ServerDisabledByDefault(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	// Disable MCP explicitly
+	_ = store.SetSetting(ctx, "mcp_enabled", "0")
+
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	app := fiber.New()
+	srv := NewServer(p)
+	srv.RegisterRoutes(app)
+
+	// Authenticated request when MCP is disabled -> 503 Service Unavailable
+	req := httptest.NewRequest("GET", "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+rawToken)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when MCP disabled, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCP_CollaboratorRBAC(t *testing.T) {
+	p, store, tmpDir, owner := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "rbacapp"
+	if err := store.CreateApp(ctx, appID, "RBAC App", owner.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	// Create a collaborator with viewer role
+	viewerID, err := store.CreateUser(ctx, "viewer_user", "hash", db.RoleUser)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	viewerUser, _ := store.GetUserByID(ctx, viewerID)
+	if err := store.AddCollaborator(ctx, appID, viewerID, db.CollabRoleViewer); err != nil {
+		t.Fatalf("AddCollaborator failed: %v", err)
+	}
+
+	srv := NewServer(p)
+
+	// 1. Viewer can call READ tools (app_get, env_list)
+	readParams, _ := json.Marshal(CallToolParams{
+		Name: "app_get",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	resp := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      50,
+		Method:  "tools/call",
+		Params:  readParams,
+	})
+	toolRes := resp.Result.(CallToolResult)
+	if toolRes.IsError {
+		t.Errorf("viewer should be allowed to call app_get: %+v", toolRes)
+	}
+
+	// 2. Viewer CANNOT call WRITE tools (file_write, env_set, deploy)
+	writeParams, _ := json.Marshal(CallToolParams{
+		Name: "file_write",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"path":    "exploit.txt",
+			"content": "malicious write attempt",
+		},
+	})
+	resp = srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      51,
+		Method:  "tools/call",
+		Params:  writeParams,
+	})
+	toolRes = resp.Result.(CallToolResult)
+	if !toolRes.IsError || !strings.Contains(toolRes.Content[0].Text, "developer access") {
+		t.Errorf("viewer MUST be blocked from file_write: %+v", toolRes)
+	}
+
+	// 3. Promote collaborator to developer role
+	_ = store.RemoveCollaborator(ctx, appID, viewerID)
+	_ = store.AddCollaborator(ctx, appID, viewerID, db.CollabRoleDeveloper)
+
+	// Developer can now call file_write
+	resp = srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      52,
+		Method:  "tools/call",
+		Params:  writeParams,
+	})
+	toolRes = resp.Result.(CallToolResult)
+	if toolRes.IsError {
+		t.Errorf("developer should be allowed to call file_write: %+v", toolRes)
 	}
 }

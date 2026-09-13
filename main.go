@@ -222,6 +222,8 @@ func main() {
 	app.Get("/mcp-docs", mcpServer.MCPDocsPage)
 	app.Post("/mcp-docs/tokens", mcpServer.CreateAPITokenPost)
 	app.Post("/mcp-docs/tokens/:id/delete", mcpServer.DeleteAPITokenPost)
+	app.Post("/mcp-docs/tokens/:id/toggle-reveal", mcpServer.ToggleAPITokenEnvRevealPost)
+	app.Post("/mcp-docs/toggle-status", mcpServer.ToggleMCPStatusPost)
 	app.Get("/apps", p.AppsPage)
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.

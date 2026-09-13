@@ -503,6 +503,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   token_prefix TEXT NOT NULL,
+  allow_env_reveal INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   expires_at TEXT,
   last_used_at TEXT,
@@ -515,6 +516,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 	}
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);`); err != nil {
 		return err
+	}
+
+	var hasAllowEnvReveal int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('api_tokens') WHERE name = 'allow_env_reveal'`).Scan(&hasAllowEnvReveal)
+	if hasAllowEnvReveal == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN allow_env_reveal INTEGER NOT NULL DEFAULT 0`)
 	}
 
 	return nil

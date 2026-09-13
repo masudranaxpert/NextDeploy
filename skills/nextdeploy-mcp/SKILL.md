@@ -87,7 +87,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **18 tools** across 6 core functional areas:
+The NextDeploy MCP server provides **19 tools** across 6 core functional areas:
 
 ### Area 1: Application Discovery
 - **`app_list`**: Lists all applications the user can access.
@@ -108,9 +108,12 @@ All file paths are strictly sandboxed inside `/data/workspaces/<app_id>`. Path t
 - **`file_delete`**: Deletes a file or directory.
   - Arguments: `app_id` (string, required), `path` (string, required).
 
-### Area 3: Environment Configuration
-- **`env_list`**: Retrieves all panel environment variables as parsed key-value pairs and raw dotenv text.
+### Area 3: Environment Configuration & Secret Protection
+- **`env_list`**: Safe discovery of environment variable keys. Returns sorted key names and count without exposing sensitive values, passwords, or raw `.env` contents.
   - Arguments: `app_id` (string, required).
+  - Returns: `{"keys": ["PORT", "DATABASE_URL", ...], "count": 2}`.
+- **`env_reveal`**: Explicitly reveals sensitive environment variable values (passwords, tokens, API keys). Requires 'Allow env_reveal' permission to be enabled on the API token in NextDeploy Panel.
+  - Arguments: `app_id` (string, required), `keys` (array of strings, optional).
 - **`env_set`**: Sets or updates an environment variable. Updates both the panel database and the workspace `.env` file automatically.
   - Arguments: `app_id` (string, required), `key` (string, required), `value` (string, required).
 

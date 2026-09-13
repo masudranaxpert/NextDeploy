@@ -49,8 +49,23 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	mcpGroup.Get("/", s.HandleGetInfoOrSSE)
 }
 
+// IsEnabled reports whether the NextDeploy MCP server is enabled in system settings (default: false/disabled).
+func (s *Server) IsEnabled(ctx context.Context) bool {
+	return s.p.DB.GetSetting(ctx, "mcp_enabled") == "1"
+}
+
 // AuthMiddleware extracts and validates Bearer token, X-API-Key, or query token.
 func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
+	if !s.IsEnabled(c.UserContext()) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"jsonrpc": "2.0",
+			"error": fiber.Map{
+				"code":    ErrCodeInternal,
+				"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
+			},
+		})
+	}
+
 	var token string
 	authHeader := c.Get("Authorization")
 	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
@@ -79,9 +94,11 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 
 	// 1. Try validating as an API Token
-	user, err := s.p.DB.ValidateAPIToken(ctx, token)
+	user, apiToken, err := s.p.DB.ValidateAPIToken(ctx, token)
 	if err == nil && user.ID > 0 {
 		c.Locals("auth_user", user)
+		c.Locals("api_token", apiToken)
+		c.SetUserContext(context.WithValue(c.UserContext(), apiTokenContextKey{}, apiToken))
 		return c.Next()
 	}
 
@@ -352,6 +369,7 @@ func (s *Server) MCPDocsPage(c *fiber.Ctx) error {
 		"Host":         c.Hostname(),
 		"BaseURL":      baseURL,
 		"Protocol":     protocol,
+		"MCPEnabled":   s.IsEnabled(ctx),
 		"Tokens":       tokens,
 		"Tools":        AllTools(),
 		"NewToken":     c.Query("new_token"),
@@ -373,14 +391,47 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 		name = "AI Assistant Token"
 	}
 
-	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil)
+	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
+	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal)
 	if err != nil {
 		utils.SetFlash(c, "Failed to create API token: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
-	s.p.RecordAuditLog(c, "create_api_token", "api_token", name, "Created API token for MCP/API")
+	auditMsg := "Created API token for MCP/API"
+	if allowEnvReveal {
+		auditMsg += " (env_reveal secrets allowed)"
+	}
+	s.p.RecordAuditLog(c, "create_api_token", "api_token", name, auditMsg)
 	return c.Redirect(fmt.Sprintf("/mcp-docs?new_token=%s&token_name=%s", rawToken, name))
+}
+
+// ToggleAPITokenEnvRevealPost toggles the env_reveal permission for an existing API token.
+func (s *Server) ToggleAPITokenEnvRevealPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+
+	enabled, err := s.p.DB.ToggleAPITokenEnvReveal(ctx, int64(id), u.ID)
+	if err != nil {
+		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		return c.Redirect("/mcp-docs")
+	}
+
+	stateStr := "disabled"
+	if enabled {
+		stateStr = "enabled"
+	}
+	s.p.RecordAuditLog(c, "toggle_api_token_reveal", "api_token", fmt.Sprintf("%d", id), "Toggled env_reveal to "+stateStr)
+	utils.SetFlash(c, fmt.Sprintf("Token env_reveal permission %s.", stateStr))
+	return c.Redirect("/mcp-docs")
 }
 
 // DeleteAPITokenPost removes a token owned by the current user.
@@ -403,5 +454,36 @@ func (s *Server) DeleteAPITokenPost(c *fiber.Ctx) error {
 
 	s.p.RecordAuditLog(c, "delete_api_token", "api_token", fmt.Sprintf("%d", id), "Revoked API token")
 	utils.SetFlash(c, "API Token revoked successfully.")
+	return c.Redirect("/mcp-docs")
+}
+
+// ToggleMCPStatusPost handles enabling or disabling the MCP server globally.
+func (s *Server) ToggleMCPStatusPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	if u.Role != db.RoleAdmin {
+		utils.SetFlash(c, "Permission denied: Only administrators can toggle global MCP server availability.")
+		return c.Redirect("/mcp-docs")
+	}
+
+	cur := s.p.DB.GetSetting(ctx, "mcp_enabled")
+	newVal := "1"
+	statusText := "enabled"
+	if cur == "1" {
+		newVal = "0"
+		statusText = "disabled"
+	}
+
+	if err := s.p.DB.SetSetting(ctx, "mcp_enabled", newVal); err != nil {
+		utils.SetFlash(c, "Failed to update MCP server status: "+err.Error())
+		return c.Redirect("/mcp-docs")
+	}
+
+	s.p.RecordAuditLog(c, "toggle_mcp_status", "settings", "mcp_enabled", "MCP server "+statusText)
+	utils.SetFlash(c, fmt.Sprintf("MCP Server successfully %s.", statusText))
 	return c.Redirect("/mcp-docs")
 }

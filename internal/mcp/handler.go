@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +32,8 @@ func NewHandler(p *handlers.Panel) *Handler {
 	return &Handler{p: p}
 }
 
-// hasAppAccess validates that the user has permission to access the specified app.
-func (h *Handler) hasAppAccess(ctx context.Context, u db.User, appID string) (db.App, error) {
+// hasAppAccess validates that the user has the required permission level (viewer or developer) to access the specified app.
+func (h *Handler) hasAppAccess(ctx context.Context, u db.User, appID string, requiredRole string) (db.App, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
 		return db.App{}, errors.New("app_id is required")
@@ -41,21 +42,20 @@ func (h *Handler) hasAppAccess(ctx context.Context, u db.User, appID string) (db
 	if err != nil {
 		return db.App{}, fmt.Errorf("app %q not found", appID)
 	}
-	if u.Role == db.RoleAdmin {
-		return app, nil
+
+	allowed, err := h.p.CanAccessApp(ctx, u.ID, u.Role, appID, requiredRole)
+	if err != nil {
+		return db.App{}, err
 	}
-	if app.OwnerID == u.ID {
-		return app, nil
+	if !allowed {
+		return db.App{}, fmt.Errorf("forbidden: requires %s access to app %q", requiredRole, appID)
 	}
-	collabs, err := h.p.DB.ListCollaborators(ctx, appID)
-	if err == nil {
-		for _, c := range collabs {
-			if c.UserID == u.ID {
-				return app, nil
-			}
-		}
+
+	if requiredRole != db.CollabRoleViewer && app.Status == db.AppStatusSuspended && u.Role != db.RoleAdmin {
+		return db.App{}, fmt.Errorf("forbidden: app %q is suspended and cannot be modified", appID)
 	}
-	return db.App{}, errors.New("forbidden: you do not have access to this app")
+
+	return app, nil
 }
 
 // CallTool executes the requested tool on behalf of the user.
@@ -75,6 +75,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleFileDelete(ctx, u, params.Arguments)
 	case "env_list":
 		return h.handleEnvList(ctx, u, params.Arguments)
+	case "env_reveal":
+		return h.handleEnvReveal(ctx, u, params.Arguments)
 	case "env_set":
 		return h.handleEnvSet(ctx, u, params.Arguments)
 	case "compose_get":
@@ -148,7 +150,7 @@ func (h *Handler) handleAppList(ctx context.Context, u db.User) (CallToolResult,
 
 func (h *Handler) handleAppGet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -166,7 +168,7 @@ func (h *Handler) handleAppGet(ctx context.Context, u db.User, args map[string]i
 func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
 	children, err := h.p.Store.ListChildren(appID, path)
@@ -196,7 +198,7 @@ func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string
 func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
 	full, err := h.p.Store.SafeFilePath(appID, path)
@@ -225,7 +227,7 @@ func (h *Handler) handleFileWrite(ctx context.Context, u db.User, args map[strin
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
 	content := getStringArg(args, "content")
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -258,7 +260,7 @@ func (h *Handler) handleFileWrite(ctx context.Context, u db.User, args map[strin
 func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
 		return errorResult(err)
 	}
 	if filepath.Base(path) == ".nextdeploy.generated.compose.yml" {
@@ -273,15 +275,90 @@ func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[stri
 
 func (h *Handler) handleEnvList(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
 	panelEnv, _ := h.p.DB.GetPanelEnv(ctx, appID)
 	parsed := parseDotEnv(panelEnv)
+	keys := make([]string, 0, len(parsed))
+	for k := range parsed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	return jsonResult(map[string]interface{}{
-		"raw":   panelEnv,
-		"env":   parsed,
-		"count": len(parsed),
+		"keys":  keys,
+		"count": len(keys),
+	})
+}
+
+func (h *Handler) handleEnvReveal(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	// Permission check: token must have AllowEnvReveal enabled, or admin session
+	var allowReveal bool
+	if tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken); ok {
+		allowReveal = tok.AllowEnvReveal
+	} else if u.Role == db.RoleAdmin {
+		allowReveal = true
+	}
+
+	if !allowReveal {
+		return errorResult(errors.New("permission denied: env_reveal is restricted. Enable 'Allow env_reveal' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
+	}
+
+	panelEnv, _ := h.p.DB.GetPanelEnv(ctx, appID)
+	parsed := parseDotEnv(panelEnv)
+
+	outEnv := parsed
+	if rawKeys, ok := args["keys"]; ok && rawKeys != nil {
+		var requestedKeys []string
+		switch v := rawKeys.(type) {
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					requestedKeys = append(requestedKeys, strings.TrimSpace(s))
+				}
+			}
+		case []string:
+			requestedKeys = v
+		case string:
+			if strings.TrimSpace(v) != "" {
+				requestedKeys = []string{strings.TrimSpace(v)}
+			}
+		}
+
+		if len(requestedKeys) > 0 {
+			outEnv = make(map[string]string, len(requestedKeys))
+			for _, k := range requestedKeys {
+				if val, exists := parsed[k]; exists {
+					outEnv[k] = val
+				}
+			}
+		}
+	}
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_env_reveal",
+			TargetType: "app",
+			TargetID:   appID,
+			Details:    fmt.Sprintf("Revealed %d environment secret(s) via MCP for app %s", len(outEnv), app.Name),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	return jsonResult(map[string]interface{}{
+		"env":     outEnv,
+		"count":   len(outEnv),
+		"warning": "Sensitive environment secrets revealed via env_reveal.",
 	})
 }
 
@@ -292,7 +369,7 @@ func (h *Handler) handleEnvSet(ctx context.Context, u db.User, args map[string]i
 	if key == "" {
 		return errorResult(errors.New("key is required"))
 	}
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
 		return errorResult(err)
 	}
 	cur, _ := h.p.DB.GetPanelEnv(ctx, appID)
@@ -308,7 +385,7 @@ func (h *Handler) handleEnvSet(ctx context.Context, u db.User, args map[string]i
 
 func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -327,7 +404,7 @@ func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[stri
 
 func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]interface{}, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -368,7 +445,7 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	service := strings.TrimSpace(getStringArg(args, "service"))
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -391,14 +468,14 @@ func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[st
 	appID := strings.TrimSpace(getStringArg(args, "app_id"))
 	if jobID != "" {
 		if job, ok := h.p.GetDeployJob(jobID); ok {
-			if _, err := h.hasAppAccess(ctx, u, job.AppID); err != nil {
+			if _, err := h.hasAppAccess(ctx, u, job.AppID, db.CollabRoleViewer); err != nil {
 				return errorResult(err)
 			}
 			return jsonResult(job)
 		}
 	}
 	if appID != "" {
-		if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+		if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 			return errorResult(err)
 		}
 		if job, ok := h.p.LatestDeployJobForApp(appID); ok {
@@ -419,7 +496,7 @@ func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[s
 	appID := getStringArg(args, "app_id")
 	service := strings.TrimSpace(getStringArg(args, "service"))
 	tail := getIntArg(args, "tail", 100)
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
 	if err != nil {
 		return errorResult(err)
 	}
@@ -447,7 +524,7 @@ func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[s
 func (h *Handler) handleDeployLogTail(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	limit := getIntArg(args, "limit", 5)
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
 	liveOut, liveAction, liveRunning := h.p.DeploySnapshot(appID)
@@ -467,7 +544,7 @@ func (h *Handler) handleDevModeSet(ctx context.Context, u db.User, args map[stri
 	service := strings.TrimSpace(getStringArg(args, "service"))
 	target := strings.TrimSpace(getStringArg(args, "target"))
 	command := getStringArg(args, "command")
-	if _, err := h.hasAppAccess(ctx, u, appID); err != nil {
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
 		return errorResult(err)
 	}
 	if enabled && (target == "" || !filepath.IsAbs(target) || !strings.HasPrefix(target, "/")) {
@@ -482,7 +559,7 @@ func (h *Handler) handleDevModeSet(ctx context.Context, u db.User, args map[stri
 
 func (h *Handler) handleResetDevDeps(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID)
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
 	}
