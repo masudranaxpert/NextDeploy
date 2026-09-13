@@ -629,6 +629,13 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 	if err != nil {
 		return errorResult(err)
 	}
+
+	// container_exec is high-privilege; require explicit token flag.
+	tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken)
+	if !ok || !tok.AllowServerExec {
+		return errorResult(errors.New("permission denied: container_exec is restricted. Enable 'Allow server_exec' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
+	}
+
 	command := getStringArg(args, "command")
 	if command == "" {
 		return errorResult(errors.New("command is required"))
@@ -689,6 +696,21 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 	defer cancel()
 
 	res := dockerx.DockerExecWorkDir(execCtx, targetContainer, command, workDir)
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_container_exec",
+			TargetType: "app",
+			TargetID:   appID,
+			Details:    fmt.Sprintf("container_exec on %s (service=%s ok=%v): %s", app.Name, matchedService, res.OK, command),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
 	return jsonResult(map[string]interface{}{
 		"app_id":    appID,
 		"container": targetContainer,
@@ -703,6 +725,13 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 	if u.Role != db.RoleAdmin {
 		return errorResult(errors.New("forbidden: server_exec requires admin role"))
 	}
+
+	// server_exec is highest-privilege; require explicit token flag.
+	tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken)
+	if !ok || !tok.AllowServerExec {
+		return errorResult(errors.New("permission denied: server_exec is restricted. Enable 'Allow server_exec' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
+	}
+
 	command := getStringArg(args, "command")
 	if command == "" {
 		return errorResult(errors.New("command is required"))
@@ -723,6 +752,20 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 	} else {
 		res = runutil.Run(execCtx, ".", nil, "sh", "-c", command)
 	}
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_server_exec",
+			TargetType: "system",
+			TargetID:   "server",
+			Details:    fmt.Sprintf("server_exec (ok=%v): %s", res.OK, command),
+			CreatedAt:  time.Now(),
+		})
+	}()
 
 	return jsonResult(map[string]interface{}{
 		"command": command,

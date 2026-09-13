@@ -92,7 +92,10 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	resp := srv.ProcessRPC(context.Background(), user, req)
+	// Full-permission token sees all 21 tools.
+	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true}
+	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
+	resp := srv.ProcessRPC(fullCtx, user, req)
 	if resp.Error != nil {
 		t.Fatalf("expected nil error, got %+v", resp.Error)
 	}
@@ -101,7 +104,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
 	if len(listRes.Tools) != 21 {
-		t.Errorf("expected 21 tools, got %d", len(listRes.Tools))
+		t.Errorf("expected 21 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -118,6 +121,18 @@ func TestMCP_ToolsList(t *testing.T) {
 	for _, name := range expectedTools {
 		if !toolSet[name] {
 			t.Errorf("missing expected tool: %s", name)
+		}
+	}
+
+	// No-permission token hides restricted tools.
+	noPermResp := srv.ProcessRPC(context.Background(), user, req)
+	noPermList := noPermResp.Result.(ToolsListResult)
+	if len(noPermList.Tools) != 18 {
+		t.Errorf("expected 18 tools with no perms, got %d", len(noPermList.Tools))
+	}
+	for _, tool := range noPermList.Tools {
+		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
+			t.Errorf("restricted tool %q must not appear without permission", tool.Name)
 		}
 	}
 }
@@ -292,7 +307,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	regUser, _ := store.GetUserByID(ctx, regularUserID)
 	_ = store.AddCollaborator(ctx, appID, regularUserID, "developer")
 
-	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false)
+	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -336,7 +351,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	}
 
 	// 5. Test that even an ADMIN cannot env_reveal if their API token does not have AllowEnvReveal
-	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false)
+	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -421,7 +436,7 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -514,7 +529,7 @@ func TestMCP_ServerDisabledByDefault(t *testing.T) {
 	// Disable MCP explicitly
 	_ = store.SetSetting(ctx, "mcp_enabled", "0")
 
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -717,14 +732,16 @@ func TestMCP_TerminalTools(t *testing.T) {
 		t.Errorf("expected forbidden error for regular user calling server_exec, got %+v", callRes)
 	}
 
-	// 2. Admin calls server_exec -> must succeed
+	// 2. Admin calls server_exec with AllowServerExec token -> must succeed
+	adminToken := db.APIToken{ID: 999, UserID: adminUser.ID, AllowServerExec: true}
+	adminExecCtx := context.WithValue(ctx, apiTokenContextKey{}, adminToken)
 	adminServerParams, _ := json.Marshal(CallToolParams{
 		Name: "server_exec",
 		Arguments: map[string]interface{}{
 			"command": "echo admin_server_exec_ok",
 		},
 	})
-	respAdmin := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{
+	respAdmin := srv.ProcessRPC(adminExecCtx, adminUser, JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      102,
 		Method:  "tools/call",
@@ -768,11 +785,14 @@ func TestMCP_TerminalTools(t *testing.T) {
 		Params:  viewerParams,
 	})
 	callResViewer := respViewer.Result.(CallToolResult)
-	if !callResViewer.IsError || len(callResViewer.Content) == 0 || !strings.Contains(callResViewer.Content[0].Text, "forbidden") {
-		t.Errorf("expected forbidden for viewer user calling container_exec, got %+v", callResViewer)
+	// viewer is blocked by developer access check before token gate
+	if !callResViewer.IsError || len(callResViewer.Content) == 0 || !strings.Contains(callResViewer.Content[0].Text, "access") {
+		t.Errorf("expected access error for viewer user calling container_exec, got %+v", callResViewer)
 	}
 
-	// 4. App owner (developer access) calls container_exec when no container deployed
+	// App owner (developer access) with AllowServerExec token calls container_exec -> no running container
+	ownerToken := db.APIToken{ID: 998, UserID: regularUser.ID, AllowServerExec: true}
+	ownerExecCtx := context.WithValue(ctx, apiTokenContextKey{}, ownerToken)
 	ownerParams, _ := json.Marshal(CallToolParams{
 		Name: "container_exec",
 		Arguments: map[string]interface{}{
@@ -780,7 +800,7 @@ func TestMCP_TerminalTools(t *testing.T) {
 			"command": "ls -la",
 		},
 	})
-	respOwner := srv.ProcessRPC(ctx, regularUser, JSONRPCRequest{
+	respOwner := srv.ProcessRPC(ownerExecCtx, regularUser, JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      104,
 		Method:  "tools/call",

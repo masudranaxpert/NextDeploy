@@ -138,9 +138,19 @@ func (s *Server) ProcessRPC(ctx context.Context, u db.User, req JSONRPCRequest) 
 		return resp
 
 	case "tools/list":
-		resp.Result = ToolsListResult{
-			Tools: AllTools(),
+		tok, _ := ctx.Value(apiTokenContextKey{}).(db.APIToken)
+		all := AllTools()
+		filtered := all[:0:len(all)]
+		for _, t := range all {
+			if t.Name == "env_reveal" && !tok.AllowEnvReveal {
+				continue
+			}
+			if (t.Name == "server_exec" || t.Name == "container_exec") && !tok.AllowServerExec {
+				continue
+			}
+			filtered = append(filtered, t)
 		}
+		resp.Result = ToolsListResult{Tools: filtered}
 		return resp
 
 	case "tools/call":
@@ -365,7 +375,8 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 	}
 
 	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
-	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal)
+	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
+	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec)
 	if err != nil {
 		utils.SetFlash(c, "Failed to create API token: "+err.Error())
 		return c.Redirect("/mcp-docs")
@@ -374,6 +385,9 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 	auditMsg := "Created API token for MCP/API"
 	if allowEnvReveal {
 		auditMsg += " (env_reveal secrets allowed)"
+	}
+	if allowServerExec {
+		auditMsg += " (server_exec allowed)"
 	}
 	s.p.RecordAuditLog(c, "create_api_token", "api_token", name, auditMsg)
 	return c.Redirect(fmt.Sprintf("/mcp-docs?new_token=%s&token_name=%s", rawToken, name))
@@ -404,6 +418,34 @@ func (s *Server) ToggleAPITokenEnvRevealPost(c *fiber.Ctx) error {
 	}
 	s.p.RecordAuditLog(c, "toggle_api_token_reveal", "api_token", fmt.Sprintf("%d", id), "Toggled env_reveal to "+stateStr)
 	utils.SetFlash(c, fmt.Sprintf("Token env_reveal permission %s.", stateStr))
+	return c.Redirect("/mcp-docs")
+}
+
+// ToggleAPITokenServerExecPost toggles the server_exec permission for an existing API token.
+func (s *Server) ToggleAPITokenServerExecPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+
+	enabled, err := s.p.DB.ToggleAPITokenServerExec(ctx, int64(id), u.ID)
+	if err != nil {
+		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		return c.Redirect("/mcp-docs")
+	}
+
+	stateStr := "disabled"
+	if enabled {
+		stateStr = "enabled"
+	}
+	s.p.RecordAuditLog(c, "toggle_api_token_server_exec", "api_token", fmt.Sprintf("%d", id), "Toggled server_exec to "+stateStr)
+	utils.SetFlash(c, fmt.Sprintf("Token server_exec permission %s.", stateStr))
 	return c.Redirect("/mcp-docs")
 }
 

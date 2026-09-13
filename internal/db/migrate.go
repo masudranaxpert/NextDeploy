@@ -524,6 +524,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN allow_env_reveal INTEGER NOT NULL DEFAULT 0`)
 	}
 
+	var hasAllowServerExec int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('api_tokens') WHERE name = 'allow_server_exec'`).Scan(&hasAllowServerExec)
+	if hasAllowServerExec == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN allow_server_exec INTEGER NOT NULL DEFAULT 0`)
+	}
+
 	return nil
 }
 
