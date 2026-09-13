@@ -343,13 +343,31 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 	}
 	// Redeploy stays a full pull-and-build so there is still a way to rebuild
 	// without leaving dev mode.
-	if app.DevMode && action == "Deploy" {
-		// `up -d` still builds when the image is missing, so the first dev deploy works.
-		fn = dockerx.ComposeApply
-		if gitSyncPreamble != "" {
-			gitSyncPreamble += "\n"
+	if app.DevMode {
+		if targetSvc := strings.TrimSpace(app.DevService); targetSvc != "" {
+			svcs := h.P.LoadComposeServices(c.UserContext(), id)
+			found := false
+			for _, s := range svcs {
+				if s == targetSvc {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if gitSyncPreamble != "" {
+					gitSyncPreamble += "\n"
+				}
+				gitSyncPreamble += fmt.Sprintf("[warning] Dev mode: target service %q was not found in compose file — dev mount skipped to prevent modifying unintended containers.", targetSvc)
+			}
 		}
-		gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
+		if action == "Deploy" {
+			// `up -d` still builds when the image is missing, so the first dev deploy works.
+			fn = dockerx.ComposeApply
+			if gitSyncPreamble != "" {
+				gitSyncPreamble += "\n"
+			}
+			gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
+		}
 	}
 	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {

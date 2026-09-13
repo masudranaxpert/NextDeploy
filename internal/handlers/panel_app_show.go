@@ -305,6 +305,8 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"SSHHost":                sshHost,
 		"DevModeSaved":           appShowFlash == "devModeSaved",
 		"DevTargetInvalid":       appShowFlash == "devTargetInvalid",
+		"DevDepsResetSuccess":    appShowFlash == "devDepsResetSuccess",
+		"DevDepsNoVolumes":       appShowFlash == "devDepsNoVolumes",
 		"UploadZipTarget":        fmt.Sprintf("/apps/%s/upload-zip", id),
 		"UploadFileTarget":       fmt.Sprintf("/apps/%s/upload", id),
 		"ComposeRows":            composeRows,

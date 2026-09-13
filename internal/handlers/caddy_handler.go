@@ -147,6 +147,7 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
 	devMount := dev.DevMount{
 		Enabled:    app.DevMode,
+		AppID:      appID,
 		Service:    app.DevService,
 		Target:     app.DevTarget,
 		DevCommand: app.DevCommand,
@@ -516,6 +517,11 @@ func splitLogLines(s string) []string {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+// LoadComposeServices parses the compose file to get service names.
+func (p *Panel) LoadComposeServices(ctx context.Context, appID string) []string {
+	return p.loadComposeServices(ctx, appID)
+}
 
 // loadComposeServices parses the compose file to get service names.
 func (p *Panel) loadComposeServices(ctx context.Context, appID string) []string {

@@ -59,20 +59,55 @@ func TestApplyMissingServiceDoesNotOverreach(t *testing.T) {
 }
 
 func TestApplyDevCommandOverride(t *testing.T) {
-	services := map[string]interface{}{
+	// Single service: command applies
+	singleSvc := map[string]interface{}{
 		"web": map[string]interface{}{
 			"build":   ".",
 			"command": "npm start",
 		},
 	}
-	Apply(services, DevMount{
+	Apply(singleSvc, DevMount{
 		Enabled:    true,
 		DevCommand: "npm run dev",
 	})
-
-	web := services["web"].(map[string]interface{})
+	web := singleSvc["web"].(map[string]interface{})
 	if cmd, ok := web["command"].(string); !ok || cmd != "npm run dev" {
 		t.Fatalf("expected command 'npm run dev', got %v", web["command"])
+	}
+
+	// Multiple services without explicit target: command does NOT overwrite worker
+	multiSvc := map[string]interface{}{
+		"web": map[string]interface{}{
+			"build":   ".",
+			"command": "uvicorn main:app",
+		},
+		"worker": map[string]interface{}{
+			"build":   ".",
+			"command": "celery -A app worker",
+		},
+	}
+	Apply(multiSvc, DevMount{
+		Enabled:    true,
+		DevCommand: "uvicorn main:app --reload",
+	})
+	worker := multiSvc["worker"].(map[string]interface{})
+	if cmd, _ := worker["command"].(string); cmd != "celery -A app worker" {
+		t.Fatalf("worker command should NOT have been overwritten, got %v", cmd)
+	}
+
+	// Multiple services with explicit target: ONLY web gets overridden
+	Apply(multiSvc, DevMount{
+		Enabled:    true,
+		Service:    "web",
+		DevCommand: "uvicorn main:app --reload",
+	})
+	webMulti := multiSvc["web"].(map[string]interface{})
+	if cmd, _ := webMulti["command"].(string); cmd != "uvicorn main:app --reload" {
+		t.Fatalf("web command should have been overridden, got %v", cmd)
+	}
+	workerMulti := multiSvc["worker"].(map[string]interface{})
+	if cmd, _ := workerMulti["command"].(string); cmd != "celery -A app worker" {
+		t.Fatalf("worker command should NOT have been touched, got %v", cmd)
 	}
 }
 
@@ -135,14 +170,21 @@ func TestApplyPreservesDependencies(t *testing.T) {
 			"build": ".",
 		},
 	}
+	doc := map[string]interface{}{}
 	Apply(services, DevMount{
 		Enabled:       true,
+		AppID:         "app1",
 		PreservePaths: []string{"node_modules", ".venv", "vendor"},
-	})
+	}, doc)
 
 	web := services["web"].(map[string]interface{})
 	vols := web["volumes"].([]interface{})
-	expected := []string{"./:/app", "/app/node_modules", "/app/.venv", "/app/vendor"}
+	expected := []string{
+		"./:/app",
+		"nddev_app1_web_node_modules:/app/node_modules",
+		"nddev_app1_web_venv:/app/.venv",
+		"nddev_app1_web_vendor:/app/vendor",
+	}
 
 	if len(vols) != len(expected) {
 		t.Fatalf("expected %d volumes, got %d: %v", len(expected), len(vols), vols)
@@ -153,11 +195,19 @@ func TestApplyPreservesDependencies(t *testing.T) {
 		}
 	}
 
+	topVols := doc["volumes"].(map[string]interface{})
+	for _, expNamed := range []string{"nddev_app1_web_node_modules", "nddev_app1_web_venv", "nddev_app1_web_vendor"} {
+		if _, ok := topVols[expNamed]; !ok {
+			t.Errorf("expected top-level volume %q in doc, got %v", expNamed, topVols)
+		}
+	}
+
 	// Test idempotency: re-applying should not duplicate
 	Apply(services, DevMount{
 		Enabled:       true,
+		AppID:         "app1",
 		PreservePaths: []string{"node_modules", ".venv", "vendor"},
-	})
+	}, doc)
 	volsAgain := web["volumes"].([]interface{})
 	if len(volsAgain) != len(expected) {
 		t.Fatalf("idempotency failed, got duplicate volumes: %v", volsAgain)

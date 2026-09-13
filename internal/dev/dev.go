@@ -2,6 +2,7 @@
 package dev
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -13,6 +14,8 @@ import (
 type DevMount struct {
 	// Enabled toggles the bind mount injection.
 	Enabled bool
+	// AppID uniquely scopes named preservation volumes (e.g. "nddev_app1_...").
+	AppID string
 	// Service restricts the mount to one service name. When empty, it targets every
 	// service that builds from source or reuses a built image.
 	Service string
@@ -22,8 +25,19 @@ type DevMount struct {
 	HostRoot string
 	// DevCommand overrides the container startup command in dev mode (e.g. "npm run dev").
 	DevCommand string
-	// PreservePaths holds sub-paths inside Target (e.g. "node_modules", ".venv") to preserve via anonymous volumes.
+	// PreservePaths holds sub-paths inside Target (e.g. "node_modules", ".venv") to preserve via named volumes.
 	PreservePaths []string
+}
+
+// DevVolumeName returns the deterministic, app-scoped named volume name for a preserved path.
+func DevVolumeName(appID, svcKey, relPath string) string {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		appID = "app"
+	}
+	sanitized := strings.NewReplacer("/", "_", ".", "", "-", "_", "\\", "_").Replace(relPath)
+	sanitized = strings.Trim(sanitized, "_")
+	return fmt.Sprintf("nddev_%s_%s_%s", appID, svcKey, sanitized)
 }
 
 // DefaultTarget is the default container path used when dev mode is enabled without specifying one.
@@ -55,8 +69,9 @@ func ValidTarget(target string) bool {
 	return true
 }
 
-// Apply injects the workspace bind mount and dependency preservation volumes into selected services.
-func Apply(services map[string]interface{}, dev DevMount) {
+// Apply injects the workspace bind mount and dependency preservation named volumes into selected services.
+// Optional doc parameter allows registering top-level named volumes.
+func Apply(services map[string]interface{}, dev DevMount, doc ...map[string]interface{}) {
 	if !dev.Enabled {
 		return
 	}
@@ -67,9 +82,11 @@ func Apply(services map[string]interface{}, dev DevMount) {
 
 	// 1. Identify built images across services (so worker services that reuse the image get dev mounted)
 	builtImages := make(map[string]bool)
+	var buildServiceCount int
 	for _, rawSvc := range services {
 		if s, ok := toStringMap(rawSvc); ok {
 			if _, hasBuild := s["build"]; hasBuild {
+				buildServiceCount++
 				if img, ok := s["image"].(string); ok && strings.TrimSpace(img) != "" {
 					builtImages[strings.TrimSpace(img)] = true
 				}
@@ -113,12 +130,38 @@ func Apply(services map[string]interface{}, dev DevMount) {
 		appendServiceVolume(svc, mountSource+":"+target)
 		for _, p := range dev.PreservePaths {
 			if p = strings.TrimSpace(p); p != "" {
-				appendServiceVolume(svc, path.Join(target, p))
+				volName := DevVolumeName(dev.AppID, svcKey, p)
+				containerDst := path.Join(target, p)
+				appendServiceVolume(svc, volName+":"+containerDst)
+
+				if len(doc) > 0 && doc[0] != nil {
+					topVols, _ := toStringMap(doc[0]["volumes"])
+					if topVols == nil {
+						topVols = make(map[string]interface{})
+					}
+					topVols[volName] = map[string]interface{}{
+						"name": volName,
+					}
+					doc[0]["volumes"] = topVols
+				}
 			}
 		}
+
+		// DevCommand must only override the command on the intended service:
+		// either explicitly targeted by dev.Service, or when there is only a single service.
+		// This prevents worker/scraper/queue services from accidentally running web servers.
 		if cmd := strings.TrimSpace(dev.DevCommand); cmd != "" {
-			svc["command"] = cmd
+			canApplyCommand := false
+			if only != "" && svcKey == only {
+				canApplyCommand = true
+			} else if only == "" && buildServiceCount == 1 {
+				canApplyCommand = true
+			}
+			if canApplyCommand {
+				svc["command"] = cmd
+			}
 		}
+
 		services[svcKey] = svc
 	}
 }

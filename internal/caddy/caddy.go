@@ -409,7 +409,7 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 		}
 	}
 
-	dev.Apply(services, devMount)
+	dev.Apply(services, devMount, doc)
 
 	byService := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {
