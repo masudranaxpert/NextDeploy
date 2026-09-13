@@ -1,9 +1,8 @@
-package git
+package handlers
 
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -14,8 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"panel/internal/handlers"
-	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,6 +21,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
+	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -44,14 +42,6 @@ type gitlabPushPayload struct {
 	Project    struct {
 		PathWithNamespace string `json:"path_with_namespace"`
 	} `json:"project"`
-}
-
-func randomSecret() string {
-	buf := make([]byte, 24)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("nd-%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(buf)
 }
 
 func normalizeBranch(branch string) string {
@@ -99,61 +89,10 @@ func repoFullNameFromURL(raw string) string {
 	return p
 }
 
-// commitPageURL builds a web URL to the commit on GitHub or GitLab (hosted or self-managed).
-func commitPageURL(cfg db.AppGitConfig, fullSHA string) string {
-	fullSHA = strings.TrimSpace(fullSHA)
-	if fullSHA == "" {
-		return ""
-	}
-	fn := strings.TrimSpace(cfg.RepoFullName)
-	if fn == "" {
-		fn = repoFullNameFromURL(cfg.RepoURL)
-	}
-	if fn == "" {
-		return ""
-	}
-	raw := strings.TrimSpace(cfg.RepoURL)
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	host := strings.ToLower(u.Host)
-	prov := strings.ToLower(strings.TrimSpace(cfg.Provider))
-	// GitHub.com, GitHub Enterprise (custom host), and explicit github provider use /commit/SHA.
-	if prov == "github" || strings.Contains(host, "github") {
-		return fmt.Sprintf("https://%s/%s/commit/%s", u.Host, fn, fullSHA)
-	}
-	if prov == "gitlab" || strings.Contains(host, "gitlab") {
-		return fmt.Sprintf("https://%s/%s/-/commit/%s", u.Host, fn, fullSHA)
-	}
-	return ""
-}
-
-// gitDeployedSummary returns short SHA, subject line, and optional host commit URL for UI (Overview / Deploy / Git).
-func (h *Handler) gitDeployedSummary(ctx context.Context, appID string, cfg db.AppGitConfig) (shortSHA, subject, pageURL string) {
-	sha := strings.TrimSpace(cfg.LastDeployRef)
-	if sha == "" {
-		return "", "", ""
-	}
-	if len(sha) >= 7 {
-		shortSHA = sha[:7]
-	} else {
-		shortSHA = sha
-	}
-	pageURL = commitPageURL(cfg, sha)
-	repoDir := h.appCheckoutPath(appID)
-	if gitx.RepoExists(repoDir) {
-		if s := gitx.CurrentCommitSubject(ctx, repoDir); s != "" {
-			subject = s
-		}
-	}
-	return shortSHA, subject, pageURL
-}
-
-func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
+func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	authMode := strings.TrimSpace(c.FormValue("auth_mode"))
 	switch authMode {
@@ -171,17 +110,13 @@ func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
 		providerName = "gitlab"
 	}
 	cfg := db.AppGitConfig{
-		AppID:          appID,
-		Provider:       providerName,
-		RepoURL:        repoURL,
-		RepoFullName:   repoFullNameFromURL(repoURL),
-		Branch:         normalizeBranch(c.FormValue("branch")),
-		AuthMode:       authMode,
-		Token:          "",
-		AppGitID:       "",
-		InstallationID: "",
-		PrivateKeyPEM:  "",
-		AutoDeploy:     c.FormValue("auto_deploy") == "on",
+		AppID:        appID,
+		Provider:     providerName,
+		RepoURL:      repoURL,
+		RepoFullName: repoFullNameFromURL(repoURL),
+		Branch:       normalizeBranch(c.FormValue("branch")),
+		AuthMode:     authMode,
+		AutoDeploy:   c.FormValue("auto_deploy") == "on",
 	}
 	if pid := strings.TrimSpace(c.FormValue("git_provider_id")); pid != "" {
 		if parsed, err := strconv.ParseInt(pid, 10, 64); err == nil && parsed > 0 {
@@ -189,29 +124,29 @@ func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
 		}
 	}
 	if cfg.GitProviderID > 0 {
-		u, ok := handlers.CurrentUser(c)
+		u, ok := CurrentUser(c)
 		if !ok {
 			return c.Status(401).SendString("unauthorized")
 		}
-		provider, perr := h.p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
+		provider, perr := p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
 		if perr != nil {
-			h.p.SetGitTabErrorCookie(c, appID, "Selected Git provider not found")
+			utils.SetFlashError(c, "Selected Git provider not found")
 			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 		}
 		if u.Role != db.RoleAdmin && (provider.UserID == nil || *provider.UserID != u.ID) {
 			return c.Status(403).SendString("forbidden")
 		}
 	}
-	old, oldCfgErr := h.p.DB.GetAppGitConfig(c.UserContext(), appID)
+	old, oldCfgErr := p.DB.GetAppGitConfig(c.UserContext(), appID)
 	if oldCfgErr == nil && strings.TrimSpace(old.WebhookSecret) != "" {
 		cfg.WebhookSecret = old.WebhookSecret
 	} else {
-		cfg.WebhookSecret = randomSecret()
+		cfg.WebhookSecret = utils.RandomHex(16)
 	}
 	if cfg.AuthMode == "github_app" && cfg.GitProviderID > 0 {
-		detail, derr := h.p.DB.GetGitHubProviderDetail(c.UserContext(), cfg.GitProviderID)
+		detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), cfg.GitProviderID)
 		if derr != nil {
-			h.p.SetGitTabErrorCookie(c, appID, "Selected GitHub provider is not ready yet")
+			utils.SetFlashError(c, "Selected GitHub provider is not ready yet")
 			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 		}
 		cfg.Provider = "github"
@@ -223,90 +158,90 @@ func (h *Handler) GitConfigSave(c *fiber.Ctx) error {
 		}
 	}
 	if cfg.AuthMode == "gitlab_token" && cfg.GitProviderID > 0 {
-		glProvider, gerr := h.p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
+		glProvider, gerr := p.DB.GetGitProvider(c.UserContext(), cfg.GitProviderID)
 		if gerr != nil || strings.TrimSpace(glProvider.Token) == "" {
-			h.p.SetGitTabErrorCookie(c, appID, "Selected GitLab provider has no token — reconnect from Git Providers page")
+			utils.SetFlashError(c, "Selected GitLab provider has no token — reconnect from Git Providers page")
 			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 		}
 		cfg.Provider = "gitlab"
 	}
-	if err := h.p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
+	if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	// First-time Git setup: remove file-upload workspace so the clone is the single source of truth.
 	if oldCfgErr != nil {
-		if err := h.p.Store.ClearUploadedProjectForGitSource(appID); err != nil {
+		if err := p.Store.ClearUploadedProjectForGitSource(appID); err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
 	}
 	if cfg.AuthMode == "github_app" && cfg.AutoDeploy {
-		if err := h.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
+		if err := p.ensureRepoWebhook(c.UserContext(), c, appID, cfg); err != nil {
 			var apiErr *githubWebhookAPIError
 			if errors.As(err, &apiErr) && apiErr.IsPermissionDenied() {
 				cfg.AutoDeploy = false
-				_ = h.p.DB.UpsertAppGitConfig(c.UserContext(), cfg)
-				h.p.SetGitTabErrorCookie(c, appID, friendlyGitHubWebhookSetupError(err))
+				_ = p.DB.UpsertAppGitConfig(c.UserContext(), cfg)
+				utils.SetFlashError(c, friendlyGitHubWebhookSetupError(err))
 			} else {
-				h.p.SetGitTabErrorCookie(c, appID, err.Error())
+				utils.SetFlashError(c, err.Error())
 				return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 			}
 		}
 	}
 	// Mark app as git-sourced
-	_ = h.p.DB.SetAppSourceType(c.UserContext(), appID, "git")
+	_ = p.DB.SetAppSourceType(c.UserContext(), appID, "git")
 
 	// If the repository URL changed, drop the old checkout so the next sync clones the new remote.
 	if oldCfgErr == nil && strings.TrimSpace(old.RepoURL) != "" &&
 		normalizeRepoURL(old.RepoURL) != normalizeRepoURL(cfg.RepoURL) {
-		_ = os.RemoveAll(h.appCheckoutPath(appID))
+		_ = os.RemoveAll(p.appCheckoutPath(appID))
 	}
 
 	// Best practice: persist config then immediately materialize workspace (clone/fetch) so branch/URL changes apply.
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
-	if _, err := h.syncGitAppSource(ctx, appID); err != nil {
-		h.p.SetGitTabErrorCookie(c, appID, "Configuration saved, but repository sync failed: "+err.Error())
+	if _, err := p.SyncGitAppSource(ctx, appID); err != nil {
+		utils.SetFlashError(c, "Configuration saved, but repository sync failed: "+err.Error())
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(appID)
-	h.p.SetGitTabFlashCookie(c, appID, "saved_synced")
+	p.InvalidateAfterAppWorkspaceChange(appID)
+	utils.SetFlash(c, "saved_synced")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
 
-func (h *Handler) GitConfigDelete(c *fiber.Ctx) error {
+func (p *Panel) GitConfigDelete(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if err := h.p.DB.DeleteAppGitConfig(c.UserContext(), appID); err != nil {
+	if err := p.DB.DeleteAppGitConfig(c.UserContext(), appID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	// Revert to files source
-	_ = h.p.DB.SetAppSourceType(c.UserContext(), appID, "files")
+	_ = p.DB.SetAppSourceType(c.UserContext(), appID, "files")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=overview", appID))
 }
 
-func (h *Handler) appCheckoutPath(appID string) string {
-	return filepath.Join(h.p.Store.ReservedPath(appID), "repo")
+func (p *Panel) appCheckoutPath(appID string) string {
+	return filepath.Join(p.Store.ReservedPath(appID), "repo")
 }
 
-func (h *Handler) ensureGitWorkspace(appID string) error {
-	return os.MkdirAll(h.p.Store.ReservedPath(appID), 0o750)
+func (p *Panel) ensureGitWorkspace(appID string) error {
+	return os.MkdirAll(p.Store.ReservedPath(appID), 0o750)
 }
 
-func (h *Handler) syncGitAppSource(ctx context.Context, appID string) (string, error) {
-	cfg, err := h.p.DB.GetAppGitConfig(ctx, appID)
+func (p *Panel) SyncGitAppSource(ctx context.Context, appID string) (string, error) {
+	cfg, err := p.DB.GetAppGitConfig(ctx, appID)
 	if err != nil {
 		return "", err
 	}
-	if err := h.ensureGitWorkspace(appID); err != nil {
+	if err := p.ensureGitWorkspace(appID); err != nil {
 		return "", err
 	}
-	repoDir := h.appCheckoutPath(appID)
+	repoDir := p.appCheckoutPath(appID)
 
 	_ = os.Remove(filepath.Join(repoDir, ".git", "index.lock"))
 
-	token, err := h.resolveGitAuthToken(ctx, cfg)
+	token, err := p.resolveGitAuthToken(ctx, cfg)
 	if err != nil {
 		return "", err
 	}
@@ -330,23 +265,22 @@ func (h *Handler) syncGitAppSource(ctx context.Context, appID string) (string, e
 		}
 		return res.Output, errors.New(res.Output)
 	}
-	// Restore workspace .env from the panel DB after clone/pull so git checkout/clean cannot drop or replace it
-	// (e.g. tracked .env in the repo, or untracked .env removed by older clean rules).
-	panelEnv, _ := h.p.DB.GetPanelEnv(ctx, appID)
-	_ = h.p.SyncWorkspaceEnvFromPanel(appID, repoDir, panelEnv)
+	// Restore workspace .env from the panel DB after clone/pull so git checkout/clean cannot drop or replace it.
+	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
+	_ = p.SyncWorkspaceEnvFromPanel(appID, repoDir, panelEnv)
 	commit := gitx.CurrentCommit(ctx, repoDir)
 	cfg.LastDeployRef = commit
-	_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
+	_ = p.DB.UpsertAppGitConfig(ctx, cfg)
 	return res.Output, nil
 }
 
-func (h *Handler) resolveGitAuthToken(ctx context.Context, cfg db.AppGitConfig) (string, error) {
+func (p *Panel) resolveGitAuthToken(ctx context.Context, cfg db.AppGitConfig) (string, error) {
 	if cfg.AuthMode == "public" {
 		return "", nil
 	}
 	if cfg.AuthMode == "github_app" {
 		if cfg.GitProviderID > 0 {
-			detail, err := h.p.DB.GetGitHubProviderDetail(ctx, cfg.GitProviderID)
+			detail, err := p.DB.GetGitHubProviderDetail(ctx, cfg.GitProviderID)
 			if err != nil {
 				return "", err
 			}
@@ -363,10 +297,10 @@ func (h *Handler) resolveGitAuthToken(ctx context.Context, cfg db.AppGitConfig) 
 		return gitx.MintGitHubInstallationToken(ctx, cfg.AppGitID, cfg.InstallationID, cfg.PrivateKeyPEM)
 	}
 	if cfg.AuthMode == "gitlab_token" && cfg.GitProviderID > 0 {
-		return h.EnsureFreshGitLabToken(ctx, cfg.GitProviderID)
+		return p.EnsureFreshGitLabToken(ctx, cfg.GitProviderID)
 	}
 	if cfg.GitProviderID > 0 && strings.TrimSpace(cfg.Token) == "" {
-		provider, err := h.p.DB.GetGitProvider(ctx, cfg.GitProviderID)
+		provider, err := p.DB.GetGitProvider(ctx, cfg.GitProviderID)
 		if err == nil {
 			return strings.TrimSpace(provider.Token), nil
 		}
@@ -452,11 +386,11 @@ func friendlyGitHubWebhookSetupError(err error) string {
 	return "Configuration saved, but NextDeploy could not manage the repository webhook automatically. GitHub returned 403 \"Resource not accessible by integration\". This usually means the installed GitHub App does not have repository webhook/admin access for this repo. Auto deploy on push was disabled for now. Reinstall or update the provider with repository Administration write access, then save again."
 }
 
-func (h *Handler) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID string, cfg db.AppGitConfig) error {
+func (p *Panel) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID string, cfg db.AppGitConfig) error {
 	if cfg.Provider != "github" || cfg.AuthMode != "github_app" || cfg.RepoFullName == "" {
 		return nil
 	}
-	token, err := h.resolveGitAuthToken(ctx, cfg)
+	token, err := p.resolveGitAuthToken(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -464,7 +398,7 @@ func (h *Handler) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID str
 	if len(parts) != 2 {
 		return nil
 	}
-	hookURL := h.appWebhookURL(c, appID)
+	hookURL := p.appWebhookURL(c, appID)
 	listURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/hooks", parts[0], parts[1])
 	body, status, err := githubAPIRequest(ctx, http.MethodGet, listURL, token, nil)
 	if err != nil {
@@ -510,20 +444,20 @@ func (h *Handler) ensureRepoWebhook(ctx context.Context, c *fiber.Ctx, appID str
 	return nil
 }
 
-func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) AppGitProviderRepos(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
 	appID := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
 	if err != nil || pid <= 0 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
 	}
-	provider, err := h.p.DB.GetGitProvider(c.UserContext(), pid)
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
 	}
@@ -531,12 +465,12 @@ func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 	if provider.Provider == "gitlab" {
-		return h.AppGitLabProviderRepos(c)
+		return p.AppGitLabProviderRepos(c)
 	}
 	if provider.Provider != "github" {
 		return c.Status(400).JSON(fiber.Map{"error": "repository picker is only available for GitHub App or GitLab providers"})
 	}
-	detail, err := h.p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "github provider details not found"})
 	}
@@ -561,20 +495,20 @@ func (h *Handler) AppGitProviderRepos(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"repos": payload.Repositories})
 }
 
-func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) AppGitProviderBranches(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
 	appID := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	pid, err := strconv.ParseInt(c.Params("pid"), 10, 64)
 	if err != nil || pid <= 0 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid provider"})
 	}
-	provider, err := h.p.DB.GetGitProvider(c.UserContext(), pid)
+	provider, err := p.DB.GetGitProvider(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "provider not found"})
 	}
@@ -582,7 +516,7 @@ func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 	if provider.Provider == "gitlab" {
-		return h.AppGitLabProviderBranches(c)
+		return p.AppGitLabProviderBranches(c)
 	}
 	repoFullName := strings.TrimSpace(c.Query("repo"))
 	parts := strings.SplitN(repoFullName, "/", 2)
@@ -592,7 +526,7 @@ func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
 	if provider.Provider != "github" {
 		return c.Status(400).JSON(fiber.Map{"error": "branch picker is only available for GitHub App or GitLab providers"})
 	}
-	detail, err := h.p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), pid)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "github provider details not found"})
 	}
@@ -615,18 +549,18 @@ func (h *Handler) AppGitProviderBranches(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"branches": branches})
 }
 
-func (h *Handler) GitSync(c *fiber.Ctx) error {
+func (p *Panel) GitSync(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
-	if _, err := h.syncGitAppSource(ctx, appID); err != nil {
+	if _, err := p.SyncGitAppSource(ctx, appID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(appID)
-	h.p.SetGitTabFlashCookie(c, appID, "synced")
+	p.InvalidateAfterAppWorkspaceChange(appID)
+	utils.SetFlash(c, "synced")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
 }
 
@@ -666,13 +600,13 @@ func webhookDeliveryID(c *fiber.Ctx, body []byte, githubMode bool) string {
 	return "anon-" + hex.EncodeToString(sum[:16])
 }
 
-func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
+func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.p.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.SendStatus(fiber.StatusNotFound)
 	}
-	cfg, err := h.p.DB.GetAppGitConfig(c.UserContext(), appID)
+	cfg, err := p.DB.GetAppGitConfig(c.UserContext(), appID)
 	if err != nil {
 		return c.SendStatus(fiber.StatusNotFound)
 	}
@@ -684,7 +618,7 @@ func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
 	}
 	githubMode := githubOK
 	deliveryID := webhookDeliveryID(c, body, githubMode)
-	if ok, err := h.p.DB.MarkWebhookDelivery(c.UserContext(), appID, deliveryID); err != nil || !ok {
+	if ok, err := p.DB.MarkWebhookDelivery(c.UserContext(), appID, deliveryID); err != nil || !ok {
 		return c.SendStatus(fiber.StatusOK)
 	}
 	if githubMode {
@@ -726,33 +660,33 @@ func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
 	// Dev mode keeps the workspace dirty for live editing. A webhook sync would
 	// run git checkout -f / clean and wipe those edits, so skip until Dev is off.
 	if app.DevMode {
-		_ = h.p.DB.InsertDeployLog(c.UserContext(), appID, "Webhook redeploy", true,
+		_ = p.DB.InsertDeployLog(c.UserContext(), appID, "Webhook redeploy", true,
 			"Skipped: development mode is on. Turn Dev mode off to resume auto-deploy from Git.")
 		return c.SendStatus(fiber.StatusOK)
 	}
 	go func() {
 		bg := context.Background()
-		gitOut, err := h.syncGitAppSource(bg, appID)
+		gitOut, err := p.SyncGitAppSource(bg, appID)
 		if err != nil {
-			_ = h.p.DB.InsertDeployLog(bg, appID, "Webhook sync", false, err.Error())
+			_ = p.DB.InsertDeployLog(bg, appID, "Webhook sync", false, err.Error())
 			return
 		}
-		h.p.InvalidateAfterAppWorkspaceChange(appID)
+		p.InvalidateAfterAppWorkspaceChange(appID)
 		gitPreamble := strings.TrimSpace(gitOut)
 		if gitPreamble == "" {
 			gitPreamble = "Repository sync completed."
 		}
-		if err := h.p.SyncAppCaddyOverrideCtx(bg, appID); err != nil {
-			_ = h.p.DB.InsertDeployLog(bg, appID, "Webhook deploy", false, err.Error())
+		if err := p.SyncAppCaddyOverrideCtx(bg, appID); err != nil {
+			_ = p.DB.InsertDeployLog(bg, appID, "Webhook deploy", false, err.Error())
 			return
 		}
 		projCtx, projCancel := context.WithTimeout(bg, 90*time.Second)
-		project := h.p.ActiveComposeProjectName(projCtx, app, appID)
+		project := p.ActiveComposeProjectName(projCtx, app, appID)
 		projCancel()
 		stopCtx, stopCancel := context.WithTimeout(bg, 5*time.Minute)
-		h.p.StopOtherComposeStacks(stopCtx, app, appID, project)
+		p.StopOtherComposeStacks(stopCtx, app, appID, project)
 		stopCancel()
-		_, _ = h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
+		_, _ = p.StartComposeJob(appID, project, p.EffectiveComposePaths(bg, app, appID), "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
 	}()
 	return c.SendStatus(fiber.StatusOK)
 }
@@ -762,26 +696,26 @@ const (
 	maxGitRepoBlobDownload = 32 << 20  // raw download limit
 )
 
-func (h *Handler) gitRepoBrowserGate(c *fiber.Ctx, appID string) int {
-	if _, err := h.p.DB.GetApp(c.UserContext(), appID); err != nil {
+func (p *Panel) gitRepoBrowserGate(c *fiber.Ctx, appID string) int {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	if !h.p.IsGitApp(c.UserContext(), appID) {
+	if !p.IsGitApp(c.UserContext(), appID) {
 		return fiber.StatusBadRequest
 	}
-	if _, err := h.p.DB.GetAppGitConfig(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetAppGitConfig(c.UserContext(), appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	if !gitx.RepoExists(h.appCheckoutPath(appID)) {
+	if !gitx.RepoExists(p.appCheckoutPath(appID)) {
 		return fiber.StatusNotFound
 	}
 	return 0
 }
 
 // GitRepoTree returns directory listing JSON for the checked-out repository (read-only; .git hidden).
-func (h *Handler) GitRepoTree(c *fiber.Ctx) error {
+func (p *Panel) GitRepoTree(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.gitRepoBrowserGate(c, appID); code != 0 {
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
 		msg := "not available"
 		if code == fiber.StatusNotFound {
 			msg = "repository not available; run Sync first"
@@ -789,7 +723,7 @@ func (h *Handler) GitRepoTree(c *fiber.Ctx) error {
 		return c.Status(code).JSON(fiber.Map{"error": msg})
 	}
 	rel := c.Query("path", "")
-	children, err := h.p.Store.ListGitRepoChildren(appID, rel)
+	children, err := p.Store.ListGitRepoChildren(appID, rel)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
@@ -815,7 +749,7 @@ func (h *Handler) GitRepoTree(c *fiber.Ctx) error {
 			Perms:   ch.Perms,
 		})
 	}
-	parent := h.p.Store.ParentRel(rel)
+	parent := p.Store.ParentRel(rel)
 	return c.JSON(fiber.Map{
 		"path":    rel,
 		"parent":  parent,
@@ -824,16 +758,16 @@ func (h *Handler) GitRepoTree(c *fiber.Ctx) error {
 }
 
 // GitRepoBlob returns JSON with file text for the UI preview, or metadata for binary/oversized files.
-func (h *Handler) GitRepoBlob(c *fiber.Ctx) error {
+func (p *Panel) GitRepoBlob(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.gitRepoBrowserGate(c, appID); code != 0 {
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"error": "repository not available"})
 	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
-	full, err := h.p.Store.SafeGitRepoFilePath(appID, rel)
+	full, err := p.Store.SafeGitRepoFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
 	}
@@ -893,16 +827,16 @@ func (h *Handler) GitRepoBlob(c *fiber.Ctx) error {
 }
 
 // GitRepoRaw serves a single file from the git checkout (inline or attachment).
-func (h *Handler) GitRepoRaw(c *fiber.Ctx) error {
+func (p *Panel) GitRepoRaw(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.gitRepoBrowserGate(c, appID); code != 0 {
+	if code := p.gitRepoBrowserGate(c, appID); code != 0 {
 		return c.Status(code).SendString("repository not available")
 	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("path required")
 	}
-	full, err := h.p.Store.SafeGitRepoFilePath(appID, rel)
+	full, err := p.Store.SafeGitRepoFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString("invalid path")
 	}

@@ -61,7 +61,8 @@ func GitRepoBlobPreviewText(b []byte) (text string, binary bool) {
 	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
 		trim = b[3:]
 	}
-	if gitRepoBinaryMagic(trim) {
+	ct := http.DetectContentType(trim)
+	if !strings.HasPrefix(ct, "text/") && ct != "application/octet-stream" {
 		return "", true
 	}
 	if bytes.IndexByte(trim, 0) >= 0 {
@@ -74,31 +75,6 @@ func GitRepoBlobPreviewText(b []byte) (text string, binary bool) {
 		return strings.ToValidUTF8(string(trim), "\uFFFD"), false
 	}
 	return "", true
-}
-
-func gitRepoBinaryMagic(b []byte) bool {
-	if len(b) < 4 {
-		return false
-	}
-	if bytes.HasPrefix(b, []byte("%PDF")) {
-		return true
-	}
-	if len(b) >= 8 && bytes.HasPrefix(b, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) {
-		return true
-	}
-	if len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF {
-		return true
-	}
-	if len(b) >= 6 && (bytes.HasPrefix(b, []byte("GIF87a")) || bytes.HasPrefix(b, []byte("GIF89a"))) {
-		return true
-	}
-	if bytes.HasPrefix(b, []byte("PK\x03\x04")) {
-		return true
-	}
-	if len(b) >= 12 && bytes.HasPrefix(b, []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70}) {
-		return true
-	}
-	return false
 }
 
 func gitRepoLikelyTextDespiteInvalidUTF8(b []byte) bool {

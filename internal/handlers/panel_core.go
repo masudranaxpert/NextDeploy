@@ -17,7 +17,6 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
-	"panel/internal/handlers/audit"
 	"panel/internal/handlers/utils"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
@@ -61,9 +60,6 @@ func appShowTabPartialName(tab string) string {
 	}
 }
 
-type GitSyncer interface {
-	SyncGitAppSource(ctx context.Context, appID string) (string, error)
-}
 
 type Panel struct {
 	DB               *db.Store
@@ -81,8 +77,7 @@ type Panel struct {
 
 	backupRestoreMu    sync.Mutex
 	BackupRestoreState map[string]BackupRestoreState // app id -> current/last restore state
-
-	GitSyncer GitSyncer
+	backupSem          chan struct{}
 
 	cgroupMu         sync.Mutex
 	cgroupChecked    bool
@@ -410,11 +405,6 @@ func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 	return out
 }
 
-// ComposeRowsBelongToApp is the exported wrapper for composeRowsBelongToApp.
-func (p *Panel) ComposeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) bool {
-	return p.composeRowsBelongToApp(id, rows)
-}
-
 // ProjectNameSharedWithOtherApp reports whether any other app resolves to the same compose
 // project name. Used to decide if cleanup of a legacy (slug-based) project name is safe.
 func (p *Panel) ProjectNameSharedWithOtherApp(ctx context.Context, appID, project string) bool {
@@ -437,11 +427,11 @@ func (p *Panel) ProjectNameSharedWithOtherApp(ctx context.Context, appID, projec
 	return false
 }
 
-// composeRowsBelongToApp verifies that a probed compose project actually belongs to this app by
+// ComposeRowsBelongToApp verifies that a probed compose project actually belongs to this app by
 // checking the compose working_dir label against the app workspace. Prevents an app whose legacy
 // slug collides with another user's project (e.g. both named "blog") from claiming that stack.
 // Rows without a WorkingDir (CLI fallback) are accepted for backwards compatibility.
-func (p *Panel) composeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) bool {
+func (p *Panel) ComposeRowsBelongToApp(id string, rows []dockerx.ComposePsRow) bool {
 	appRoot := filepath.Clean(p.Store.Path(id))
 	sawWorkDir := false
 	for _, row := range rows {
@@ -481,7 +471,7 @@ func (p *Panel) ComposeProjectAndPS(ctx context.Context, app db.App, id string) 
 	probeStart := time.Now()
 	for i, proj := range names {
 		lastRows, lastRes = dockerx.ComposePS(ctx, root, paths, proj, envFiles)
-		if lastRes.OK && len(lastRows) > 0 && p.composeRowsBelongToApp(id, lastRows) {
+		if lastRes.OK && len(lastRows) > 0 && p.ComposeRowsBelongToApp(id, lastRows) {
 			tr.Field("winner", proj)
 			tr.Field("probes", fmt.Sprintf("%d", i+1))
 			tr.StepDur("probes", probeStart)
@@ -500,11 +490,7 @@ func (p *Panel) ComposeProjectAndPS(ctx context.Context, app db.App, id string) 
 	return canonical, nil, lastRes
 }
 
-func (p *Panel) composeProjectAndPS(ctx context.Context, app db.App, id string) (project string, rows []dockerx.ComposePsRow, res dockerx.Result) {
-	return p.ComposeProjectAndPS(ctx, app, id)
-}
-
-// composeProjectAndPSHint is like composeProjectAndPS but uses batched DB hints (no per-app git/env queries).
+// composeProjectAndPSHint is like ComposeProjectAndPS but uses batched DB hints (no per-app git/env queries).
 func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id string, hint db.AppComposeHint) (project string, rows []dockerx.ComposePsRow, res dockerx.Result) {
 	canonical := p.composeProjectName(app, id)
 	if canonical == "" {
@@ -521,7 +507,7 @@ func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id stri
 	var lastRes dockerx.Result
 	for i, proj := range names {
 		lastRows, lastRes = dockerx.ComposePS(ctx, root, paths, proj, envFiles)
-		if lastRes.OK && len(lastRows) > 0 && p.composeRowsBelongToApp(id, lastRows) {
+		if lastRes.OK && len(lastRows) > 0 && p.ComposeRowsBelongToApp(id, lastRows) {
 			return proj, lastRows, lastRes
 		}
 		if i == len(names)-1 {
@@ -532,12 +518,8 @@ func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id stri
 }
 
 func (p *Panel) ActiveComposeProjectName(ctx context.Context, app db.App, id string) string {
-	project, _, _ := p.composeProjectAndPS(ctx, app, id)
+	project, _, _ := p.ComposeProjectAndPS(ctx, app, id)
 	return project
-}
-
-func (p *Panel) activeComposeProjectName(ctx context.Context, app db.App, id string) string {
-	return p.ActiveComposeProjectName(ctx, app, id)
 }
 
 // stopOtherComposeStacks runs compose down (no volume removal) for every project name candidate
@@ -559,7 +541,7 @@ func (p *Panel) StopOtherComposeStacks(ctx context.Context, app db.App, id, acti
 		// Legacy slug candidates can collide with another user's project (same app name).
 		// Only down a candidate when its containers were deployed from this app's workspace.
 		rows, res := dockerx.ComposePS(ctx, dir, paths, proj, envFiles)
-		if !res.OK || len(rows) == 0 || !p.composeRowsBelongToApp(id, rows) {
+		if !res.OK || len(rows) == 0 || !p.ComposeRowsBelongToApp(id, rows) {
 			continue
 		}
 		_ = dockerx.ComposeDown(ctx, dir, paths, proj, nil, envFiles)
@@ -842,14 +824,10 @@ func (p *Panel) composeProjectsForApps(ctx context.Context, apps []db.App) []str
 
 func (p *Panel) BackupVolumeComposeProjects(ctx context.Context, app db.App, appID string) []string {
 	volProjects := p.composeProjectCandidates(ctx, app, appID)
-	if active, _, pr := p.composeProjectAndPS(ctx, app, appID); pr.OK && strings.TrimSpace(active) != "" {
+	if active, _, pr := p.ComposeProjectAndPS(ctx, app, appID); pr.OK && strings.TrimSpace(active) != "" {
 		volProjects = dedupeStringsPreserveOrder(append([]string{strings.TrimSpace(active)}, volProjects...))
 	}
 	return volProjects
-}
-
-func (p *Panel) backupVolumeComposeProjects(ctx context.Context, app db.App, appID string) []string {
-	return p.BackupVolumeComposeProjects(ctx, app, appID)
 }
 
 func panelEnvDefinesComposeProjectName(s string) bool {
@@ -916,9 +894,6 @@ func composeWorkspaceDirContainedInApp(appRoot, workDir string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func (p *Panel) RecordAuditLog(c *fiber.Ctx, action, targetType, targetID, details string) {
-	audit.Record(p.DB, c, action, targetType, targetID, details)
-}
 
 func (p *Panel) ResolveRequestedBackupVolume(ctx context.Context, app db.App, requested string) (string, string) {
 	requested = strings.TrimSpace(requested)

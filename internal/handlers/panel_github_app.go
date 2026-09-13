@@ -1,4 +1,4 @@
-package git
+package handlers
 
 import (
 	"bytes"
@@ -10,14 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"panel/internal/handlers"
-	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/db"
 	"panel/internal/gitx"
+	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -81,26 +80,26 @@ func uniqueGitHubAppName() string {
 	return fmt.Sprintf("NextDeploy-%s-%s", now, strings.ToLower(suffix))
 }
 
-func (h *Handler) githubManifestCallbackURL(c *fiber.Ctx) string {
-	return strings.TrimRight(h.p.PanelBaseURL(c), "/") + "/git/github/callback"
+func (p *Panel) githubManifestCallbackURL(c *fiber.Ctx) string {
+	return strings.TrimRight(p.PanelBaseURL(c), "/") + "/git/github/callback"
 }
 
-func (h *Handler) githubSetupURL(c *fiber.Ctx) string {
-	return strings.TrimRight(h.p.PanelBaseURL(c), "/") + "/git/github/setup"
+func (p *Panel) githubSetupURL(c *fiber.Ctx) string {
+	return strings.TrimRight(p.PanelBaseURL(c), "/") + "/git/github/setup"
 }
 
-func (h *Handler) githubManifestWebhookURL(c *fiber.Ctx) string {
-	base := strings.TrimRight(h.p.PanelBaseURL(c), "/")
+func (p *Panel) githubManifestWebhookURL(c *fiber.Ctx) string {
+	base := strings.TrimRight(p.PanelBaseURL(c), "/")
 	return base + "/webhooks/github/provider"
 }
 
-func (h *Handler) buildGitHubManifest(c *fiber.Ctx, providerName string) githubManifestRequest {
+func (p *Panel) buildGitHubManifest(c *fiber.Ctx, providerName string) githubManifestRequest {
 	manifest := githubManifestRequest{
 		Name:        providerName,
-		URL:         strings.TrimRight(h.p.PanelBaseURL(c), "/"),
+		URL:         strings.TrimRight(p.PanelBaseURL(c), "/"),
 		Description: "NextDeploy GitHub App",
-		RedirectURL: h.githubManifestCallbackURL(c),
-		SetupURL:    h.githubSetupURL(c),
+		RedirectURL: p.githubManifestCallbackURL(c),
+		SetupURL:    p.githubSetupURL(c),
 		Public:      false,
 		DefaultPermissions: map[string]string{
 			"contents":         "read",
@@ -110,7 +109,7 @@ func (h *Handler) buildGitHubManifest(c *fiber.Ctx, providerName string) githubM
 		},
 		DefaultEvents: []string{"push"},
 	}
-	manifest.HookAttributes.URL = h.githubManifestWebhookURL(c)
+	manifest.HookAttributes.URL = p.githubManifestWebhookURL(c)
 	manifest.HookAttributes.Active = true
 	return manifest
 }
@@ -229,17 +228,17 @@ func fetchGitHubInstallation(ctx context.Context, detail db.GitHubProviderDetail
 	return out, nil
 }
 
-func (h *Handler) GitHubAppManifestStart(c *fiber.Ctx) error {
+func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
 		name = uniqueGitHubAppName()
 	}
 	state := randomState()
-	if err := h.p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, name); err != nil {
+	if err := p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, name); err != nil {
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
-	manifest := h.buildGitHubManifest(c, name)
+	manifest := p.buildGitHubManifest(c, name)
 	body, err := json.Marshal(manifest)
 	if err != nil {
 		utils.SetFlashError(c, err.Error())
@@ -256,7 +255,7 @@ func (h *Handler) GitHubAppManifestStart(c *fiber.Ctx) error {
 </body></html>`)
 }
 
-func (h *Handler) GitHubAppSetup(c *fiber.Ctx) error {
+func (p *Panel) GitHubAppSetup(c *fiber.Ctx) error {
 	installationID := strings.TrimSpace(c.Query("installation_id"))
 	setupAction := strings.TrimSpace(c.Query("setup_action"))
 	state := strings.TrimSpace(c.Query("state"))
@@ -276,7 +275,7 @@ func (h *Handler) GitHubAppSetup(c *fiber.Ctx) error {
 		return c.Redirect("/git")
 	}
 
-	detail, err := h.p.DB.GetGitHubProviderDetailByManifestState(c.UserContext(), state)
+	detail, err := p.DB.GetGitHubProviderDetailByManifestState(c.UserContext(), state)
 	if err != nil {
 		utils.SetFlashError(c, "Unknown GitHub installation state")
 		return c.Redirect("/git")
@@ -291,7 +290,7 @@ func (h *Handler) GitHubAppSetup(c *fiber.Ctx) error {
 	detail.InstallationID = fmt.Sprintf("%d", verified.ID)
 	detail.AccountLogin = strings.TrimSpace(verified.Account.Login)
 	detail.ManifestState = ""
-	if err := h.p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
+	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
@@ -299,19 +298,19 @@ func (h *Handler) GitHubAppSetup(c *fiber.Ctx) error {
 	return c.Redirect("/git")
 }
 
-func (h *Handler) GitHubAppManifestCallback(c *fiber.Ctx) error {
+func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
 		utils.SetFlashError(c, "Missing GitHub manifest callback data")
 		return c.Redirect("/git")
 	}
-	providerName := strings.TrimSpace(h.p.DB.GetSetting(c.UserContext(), "github_manifest_state:"+state))
+	providerName := strings.TrimSpace(p.DB.GetSetting(c.UserContext(), "github_manifest_state:"+state))
 	if providerName == "" {
 		utils.SetFlashError(c, "Invalid or expired manifest state")
 		return c.Redirect("/git")
 	}
-	_ = h.p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, "")
+	_ = p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, "")
 
 	ctx, cancel := context.WithTimeout(c.UserContext(), 20*time.Second)
 	defer cancel()
@@ -322,15 +321,15 @@ func (h *Handler) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	}
 
 	var userID *int64
-	u, ok := handlers.CurrentUser(c)
+	u, ok := CurrentUser(c)
 	if ok && u.Role != db.RoleAdmin {
 		val := u.ID
 		userID = &val
 	}
 
-	providerID, err := h.p.DB.CreateGitProvider(c.UserContext(), userID, providerName, "github", "", "GitHub App")
+	providerID, err := p.DB.CreateGitProvider(c.UserContext(), userID, providerName, "github", "", "GitHub App")
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
-		providers, listErr := h.p.DB.ListGitProviders(c.UserContext(), userID)
+		providers, listErr := p.DB.ListGitProviders(c.UserContext(), userID)
 		if listErr == nil {
 			for _, gp := range providers {
 				if strings.EqualFold(strings.TrimSpace(gp.Name), providerName) {
@@ -360,7 +359,7 @@ func (h *Handler) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	if refreshed, rerr := refreshGitHubProviderInstallation(c.UserContext(), detail); rerr == nil {
 		detail = refreshed
 	}
-	if err := h.p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
+	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
@@ -368,12 +367,12 @@ func (h *Handler) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	return c.Redirect("/git")
 }
 
-func (h *Handler) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
-	return h.GitHubProviderInstall(c)
+func (p *Panel) GitHubProviderRefreshInstall(c *fiber.Ctx) error {
+	return p.GitHubProviderInstall(c)
 }
 
-func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) GitHubProviderInstall(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Redirect("/login")
 	}
@@ -382,7 +381,7 @@ func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "Invalid provider ID")
 		return c.Redirect("/git")
 	}
-	provider, err := h.p.DB.GetGitProvider(c.UserContext(), id)
+	provider, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
 		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
@@ -394,7 +393,7 @@ func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
 		utils.SetFlashError(c, "This provider is not GitHub")
 		return c.Redirect("/git")
 	}
-	detail, err := h.p.DB.GetGitHubProviderDetail(c.UserContext(), id)
+	detail, err := p.DB.GetGitHubProviderDetail(c.UserContext(), id)
 	if err != nil {
 		utils.SetFlashError(c, "GitHub App details not found")
 		return c.Redirect("/git")
@@ -404,7 +403,7 @@ func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
 		return c.Redirect("/git")
 	}
 	detail.ManifestState = "gh_setup:" + randomState()
-	if err := h.p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
+	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
@@ -416,7 +415,7 @@ func (h *Handler) GitHubProviderInstall(c *fiber.Ctx) error {
 	return c.Redirect(target)
 }
 
-func (h *Handler) ProviderGitHubWebhook(c *fiber.Ctx) error {
+func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
@@ -439,10 +438,6 @@ func htmlEscapeAttr(v string) string {
 		}
 	}
 	return b.String()
-}
-
-func (h *Handler) appWebhookURL(c *fiber.Ctx, appID string) string {
-	return gitx.WebhookURL(h.p.PanelBaseURL(c), appID)
 }
 
 func gitxAppJWT(appID, privateKeyPEM string) (string, error) {

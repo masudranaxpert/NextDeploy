@@ -140,10 +140,6 @@ func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, 
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down")
 }
 
-// ComposeDownVolumes runs compose down including volumes and orphan containers.
-func ComposeDownVolumes(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
-	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down", "--volumes", "--remove-orphans")
-}
 
 // ComposeDownDeleteProject runs compose down with volumes, orphans, and removes all service images for this project (--rmi all).
 func ComposeDownDeleteProject(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
@@ -292,9 +288,6 @@ func DefaultPruneOptions() PruneOptions {
 	return PruneOptions{Containers: true, Images: true, BuildCache: false}
 }
 
-func DockerPruneUnused(ctx context.Context) Result {
-	return DockerPruneWithOptions(ctx, DefaultPruneOptions())
-}
 
 func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	if !opts.Containers && !opts.Images && !opts.BuildCache {
@@ -356,26 +349,3 @@ func DockerExec(ctx context.Context, container, shellCmd string) Result {
 	return r
 }
 
-func Build(ctx context.Context, projectDir, dockerfile string) Result {
-	df := filepath.Base(dockerfile)
-	tag := fmt.Sprintf("panel-local/%s:latest", sanitizeTag(filepath.Base(projectDir)))
-	args := []string{"docker", "build", "-t", tag, "-f", df, "."}
-	return run(ctx, projectDir, args...)
-}
-
-func sanitizeTag(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "image"
-	}
-	return out
-}

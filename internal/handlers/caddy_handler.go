@@ -142,7 +142,7 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	}
 
 	projCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	project := p.activeComposeProjectName(projCtx, app, appID)
+	project := p.ActiveComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
 	devMount := dev.DevMount{

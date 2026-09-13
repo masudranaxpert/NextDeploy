@@ -1,10 +1,9 @@
-package backup
+package handlers
 
 import (
 	"encoding/json"
 	"fmt"
 	"panel/internal/db"
-	"panel/internal/handlers"
 	"panel/internal/handlers/utils"
 	"strings"
 
@@ -13,8 +12,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func (h *Handler) BackupDestinationsList(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
@@ -23,7 +22,7 @@ func (h *Handler) BackupDestinationsList(c *fiber.Ctx) error {
 		val := u.ID
 		userID = &val
 	}
-	dests, err := h.P.DB.ListBackupDestinations(c.UserContext(), userID)
+	dests, err := p.DB.ListBackupDestinations(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -62,7 +61,7 @@ func (h *Handler) BackupDestinationsList(c *fiber.Ctx) error {
 				); refreshErr == nil {
 					token = newToken
 					configMap["token"] = newToken
-					_ = h.P.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
+					_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
 				}
 			}
 
@@ -96,8 +95,8 @@ func mustMarshal(v interface{}) []byte {
 	return b
 }
 
-func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
@@ -155,7 +154,7 @@ func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "unsupported provider"})
 	}
 
-	id, err := h.P.DB.CreateBackupDestination(c.UserContext(), userID, name, provider, string(config))
+	id, err := p.DB.CreateBackupDestination(c.UserContext(), userID, name, provider, string(config))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -163,8 +162,8 @@ func (h *Handler) BackupDestinationCreate(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"id": id, "message": "destination created"})
 }
 
-func (h *Handler) BackupDestinationDelete(c *fiber.Ctx) error {
-	u, ok := handlers.CurrentUser(c)
+func (p *Panel) BackupDestinationDelete(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
@@ -173,7 +172,7 @@ func (h *Handler) BackupDestinationDelete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	existing, err := h.P.DB.GetBackupDestination(c.UserContext(), int64(id))
+	existing, err := p.DB.GetBackupDestination(c.UserContext(), int64(id))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
@@ -182,25 +181,25 @@ func (h *Handler) BackupDestinationDelete(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
 	}
 
-	if err := h.P.DB.DeleteBackupDestination(c.UserContext(), int64(id)); err != nil {
+	if err := p.DB.DeleteBackupDestination(c.UserContext(), int64(id)); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	return c.JSON(fiber.Map{"message": "destination deleted"})
 }
 
-func (h *Handler) BackupGDriveOAuthURL(c *fiber.Ctx) error {
+func (p *Panel) BackupGDriveOAuthURL(c *fiber.Ctx) error {
 	clientID := strings.TrimSpace(c.Query("client_id"))
 	clientSecret := strings.TrimSpace(c.Query("client_secret"))
 	if clientID == "" || clientSecret == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "client_id and client_secret required"})
 	}
 
-	redirectURL := strings.TrimRight(h.P.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
+	redirectURL := strings.TrimRight(p.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
 	authURL := rclone.GetGoogleDriveAuthURL(clientID, redirectURL)
 
 	state := utils.RandomState()
-	if err := h.P.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, clientID+"\n"+clientSecret); err != nil {
+	if err := p.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, clientID+"\n"+clientSecret); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -210,7 +209,7 @@ func (h *Handler) BackupGDriveOAuthURL(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) BackupGDriveCallback(c *fiber.Ctx) error {
+func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
@@ -218,12 +217,12 @@ func (h *Handler) BackupGDriveCallback(c *fiber.Ctx) error {
 		return c.Redirect("/backup")
 	}
 
-	creds := h.P.DB.GetSetting(c.UserContext(), "gdrive_oauth:"+state)
+	creds := p.DB.GetSetting(c.UserContext(), "gdrive_oauth:"+state)
 	if creds == "" {
 		utils.SetFlashError(c, "Invalid or expired OAuth state")
 		return c.Redirect("/backup")
 	}
-	_ = h.P.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, "")
+	_ = p.DB.SetSetting(c.UserContext(), "gdrive_oauth:"+state, "")
 
 	parts := strings.SplitN(creds, "\n", 2)
 	if len(parts) != 2 {
@@ -231,7 +230,7 @@ func (h *Handler) BackupGDriveCallback(c *fiber.Ctx) error {
 		return c.Redirect("/backup")
 	}
 
-	redirectURL := strings.TrimRight(h.P.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
+	redirectURL := strings.TrimRight(p.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
 	token, err := rclone.ExchangeGoogleDriveCode(c.UserContext(), parts[0], parts[1], code, redirectURL)
 	if err != nil {
 		utils.SetFlashError(c, "Google Drive auth failed: "+err.Error())
@@ -252,13 +251,13 @@ func (h *Handler) BackupGDriveCallback(c *fiber.Ctx) error {
 	})
 
 	name := fmt.Sprintf("Google Drive %s", utils.RandomState()[:6])
-	u, ok := handlers.CurrentUser(c)
+	u, ok := CurrentUser(c)
 	var userID *int64
 	if ok && u.Role != db.RoleAdmin {
 		val := u.ID
 		userID = &val
 	}
-	_, err = h.P.DB.CreateBackupDestination(c.UserContext(), userID, name, "gdrive", string(config))
+	_, err = p.DB.CreateBackupDestination(c.UserContext(), userID, name, "gdrive", string(config))
 	if err != nil {
 		utils.SetFlashError(c, "Failed to save destination: "+err.Error())
 		return c.Redirect("/backup")

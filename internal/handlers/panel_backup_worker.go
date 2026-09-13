@@ -1,4 +1,4 @@
-package backup
+package handlers
 
 import (
 	"context"
@@ -14,8 +14,11 @@ import (
 
 var backupCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
-func (h *Handler) StartBackupWorker() {
-	if n, err := h.P.DB.ResetInFlightBackups(context.Background(), "panel restarted while this backup was running"); err != nil {
+func (p *Panel) StartBackupWorker() {
+	if p.backupSem == nil {
+		p.backupSem = make(chan struct{}, 2)
+	}
+	if n, err := p.DB.ResetInFlightBackups(context.Background(), "panel restarted while this backup was running"); err != nil {
 		log.Printf("[backup] reset in-flight rows: %v", err)
 	} else if n > 0 {
 		log.Printf("[backup] reset %d in-flight backup row(s) to failed", n)
@@ -25,11 +28,11 @@ func (h *Handler) StartBackupWorker() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[backup-worker] recovered from panic: %v — restarting", r)
-				go h.StartBackupWorker()
+				go p.StartBackupWorker()
 			}
 		}()
 
-		h.safeProcessScheduledBackups()
+		p.safeProcessScheduledBackups()
 		firstWait := time.Until(time.Now().Truncate(time.Minute).Add(time.Minute))
 		if firstWait > 0 {
 			timer := time.NewTimer(firstWait)
@@ -39,32 +42,32 @@ func (h *Handler) StartBackupWorker() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			h.safeProcessScheduledBackups()
+			p.safeProcessScheduledBackups()
 		}
 	}()
 
 	log.Println("Backup worker started")
 }
 
-func (h *Handler) safeProcessScheduledBackups() {
+func (p *Panel) safeProcessScheduledBackups() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[backup-worker] tick panic: %v", r)
 		}
 	}()
-	h.processScheduledBackups()
+	p.processScheduledBackups()
 }
 
-func (h *Handler) processScheduledBackups() {
+func (p *Panel) processScheduledBackups() {
 	ctx := context.Background()
 	
-	apps, err := h.P.DB.ListApps(ctx)
+	apps, err := p.DB.ListApps(ctx)
 	if err != nil {
 		return
 	}
 	
 	for _, app := range apps {
-		schedules, err := h.P.DB.ListBackupSchedules(ctx, app.ID)
+		schedules, err := p.DB.ListBackupSchedules(ctx, app.ID)
 		if err != nil {
 			continue
 		}
@@ -75,18 +78,18 @@ func (h *Handler) processScheduledBackups() {
 			}
 			
 			if shouldRunSchedule(schedule) {
-				running, err := h.P.DB.AppHasRunningBackup(ctx, app.ID)
+				running, err := p.DB.AppHasRunningBackup(ctx, app.ID)
 				if err != nil || running {
 					continue
 				}
-				if err := h.P.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID); err != nil {
+				if err := p.DB.UpdateBackupScheduleLastRun(ctx, schedule.ID); err != nil {
 					continue
 				}
-				dest, err := h.P.DB.GetBackupDestination(ctx, schedule.DestinationID)
+				dest, err := p.DB.GetBackupDestination(ctx, schedule.DestinationID)
 				if err != nil {
 					continue
 				}
-				historyID, err := h.P.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
+				historyID, err := p.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
 				if err != nil {
 					continue
 				}
@@ -94,25 +97,25 @@ func (h *Handler) processScheduledBackups() {
 				if retention < 1 {
 					retention = 5
 				}
-				h.spawnBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention, schedule.PauseContainers)
+				p.spawnBackupJob(ctx, historyID, app.ID, dest, schedule.BackupType, schedule.VolumeNames, retention, schedule.PauseContainers)
 			}
 		}
 	}
 }
 
-func (h *Handler) spawnBackupJob(ctx context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, volumeNames string, retention int, pauseContainers bool) bool {
+func (p *Panel) spawnBackupJob(ctx context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, volumeNames string, retention int, pauseContainers bool) bool {
 	if historyID <= 0 {
 		return false
 	}
 	select {
-	case h.backupSem <- struct{}{}:
+	case p.backupSem <- struct{}{}:
 	default:
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "backup worker busy (concurrency limit)", "")
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "backup worker busy (concurrency limit)", "")
 		return false
 	}
 	go func() {
-		defer func() { <-h.backupSem }()
-		h.runBackupJob(ctx, historyID, appID, dest, backupType, volumeNames, retention, pauseContainers)
+		defer func() { <-p.backupSem }()
+		p.runBackupJob(ctx, historyID, appID, dest, backupType, volumeNames, retention, pauseContainers)
 	}()
 	return true
 }
@@ -204,4 +207,3 @@ func nextBackupScheduleRun(schedule db.BackupSchedule) (time.Time, bool) {
 	}
 	return next, true
 }
-

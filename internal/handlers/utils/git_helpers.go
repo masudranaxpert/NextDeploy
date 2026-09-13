@@ -1,23 +1,12 @@
 package utils
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"panel/internal/db"
 )
-
-func RandomSecret() string {
-	buf := make([]byte, 24)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("nd-%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(buf)
-}
 
 func NormalizeBranch(branch string) string {
 	branch = strings.TrimSpace(branch)

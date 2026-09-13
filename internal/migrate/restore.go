@@ -71,15 +71,11 @@ func restoreAppArchive(ctx context.Context, wrapperPath, workspaceRoot string, o
 		return nil
 	}
 
-	sem := newSemaphore(ParallelWorkers())
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(ParallelWorkers())
 	for _, v := range vols {
 		v := v
 		g.Go(func() error {
-			if err := sem.acquire(gctx); err != nil {
-				return err
-			}
-			defer sem.release()
 			inner := filepath.Join(workDir, filepath.FromSlash(v.Archive))
 			emit("restoring volume " + v.Name)
 			if msg := volumex.ExtractTarGzForBackupRestore(gctx, v.Name, inner); msg != "" {

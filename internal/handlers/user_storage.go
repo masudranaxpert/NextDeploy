@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/workspace"
 )
 
 const appStorageCacheTTL = 5 * time.Minute
@@ -97,18 +98,7 @@ func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingByt
 	return nil
 }
 
-func humanStorage(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1fGB", float64(b)/float64(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1fMB", float64(b)/float64(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1fKB", float64(b)/float64(1<<10))
-	default:
-		return fmt.Sprintf("%dB", b)
-	}
-}
+func humanStorage(b int64) string { return workspace.FormatByteSize(b) }
 
 // HumanStorage is the exported variant used by handlers/templates.
-func HumanStorage(b int64) string { return humanStorage(b) }
+func HumanStorage(b int64) string { return workspace.FormatByteSize(b) }

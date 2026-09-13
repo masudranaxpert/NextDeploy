@@ -72,7 +72,7 @@ func (p *Panel) refreshMonitorSnapshot() {
 	defer cancel()
 
 	now := time.Now()
-	sys := sysinfo.CollectFast(ctx)
+	sys := sysinfo.Collect(ctx)
 	rows, errMsg := dockerapi.ListContainerUsage(ctx)
 
 	p.monitorCache.mu.Lock()

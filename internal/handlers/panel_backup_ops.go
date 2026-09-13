@@ -1,4 +1,4 @@
-package backup
+package handlers
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 
 	"panel/internal/backup"
 	"panel/internal/db"
-	"panel/internal/handlers"
 	"panel/internal/rclone"
 	"panel/internal/volumex"
 
@@ -27,7 +26,7 @@ import (
 // Global destinations (UserID == nil) are shared; private ones are usable only
 // by their owner or an admin. Prevents IDOR via guessed destination IDs.
 func canUseBackupDestination(c *fiber.Ctx, dest db.BackupDestination) bool {
-	u, ok := handlers.CurrentUser(c)
+	u, ok := CurrentUser(c)
 	if !ok {
 		return false
 	}
@@ -102,12 +101,11 @@ func parseRequestedVolumeName(raw string) (string, error) {
 	return names[0], nil
 }
 
-
-func (h *Handler) pruneRemoteBackups(ctx context.Context, dest db.BackupDestination, backupType, appID string, keepCount int) {
+func (p *Panel) pruneRemoteBackups(ctx context.Context, dest db.BackupDestination, backupType, appID string, keepCount int) {
 	if keepCount < 1 {
 		return
 	}
-	rows, err := h.P.DB.ListOldBackupsForPrune(ctx, appID, dest.ID, backupType, keepCount)
+	rows, err := p.DB.ListOldBackupsForPrune(ctx, appID, dest.ID, backupType, keepCount)
 	if err != nil || len(rows) == 0 {
 		return
 	}
@@ -123,7 +121,7 @@ func (h *Handler) pruneRemoteBackups(ctx context.Context, dest db.BackupDestinat
 				continue
 			}
 		}
-		if err := h.P.DB.DeleteBackupHistoryByID(ctx, row.ID); err != nil {
+		if err := p.DB.DeleteBackupHistoryByID(ctx, row.ID); err != nil {
 			log.Printf("backup prune db id=%d: %v", row.ID, err)
 		}
 	}
@@ -163,9 +161,9 @@ func validBackupType(t string) bool {
 	return false
 }
 
-func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
+func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -201,7 +199,7 @@ func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
 		volumeField = ""
 	}
 
-	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), int64(destID))
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), int64(destID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
@@ -211,7 +209,7 @@ func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
 
 	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
 
-	running, err := h.P.DB.AppHasRunningBackup(c.UserContext(), app.ID)
+	running, err := p.DB.AppHasRunningBackup(c.UserContext(), app.ID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -219,12 +217,12 @@ func (h *Handler) AppBackupManual(c *fiber.Ctx) error {
 		return c.Status(409).JSON(fiber.Map{"error": "a backup is already running for this app"})
 	}
 
-	historyID, err := h.P.DB.CreateBackupHistory(c.UserContext(), app.ID, dest.ID, backupType, "", "running", "", 0)
+	historyID, err := p.DB.CreateBackupHistory(c.UserContext(), app.ID, dest.ID, backupType, "", "running", "", 0)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if !h.spawnBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention, pauseContainers) {
+	if !p.spawnBackupJob(context.Background(), historyID, app.ID, dest, backupType, volumeField, manualBackupRetention, pauseContainers) {
 		return c.Status(503).JSON(fiber.Map{"error": "backup worker busy, try again shortly"})
 	}
 
@@ -236,7 +234,7 @@ const backupJobMaxDuration = 6 * time.Hour
 // runBackupJob runs a backup. retention = max completed rows to keep per
 // app+destination+type (0 skips the trim). requestedVolumeField is a single
 // name for "volume", empty for "app", comma-separated list for "full".
-func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeField string, retention int, pauseContainers bool) {
+func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, dest db.BackupDestination, backupType, requestedVolumeField string, retention int, pauseContainers bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
 	defer cancel()
 
@@ -248,7 +246,7 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 			msg := fmt.Sprintf("backup crashed: %v", r)
 			log.Printf("[backup] %s (id=%d app=%s type=%s)", msg, historyID, appID, backupType)
 			logMu.WriteString("\n" + msg + "\n")
-			_ = h.P.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed", msg, logMu.String())
+			_ = p.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed", msg, logMu.String())
 		}
 	}()
 	appendLog := func(s string) {
@@ -258,22 +256,22 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 		}
 	}
 
-	app, err := h.P.DB.GetApp(ctx, appID)
+	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		appendLog(fmt.Sprintf("Error: Failed to get app: %v", err))
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
 	}
 
 	var configMap map[string]string
 	if err := json.Unmarshal([]byte(dest.Config), &configMap); err != nil {
 		appendLog(fmt.Sprintf("Error: Invalid config: %v", err))
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "invalid config", logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "invalid config", logMu.String())
 		return
 	}
 	if err := validateBackupDestinationConfig(dest.Provider, configMap); err != nil {
 		appendLog(fmt.Sprintf("Error: %v", err))
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
 	}
 
@@ -291,7 +289,7 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 
 	fail := func(e error) {
 		appendLog("error: " + e.Error())
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", e.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", e.Error(), logMu.String())
 	}
 
 	uploadProg := func(snap string) {
@@ -299,17 +297,17 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 		if len(s) > 65536 {
 			s = "…\n" + s[len(s)-65536:]
 		}
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", s)
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", s)
 	}
 
 	progressLog := func(msg string) {
 		appendLog(msg)
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "running", "", logMu.String())
 	}
 
 	switch backupType {
 	case "volume":
-		volumeName, vmsg := h.P.ResolveRequestedBackupVolume(ctx, app, requestedVolumeField)
+		volumeName, vmsg := p.ResolveRequestedBackupVolume(ctx, app, requestedVolumeField)
 		if vmsg != "" {
 			fail(fmt.Errorf("%s", vmsg))
 			return
@@ -329,7 +327,7 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 
 	case "app":
 		appendLog("app workspace " + app.Name)
-		workspaceRoot := h.P.ComposeWorkspaceRoot(ctx, appID)
+		workspaceRoot := p.ComposeWorkspaceRoot(ctx, appID)
 		tarPath, err = backup.BackupFullApp(ctx, app.Name, workspaceRoot)
 		if err != nil {
 			fail(err)
@@ -353,7 +351,7 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 		if pauseContainers {
 			appendLog("consistent mode: containers will be paused per volume during snapshot")
 		}
-		workspaceRoot := h.P.ComposeWorkspaceRoot(ctx, appID)
+		workspaceRoot := p.ComposeWorkspaceRoot(ctx, appID)
 		tarPath, err = backup.BackupFullWithVolumesOptions(ctx, app.Name, workspaceRoot, volumeNames, pauseContainers, progressLog)
 		if err != nil {
 			fail(err)
@@ -382,7 +380,7 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 
 	if err != nil {
 		appendLog(fmt.Sprintf("Error: Upload failed: %v", err))
-		_ = h.P.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
 	}
 	if st, statErr := os.Stat(tarPath); statErr == nil {
@@ -390,16 +388,16 @@ func (h *Handler) runBackupJob(_ context.Context, historyID int64, appID string,
 	}
 
 	appendLog(time.Now().Format(time.RFC3339) + " completed")
-	if err := h.P.DB.UpdateBackupHistoryCompleted(ctx, historyID, volumeFieldStore, remotePath, size, logMu.String()); err != nil {
+	if err := p.DB.UpdateBackupHistoryCompleted(ctx, historyID, volumeFieldStore, remotePath, size, logMu.String()); err != nil {
 		log.Printf("backup history complete id=%d: %v", historyID, err)
 		return
 	}
-	h.pruneRemoteBackups(ctx, dest, backupType, appID, retention)
+	p.pruneRemoteBackups(ctx, dest, backupType, appID, retention)
 }
 
-func (h *Handler) AppBackupHistory(c *fiber.Ctx) error {
+func (p *Panel) AppBackupHistory(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -416,7 +414,7 @@ func (h *Handler) AppBackupHistory(c *fiber.Ctx) error {
 		page = 1
 	}
 
-	total, err := h.P.DB.CountBackupHistory(c.UserContext(), app.ID)
+	total, err := p.DB.CountBackupHistory(c.UserContext(), app.ID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -432,7 +430,7 @@ func (h *Handler) AppBackupHistory(c *fiber.Ctx) error {
 		offset = total
 	}
 
-	pageSlice, err := h.P.DB.ListBackupHistoryPage(c.UserContext(), app.ID, perPage, offset)
+	pageSlice, err := p.DB.ListBackupHistoryPage(c.UserContext(), app.ID, perPage, offset)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -447,7 +445,7 @@ func (h *Handler) AppBackupHistory(c *fiber.Ctx) error {
 	}
 	if needRemoteCheck {
 		rowsCopy := append([]db.BackupHistory(nil), pageSlice...)
-		go h.refreshBackupRemotePresence(context.Background(), rowsCopy)
+		go p.refreshBackupRemotePresence(context.Background(), rowsCopy)
 	}
 
 	type histOut struct {
@@ -470,7 +468,7 @@ func (h *Handler) AppBackupHistory(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) refreshBackupRemotePresence(ctx context.Context, rows []db.BackupHistory) {
+func (p *Panel) refreshBackupRemotePresence(ctx context.Context, rows []db.BackupHistory) {
 	now := time.Now()
 	destCache := map[int64]db.BackupDestination{}
 	for _, row := range rows {
@@ -480,7 +478,7 @@ func (h *Handler) refreshBackupRemotePresence(ctx context.Context, rows []db.Bac
 		d, ok := destCache[row.DestinationID]
 		if !ok {
 			var err error
-			d, err = h.P.DB.GetBackupDestination(ctx, row.DestinationID)
+			d, err = p.DB.GetBackupDestination(ctx, row.DestinationID)
 			if err != nil {
 				continue
 			}
@@ -491,15 +489,15 @@ func (h *Handler) refreshBackupRemotePresence(ctx context.Context, rows []db.Bac
 			continue
 		}
 		exists := rclone.RemoteObjectExists(ctx, d.Provider, cm, row.RemotePath)
-		if err := h.P.DB.UpdateBackupHistoryRemoteCheck(ctx, row.ID, !exists); err != nil {
+		if err := p.DB.UpdateBackupHistoryRemoteCheck(ctx, row.ID, !exists); err != nil {
 			log.Printf("backup remote check id=%d: %v", row.ID, err)
 		}
 	}
 }
 
-func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
+func (p *Panel) AppBackupRestore(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -509,7 +507,7 @@ func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid history id"})
 	}
 
-	history, err := h.P.DB.GetBackupHistory(c.UserContext(), int64(historyID))
+	history, err := p.DB.GetBackupHistory(c.UserContext(), int64(historyID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "backup not found"})
 	}
@@ -521,7 +519,7 @@ func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "backup not completed"})
 	}
 
-	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), history.DestinationID)
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), history.DestinationID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
@@ -534,7 +532,7 @@ func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if !h.P.StartBackupRestore(app.ID, history.ID) {
+	if !p.StartBackupRestore(app.ID, history.ID) {
 		return c.Status(409).JSON(fiber.Map{"error": "another restore is already running"})
 	}
 	go func() {
@@ -544,34 +542,34 @@ func (h *Handler) AppBackupRestore(c *fiber.Ctx) error {
 			if r := recover(); r != nil {
 				msg := fmt.Sprintf("restore crashed: %v", r)
 				log.Printf("[restore] %s (app=%s history=%d)", msg, appID, historyIDLocal)
-				h.P.FinishBackupRestore(appID, historyIDLocal, msg)
+				p.FinishBackupRestore(appID, historyIDLocal, msg)
 			}
 		}()
 		jobCtx, cancel := context.WithTimeout(context.Background(), backupJobMaxDuration)
 		defer cancel()
-		errMsg := h.runRestoreJob(jobCtx, app, dest, history, configMap)
+		errMsg := p.runRestoreJob(jobCtx, app, dest, history, configMap)
 		if errMsg == "" {
 			switch history.BackupType {
 			case "volume":
-				h.P.InvalidateAfterDockerChange()
+				p.InvalidateAfterDockerChange()
 			case "app":
-				h.P.InvalidateAfterAppWorkspaceChange(appID)
+				p.InvalidateAfterAppWorkspaceChange(appID)
 			default:
-				h.P.InvalidateAfterAppDeployChange(appID)
+				p.InvalidateAfterAppDeployChange(appID)
 			}
 		}
-		h.P.FinishBackupRestore(appID, historyIDLocal, errMsg)
+		p.FinishBackupRestore(appID, historyIDLocal, errMsg)
 	}()
 
 	return c.JSON(fiber.Map{"message": "restore started"})
 }
 
-func (h *Handler) AppBackupRestoreStatus(c *fiber.Ctx) error {
+func (p *Panel) AppBackupRestoreStatus(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
-	st := h.P.BackupRestoreSnapshot(appID)
+	st := p.BackupRestoreSnapshot(appID)
 	return c.JSON(fiber.Map{
 		"restoring_history_id": st.ActiveHistoryID,
 		"history_id":           st.LastHistoryID,
@@ -580,7 +578,7 @@ func (h *Handler) AppBackupRestoreStatus(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) runRestoreJob(ctx context.Context, app db.App, dest db.BackupDestination, history db.BackupHistory, configMap map[string]string) string {
+func (p *Panel) runRestoreJob(ctx context.Context, app db.App, dest db.BackupDestination, history db.BackupHistory, configMap map[string]string) string {
 	var localPath string
 	var err error
 
@@ -610,7 +608,7 @@ func (h *Handler) runRestoreJob(ctx context.Context, app db.App, dest db.BackupD
 	switch history.BackupType {
 	case "volume":
 		preferred := backupVolumeNameFromHistory(history)
-		volumeName, vmsg := h.P.ResolveRequestedBackupVolume(ctx, app, preferred)
+		volumeName, vmsg := p.ResolveRequestedBackupVolume(ctx, app, preferred)
 		if vmsg != "" {
 			log.Printf("restore: volume resolve: %s", vmsg)
 			return vmsg
@@ -620,15 +618,15 @@ func (h *Handler) runRestoreJob(ctx context.Context, app db.App, dest db.BackupD
 			return err.Error()
 		}
 	case "app":
-		fullComposePath := h.P.ComposeFilePath(ctx, app, app.ID)
-		workspaceRoot := h.P.ComposeWorkspaceRoot(ctx, app.ID)
+		fullComposePath := p.ComposeFilePath(ctx, app, app.ID)
+		workspaceRoot := p.ComposeWorkspaceRoot(ctx, app.ID)
 		if err := backup.RestoreFullApp(ctx, app.Name, fullComposePath, workspaceRoot, localPath); err != nil {
 			log.Printf("restore: app workspace: %v", err)
 			return err.Error()
 		}
 	case "full":
-		fullComposePath := h.P.ComposeFilePath(ctx, app, app.ID)
-		workspaceRoot := h.P.ComposeWorkspaceRoot(ctx, app.ID)
+		fullComposePath := p.ComposeFilePath(ctx, app, app.ID)
+		workspaceRoot := p.ComposeWorkspaceRoot(ctx, app.ID)
 		if err := backup.RestoreFullWithVolumes(ctx, app.Name, fullComposePath, workspaceRoot, localPath, nil); err != nil {
 			log.Printf("restore: full app+volumes: %v", err)
 			return err.Error()
@@ -639,9 +637,9 @@ func (h *Handler) runRestoreJob(ctx context.Context, app db.App, dest db.BackupD
 	return ""
 }
 
-func (h *Handler) AppBackupScheduleCreate(c *fiber.Ctx) error {
+func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -674,7 +672,7 @@ func (h *Handler) AppBackupScheduleCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid cron expression"})
 	}
 
-	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), int64(destID))
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), int64(destID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
@@ -684,7 +682,7 @@ func (h *Handler) AppBackupScheduleCreate(c *fiber.Ctx) error {
 
 	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
 
-	id, err := h.P.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeField, cronExpr, retention, pauseContainers)
+	id, err := p.DB.CreateBackupSchedule(c.UserContext(), app.ID, int64(destID), backupType, volumeField, cronExpr, retention, pauseContainers)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -719,9 +717,9 @@ func normalizeScheduleVolumeField(backupType, raw string) (string, error) {
 	}
 }
 
-func (h *Handler) AppBackupScheduleUpdate(c *fiber.Ctx) error {
+func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -764,7 +762,7 @@ func (h *Handler) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid cron expression"})
 	}
 
-	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), destID)
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), destID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}
@@ -774,7 +772,7 @@ func (h *Handler) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 
 	pauseContainers := c.FormValue("pause_containers") == "on" || c.FormValue("pause_containers") == "1"
 
-	if err := h.P.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeField, cronExpr, retention, pauseContainers); err != nil {
+	if err := p.DB.UpdateBackupSchedule(c.UserContext(), int64(scheduleID), app.ID, destID, backupType, volumeField, cronExpr, retention, pauseContainers); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "schedule not found"})
 		}
@@ -784,14 +782,14 @@ func (h *Handler) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "schedule updated"})
 }
 
-func (h *Handler) AppBackupScheduleList(c *fiber.Ctx) error {
+func (p *Panel) AppBackupScheduleList(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 
-	schedules, err := h.P.DB.ListBackupSchedules(c.UserContext(), app.ID)
+	schedules, err := p.DB.ListBackupSchedules(c.UserContext(), app.ID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -812,9 +810,9 @@ func (h *Handler) AppBackupScheduleList(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"schedules": out})
 }
 
-func (h *Handler) AppBackupScheduleToggle(c *fiber.Ctx) error {
+func (p *Panel) AppBackupScheduleToggle(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -824,7 +822,7 @@ func (h *Handler) AppBackupScheduleToggle(c *fiber.Ctx) error {
 	}
 
 	enabled := c.QueryBool("enabled", true)
-	if err := h.P.DB.UpdateBackupScheduleEnabledForApp(c.UserContext(), int64(scheduleID), app.ID, enabled); err != nil {
+	if err := p.DB.UpdateBackupScheduleEnabledForApp(c.UserContext(), int64(scheduleID), app.ID, enabled); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "schedule not found"})
 		}
@@ -834,9 +832,9 @@ func (h *Handler) AppBackupScheduleToggle(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "schedule updated"})
 }
 
-func (h *Handler) AppBackupScheduleDelete(c *fiber.Ctx) error {
+func (p *Panel) AppBackupScheduleDelete(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
@@ -846,7 +844,7 @@ func (h *Handler) AppBackupScheduleDelete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid schedule id"})
 	}
 
-	if err := h.P.DB.DeleteBackupSchedule(c.UserContext(), app.ID, int64(scheduleID)); err != nil {
+	if err := p.DB.DeleteBackupSchedule(c.UserContext(), app.ID, int64(scheduleID)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "schedule not found"})
 		}
@@ -856,9 +854,9 @@ func (h *Handler) AppBackupScheduleDelete(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "schedule deleted"})
 }
 
-func (h *Handler) AppBackupHistoryLog(c *fiber.Ctx) error {
+func (p *Panel) AppBackupHistoryLog(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	historyID, err := c.ParamsInt("historyid")
@@ -866,7 +864,7 @@ func (h *Handler) AppBackupHistoryLog(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid history id"})
 	}
 
-	history, err := h.P.DB.GetBackupHistory(c.UserContext(), int64(historyID))
+	history, err := p.DB.GetBackupHistory(c.UserContext(), int64(historyID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "backup not found"})
 	}
@@ -889,9 +887,9 @@ func (h *Handler) AppBackupHistoryLog(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) AppBackupDriveLink(c *fiber.Ctx) error {
+func (p *Panel) AppBackupDriveLink(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), appID); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	historyID, err := c.ParamsInt("historyid")
@@ -899,7 +897,7 @@ func (h *Handler) AppBackupDriveLink(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid history id"})
 	}
 
-	history, err := h.P.DB.GetBackupHistory(c.UserContext(), int64(historyID))
+	history, err := p.DB.GetBackupHistory(c.UserContext(), int64(historyID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "backup not found"})
 	}
@@ -911,7 +909,7 @@ func (h *Handler) AppBackupDriveLink(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "backup not completed or no remote path"})
 	}
 
-	dest, err := h.P.DB.GetBackupDestination(c.UserContext(), history.DestinationID)
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), history.DestinationID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
 	}

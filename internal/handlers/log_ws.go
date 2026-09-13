@@ -37,7 +37,7 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	}
 	project, composeRows, composeRes := p.ComposeProjectAndPS(chkCtx, app, appID)
 	byService := composeRes.OK && p.ComposeServiceInRows(composeRows, container)
-	if container == "" || (!byService && !p.containerBelongsToApp(chkCtx, appID, container)) {
+	if container == "" || (!byService && !p.ContainerBelongsToApp(chkCtx, appID, container)) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("invalid container for this app"))
 		return
 	}

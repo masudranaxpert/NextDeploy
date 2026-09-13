@@ -1,4 +1,4 @@
-package filebrowser
+package handlers
 
 import (
 	"archive/zip"
@@ -9,13 +9,13 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"panel/internal/db"
-	"panel/internal/handlers/utils"
-	"panel/internal/sandbox"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"panel/internal/db"
+	"panel/internal/handlers/utils"
+	"panel/internal/sandbox"
 	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
@@ -27,22 +27,22 @@ const maxWorkspaceFileSaveBytes = 2 << 20
 
 var errWorkspaceZipTooLarge = errors.New("workspace zip exceeds size limit")
 
-func (h *Handler) workspaceFilesGate(c *fiber.Ctx, appID string) int {
+func (p *Panel) workspaceFilesGate(c *fiber.Ctx, appID string) int {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 30*time.Second)
 	defer cancel()
-	if _, err := h.p.DB.GetApp(ctx, appID); err != nil {
+	if _, err := p.DB.GetApp(ctx, appID); err != nil {
 		return fiber.StatusNotFound
 	}
-	isGit, _, _ := h.p.AppGitMetadata(ctx, appID)
+	isGit, _, _ := p.AppGitMetadata(ctx, appID)
 	if isGit {
 		return fiber.StatusBadRequest
 	}
 	return 0
 }
 
-func (h *Handler) WorkspaceFilesTree(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.workspaceFilesGate(c, appID); code != 0 {
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		msg := "not available"
 		if code == fiber.StatusNotFound {
 			msg = "app not found"
@@ -53,7 +53,7 @@ func (h *Handler) WorkspaceFilesTree(c *fiber.Ctx) error {
 		return c.Status(code).JSON(fiber.Map{"error": msg})
 	}
 	rel := c.Query("path", "")
-	children, err := h.p.Store.ListChildren(appID, rel)
+	children, err := p.Store.ListChildren(appID, rel)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
@@ -79,7 +79,7 @@ func (h *Handler) WorkspaceFilesTree(c *fiber.Ctx) error {
 			Perms:   ch.Perms,
 		})
 	}
-	parent := h.p.Store.ParentRel(rel)
+	parent := p.Store.ParentRel(rel)
 	return c.JSON(fiber.Map{
 		"path":    rel,
 		"parent":  parent,
@@ -87,16 +87,16 @@ func (h *Handler) WorkspaceFilesTree(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) WorkspaceFilesBlob(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.workspaceFilesGate(c, appID); code != 0 {
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"error": "not available"})
 	}
 	rel := c.Query("path", "")
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
-	full, err := h.p.Store.SafeFilePath(appID, rel)
+	full, err := p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
 	}
@@ -181,9 +181,9 @@ func isAppComposeRel(rel string, app db.App) bool {
 	return normalizeWorkspaceRel(rel) == workspace.NormalizeComposeRel(app.ComposeFile)
 }
 
-func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.workspaceFilesGate(c, appID); code != 0 {
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "save not allowed"})
 	}
 	rel := c.Query("path", "")
@@ -205,16 +205,16 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 		})
 	}
 
-	full, err := h.p.Store.SafeFilePath(appID, rel)
+	full, err := p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid path"})
 	}
 
 	var savingCompose bool
-	app, err := h.p.DB.GetApp(c.UserContext(), appID)
+	app, err := p.DB.GetApp(c.UserContext(), appID)
 	if err == nil && isAppComposeRel(rel, app) {
 		savingCompose = true
-		owner, err := h.p.DB.GetUserByID(c.UserContext(), app.OwnerID)
+		owner, err := p.DB.GetUserByID(c.UserContext(), app.OwnerID)
 		if err != nil {
 			owner = db.User{
 				Role:        db.RoleUser,
@@ -236,7 +236,7 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 	if savingCompose {
-		if err := h.p.SyncAppCaddyOverrideCtx(c.UserContext(), appID); err != nil {
+		if err := p.SyncAppCaddyOverrideCtx(c.UserContext(), appID); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"ok": false, "message": "Compose saved but deploy file refresh failed: " + err.Error(),
 			})
@@ -247,15 +247,15 @@ func (h *Handler) WorkspaceFileSave(c *fiber.Ctx) error {
 
 const maxWorkspaceZipBytes = 512 << 20
 
-func (h *Handler) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 	appID := c.Params("id")
-	if code := h.workspaceFilesGate(c, appID); code != 0 {
+	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		if code == fiber.StatusNotFound {
-			return utils.RespondAppNotFound(c)
+			return c.Status(fiber.StatusNotFound).SendString("app not found")
 		}
 		return c.Status(400).SendString("download zip is only for non-git apps")
 	}
-	base := filepath.Clean(h.p.Store.Path(appID))
+	base := filepath.Clean(p.Store.Path(appID))
 	c.Set("Content-Type", "application/zip")
 	c.Set("Content-Disposition", `attachment; filename="workspace.zip"`)
 
@@ -317,7 +317,7 @@ func (h *Handler) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(400).SendString("invalid paths parameter")
 		}
-		full, err := h.p.Store.SafeFilePath(appID, rel)
+		full, err := p.Store.SafeFilePath(appID, rel)
 		if err != nil {
 			return c.Status(400).SendString("invalid path")
 		}

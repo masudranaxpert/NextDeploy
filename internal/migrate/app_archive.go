@@ -116,16 +116,12 @@ func exportAppArchive(ctx context.Context, appName, sourceDir string, volumeName
 	}
 
 	if len(cleanVolumes) > 0 {
-		sem := newSemaphore(ParallelWorkers())
 		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(ParallelWorkers())
 		volResults := make([]AppArchiveVolumeRef, len(cleanVolumes))
 		for i, vol := range cleanVolumes {
 			i, vol := i, vol
 			g.Go(func() error {
-				if err := sem.acquire(gctx); err != nil {
-					return err
-				}
-				defer sem.release()
 				if !volumex.ValidVolumeName(vol) {
 					return fmt.Errorf("invalid Docker volume name %q", vol)
 				}

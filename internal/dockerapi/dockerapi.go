@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"panel/internal/resmatch"
+	"panel/internal/workspace"
 )
 
 const composeProjectLabel = "com.docker.compose.project"
@@ -399,22 +400,11 @@ func ListImages(ctx context.Context) ([]ImageRow, string) {
 }
 
 func formatBytes(n int64) string {
-	if n < 1024 {
-		return fmt.Sprintf("%d B", n)
-	}
-	u := float64(n)
-	const kb = 1024
-	if u < kb*kb {
-		return fmt.Sprintf("%.1f KB", u/kb)
-	}
-	if u < kb*kb*kb {
-		return fmt.Sprintf("%.1f MB", u/(kb*kb))
-	}
-	return fmt.Sprintf("%.2f GB", u/(kb*kb*kb))
+	return workspace.FormatByteSize(n)
 }
 
 func HumanBytes(n uint64) string {
-	return formatBytes(int64(n))
+	return workspace.FormatByteSize(int64(n))
 }
 
 func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string) (statsJSON, error) {

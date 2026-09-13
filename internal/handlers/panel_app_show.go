@@ -118,7 +118,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	var composePsMsg string
 	if stackReady && appShowTabNeedsCompose(tab) {
 		mark = time.Now()
-		_, rows, pr := p.composeProjectAndPS(reqCtx, app, id)
+		_, rows, pr := p.ComposeProjectAndPS(reqCtx, app, id)
 		tr.StepDur("compose_ps", mark)
 		if pr.OK {
 			composeRows = rows
@@ -151,7 +151,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		mark = time.Now()
 		volProjects = p.composeProjectCandidates(reqCtx, app, id)
 		if stackReady {
-			if active, _, pr := p.composeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
+			if active, _, pr := p.ComposeProjectAndPS(reqCtx, app, id); pr.OK && strings.TrimSpace(active) != "" {
 				volProjects = dedupeStringsPreserveOrder(append([]string{active}, volProjects...))
 				tr.Field("vol_project", active)
 			}
@@ -206,7 +206,15 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		for _, detail := range gitHubDetails {
 			gitHubProviderMap[detail.ProviderID] = detail
 		}
-		gitSaved, gitSynced, gitErrFlash = p.ConsumeGitTabFlash(c, id)
+		switch utils.ReadFlash(c) {
+		case "saved":
+			gitSaved = true
+		case "synced":
+			gitSynced = true
+		case "saved_synced":
+			gitSaved, gitSynced = true, true
+		}
+		gitErrFlash = utils.ReadFlashError(c)
 		tr.StepDur("git_data", mark)
 	}
 

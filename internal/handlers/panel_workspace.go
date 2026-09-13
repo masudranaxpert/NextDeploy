@@ -1,33 +1,34 @@
-package filebrowser
+package handlers
 
 import (
 	"fmt"
 	"io"
 	"os"
-	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strings"
+
+	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func (h *Handler) BrowsePartial(c *fiber.Ctx) error {
+func (p *Panel) BrowsePartial(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("files browser is disabled for git-backed apps")
 	}
-	return h.renderBrowse(c, id, c.Query("path", ""), "")
+	return p.renderBrowse(c, id, c.Query("path", ""), "")
 }
 
-func (h *Handler) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
-	children, err := h.p.Store.ListChildren(id, rel)
+func (p *Panel) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
+	children, err := p.Store.ListChildren(id, rel)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	parent := h.p.Store.ParentRel(rel)
+	parent := p.Store.ParentRel(rel)
 	return c.Render("partials/browser", fiber.Map{
 		"ID":           id,
 		"Path":         rel,
@@ -38,7 +39,7 @@ func (h *Handler) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
 	})
 }
 
-func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
+func (p *Panel) BrowseCreate(c *fiber.Ctx) error {
 	id := c.Params("id")
 	wantJSON := strings.EqualFold(c.Query("format"), "json")
 	respond := func(status int, ok bool, message string) error {
@@ -54,10 +55,10 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 		return c.Redirect("/apps/" + id + "?tab=files")
 	}
 
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return respond(404, false, "not found")
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return respond(400, false, "file creation is disabled for git-backed apps")
 	}
 
@@ -74,7 +75,7 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 		rel += "/"
 	}
 
-	full, err := h.p.Store.SafeFilePath(id, rel)
+	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
 		return respond(400, false, "invalid path")
 	}
@@ -83,7 +84,7 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 		if err := os.MkdirAll(full, 0750); err != nil {
 			return respond(500, false, err.Error())
 		}
-		h.p.InvalidateAfterAppWorkspaceChange(id)
+		p.InvalidateAfterAppWorkspaceChange(id)
 		return respond(200, true, "Folder created")
 	}
 
@@ -93,19 +94,19 @@ func (h *Handler) BrowseCreate(c *fiber.Ctx) error {
 	if err := os.WriteFile(full, nil, 0640); err != nil {
 		return respond(500, false, err.Error())
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return respond(200, true, "File created")
 }
 
-func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
+func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		if strings.EqualFold(c.Query("format"), "json") {
 			return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 		}
 		return c.Status(404).SendString("not found")
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		if strings.EqualFold(c.Query("format"), "json") {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "files delete is disabled for git-backed apps"})
 		}
@@ -123,7 +124,7 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Select at least one file or folder."})
 		}
-		return h.renderBrowse(c, id, returnPath, "Select at least one file or folder.")
+		return p.renderBrowse(c, id, returnPath, "Select at least one file or folder.")
 	}
 	var errs []string
 	for _, pth := range paths {
@@ -131,11 +132,11 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 			errs = append(errs, fmt.Sprintf("%s: %s", pth, generatedComposeManagedMsg()))
 			continue
 		}
-		if err := h.p.Store.RemoveRel(id, pth); err != nil {
+		if err := p.Store.RemoveRel(id, pth); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", pth, err))
 		}
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	if wantJSON {
 		if len(errs) > 0 {
 			return c.JSON(fiber.Map{"ok": false, "message": strings.Join(errs, "; ")})
@@ -146,7 +147,7 @@ func (h *Handler) BrowseDelete(c *fiber.Ctx) error {
 	if len(errs) > 0 {
 		flash = "Some deletions failed: " + strings.Join(errs, " · ")
 	}
-	return h.renderBrowse(c, id, returnPath, flash)
+	return p.renderBrowse(c, id, returnPath, flash)
 }
 
 const (
@@ -154,16 +155,16 @@ const (
 	maxWorkspaceFileDownload = 512 << 20
 )
 
-func (h *Handler) WorkspaceFile(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file view is disabled for git-backed apps")
 	}
 	rel := c.Query("path", "")
-	full, err := h.p.Store.SafeFilePath(id, rel)
+	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
@@ -212,18 +213,18 @@ func (h *Handler) WorkspaceFile(c *fiber.Ctx) error {
 	return c.Send(b)
 }
 
-func (h *Handler) WorkspaceFileModal(c *fiber.Ctx) error {
+func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
 			"PreviewError": "Files preview is disabled for git-backed apps. Use the Git tab and redeploy from repository source.",
 		})
 	}
 	rel := c.Query("path", "")
-	full, err := h.p.Store.SafeFilePath(id, rel)
+	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
 		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
 			"PreviewError": "invalid path",
@@ -283,12 +284,12 @@ func (h *Handler) WorkspaceFileModal(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) BrowseRename(c *fiber.Ctx) error {
+func (p *Panel) BrowseRename(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "files renaming is disabled for git-backed apps"})
 	}
 	oldPath := strings.TrimSpace(c.FormValue("old_path"))
@@ -299,11 +300,11 @@ func (h *Handler) BrowseRename(c *fiber.Ctx) error {
 	if isGeneratedComposeRel(oldPath) || isGeneratedComposeRel(newPath) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 	}
-	oldFull, err := h.p.Store.SafeFilePath(id, oldPath)
+	oldFull, err := p.Store.SafeFilePath(id, oldPath)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid old path"})
 	}
-	newFull, err := h.p.Store.SafeFilePath(id, newPath)
+	newFull, err := p.Store.SafeFilePath(id, newPath)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid new path"})
 	}
@@ -319,6 +320,6 @@ func (h *Handler) BrowseRename(c *fiber.Ctx) error {
 	if err := os.Rename(oldFull, newFull); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "renamed successfully"})
 }

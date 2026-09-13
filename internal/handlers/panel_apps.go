@@ -99,7 +99,7 @@ func (p *Panel) appListItemFromIndex(app db.App, index composeContainerIndex) ap
 		if len(rows) == 0 {
 			continue
 		}
-		if !p.composeRowsBelongToApp(app.ID, rows) {
+		if !p.ComposeRowsBelongToApp(app.ID, rows) {
 			continue
 		}
 		return appListItemFromRows(app, rows)
@@ -249,7 +249,7 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 func (p *Panel) SaveAppCompose(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	raw := workspace.NormalizeComposeRel(c.FormValue("compose_file"))
 	if err := p.DB.UpdateComposeFile(c.UserContext(), id, raw); err != nil {
@@ -290,7 +290,7 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 func (p *Panel) SaveAppDevMode(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	enabled := c.FormValue("dev_mode") == "on"
 	service := strings.TrimSpace(c.FormValue("dev_service"))
@@ -336,7 +336,7 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 	id := c.Params("id")
 	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 
 	volPrefix := fmt.Sprintf("nddev_%s_", id)
@@ -388,7 +388,7 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 		bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer bgCancel()
 
-		project := p.activeComposeProjectName(bgCtx, app, id)
+		project := p.ActiveComposeProjectName(bgCtx, app, id)
 		dir := p.appSourcePath(bgCtx, id)
 		paths := p.effectiveComposePaths(bgCtx, app, id)
 		envFiles := p.composeEnvFiles(bgCtx, id)
@@ -430,7 +430,7 @@ func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
 func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	content := c.FormValue("env")
 	if err := p.DB.UpdatePanelEnv(c.UserContext(), id, content); err != nil {

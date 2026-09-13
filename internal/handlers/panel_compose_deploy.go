@@ -1,4 +1,4 @@
-package compose
+package handlers
 
 import (
 	"context"
@@ -8,14 +8,12 @@ import (
 	"html"
 	"io"
 	"os"
-	"panel/internal/handlers/utils"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
-
 	"panel/internal/logview"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
@@ -31,14 +29,14 @@ func isHtmxRequest(c *fiber.Ctx) bool {
 	return strings.EqualFold(c.Get("HX-Request"), "true")
 }
 
-func (h *Handler) AppExec(c *fiber.Ctx) error {
+func (p *Panel) AppExec(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
 	}
 	name := strings.TrimPrefix(strings.TrimSpace(c.FormValue("container")), "/")
 	cmd := c.FormValue("command")
-	if !h.P.ContainerBelongsToApp(c.UserContext(), id, name) {
+	if !p.ContainerBelongsToApp(c.UserContext(), id, name) {
 		return c.Status(400).SendString("invalid container for this app")
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
@@ -56,27 +54,27 @@ func (h *Handler) AppExec(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) ClearDeployLogs(c *fiber.Ctx) error {
+func (p *Panel) ClearDeployLogs(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if err := h.P.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
+	if err := p.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
-func (h *Handler) DeployLogGet(c *fiber.Ctx) error {
+func (p *Panel) DeployLogGet(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
 	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
 	if err != nil || logID < 1 {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid log id"})
 	}
-	d, err := h.P.DB.GetDeployLog(c.UserContext(), id, logID)
+	d, err := p.DB.GetDeployLog(c.UserContext(), id, logID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(404).JSON(fiber.Map{"error": "log not found"})
@@ -91,16 +89,16 @@ func (h *Handler) DeployLogGet(c *fiber.Ctx) error {
 	})
 }
 
-func (h *Handler) DeployLogDelete(c *fiber.Ctx) error {
+func (p *Panel) DeployLogDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
 	if err != nil || logID < 1 {
 		return c.Status(400).SendString("invalid log id")
 	}
-	deleted, err := h.P.DB.DeleteDeployLog(c.UserContext(), id, logID)
+	deleted, err := p.DB.DeleteDeployLog(c.UserContext(), id, logID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -110,16 +108,16 @@ func (h *Handler) DeployLogDelete(c *fiber.Ctx) error {
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
-func (h *Handler) DeleteApp(c *fiber.Ctx) error {
+func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 	htmx := isHtmxRequest(c)
 	id := c.Params("id")
-	app, err := h.P.DB.GetApp(c.UserContext(), id)
+	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
 			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML("App not found."))
 		}
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	confirm := strings.TrimSpace(c.FormValue("confirm_name"))
 	if confirm != strings.TrimSpace(app.Name) {
@@ -129,13 +127,13 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(400).SendString("Type the app name exactly in the confirmation field to delete this app.")
 	}
-	dir := h.P.AppSourcePath(c.UserContext(), id)
-	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
+	dir := p.AppSourcePath(c.UserContext(), id)
+	cp := p.ComposeFilePath(c.UserContext(), app, id)
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
-	candidates := h.P.ComposeProjectCandidates(ctx, app, id)
-	paths := h.P.EffectiveComposePaths(ctx, app, id)
-	envFiles := h.P.ComposeEnvFiles(ctx, id)
+	candidates := p.ComposeProjectCandidates(ctx, app, id)
+	paths := p.EffectiveComposePaths(ctx, app, id)
+	envFiles := p.ComposeEnvFiles(ctx, id)
 	// Legacy slug-based project names can be shared with another user's same-named app.
 	// Only clean up a candidate when its running stack belongs to this app's workspace, or
 	// when no other app could claim the name.
@@ -143,12 +141,12 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 	for _, project := range candidates {
 		rows, res := dockerx.ComposePS(ctx, dir, paths, project, envFiles)
 		if res.OK && len(rows) > 0 {
-			if h.P.ComposeRowsBelongToApp(id, rows) {
+			if p.ComposeRowsBelongToApp(id, rows) {
 				safeCandidates = append(safeCandidates, project)
 			}
 			continue
 		}
-		if !h.P.ProjectNameSharedWithOtherApp(ctx, id, project) {
+		if !p.ProjectNameSharedWithOtherApp(ctx, id, project) {
 			safeCandidates = append(safeCandidates, project)
 		}
 	}
@@ -170,7 +168,7 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 			}
 		}
 	}
-	allProjects := h.P.AllPanelComposeProjects(ctx)
+	allProjects := p.AllPanelComposeProjects(ctx)
 	for _, project := range candidates {
 		if errs := dockerapi.RemoveContainersByComposeProject(ctx, project); len(errs) > 0 {
 			cleanupErrs = append(cleanupErrs, errs...)
@@ -185,7 +183,7 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 			cleanupErrs = append(cleanupErrs, errs...)
 		}
 	}
-	if msg := volumex.RemoveMatching(ctx, h.P.AppVolumeQuery(ctx, app, allProjects)); msg != "" {
+	if msg := volumex.RemoveMatching(ctx, p.AppVolumeQuery(ctx, app, allProjects)); msg != "" {
 		cleanupErrs = append(cleanupErrs, msg)
 	}
 	if len(cleanupErrs) > 0 {
@@ -196,16 +194,16 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(msg)
 	}
-	h.P.RemoveDeployRun(id)
-	if err := h.P.DB.DeleteApp(c.UserContext(), id); err != nil {
+	p.RemoveDeployRun(id)
+	if err := p.DB.DeleteApp(c.UserContext(), id); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
 			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
 		}
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
-	h.P.InvalidateAfterAppDeployChange(id)
+	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	p.InvalidateAfterAppDeployChange(id)
 	if err := os.RemoveAll(dir); err != nil {
 		if htmx {
 			c.Set("Content-Type", "text/html; charset=utf-8")
@@ -220,15 +218,15 @@ func (h *Handler) DeleteApp(c *fiber.Ctx) error {
 	return c.Redirect("/apps")
 }
 
-func (h *Handler) UploadZip(c *fiber.Ctx) error {
+func (p *Panel) UploadZip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if h.P.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("ZIP upload is disabled for git-backed apps")
 	}
-	app, _ := h.P.DB.GetApp(c.UserContext(), id)
+	app, _ := p.DB.GetApp(c.UserContext(), id)
 	fh, err := c.FormFile("archive")
 	if err != nil {
 		return c.Status(400).SendString("missing archive field (zip)")
@@ -263,7 +261,7 @@ func (h *Handler) UploadZip(c *fiber.Ctx) error {
 	if err := workspace.ValidateZipArchive(f, st.Size()); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
-	if err := h.P.Store.ClearAllUserFiles(id); err != nil {
+	if err := p.Store.ClearAllUserFiles(id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	f2, err := os.Open(tmpPath)
@@ -275,25 +273,25 @@ func (h *Handler) UploadZip(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := h.P.Store.ExtractZip(id, f2, st2.Size()); err != nil {
+	if err := p.Store.ExtractZip(id, f2, st2.Size()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := h.P.Store.WriteMeta(id, app.Name); err != nil {
+	if err := p.Store.WriteMeta(id, app.Name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
+	if err := p.SyncAppCaddyOverride(c, id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
 }
 
-func (h *Handler) UploadFile(c *fiber.Ctx) error {
+func (p *Panel) UploadFile(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
-		return utils.RespondAppNotFound(c)
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	if h.P.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file upload is disabled for git-backed apps")
 	}
 	file, err := c.FormFile("file")
@@ -312,9 +310,9 @@ func (h *Handler) UploadFile(c *fiber.Ctx) error {
 			targetPath = pfx + "/" + file.Filename
 		}
 	}
-	if _, err := h.P.Store.SaveUploadedFile(id, targetPath, src); err != nil {
+	if _, err := p.Store.SaveUploadedFile(id, targetPath, src); err != nil {
 		return c.Status(400).SendString("invalid path")
 	}
-	h.P.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
 }

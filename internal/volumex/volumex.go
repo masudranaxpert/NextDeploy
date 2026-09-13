@@ -21,7 +21,6 @@ import (
 
 	"panel/internal/perflog"
 	"panel/internal/resmatch"
-	"panel/internal/workspace"
 )
 
 var volNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -39,8 +38,6 @@ func HostStagingDir() string {
 	return os.TempDir()
 }
 
-func hostStagingDir() string { return HostStagingDir() }
-
 // ValidVolumeName rejects names that could break docker -v syntax or confuse the CLI.
 func ValidVolumeName(name string) bool {
 	name = strings.TrimSpace(name)
@@ -52,11 +49,6 @@ func ValidVolumeName(name string) bool {
 		return false
 	}
 	return true
-}
-
-// ParentRel delegates to workspace.ParentRel for consistency.
-func ParentRel(rel string) string {
-	return workspace.ParentRel(rel)
 }
 
 func List(ctx context.Context) ([]string, string) {
@@ -433,7 +425,7 @@ func BackupToTemp(ctx context.Context, vol string) (path string, err error) {
 	if !ValidVolumeName(vol) {
 		return "", errors.New("invalid volume")
 	}
-	f, err := os.CreateTemp(hostStagingDir(), "vol-backup-*.tar.gz")
+	f, err := os.CreateTemp(HostStagingDir(), "vol-backup-*.tar.gz")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
@@ -827,7 +819,7 @@ func restoreTarGzFromReader(ctx context.Context, vol string, in io.Reader) strin
 	if !ValidVolumeName(vol) {
 		return "invalid volume"
 	}
-	tmp, err := os.CreateTemp(hostStagingDir(), "vol-restore-*.tar.gz")
+	tmp, err := os.CreateTemp(HostStagingDir(), "vol-restore-*.tar.gz")
 	if err != nil {
 		return err.Error()
 	}

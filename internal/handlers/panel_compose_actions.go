@@ -1,83 +1,81 @@
-package compose
+package handlers
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"os"
-	"panel/internal/db"
-	"panel/internal/handlers/utils"
 	"strings"
 	"sync"
 	"time"
 
+	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/resmatch"
-
 	"panel/internal/runutil"
 	"panel/internal/volumex"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func (h *Handler) ComposeUp(c *fiber.Ctx) error {
-	return h.enqueueCompose(c, "Deploy", dockerx.ComposeUp)
+func (p *Panel) ComposeUp(c *fiber.Ctx) error {
+	return p.enqueueCompose(c, "Deploy", dockerx.ComposeUp)
 }
 
-func (h *Handler) ComposeDown(c *fiber.Ctx) error {
-	return h.enqueueCompose(c, "Stop", dockerx.ComposeDown)
+func (p *Panel) ComposeDown(c *fiber.Ctx) error {
+	return p.enqueueCompose(c, "Stop", dockerx.ComposeDown)
 }
 
-func (h *Handler) ComposeRestart(c *fiber.Ctx) error {
-	return h.enqueueCompose(c, "Stack restart", dockerx.ComposeRestart)
+func (p *Panel) ComposeRestart(c *fiber.Ctx) error {
+	return p.enqueueCompose(c, "Stack restart", dockerx.ComposeRestart)
 }
 
-func (h *Handler) ComposeRedeploy(c *fiber.Ctx) error {
-	return h.enqueueCompose(c, "Redeploy (pull + up)", dockerx.ComposePullUp)
+func (p *Panel) ComposeRedeploy(c *fiber.Ctx) error {
+	return p.enqueueCompose(c, "Redeploy (pull + up)", dockerx.ComposePullUp)
 }
 
-func (h *Handler) GlobalImageRemove(c *fiber.Ctx) error {
+func (p *Panel) GlobalImageRemove(c *fiber.Ctx) error {
 	imageID := strings.TrimSpace(c.FormValue("image_id"))
 	if imageID == "" {
 		return c.Status(400).SendString("image_id required")
 	}
-	allowed, err := h.isImageAccessAllowed(c, imageID)
+	allowed, err := p.isImageAccessAllowed(c, imageID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !allowed {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "remove_image", "image", imageID, "Removed Docker image")
+	p.RecordAuditLog(c, "remove_image", "image", imageID, "Removed Docker image")
 	if err := dockerapi.RemoveImageByID(c.UserContext(), imageID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/images")
 }
 
-func (h *Handler) GlobalContainerRemove(c *fiber.Ctx) error {
+func (p *Panel) GlobalContainerRemove(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
-	allowed, err := h.isContainerAccessAllowed(c, name)
+	allowed, err := p.isContainerAccessAllowed(c, name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !allowed {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "remove_container", "container", name, "Removed Docker container")
+	p.RecordAuditLog(c, "remove_container", "container", name, "Removed Docker container")
 	if err := dockerapi.RemoveContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
-func (h *Handler) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
+func (p *Panel) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 	var names []string
 	c.Request().PostArgs().VisitAll(func(key, val []byte) {
 		if string(key) != "name" {
@@ -92,7 +90,7 @@ func (h *Handler) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 	}
 	ctx := c.UserContext()
 	for _, name := range names {
-		allowed, err := h.isContainerAccessAllowed(c, name)
+		allowed, err := p.isContainerAccessAllowed(c, name)
 		if err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
@@ -100,81 +98,81 @@ func (h *Handler) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 			return c.Status(403).SendString("forbidden")
 		}
 	}
-	h.P.RecordAuditLog(c, "remove_selected_containers", "container", strings.Join(names, ", "), "Removed selected containers")
+	p.RecordAuditLog(c, "remove_selected_containers", "container", strings.Join(names, ", "), "Removed selected containers")
 	for _, name := range names {
 		_ = dockerapi.RemoveContainerByName(ctx, name)
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
-func (h *Handler) GlobalContainerRestart(c *fiber.Ctx) error {
+func (p *Panel) GlobalContainerRestart(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
-	allowed, err := h.isContainerAccessAllowed(c, name)
+	allowed, err := p.isContainerAccessAllowed(c, name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !allowed {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "restart_container", "container", name, "Restarted Docker container")
+	p.RecordAuditLog(c, "restart_container", "container", name, "Restarted Docker container")
 	if err := dockerapi.RestartContainerByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
-func (h *Handler) GlobalVolumeRemove(c *fiber.Ctx) error {
+func (p *Panel) GlobalVolumeRemove(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
 		return c.Status(400).SendString("name required")
 	}
-	allowed, err := h.isVolumeAccessAllowed(c, name)
+	allowed, err := p.isVolumeAccessAllowed(c, name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !allowed {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "remove_volume", "volume", name, "Removed Docker volume")
+	p.RecordAuditLog(c, "remove_volume", "volume", name, "Removed Docker volume")
 	if err := dockerapi.RemoveVolumeByName(c.UserContext(), name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/volumes")
 }
 
-func (h *Handler) GlobalImagePrune(c *fiber.Ctx) error {
+func (p *Panel) GlobalImagePrune(c *fiber.Ctx) error {
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "prune_images", "system", "docker", "Pruned unused Docker images")
+	p.RecordAuditLog(c, "prune_images", "system", "docker", "Pruned unused Docker images")
 	if err := dockerapi.PruneImages(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/images")
 }
 
-func (h *Handler) GlobalContainerPrune(c *fiber.Ctx) error {
+func (p *Panel) GlobalContainerPrune(c *fiber.Ctx) error {
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(403).SendString("forbidden")
 	}
-	h.P.RecordAuditLog(c, "prune_containers", "system", "docker", "Pruned stopped Docker containers")
+	p.RecordAuditLog(c, "prune_containers", "system", "docker", "Pruned stopped Docker containers")
 	if err := dockerapi.PruneContainers(c.UserContext()); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	h.P.InvalidateAfterDockerChange()
+	p.InvalidateAfterDockerChange()
 	return c.Redirect("/containers")
 }
 
-func (h *Handler) isContainerAccessAllowed(c *fiber.Ctx, containerName string) (bool, error) {
+func (p *Panel) isContainerAccessAllowed(c *fiber.Ctx, containerName string) (bool, error) {
 	ctx := c.UserContext()
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok {
@@ -187,7 +185,7 @@ func (h *Handler) isContainerAccessAllowed(c *fiber.Ctx, containerName string) (
 	if err != nil || project == "" {
 		return false, nil
 	}
-	apps, err := h.P.DB.ListAppsForUser(ctx, u.ID)
+	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 	if err != nil {
 		return false, err
 	}
@@ -199,7 +197,7 @@ func (h *Handler) isContainerAccessAllowed(c *fiber.Ctx, containerName string) (
 	return false, nil
 }
 
-func (h *Handler) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, error) {
+func (p *Panel) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, error) {
 	ctx := c.UserContext()
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok {
@@ -208,7 +206,7 @@ func (h *Handler) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, erro
 	if u.Role == db.RoleAdmin {
 		return true, nil
 	}
-	apps, err := h.P.DB.ListAppsForUser(ctx, u.ID)
+	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 	if err != nil {
 		return false, err
 	}
@@ -243,8 +241,8 @@ func (h *Handler) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, erro
 	for _, app := range apps {
 		allUserProjects = append(allUserProjects, app.ID)
 		allUserProjects = append(allUserProjects, strings.ReplaceAll(app.ID, "-", "_"))
-		for _, c := range h.P.ComposeProjectCandidates(ctx, app, app.ID) {
-			allUserProjects = append(allUserProjects, c)
+		for _, cand := range p.ComposeProjectCandidates(ctx, app, app.ID) {
+			allUserProjects = append(allUserProjects, cand)
 		}
 	}
 	for _, proj := range apps {
@@ -260,7 +258,7 @@ func (h *Handler) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, erro
 	return false, nil
 }
 
-func (h *Handler) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, error) {
+func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, error) {
 	ctx := c.UserContext()
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok {
@@ -269,7 +267,7 @@ func (h *Handler) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, 
 	if u.Role == db.RoleAdmin {
 		return true, nil
 	}
-	apps, err := h.P.DB.ListAppsForUser(ctx, u.ID)
+	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
 	if err != nil {
 		return false, err
 	}
@@ -277,11 +275,11 @@ func (h *Handler) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, 
 	if listErr != "" {
 		return false, fmt.Errorf("%s", listErr)
 	}
-	allProjects := h.P.AllPanelComposeProjects(ctx)
+	allProjects := p.AllPanelComposeProjects(ctx)
 	matcher := volumex.SharedMatcher(ctx)
 	for _, app := range apps {
-		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, h.P.ComposeProjectCandidates(ctx, app, app.ID)...)
-		q := h.P.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
+		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+		q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
 		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
 		for _, v := range appVols {
 			if v == volumeName {
@@ -303,34 +301,34 @@ func imageRepoBase(repo string) string {
 	return repo
 }
 
-func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result) error {
+func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Context, string, []string, string, io.Writer, []string) dockerx.Result) error {
 	id := c.Params("id")
 
-	v, _ := h.P.ComposeMu.LoadOrStore(id, &sync.Mutex{})
+	v, _ := p.ComposeMu.LoadOrStore(id, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
 
-	app, err := h.P.DB.GetApp(c.UserContext(), id)
+	app, err := p.DB.GetApp(c.UserContext(), id)
 	if err != nil {
-		return utils.RespondAppNotFound(c)
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
 	// Dev mode deploys from the workspace as-is: a Git sync would discard local
 	// edits, and rebuilding the image would defeat the workspace bind mount.
 	var gitSyncPreamble string
-	if h.P.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		if app.DevMode {
 			gitSyncPreamble = "Dev mode is on — skipped Git sync so local workspace edits are kept."
 		} else {
 			ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
-			out, err := h.P.GitSyncer.SyncGitAppSource(ctx, id)
+			out, err := p.SyncGitAppSource(ctx, id)
 			if err != nil {
 				cancel()
 				msg := "[error]\nGit sync failed.\n\n" + err.Error()
 				if strings.TrimSpace(out) != "" {
 					msg += "\n\n" + out
 				}
-				_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+				_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 				return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 			}
 			cancel()
@@ -338,14 +336,14 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 			if gitSyncPreamble == "" {
 				gitSyncPreamble = "Repository sync completed."
 			}
-			h.P.InvalidateAfterAppWorkspaceChange(id)
+			p.InvalidateAfterAppWorkspaceChange(id)
 		}
 	}
 	// Redeploy stays a full pull-and-build so there is still a way to rebuild
 	// without leaving dev mode.
 	if app.DevMode {
 		if targetSvc := strings.TrimSpace(app.DevService); targetSvc != "" {
-			svcs := h.P.LoadComposeServices(c.UserContext(), id)
+			svcs := p.LoadComposeServices(c.UserContext(), id)
 			found := false
 			for _, s := range svcs {
 				if s == targetSvc {
@@ -369,41 +367,41 @@ func (h *Handler) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Co
 			gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
 		}
 	}
-	cp := h.P.ComposeFilePath(c.UserContext(), app, id)
+	cp := p.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
-		hasDockerfile, hasCompose := h.P.Store.HasDockerArtifacts(id)
+		hasDockerfile, hasCompose := p.Store.HasDockerArtifacts(id)
 		if !hasDockerfile || hasCompose {
 			msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
-			_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 		}
 	}
-	if err := h.P.SyncAppCaddyOverride(c, id); err != nil {
+	if err := p.SyncAppCaddyOverride(c, id); err != nil {
 		msg := "[error]\n" + err.Error()
-		_ = h.P.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 	}
 	projCtx, projCancel := context.WithTimeout(c.UserContext(), 90*time.Second)
-	project := h.P.ActiveComposeProjectName(projCtx, app, id)
+	project := p.ActiveComposeProjectName(projCtx, app, id)
 	projCancel()
 	if action == "Deploy" || action == "Redeploy (pull + up)" {
 		downCtx, downCancel := context.WithTimeout(c.UserContext(), 5*time.Minute)
-		h.P.StopOtherComposeStacks(downCtx, app, id, project)
+		p.StopOtherComposeStacks(downCtx, app, id, project)
 		downCancel()
 	}
-	h.P.RecordAuditLog(c, "compose_"+strings.ToLower(strings.ReplaceAll(action, " ", "_")), "app", id, "Triggered compose action: "+action)
-	if _, err := h.P.StartComposeJob(id, project, h.P.EffectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
+	p.RecordAuditLog(c, "compose_"+strings.ToLower(strings.ReplaceAll(action, " ", "_")), "app", id, "Triggered compose action: "+action)
+	if _, err := p.StartComposeJob(id, project, p.EffectiveComposePaths(c.UserContext(), app, id), action, fn, gitSyncPreamble); err != nil {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment&busy=1", id))
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }
 
-func (h *Handler) DeployProgressPartial(c *fiber.Ctx) error {
+func (p *Panel) DeployProgressPartial(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.P.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).SendString("not found")
 	}
-	r := h.P.GetDeployRun(id)
+	r := p.GetDeployRun(id)
 	r.Mu.Lock()
 	out := r.Output.String()
 	running := r.Running

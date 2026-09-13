@@ -1,4 +1,4 @@
-package backup
+package handlers
 
 import (
 	"errors"
@@ -16,10 +16,6 @@ import (
 )
 
 // volumeRestoreBodyReader returns the raw POST body for multipart parsing.
-// Uses c.Context().RequestBodyStream() — the only fasthttp API that truly streams
-// without buffering the entire body into RAM first.
-// c.Body() and req.BodyStream() are intentionally avoided: both can trigger full
-// in-memory buffering for multipart requests when DisablePreParseMultipartForm is false.
 func volumeRestoreBodyReader(c *fiber.Ctx) (io.Reader, error) {
 	if r := c.Context().RequestBodyStream(); r != nil {
 		return r, nil
@@ -61,9 +57,6 @@ func tempPatternForArchive(kind string) string {
 }
 
 // parseVolumeRestoreMultipart returns archiveKind "zip" or "tar-gz".
-// It parses all needed fields from the raw multipart stream; callers must not use
-// c.FormValue/FormFile before calling this, or fasthttp may consume the body.
-// Zip always uses a temp file; tar.gz may stream from the part when saveBackupToTemp is false.
 func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol string, fromApp string, tmpPath string, syncReader io.ReadCloser, archiveKind string, err error) {
 	ct := c.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(ct)

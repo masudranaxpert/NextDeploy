@@ -50,10 +50,6 @@ func (p *Panel) ContainerBelongsToApp(ctx context.Context, appID, containerName 
 	return prefixMatch
 }
 
-func (p *Panel) containerBelongsToApp(ctx context.Context, appID, containerName string) bool {
-	return p.ContainerBelongsToApp(ctx, appID, containerName)
-}
-
 func (p *Panel) ComposeServiceInRows(rows []dockerx.ComposePsRow, service string) bool {
 	service = strings.TrimSpace(service)
 	if service == "" {
@@ -81,12 +77,4 @@ func (p *Panel) ComposeServiceBelongsToApp(ctx context.Context, appID, service s
 		return false
 	}
 	return p.ComposeServiceInRows(rows, service)
-}
-
-func (p *Panel) composeServiceBelongsToApp(ctx context.Context, appID, service string) bool {
-	return p.ComposeServiceBelongsToApp(ctx, appID, service)
-}
-
-func (p *Panel) ComposeWorkspaceDirContainedInApp(appRoot, workDir string) bool {
-	return composeWorkspaceDirContainedInApp(appRoot, workDir)
 }

@@ -1,4 +1,4 @@
-package filebrowser
+package handlers
 
 import (
 	"archive/zip"
@@ -60,12 +60,12 @@ func fetchRemoteURL(ctx context.Context, rawURL string) (*http.Response, error) 
 	return resp, nil
 }
 
-func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
+func (p *Panel) BrowseUrlUpload(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "upload disabled for git apps"})
 	}
 
@@ -121,24 +121,24 @@ func (h *Handler) BrowseUrlUpload(c *fiber.Ctx) error {
 	if resp.ContentLength > 0 {
 		incoming = resp.ContentLength
 	}
-	if err := h.p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
+	if err := p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 
-	if _, err := h.p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
+	if _, err := p.Store.SaveUploadedFile(id, relPath, resp.Body); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save file: %v", err)})
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Downloaded to server."})
 }
 
-func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
+func (p *Panel) BrowseUpload(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "upload disabled for git apps"})
 	}
 
@@ -157,7 +157,7 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 	for _, file := range files {
 		incoming += file.Size
 	}
-	if err := h.p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
+	if err := p.CheckStorageQuota(c.UserContext(), id, incoming); err != nil {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 
@@ -176,21 +176,21 @@ func (h *Handler) BrowseUpload(c *fiber.Ctx) error {
 		}
 		defer f.Close()
 
-		if _, err := h.p.Store.SaveUploadedFile(id, relPath, f); err != nil {
+		if _, err := p.Store.SaveUploadedFile(id, relPath, f); err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "message": fmt.Sprintf("Failed to save %s: %v", file.Filename, err)})
 		}
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Files uploaded successfully"})
 }
 
-func (h *Handler) BrowseMove(c *fiber.Ctx) error {
+func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "move disabled for git apps"})
 	}
 
@@ -210,7 +210,7 @@ func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 		if isGeneratedComposeRel(pth) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
-		oldFull, err := h.p.Store.SafeFilePath(id, pth)
+		oldFull, err := p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -222,7 +222,7 @@ func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 		if isGeneratedComposeRel(newRel) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
-		newFull, err := h.p.Store.SafeFilePath(id, newRel)
+		newFull, err := p.Store.SafeFilePath(id, newRel)
 		if err != nil {
 			continue
 		}
@@ -231,16 +231,16 @@ func (h *Handler) BrowseMove(c *fiber.Ctx) error {
 		_ = os.Rename(oldFull, newFull)
 	}
 
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Moved successfully"})
 }
 
-func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
+func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "copy disabled for git apps"})
 	}
 
@@ -260,7 +260,7 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 		if isGeneratedComposeRel(pth) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
-		srcFull, err := h.p.Store.SafeFilePath(id, pth)
+		srcFull, err := p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -272,7 +272,7 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 		if isGeneratedComposeRel(newRel) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
-		dstFull, err := h.p.Store.SafeFilePath(id, newRel)
+		dstFull, err := p.Store.SafeFilePath(id, newRel)
 		if err != nil {
 			continue
 		}
@@ -280,16 +280,16 @@ func (h *Handler) BrowseCopy(c *fiber.Ctx) error {
 		_ = copyRecursively(srcFull, dstFull)
 	}
 
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Copied successfully"})
 }
 
-func (h *Handler) BrowseMkdir(c *fiber.Ctx) error {
+func (p *Panel) BrowseMkdir(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "mkdir disabled for git apps"})
 	}
 
@@ -304,7 +304,7 @@ func (h *Handler) BrowseMkdir(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Path required"})
 	}
 
-	fullPath, err := h.p.Store.SafeFilePath(id, req.Path)
+	fullPath, err := p.Store.SafeFilePath(id, req.Path)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid path"})
 	}
@@ -313,16 +313,16 @@ func (h *Handler) BrowseMkdir(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Directory created"})
 }
 
-func (h *Handler) BrowseZip(c *fiber.Ctx) error {
+func (p *Panel) BrowseZip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "zip disabled for git apps"})
 	}
 
@@ -346,7 +346,7 @@ func (h *Handler) BrowseZip(c *fiber.Ctx) error {
 	if req.Dest == "" {
 		destRel = req.Name
 	}
-	zipFull, err := h.p.Store.SafeFilePath(id, destRel)
+	zipFull, err := p.Store.SafeFilePath(id, destRel)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid destination path"})
 	}
@@ -361,7 +361,7 @@ func (h *Handler) BrowseZip(c *fiber.Ctx) error {
 	defer zw.Close()
 
 	for _, pth := range req.Paths {
-		srcFull, err := h.p.Store.SafeFilePath(id, pth)
+		srcFull, err := p.Store.SafeFilePath(id, pth)
 		if err != nil {
 			continue
 		}
@@ -393,16 +393,16 @@ func (h *Handler) BrowseZip(c *fiber.Ctx) error {
 		})
 	}
 
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 	return c.JSON(fiber.Map{"ok": true, "message": "Compressed successfully"})
 }
 
-func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
+func (p *Panel) BrowseUnzip(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if _, err := h.p.DB.GetApp(c.UserContext(), id); err != nil {
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 	}
-	if h.p.IsGitApp(c.UserContext(), id) {
+	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "unzip disabled for git apps"})
 	}
 
@@ -414,7 +414,7 @@ func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid request format"})
 	}
 
-	zipFull, err := h.p.Store.SafeFilePath(id, req.Path)
+	zipFull, err := p.Store.SafeFilePath(id, req.Path)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid zip path"})
 	}
@@ -431,14 +431,14 @@ func (h *Handler) BrowseUnzip(c *fiber.Ctx) error {
 		if uerr != nil {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": uerr.Error()})
 		}
-		if err := h.p.CheckStorageQuota(c.UserContext(), id, uncompressed); err != nil {
+		if err := p.CheckStorageQuota(c.UserContext(), id, uncompressed); err != nil {
 			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"ok": false, "message": err.Error()})
 		}
 	}
-	if err := h.p.Store.ExtractZip(id, f, stat.Size()); err != nil {
+	if err := p.Store.ExtractZip(id, f, stat.Size()); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": "Extract failed: " + err.Error()})
 	}
-	h.p.InvalidateAfterAppWorkspaceChange(id)
+	p.InvalidateAfterAppWorkspaceChange(id)
 
 	return c.JSON(fiber.Map{"ok": true, "message": "Extracted successfully"})
 }

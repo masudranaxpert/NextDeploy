@@ -14,6 +14,7 @@ import (
 	"panel/internal/sandbox"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
+	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -577,7 +578,7 @@ func (p *Panel) VolumeBrowse(c *fiber.Ctx) error {
 	fromApp := strings.TrimSpace(c.Query("from_app", ""))
 
 	entries, msg := volumex.ListDir(c.UserContext(), name, rel)
-	parent := volumex.ParentRel(rel)
+	parent := workspace.ParentRel(rel)
 	rows := make([]volRow, 0, len(entries))
 	for _, e := range entries {
 		rp := e.Name
@@ -632,42 +633,3 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	return c.SendFile(tmpPath)
 }
 
-func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, error) {
-	ctx := c.UserContext()
-	u, ok := c.Locals("auth_user").(db.User)
-	if !ok {
-		return false, nil
-	}
-	if u.Role == db.RoleAdmin {
-		return true, nil
-	}
-	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
-	if err != nil {
-		return false, err
-	}
-	allVolNames, _ := volumex.List(ctx)
-	allProjects := p.AllPanelComposeProjects(ctx)
-	matcher := volumex.SharedMatcher(ctx)
-	for _, app := range apps {
-		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-		q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
-		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
-		for _, v := range appVols {
-			if v == volumeName {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
-}
-
-func imageRepoBase(repo string) string {
-	repo = strings.TrimSpace(repo)
-	if i := strings.LastIndex(repo, ":"); i > 0 {
-		repo = repo[:i]
-	}
-	if i := strings.LastIndex(repo, "/"); i >= 0 {
-		repo = repo[i+1:]
-	}
-	return repo
-}

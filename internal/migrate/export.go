@@ -95,17 +95,12 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 	}
 
 	meta := make([]exportAppMeta, len(apps))
-	sem := newSemaphore(ParallelWorkers())
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(ParallelWorkers())
 
 	for i, app := range apps {
 		i, app := i, app
 		g.Go(func() error {
-			if err := sem.acquire(gctx); err != nil {
-				return err
-			}
-			defer sem.release()
-
 			log.log("archiving " + app.Name + " (" + app.ID + ")")
 			sourceDir := deps.WorkspaceRoot(app.ID)
 			vols, verr := deps.VolumeNames(gctx, app)

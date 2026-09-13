@@ -65,10 +65,6 @@ func refreshDisk(ctx context.Context) {
 }
 
 func Collect(ctx context.Context) Snapshot {
-	return CollectFast(ctx)
-}
-
-func CollectFast(ctx context.Context) Snapshot {
 	staticOnce.Do(initStatic)
 	refreshDisk(ctx)
 

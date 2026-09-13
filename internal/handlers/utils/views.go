@@ -2,12 +2,7 @@ package utils
 
 // Partial template paths for Fiber's html engine (no .html suffix; rooted at web/templates).
 const (
-	TmplPartialBrowser          = "partials/browser"
 	TmplPartialMonitorStats     = "partials/monitor_stats"
-	TmplPartialDeployProgress   = "partials/deploy_progress"
-	TmplPartialFilePreviewModal = "partials/file_preview_modal"
-	TmplPartialLogView          = "partials/log_view"
-	TmplPartialTerminalOut      = "partials/terminal_out"
 
 	TmplPartialGitTab              = "partials/git/git_tab"
 	TmplPartialAppShowFiles        = "partials/app_show/files_tab"

@@ -65,7 +65,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
-	if container == "" || !p.containerBelongsToApp(chkCtx, appID, container) {
+	if container == "" || !p.ContainerBelongsToApp(chkCtx, appID, container) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("invalid container for this app"))
 		return
 	}

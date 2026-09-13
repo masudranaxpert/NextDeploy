@@ -24,7 +24,7 @@
 | **Files & Logs** | In-browser file manager; real-time deploy logs; container log tailing with filters |
 | **Docker Resources** | Browse and remove containers, images, and volumes; scheduled auto-prune |
 | **Multi-user** | Admin + user roles; per-user resource limits; audit log |
-| **MCP Server** | Native [Model Context Protocol](docs/skills/nextdeploy-mcp/SKILL.md) server — let Cursor, Claude Code or Windsurf edit, deploy, and inspect apps directly over your local API token |
+| **MCP Server** | Native [Model Context Protocol](skills/nextdeploy-mcp/SKILL.md) server — let Cursor, Claude Code or Windsurf edit, deploy, and inspect apps directly over your local API token |
 | **Panel Migration** | Export selected apps to a `.nd-migrate` bundle and restore on another VPS |
 | **Development Mode** | *(Beta — enable in Settings)* Bind-mount workspace into containers for live hot-reload without image rebuilds |
 
@@ -83,7 +83,7 @@ NextDeploy ships a native **Model Context Protocol** server at `/mcp/sse`. AI co
 2. Add the SSE URL + token to your assistant's MCP config.
 3. The assistant can now edit files, trigger deploys, and tail logs directly.
 
-See [`docs/skills/nextdeploy-mcp/SKILL.md`](docs/skills/nextdeploy-mcp/SKILL.md) for the full agent skill guide.
+See [`skills/nextdeploy-mcp/SKILL.md`](skills/nextdeploy-mcp/SKILL.md) for the full agent skill guide.
 
 ---
 

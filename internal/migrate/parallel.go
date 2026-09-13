@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"context"
 	"os"
 	"runtime"
 	"strconv"
@@ -26,30 +25,6 @@ func ParallelWorkers() int {
 		}
 	}
 	return n
-}
-
-type semaphore struct {
-	ch chan struct{}
-}
-
-func newSemaphore(n int) *semaphore {
-	if n < 1 {
-		n = 1
-	}
-	return &semaphore{ch: make(chan struct{}, n)}
-}
-
-func (s *semaphore) acquire(ctx context.Context) error {
-	select {
-	case s.ch <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (s *semaphore) release() {
-	<-s.ch
 }
 
 type safeLogger struct {

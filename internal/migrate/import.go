@@ -177,15 +177,11 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 	}
 
 	log.log(fmt.Sprintf("restoring %d app(s) in parallel (workers=%d)", len(jobs), ParallelWorkers()))
-	sem := newSemaphore(ParallelWorkers())
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(ParallelWorkers())
 	for _, job := range jobs {
 		job := job
 		g.Go(func() error {
-			if err := sem.acquire(gctx); err != nil {
-				return err
-			}
-			defer sem.release()
 			log.log("importing " + job.snap.Name)
 			if err := ensureBundleMember(gctx, bundlePath, workDir, job.snap.Archive); err != nil {
 				return fmt.Errorf("extract archive %s: %w", job.snap.Name, err)
@@ -229,13 +225,10 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 	if deps.DeployAfterImport && len(jobs) > 0 {
 		log.log(fmt.Sprintf("deploying %d app(s) in parallel", len(jobs)))
 		dg, dctx := errgroup.WithContext(ctx)
+		dg.SetLimit(ParallelWorkers())
 		for _, job := range jobs {
 			job := job
 			dg.Go(func() error {
-				if err := sem.acquire(dctx); err != nil {
-					return err
-				}
-				defer sem.release()
 				dir := deps.WorkspaceRoot(job.snap.ID)
 				paths := deps.ComposePaths(job.app)
 				project := deps.ProjectName(job.app)
