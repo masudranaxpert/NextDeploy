@@ -92,7 +92,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	// Full-permission token sees all 26 tools.
+	// Full-permission token sees all 27 tools.
 	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true}
 	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
 	resp := srv.ProcessRPC(fullCtx, user, req)
@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 26 {
-		t.Errorf("expected 26 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 27 {
+		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -117,7 +117,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 		"container_exec", "server_exec",
-		"file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
+		"git_pull", "file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
 		"file_search",
 	}
 	for _, name := range expectedTools {
@@ -134,11 +134,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (23 tools).
+	// No-permission token hides restricted tools (24 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 23 {
-		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 24 {
+		t.Errorf("expected 24 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -146,13 +146,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (24 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (25 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 24 {
-		t.Errorf("expected 24 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 25 {
+		t.Errorf("expected 25 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -167,13 +167,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (24 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (25 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 24 {
-		t.Errorf("expected 24 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 25 {
+		t.Errorf("expected 25 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -1063,7 +1063,25 @@ func TestMCP_NewTools(t *testing.T) {
 		t.Errorf("patch not reflected in file content, got: %+v", readPatchRes)
 	}
 
-	// 3. Test app_health_check
+	// 3. Test git_pull on non-git app returns expected error
+	gitParams, _ := json.Marshal(CallToolParams{
+		Name: "git_pull",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	gitResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      205,
+		Method:  "tools/call",
+		Params:  gitParams,
+	})
+	gitRes := gitResp.Result.(CallToolResult)
+	if !gitRes.IsError || !strings.Contains(gitRes.Content[0].Text, "no git repository configured") {
+		t.Errorf("expected 'no git repository configured' error, got %+v", gitRes)
+	}
+
+	// 4. Test app_health_check
 	healthParams, _ := json.Marshal(CallToolParams{
 		Name: "app_health_check",
 		Arguments: map[string]interface{}{

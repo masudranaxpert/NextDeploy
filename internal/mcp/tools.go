@@ -264,6 +264,19 @@ func AllTools() []Tool {
 			},
 		},
 		{
+			Name:        "git_pull",
+			Description: "Pull latest changes from the configured Git repository for an application without deploying. Supports switching branches. Safe by default: refuses to pull if workspace has uncommitted local edits unless force:true is passed.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"branch": {Type: "string", Description: "Optional branch name to switch to and pull. If omitted, pulls current configured branch."},
+					"force":  {Type: "boolean", Description: "If true, discards uncommitted local workspace edits and force-pulls. Default false (protects local files)."},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
 			Name: "file_write_batch",
 			Description: "Write or update multiple files in the application workspace in a single batch operation. Avoids multiple round trips. " +
 				"IMPORTANT for Git-connected apps: written files are preserved on next deploy — the deploy tool auto-detects local edits and skips git pull to protect them.",
