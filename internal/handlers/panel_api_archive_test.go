@@ -248,3 +248,73 @@ func TestAPIAppsList(t *testing.T) {
 		t.Errorf("expected 1 app with ID %q, got %+v", appID, apps)
 	}
 }
+
+func TestAPIAppDelete(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "apps_del_test_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	wsStore := workspace.NewStore(tmpDir)
+	p := &Panel{
+		DB:             store,
+		Store:          wsStore,
+		WorkspacesRoot: tmpDir,
+	}
+
+	ctx := context.Background()
+	adminID, err := store.CreateUser(ctx, "adm", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "del-token", nil, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	appID := "app-to-delete"
+	if err := store.CreateApp(ctx, appID, "App To Delete", adminID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, appID)
+	_ = os.MkdirAll(appDir, 0755)
+
+	app := fiber.New()
+	app.Delete("/api/v1/apps/:id", p.APIAuthMiddleware, p.APIAppDelete)
+
+	// 1. Unauthorized delete
+	reqUnauth := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID, nil)
+	respUnauth, err := app.Test(reqUnauth)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respUnauth.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized, got %d", respUnauth.StatusCode)
+	}
+
+	// 2. Authorized delete
+	reqAuth := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID, nil)
+	reqAuth.Header.Set("Authorization", "Bearer "+rawToken)
+	respAuth, err := app.Test(reqAuth)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respAuth.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(respAuth.Body)
+		t.Fatalf("expected 200 OK, got %d: %s", respAuth.StatusCode, string(body))
+	}
+
+	// 3. Verify app is gone from DB
+	if _, err := store.GetApp(ctx, appID); err == nil {
+		t.Errorf("expected app %q to be deleted from DB, but still found", appID)
+	}
+}
+

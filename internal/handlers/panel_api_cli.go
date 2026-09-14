@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -60,6 +61,35 @@ func (p *Panel) APIAppsList(c *fiber.Ctx) error {
 		})
 	}
 	return c.JSON(out)
+}
+
+// APIAppDelete deletes an application and all its Docker resources via API token.
+// DELETE /api/v1/apps/:id
+func (p *Panel) APIAppDelete(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	appID := strings.TrimSpace(c.Params("id"))
+	app, err := p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "app not found"})
+	}
+
+	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only app owner or admin can delete this app"})
+	}
+
+	delCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	if err := p.DeleteAppResources(delCtx, appID); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	p.RecordAuditLog(c, "delete_app", "app", appID, "Deleted app via CLI/API: "+app.Name)
+	return c.JSON(fiber.Map{"ok": true, "message": fmt.Sprintf("Application %s deleted successfully", appID)})
 }
 
 // APIManifest returns workspace file manifest for a given app.

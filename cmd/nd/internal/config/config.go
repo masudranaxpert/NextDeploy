@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +15,31 @@ import (
 type Config struct {
 	ServerURL string `json:"server_url"`
 	Token     string `json:"token"`
+	DeviceID  string `json:"device_id,omitempty"`
+}
+
+// EnsureDeviceID generates and assigns a persistent device identifier if absent.
+func (c *Config) EnsureDeviceID() string {
+	if c.DeviceID == "" {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "device"
+		}
+		hostname = strings.ToLower(strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+				return r
+			}
+			return '-'
+		}, hostname))
+		hostname = strings.Trim(hostname, "-")
+		if len(hostname) > 20 {
+			hostname = hostname[:20]
+		}
+		b := make([]byte, 4)
+		_, _ = rand.Read(b)
+		c.DeviceID = fmt.Sprintf("nd_%s_%s", hostname, hex.EncodeToString(b))
+	}
+	return c.DeviceID
 }
 
 // ProjectConfig holds the locally linked app configuration (.nd/project.json).

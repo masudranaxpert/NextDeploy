@@ -23,9 +23,9 @@ ON CONFLICT(id) DO UPDATE SET
 	return err
 }
 
-// ListCLISessions returns all sessions active within the last 5 minutes.
+// ListCLISessions returns all sessions active within the last 7 days.
 func (s *Store) ListCLISessions() ([]CLISession, error) {
-	cutoff := time.Now().UTC().Add(-5 * time.Minute).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	rows, err := s.db.Query(`
 SELECT id, user_id, hostname, os, arch, version, last_seen, created_at
 FROM cli_sessions
@@ -56,9 +56,9 @@ func (s *Store) DeleteCLISession(id string) error {
 	return err
 }
 
-// PruneStaleCLISessions removes sessions not seen for more than 10 minutes.
+// PruneStaleCLISessions removes sessions not seen for more than 30 days.
 func (s *Store) PruneStaleCLISessions() error {
-	cutoff := time.Now().UTC().Add(-10 * time.Minute).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	_, err := s.db.Exec(`DELETE FROM cli_sessions WHERE last_seen < ?`, cutoff)
 	return err
 }

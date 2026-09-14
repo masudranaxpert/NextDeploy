@@ -175,6 +175,7 @@ type ComposeContainerRow struct {
 	Status     string
 	Project    string
 	WorkingDir string
+	Image      string
 }
 
 func ListComposeContainers(ctx context.Context) ([]ComposeContainerRow, string) {
@@ -198,6 +199,7 @@ func ListComposeContainers(ctx context.Context) ([]ComposeContainerRow, string) 
 			Status:     c.Status,
 			Project:    proj,
 			WorkingDir: strings.TrimSpace(c.Labels[composeWorkingDirLabel]),
+			Image:      c.Image,
 		})
 	}
 	return out, ""
@@ -861,6 +863,7 @@ type ComposePsRow struct {
 	Service    string
 	State      string
 	Status     string
+	Image      string
 	WorkingDir string
 }
 
@@ -895,6 +898,7 @@ func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
 			Service:    service,
 			State:      c.State,
 			Status:     c.Status,
+			Image:      c.Image,
 			WorkingDir: c.Labels["com.docker.compose.project.working_dir"],
 		})
 	}

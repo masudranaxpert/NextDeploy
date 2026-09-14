@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"nd/internal/client"
 	"nd/internal/config"
 )
+
+// Version can be overwritten at build time or by main.
+var Version = "1.0.6"
 
 // RunLogin handles: nd login <server_url>
 // Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
@@ -41,7 +46,8 @@ func RunLogin(args []string) error {
 
 	// Validate token by listing apps
 	cfg := config.Config{ServerURL: serverURL, Token: token}
-	c := client.New(cfg, "")
+	cfg.EnsureDeviceID()
+	c := client.New(cfg, cfg.DeviceID)
 	body, status, err := c.Do("GET", "/api/v1/apps", nil)
 	if err != nil {
 		return fmt.Errorf("could not reach server: %w", err)
@@ -56,27 +62,44 @@ func RunLogin(args []string) error {
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("could not save config: %w", err)
 	}
+
+	// Register device heartbeat immediately on login
+	hostname, _ := os.Hostname()
+	_ = c.HeartbeatSync(hostname, runtime.GOOS, runtime.GOARCH, Version)
+
 	fmt.Printf("✓ Logged in to %s\n", serverURL)
 	return nil
 }
 
-// RunLogout clears the saved config.
+// RunLogout clears the saved config and unregisters the device session.
 func RunLogout(_ []string) error {
 	cfg, err := config.Load()
-	if err == nil && cfg.ServerURL != "" {
-		// best-effort disconnect
-		c := client.New(cfg, "")
+	if err == nil && cfg.ServerURL != "" && cfg.DeviceID != "" {
+		c := client.New(cfg, cfg.DeviceID)
 		c.Disconnect()
 	}
 	if err := config.Save(config.Config{}); err != nil {
 		return err
 	}
-	fmt.Println("Logged out.")
+	fmt.Println("✓ Logged out successfully.")
 	return nil
 }
 
-// RunApps prints all accessible apps.
-func RunApps(cl *client.Client, _ []string) error {
+// RunApps prints all accessible apps, or dispatches subcommands.
+func RunApps(cl *client.Client, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "create", "new":
+			return RunCreate(cl, args[1:])
+		case "delete", "destroy", "rm":
+			return RunDelete(cl, args[1:])
+		case "info", "status":
+			return RunStatus(cl, args[1:])
+		case "ps":
+			return RunPS(cl, args[1:])
+		}
+	}
+
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
@@ -121,14 +144,144 @@ func RunApps(cl *client.Client, _ []string) error {
 		fmt.Printf("%-30s %-20s %s\n", a.ID, a.Name, status)
 	}
 	if len(apps) == 0 {
-		fmt.Println("No apps found.")
+		fmt.Println("No apps found. Create one with: nd create <name>")
 	}
+	return nil
+}
+
+// RunCreate provisions a new application on NextDeploy.
+func RunCreate(cl *client.Client, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nd create <app_name> [--no-link]")
+	}
+	appName := args[0]
+	autoLink := true
+	for _, a := range args[1:] {
+		if a == "--no-link" {
+			autoLink = false
+		}
+	}
+
+	payload := map[string]interface{}{
+		"name": appName,
+	}
+
+	// If a local docker-compose.yml exists, include it as initial configuration
+	if composeBytes, err := os.ReadFile("docker-compose.yml"); err == nil && len(composeBytes) > 0 {
+		payload["compose_content"] = string(composeBytes)
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "app_create",
+			"arguments": payload,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("failed to create app: %s", client.JSONError(body))
+	}
+
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+		return fmt.Errorf("unexpected server response: %s", string(body))
+	}
+	if resp.Result.IsError {
+		return fmt.Errorf("failed: %s", resp.Result.Content[0].Text)
+	}
+
+	var resData struct {
+		AppID  string `json:"app_id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &resData)
+
+	appID := resData.AppID
+	if appID == "" {
+		appID = appName
+	}
+
+	fmt.Printf("✓ Created application %s (ID: %s)\n", resData.Name, appID)
+	if autoLink {
+		if err := config.SaveProject(".", appID); err == nil {
+			fmt.Printf("✓ Linked current directory to %s (.nd/project.json)\n", appID)
+		}
+	}
+	fmt.Printf("\nNext steps:\n  nd push         # Upload code and build/deploy\n  nd logs         # View live container logs\n  nd status       # Check app health and URLs\n")
+	return nil
+}
+
+// RunDelete deletes an application after confirmation.
+func RunDelete(cl *client.Client, args []string) error {
+	appID, rest, err := resolveAppID(args)
+	if err != nil {
+		return err
+	}
+	force := false
+	for _, a := range rest {
+		if a == "--force" || a == "-f" || a == "-y" {
+			force = true
+		}
+	}
+	if !force {
+		fmt.Printf("WARNING: Deleting %q will remove its containers, volumes, and workspace files.\n", appID)
+		fmt.Printf("Type the app ID %q to confirm deletion: ", appID)
+		var confirm string
+		_, _ = fmt.Scanln(&confirm)
+		if strings.TrimSpace(confirm) != appID {
+			return fmt.Errorf("deletion aborted: confirmation mismatch")
+		}
+	}
+
+	// Try REST DELETE /api/v1/apps/{id} first, fallback to MCP app_delete
+	body, status, err := cl.Do("DELETE", fmt.Sprintf("/api/v1/apps/%s", appID), nil)
+	if err != nil || status == 404 || status == 405 {
+		body, status, err = cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "app_delete",
+				"arguments": map[string]interface{}{"app_id": appID},
+			},
+		})
+	}
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("failed to delete app: %s", client.JSONError(body))
+	}
+
+	var mcpResp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &mcpResp); err == nil && mcpResp.Result.IsError && len(mcpResp.Result.Content) > 0 {
+		return fmt.Errorf("failed to delete app: %s", mcpResp.Result.Content[0].Text)
+	}
+
+	_ = config.ClearProject(".")
+	fmt.Printf("✓ Application %s deleted successfully.\n", appID)
 	return nil
 }
 
 // resolveAppID extracts appID from args or falls back to locally linked project (.nd/project.json).
 func resolveAppID(args []string) (string, []string, error) {
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !strings.Contains(args[0], "=") {
 		return args[0], args[1:], nil
 	}
 	pc, err := config.LoadProject(".")
@@ -170,6 +323,7 @@ func RunWhoami(cl *client.Client, cfg config.Config) error {
 	}
 	fmt.Printf("Server URL:  %s\n", cfg.ServerURL)
 	fmt.Printf("Device:      %s (%s/%s)\n", hostname, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Device ID:   %s\n", cfg.DeviceID)
 	fmt.Printf("Token:       %s\n", maskedToken)
 
 	// Check if local project is linked
@@ -189,7 +343,7 @@ func RunWhoami(cl *client.Client, cfg config.Config) error {
 	return nil
 }
 
-// RunStatus prints detailed info for an app.
+// RunStatus prints detailed info for an app in clean Heroku/Railway style.
 func RunStatus(cl *client.Client, args []string) error {
 	appID, _, err := resolveAppID(args)
 	if err != nil {
@@ -212,8 +366,430 @@ func RunStatus(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
-	fmt.Println(string(body))
+
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+		fmt.Println(string(body))
+		return nil
+	}
+
+	type domainInfo struct {
+		Domain      string `json:"Domain"`
+		Port        int    `json:"Port"`
+		EnableHTTPS bool   `json:"EnableHTTPS"`
+	}
+	type psInfo struct {
+		Name    string `json:"Name"`
+		Service string `json:"Service"`
+		State   string `json:"State"`
+		Status  string `json:"Status"`
+		Image   string `json:"Image"`
+	}
+	type httpCheck struct {
+		Domain     string `json:"domain"`
+		URL        string `json:"url"`
+		StatusCode int    `json:"status_code"`
+		LatencyMS  int    `json:"latency_ms"`
+		OK         bool   `json:"ok"`
+	}
+
+	var data struct {
+		App struct {
+			ID        string `json:"ID"`
+			Name      string `json:"Name"`
+			Status    string `json:"Status"`
+			CreatedAt string `json:"CreatedAt"`
+		} `json:"app"`
+		Domains  []domainInfo `json:"domains"`
+		Services []string     `json:"services"`
+		PS       []psInfo     `json:"ps"`
+		Health   struct {
+			Healthy    bool        `json:"healthy"`
+			HTTPChecks []httpCheck `json:"http_checks"`
+		} `json:"health"`
+	}
+	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &data); err != nil {
+		fmt.Println(resp.Result.Content[0].Text)
+		return nil
+	}
+
+	created := data.App.CreatedAt
+	if t, err := time.Parse(time.RFC3339, created); err == nil {
+		created = t.Format("Jan 02, 2006 15:04")
+	}
+
+	fmt.Printf("=== %s (%s)\n", data.App.Name, data.App.ID)
+	fmt.Printf("Status:    %s\n", data.App.Status)
+	fmt.Printf("Created:   %s\n", created)
+
+	// Domains
+	if len(data.Domains) > 0 {
+		fmt.Printf("Domains:\n")
+		for _, d := range data.Domains {
+			scheme := "http"
+			if d.EnableHTTPS {
+				scheme = "https"
+			}
+			fmt.Printf("  • %s://%s (port %d)\n", scheme, d.Domain, d.Port)
+		}
+	} else {
+		fmt.Printf("Domains:   (none configured)\n")
+	}
+
+	// Containers
+	fmt.Printf("\nContainers (%d):\n", len(data.PS))
+	if len(data.PS) > 0 {
+		fmt.Printf("  %-12s %-25s %-12s %s\n", "SERVICE", "CONTAINER", "STATE", "STATUS")
+		fmt.Printf("  %s\n", strings.Repeat("─", 65))
+		for _, p := range data.PS {
+			st := p.State
+			if st == "running" {
+				st = "● running"
+			}
+			fmt.Printf("  %-12s %-25s %-12s %s\n", p.Service, p.Name, st, p.Status)
+		}
+	} else {
+		fmt.Printf("  (no running containers — run 'nd deploy' or 'nd push')\n")
+	}
+
+	// Health
+	if len(data.Health.HTTPChecks) > 0 {
+		fmt.Printf("\nHealth Checks:\n")
+		for _, hc := range data.Health.HTTPChecks {
+			icon := "✓"
+			if !hc.OK {
+				icon = "✗"
+			}
+			fmt.Printf("  %s %s -> %d (%dms)\n", icon, hc.URL, hc.StatusCode, hc.LatencyMS)
+		}
+	}
+
 	return nil
+}
+
+// RunPS lists containers, their state, status, and images for an app (or all apps).
+func RunPS(cl *client.Client, args []string) error {
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return runAllPS(cl)
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name": "app_get",
+			"arguments": map[string]interface{}{
+				"app_id":         appID,
+				"include_health": true,
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+		return fmt.Errorf("unexpected response from server")
+	}
+
+	var data struct {
+		App struct {
+			ID     string `json:"ID"`
+			Name   string `json:"Name"`
+			Status string `json:"Status"`
+		} `json:"app"`
+		PS []struct {
+			Name    string `json:"Name"`
+			Service string `json:"Service"`
+			State   string `json:"State"`
+			Status  string `json:"Status"`
+			Image   string `json:"Image"`
+		} `json:"ps"`
+		Health struct {
+			Healthy bool `json:"healthy"`
+		} `json:"health"`
+	}
+	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &data); err != nil {
+		fmt.Println(resp.Result.Content[0].Text)
+		return nil
+	}
+
+	healthStr := "healthy"
+	if !data.Health.Healthy && len(data.PS) > 0 {
+		healthStr = "unhealthy"
+	}
+	fmt.Printf("=== %s (%s) — %s (%d containers)\n", data.App.Name, data.App.ID, healthStr, len(data.PS))
+	if len(data.PS) == 0 {
+		fmt.Println("No containers running. Deploy with: nd push or nd deploy")
+		return nil
+	}
+
+	fmt.Printf("%-15s %-25s %-25s %-12s %s\n", "SERVICE", "CONTAINER", "IMAGE", "STATE", "STATUS")
+	fmt.Println(strings.Repeat("─", 90))
+	for _, p := range data.PS {
+		img := p.Image
+		if img == "" {
+			img = "-"
+		}
+		state := p.State
+		if state == "running" {
+			state = "● running"
+		}
+		fmt.Printf("%-15s %-25s %-25s %-12s %s\n", p.Service, p.Name, img, state, p.Status)
+	}
+	return nil
+}
+
+func runAllPS(cl *client.Client) error {
+	body, status, err := cl.Do("GET", "/api/v1/apps", nil)
+	if err != nil || status >= 400 {
+		return RunApps(cl, nil)
+	}
+	var apps []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &apps); err != nil || len(apps) == 0 {
+		fmt.Println("No apps found.")
+		return nil
+	}
+
+	for i, a := range apps {
+		if i > 0 {
+			fmt.Println()
+		}
+		_ = RunPS(cl, []string{a.ID})
+	}
+	return nil
+}
+
+// RunContainers lists all Docker containers on the host VPS.
+func RunContainers(cl *client.Client, args []string) error {
+	cmdArgs := []string{"docker", "ps"}
+	for _, a := range args {
+		if a == "-a" || a == "--all" {
+			cmdArgs = append(cmdArgs, "-a")
+		}
+	}
+	err := executeHostCommand(cl, strings.Join(cmdArgs, " "))
+	if err != nil {
+		// Fallback: list containers across all accessible apps
+		return runAllPS(cl)
+	}
+	return nil
+}
+
+// RunImages lists Docker images on the host VPS, or falls back to app image breakdown.
+func RunImages(cl *client.Client, _ []string) error {
+	err := executeHostCommand(cl, "docker images")
+	if err != nil {
+		// Fallback: extract images used by each app
+		return runAppImages(cl)
+	}
+	return nil
+}
+
+func runAppImages(cl *client.Client) error {
+	body, status, err := cl.Do("GET", "/api/v1/apps", nil)
+	if err != nil || status >= 400 {
+		return fmt.Errorf("failed to list apps: %v", err)
+	}
+	var apps []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &apps); err != nil || len(apps) == 0 {
+		fmt.Println("No applications found.")
+		return nil
+	}
+
+	type imgUsage struct {
+		Image   string
+		App     string
+		Service string
+	}
+	var usages []imgUsage
+	distinctImages := make(map[string]bool)
+
+	for _, a := range apps {
+		cBody, cStatus, cErr := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "compose_get",
+				"arguments": map[string]interface{}{"app_id": a.ID},
+			},
+		})
+		if cErr != nil || cStatus >= 400 {
+			continue
+		}
+		var cResp struct {
+			Result struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(cBody, &cResp); err != nil || len(cResp.Result.Content) == 0 {
+			continue
+		}
+
+		lines := strings.Split(cResp.Result.Content[0].Text, "\n")
+		var currentService string
+		inServices := false
+		serviceImages := make(map[string]string)
+
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(line, "services:") {
+				inServices = true
+				continue
+			}
+			if inServices {
+				if !strings.HasPrefix(line, " ") && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+					inServices = false
+					continue
+				}
+				if (strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "      ") && strings.HasSuffix(trimmed, ":")) ||
+					(strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(trimmed, ":")) {
+					currentService = strings.TrimSuffix(trimmed, ":")
+					continue
+				}
+				if currentService != "" {
+					if strings.HasPrefix(trimmed, "image:") {
+						img := strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
+						img = strings.Trim(img, `"'`)
+						serviceImages[currentService] = img
+					} else if strings.HasPrefix(trimmed, "build:") {
+						if _, exists := serviceImages[currentService]; !exists {
+							serviceImages[currentService] = fmt.Sprintf("%s_%s:latest (local build)", a.ID, currentService)
+						}
+					}
+				}
+			}
+		}
+
+		for svc, img := range serviceImages {
+			usages = append(usages, imgUsage{
+				Image:   img,
+				App:     fmt.Sprintf("%s (%s)", a.Name, a.ID),
+				Service: svc,
+			})
+			distinctImages[img] = true
+		}
+	}
+
+	fmt.Printf("=== Application Images (%d images across %d apps)\n", len(distinctImages), len(apps))
+	if len(usages) == 0 {
+		fmt.Println("No configured images found in application compose files.")
+		return nil
+	}
+
+	fmt.Printf("%-35s %-32s %s\n", "IMAGE", "APPLICATION", "SERVICE")
+	fmt.Println(strings.Repeat("─", 82))
+	for _, u := range usages {
+		fmt.Printf("%-35s %-32s %s\n", u.Image, u.App, u.Service)
+	}
+	return nil
+}
+
+func executeHostCommand(cl *client.Client, cmdStr string) error {
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "server_exec",
+			"arguments": map[string]interface{}{"command": cmdStr},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+	return parseAndPrintExecResult(body)
+}
+
+// RunOpen opens the application's live domain or panel URL in the browser.
+func RunOpen(cl *client.Client, args []string) error {
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "app_get",
+			"arguments": map[string]interface{}{"app_id": appID},
+		},
+	})
+	if err != nil || status >= 400 {
+		return fmt.Errorf("failed to get app info: %s", client.JSONError(body))
+	}
+
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(body, &resp)
+	targetURL := ""
+	if len(resp.Result.Content) > 0 {
+		var data struct {
+			Domains []struct {
+				Domain      string `json:"Domain"`
+				EnableHTTPS bool   `json:"EnableHTTPS"`
+			} `json:"domains"`
+		}
+		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &data)
+		if len(data.Domains) > 0 {
+			d := data.Domains[0]
+			scheme := "http"
+			if d.EnableHTTPS {
+				scheme = "https"
+			}
+			targetURL = fmt.Sprintf("%s://%s", scheme, d.Domain)
+		}
+	}
+
+	if targetURL == "" {
+		cfg, _ := config.Load()
+		targetURL = fmt.Sprintf("%s/apps/%s", strings.TrimRight(cfg.ServerURL, "/"), appID)
+	}
+
+	fmt.Printf("Opening %s ...\n", targetURL)
+	return openBrowser(targetURL)
+}
+
+func openBrowser(url string) error {
+	var c *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		c = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		c = exec.Command("open", url)
+	default:
+		c = exec.Command("xdg-open", url)
+	}
+	return c.Start()
 }
 
 // RunDeploy triggers a redeploy for an app.
@@ -554,28 +1130,54 @@ func RunEnv(cl *client.Client, args []string) error {
 		if status >= 400 {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
+
+		var resp struct {
+			Result struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
+			var envData struct {
+				Keys  []string `json:"keys"`
+				Count int      `json:"count"`
+			}
+			if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &envData); err == nil {
+				fmt.Printf("=== %s Environment Variables (%d)\n", appID, envData.Count)
+				if len(envData.Keys) == 0 {
+					fmt.Println("  (no environment variables set)")
+				} else {
+					for _, k := range envData.Keys {
+						fmt.Printf("  • %s\n", k)
+					}
+				}
+				return nil
+			}
+		}
 		fmt.Println(string(body))
 
 	case "set":
 		if len(envArgs) < 1 {
 			return fmt.Errorf("usage: nd env set [app_id] KEY=VALUE [KEY2=VALUE2 ...]")
 		}
-		// Merge all KEY=VALUE pairs into one env block
-		lines := make([]string, 0, len(envArgs))
+		vars := make(map[string]interface{}, len(envArgs))
 		for _, kv := range envArgs {
-			if !strings.Contains(kv, "=") {
+			idx := strings.Index(kv, "=")
+			if idx <= 0 {
 				return fmt.Errorf("invalid env format %q, expected KEY=VALUE", kv)
 			}
-			lines = append(lines, kv)
+			k := strings.TrimSpace(kv[:idx])
+			v := kv[idx+1:]
+			vars[k] = v
 		}
 		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 			"method": "tools/call",
 			"params": map[string]interface{}{
 				"name": "env_set",
 				"arguments": map[string]interface{}{
-					"app_id": appID,
-					"env":    strings.Join(lines, "\n"),
-					"merge":  true,
+					"app_id":    appID,
+					"variables": vars,
 				},
 			},
 		})
@@ -585,8 +1187,20 @@ func RunEnv(cl *client.Client, args []string) error {
 		if status >= 400 {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
+		var setResp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &setResp); err == nil {
+			if setResp.Result.IsError && len(setResp.Result.Content) > 0 {
+				return fmt.Errorf("%s", setResp.Result.Content[0].Text)
+			}
+		}
 		fmt.Println("✓ Environment updated.")
-		_ = body
 
 	default:
 		return fmt.Errorf("unknown env subcommand: %s (use list or set)", sub)
@@ -636,29 +1250,43 @@ func RunRestart(cl *client.Client, args []string) error {
 
 // PrintHelp prints the CLI usage.
 func PrintHelp() {
-	fmt.Fprintf(os.Stderr, `nd — NextDeploy CLI
+	fmt.Fprintf(os.Stderr, `nd — NextDeploy CLI (PaaS Management)
 
-Usage:
+Authentication & Session:
   nd login <server_url> [token]      Authenticate with an API token
-  nd logout                          Remove saved credentials
-  nd whoami                          Show authenticated server and session status
+  nd logout                          Remove saved credentials and disconnect session
+  nd whoami                          Show authenticated server, user, and session status
 
+App Management:
   nd apps                            List all applications
+  nd create <name>                   Create and link a new application
+  nd delete [app_id]                 Delete an application (requires confirmation)
   nd link <app_id>                   Link current directory to an app (.nd/project.json)
   nd unlink                          Remove link from current directory
-  nd status [app_id]                 Show app status and containers
-  nd push [app_id] [dir]             Sync local files and deploy
+  nd info [app_id]                   Show app details, domains, health, and status (alias: nd status)
+  nd open [app_id]                   Open app domain or panel URL in browser
+
+Process & Container Inspection:
+  nd ps [app_id]                     Show containers, services, state, status, and images
+  nd containers [-a]                 List all Docker containers on the host VPS
+  nd images                          List Docker images on the host VPS
+
+Deployments & Lifecycle:
+  nd push [app_id] [dir]             Sync local files and trigger deployment
   nd deploy [app_id]                 Redeploy without file sync
-  nd stop [app_id]                   Stop an app
-  nd restart [app_id]                Restart an app
+  nd stop [app_id]                   Stop application containers
+  nd restart [app_id]                Restart application containers
   nd logs [app_id] [-n lines]        Show recent container logs (default: 100 lines)
 
+Execution & Command Run:
   nd exec [flags] [app_id] <cmd...>  Run command inside app container (alias: nd run)
   nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
 
-  nd env list [app_id]               Show environment variables
-  nd env set [app_id] KEY=VALUE ...  Set environment variables
+Environment Variables:
+  nd env list [app_id]               List configured environment variable keys
+  nd env set [app_id] KEY=VALUE ...  Set or update environment variables
 
+Other:
   nd version                         Print version
   nd help                            Print this help
 
@@ -673,3 +1301,4 @@ Environment variables:
   ND_TOKEN                           API token fallback
 `)
 }
+

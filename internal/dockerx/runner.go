@@ -25,6 +25,7 @@ type ComposePsRow struct {
 	Service string `json:"Service"`
 	State   string `json:"State"`
 	Status  string `json:"Status"`
+	Image   string `json:"Image,omitempty"`
 	// WorkingDir is com.docker.compose.project.working_dir (SDK path only; empty from CLI fallback).
 	WorkingDir string `json:"-"`
 }
@@ -180,6 +181,7 @@ func ComposePS(ctx context.Context, projectDir string, composeFiles []string, pr
 					Service:    sr.Service,
 					State:      sr.State,
 					Status:     sr.Status,
+					Image:      sr.Image,
 					WorkingDir: sr.WorkingDir,
 				})
 			}

@@ -83,7 +83,7 @@ func (c *Client) DoRaw(method, path string, contentType string, body io.Reader) 
 	return data, resp.StatusCode, nil
 }
 
-// Heartbeat sends a CLI session heartbeat to the server.
+// Heartbeat sends a CLI session heartbeat to the server asynchronously.
 func (c *Client) Heartbeat(hostname, osStr, arch, version string) {
 	if c.sessID == "" {
 		return
@@ -99,6 +99,22 @@ func (c *Client) Heartbeat(hostname, osStr, arch, version string) {
 	go func() {
 		_, _, _ = c.Do("POST", "/api/v1/cli/sessions", payload)
 	}()
+}
+
+// HeartbeatSync sends a CLI session heartbeat synchronously (e.g. during login).
+func (c *Client) HeartbeatSync(hostname, osStr, arch, version string) error {
+	if c.sessID == "" {
+		return nil
+	}
+	payload := map[string]string{
+		"id":       c.sessID,
+		"hostname": hostname,
+		"os":       osStr,
+		"arch":     arch,
+		"version":  version,
+	}
+	_, _, err := c.Do("POST", "/api/v1/cli/sessions", payload)
+	return err
 }
 
 // Disconnect removes the CLI session from the server.

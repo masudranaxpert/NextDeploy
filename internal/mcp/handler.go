@@ -75,6 +75,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleAppGet(ctx, u, params.Arguments)
 	case "app_create":
 		return h.handleAppCreate(ctx, u, params.Arguments)
+	case "app_delete":
+		return h.handleAppDelete(ctx, u, params.Arguments)
 	case "workspace_manifest":
 		return h.handleWorkspaceManifest(ctx, u, params.Arguments)
 	case "workspace_apply":
@@ -312,6 +314,39 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 		"name":        slug,
 		"source_type": sourceType,
 		"message":     fmt.Sprintf("Application %q successfully created with ID %q", slug, id),
+	})
+}
+
+func (h *Handler) handleAppDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.p.DB.GetApp(ctx, appID)
+	if err != nil {
+		return errorResult(fmt.Errorf("app not found: %w", err))
+	}
+	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
+		return errorResult(errors.New("permission denied: only app owner or admin can delete this app"))
+	}
+	delCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	if err := h.p.DeleteAppResources(delCtx, appID); err != nil {
+		return errorResult(err)
+	}
+	go func() {
+		auditCtx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_delete_app",
+			TargetType: "app",
+			TargetID:   appID,
+			Details:    fmt.Sprintf("Deleted app %s (%s) via MCP", app.Name, appID),
+			CreatedAt:  time.Now(),
+		})
+	}()
+	return jsonResult(map[string]interface{}{
+		"ok":      true,
+		"message": fmt.Sprintf("Application %q (%s) permanently deleted", app.Name, appID),
 	})
 }
 

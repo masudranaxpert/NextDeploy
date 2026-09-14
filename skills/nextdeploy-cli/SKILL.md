@@ -133,21 +133,28 @@ Once linked, all commands (`nd push`, `nd logs`, `nd status`, `nd deploy`, `nd r
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `login` | `nd login <url>` | Authenticate and save token to `~/.nd/config.json` |
-| `logout` | `nd logout` | Disconnect session and remove credentials |
-| `whoami` | `nd whoami` | Show active server, device, token preview, and linked app |
+| `login` | `nd login <url>` | Authenticate and register device session in `~/.nd/config.json` |
+| `logout` | `nd logout` | Disconnect device session and remove credentials |
+| `whoami` | `nd whoami` | Show active server, device ID, token preview, and linked app |
 | `apps` | `nd apps` | List all applications accessible by the current token |
+| `create` | `nd create <name>` | Provision a new application and link current directory |
+| `delete` | `nd delete [app_id]` | Delete an application (requires confirmation) |
+| `info` | `nd info [app_id]` | View app details, domains, container states, and health checks |
+| `open` | `nd open [app_id]` | Open app domain or panel URL in default browser |
+| `ps` | `nd ps [app_id]` | Show container services, states, status, and Docker images |
+| `containers` | `nd containers [-a]` | List all Docker containers on the host VPS |
+| `images` | `nd images` | List all Docker images on the host VPS |
 | `link` | `nd link [app_id]` | Bind local repository to an application |
 | `unlink` | `nd unlink` | Unbind local repository |
 | `push` | `nd push [app_id] [dir]` | Incrementally diff local files, upload archive, and deploy |
-| `status` | `nd status [app_id]` | View container health, status, ports, and metadata |
+| `status` | `nd status [app_id]` | View container health, status, ports, and metadata (alias: `nd info`) |
 | `deploy` | `nd deploy [app_id]` | Trigger remote container redeployment without file sync |
 | `stop` | `nd stop [app_id]` | Stop container stack |
 | `restart` | `nd restart [app_id]` | Restart container stack |
 | `logs` | `nd logs [app_id] [-n lines]` | Stream container stdout/stderr (default: 100 lines) |
 | `exec` / `run` | `nd exec [app_id] <cmd...>` | Heroku-style shell execution inside application container |
 | `server-exec` | `nd server-exec <cmd...>` | Run arbitrary shell command on host VPS (requires `allow_server_exec`) |
-| `env list`| `nd env list [app_id]` | Display environment variables |
+| `env list`| `nd env list [app_id]` | Display configured environment variable keys |
 | `env set` | `nd env set [app_id] K=V` | Set or update one or multiple environment variables |
 | `version` | `nd version` | Print CLI version, target OS, and architecture |
 | `help` | `nd help` | Display command usage and examples |
@@ -187,11 +194,9 @@ Once the files are extracted, `nd push` automatically initiates deployment and r
 
 To provide complete visibility into connected developer machines and AI agents, `nd` features active session tracking:
 
-1. **Session Registration**: On every authenticated command, `nd` generates a random session identifier and registers hostname, OS, CPU architecture, and CLI version.
-2. **Heartbeat Loop**: Long-running commands (e.g. streaming logs or complex builds) send a heartbeat ping every 2 minutes.
-3. **Graceful Disconnect**: When the command finishes or the developer hits `Ctrl+C`, the process intercepts `SIGINT` and cleanly disconnects the session.
-4. **Auto-Pruning**: The server automatically expires sessions inactive for more than 5 minutes.
-5. **Dashboard Management**: Administrators and developers can view, monitor, and revoke connected devices in real time under **Developer & AI → CLI Sessions** (`/cli-sessions`).
+1. **Persistent Device Identity**: Every client machine maintains a persistent unique Device ID (`nd_<hostname>_<uuid>`). When you run `nd login`, `nd whoami`, or any command, the device registers with hostname, OS, CPU architecture, and CLI version.
+2. **Heartbeat & Activity**: Every command updates the device's Last Seen timestamp. In the CLI Sessions dashboard (`/cli-sessions`), devices active within 5 minutes display a live green indicator, while previously connected machines remain visible for up to 7 days until explicitly disconnected.
+3. **Explicit Revocation / Logout**: Running `nd logout` unregisters the device, or an admin can revoke it directly from the web panel (**Developer & AI → CLI Sessions**).
 
 ---
 

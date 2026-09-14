@@ -127,16 +127,36 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(400).SendString("Type the app name exactly in the confirmation field to delete this app.")
 	}
-	dir := p.AppSourcePath(c.UserContext(), id)
-	cp := p.ComposeFilePath(c.UserContext(), app, id)
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
+
+	if err := p.DeleteAppResources(ctx, id); err != nil {
+		if htmx {
+			c.Set("Content-Type", "text/html; charset=utf-8")
+			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
+		}
+		return c.Status(500).SendString(err.Error())
+	}
+	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	if htmx {
+		c.Set("HX-Redirect", "/apps")
+		return c.SendStatus(fiber.StatusOK)
+	}
+	return c.Redirect("/apps")
+}
+
+// DeleteAppResources cleans up all docker containers, images, volumes, workspace, and DB record for an app.
+func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
+	app, err := p.DB.GetApp(ctx, id)
+	if err != nil {
+		return fmt.Errorf("app not found: %w", err)
+	}
+	dir := p.AppSourcePath(ctx, id)
+	cp := p.ComposeFilePath(ctx, app, id)
 	candidates := p.ComposeProjectCandidates(ctx, app, id)
 	paths := p.EffectiveComposePaths(ctx, app, id)
 	envFiles := p.ComposeEnvFiles(ctx, id)
-	// Legacy slug-based project names can be shared with another user's same-named app.
-	// Only clean up a candidate when its running stack belongs to this app's workspace, or
-	// when no other app could claim the name.
+
 	safeCandidates := make([]string, 0, len(candidates))
 	for _, project := range candidates {
 		rows, res := dockerx.ComposePS(ctx, dir, paths, project, envFiles)
@@ -151,12 +171,12 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 	}
 	candidates = safeCandidates
+
 	var cleanupErrs []string
 	composeAvailable := false
 	if _, err := os.Stat(cp); err == nil {
 		composeAvailable = true
 	} else if len(paths) > 0 {
-		// Dockerfile-only apps only have the generated merged compose.
 		if _, err := os.Stat(paths[0]); err == nil {
 			composeAvailable = true
 		}
@@ -186,36 +206,27 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 	if msg := volumex.RemoveMatching(ctx, p.AppVolumeQuery(ctx, app, allProjects)); msg != "" {
 		cleanupErrs = append(cleanupErrs, msg)
 	}
-	if len(cleanupErrs) > 0 {
-		msg := strings.Join(cleanupErrs, "\n")
-		if htmx {
-			c.Set("Content-Type", "text/html; charset=utf-8")
-			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(msg))
+	var realCleanupErrs []string
+	for _, e := range cleanupErrs {
+		low := strings.ToLower(e)
+		if strings.Contains(low, "docker daemon is not running") ||
+			strings.Contains(low, "cannot find the file specified") ||
+			strings.Contains(low, "connection refused") ||
+			strings.Contains(low, "is the docker daemon running") {
+			continue
 		}
-		return c.Status(500).SendString(msg)
+		realCleanupErrs = append(realCleanupErrs, e)
+	}
+	if len(realCleanupErrs) > 0 {
+		return errors.New(strings.Join(realCleanupErrs, "\n"))
 	}
 	p.RemoveDeployRun(id)
-	if err := p.DB.DeleteApp(c.UserContext(), id); err != nil {
-		if htmx {
-			c.Set("Content-Type", "text/html; charset=utf-8")
-			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
-		}
-		return c.Status(500).SendString(err.Error())
+	if err := p.DB.DeleteApp(ctx, id); err != nil {
+		return err
 	}
-	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
 	p.InvalidateAfterAppDeployChange(id)
-	if err := os.RemoveAll(dir); err != nil {
-		if htmx {
-			c.Set("Content-Type", "text/html; charset=utf-8")
-			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
-		}
-		return c.Status(500).SendString(err.Error())
-	}
-	if htmx {
-		c.Set("HX-Redirect", "/apps")
-		return c.SendStatus(fiber.StatusOK)
-	}
-	return c.Redirect("/apps")
+	_ = os.RemoveAll(dir)
+	return nil
 }
 
 func (p *Panel) UploadZip(c *fiber.Ctx) error {

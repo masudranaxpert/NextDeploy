@@ -173,6 +173,8 @@ func main() {
 
 	// CLI REST API — apps, manifest, sessions
 	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
+	app.Delete("/api/v1/apps/:id", p.APIAuthMiddleware, p.APIAppDelete)
+	app.Post("/api/v1/apps/:id/delete", p.APIAuthMiddleware, p.APIAppDelete)
 	app.Get("/api/v1/apps/:id/manifest", p.APIAuthMiddleware, p.APIManifest)
 	app.Post("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliHeartbeat)
 	app.Delete("/api/v1/cli/sessions/:id", p.APIAuthMiddleware, p.APICliSessionDelete)

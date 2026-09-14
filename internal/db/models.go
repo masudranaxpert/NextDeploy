@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -356,4 +357,24 @@ type CLISession struct {
 	Version   string
 	LastSeen  time.Time
 	CreatedAt time.Time
+}
+
+// IsActive returns true if the session sent a heartbeat within the last 5 minutes.
+func (s CLISession) IsActive() bool {
+	return time.Since(s.LastSeen) < 5*time.Minute
+}
+
+// LastSeenHuman returns a friendly relative timestamp.
+func (s CLISession) LastSeenHuman() string {
+	d := time.Since(s.LastSeen)
+	if d < 0 || d < time.Minute {
+		return "Just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return s.LastSeen.Format("Jan 2, 15:04")
 }

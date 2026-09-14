@@ -24,6 +24,7 @@ func main() {
 }
 
 func run() int {
+	cmd.Version = version
 	args := os.Args[1:]
 	if len(args) == 0 {
 		cmd.PrintHelp()
@@ -62,24 +63,23 @@ func run() int {
 		return 1
 	}
 
-	// Generate a stable session ID for this process lifetime
-	sessID := processSessionID()
+	// Ensure persistent device session ID
+	sessID := cfg.EnsureDeviceID()
+	if cfg.DeviceID != "" {
+		_ = config.Save(cfg)
+	}
 	cl := client.New(cfg, sessID)
 
-	// Register/refresh CLI session and start heartbeat goroutine
+	// Register/refresh CLI session heartbeat for this device
 	hostname, _ := os.Hostname()
 	cl.Heartbeat(hostname, runtime.GOOS, runtime.GOARCH, version)
 	go heartbeatLoop(cl, hostname, version)
-
-	// Disconnect cleanly on exit
-	defer cl.Disconnect()
 
 	// Handle graceful termination on Ctrl+C (SIGINT)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	go func() {
 		<-sigChan
-		cl.Disconnect()
 		os.Exit(130)
 	}()
 
@@ -88,12 +88,24 @@ func run() int {
 		err = cmd.RunWhoami(cl, cfg)
 	case "apps", "list":
 		err = cmd.RunApps(cl, rest)
+	case "create", "new":
+		err = cmd.RunCreate(cl, rest)
+	case "delete", "destroy", "rm":
+		err = cmd.RunDelete(cl, rest)
+	case "ps", "processes":
+		err = cmd.RunPS(cl, rest)
+	case "containers":
+		err = cmd.RunContainers(cl, rest)
+	case "images":
+		err = cmd.RunImages(cl, rest)
+	case "info", "status":
+		err = cmd.RunStatus(cl, rest)
+	case "open":
+		err = cmd.RunOpen(cl, rest)
 	case "link":
 		err = cmd.RunLink(cl, rest)
 	case "unlink":
 		err = cmd.RunUnlink(cl, rest)
-	case "status":
-		err = cmd.RunStatus(cl, rest)
 	case "push":
 		err = cmd.RunPush(cl, rest)
 	case "deploy":

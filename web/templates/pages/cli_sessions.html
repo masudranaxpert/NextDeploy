@@ -139,6 +139,7 @@
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Version</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last Seen</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border">
@@ -158,8 +159,9 @@
             <td class="px-4 py-3">
               <span class="inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-400 ring-1 ring-violet-500/20">v{{.Version}}</span>
             </td>
-            <td class="px-4 py-3 text-xs text-muted-foreground" title="{{.LastSeen}}">{{.LastSeen.Format "Jan 2, 15:04:05"}}</td>
+            <td class="px-4 py-3 text-xs text-muted-foreground" title="{{.LastSeen}}">{{.LastSeenHuman}}</td>
             <td class="px-4 py-3">
+              {{if .IsActive}}
               <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
                 <span class="relative flex h-2 w-2">
                   <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
@@ -167,6 +169,22 @@
                 </span>
                 Active
               </span>
+              {{else}}
+              <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/80">
+                <span class="h-2 w-2 rounded-full bg-muted-foreground/40"></span>
+                Idle
+              </span>
+              {{end}}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <button type="button" 
+                      hx-delete="/api/v1/cli/sessions/{{.ID}}" 
+                      hx-confirm="Disconnect device {{.Hostname}}?"
+                      hx-target="closest tr"
+                      hx-swap="outerHTML"
+                      class="btn-secondary inline-flex items-center h-7 px-2.5 text-[11px] text-rose-400 hover:text-rose-300 hover:border-rose-500/30 transition-colors">
+                Disconnect
+              </button>
             </td>
           </tr>
           {{end}}

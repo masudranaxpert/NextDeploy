@@ -46,6 +46,7 @@ func buildComposeContainerIndex(containers []dockerapi.ComposeContainerRow) comp
 			Name:       c.Name,
 			State:      c.State,
 			Status:     c.Status,
+			Image:      c.Image,
 			WorkingDir: c.WorkingDir,
 		})
 	}
