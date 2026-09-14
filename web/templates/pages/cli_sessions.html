@@ -1,5 +1,35 @@
-{{/* CLI Sessions dashboard — shows active nd CLI connections. Layout: layouts/shell. */}}
-<div class="space-y-6">
+{{/* CLI Sessions dashboard — shows active nd CLI connections & API tokens. Layout: layouts/shell. */}}
+<div class="space-y-6" x-data="{ 
+  installModal: false, 
+  tokenModal: false,
+  copiedId: '',
+  copyText(text, id) {
+    const flash = () => {
+      this.copiedId = id;
+      setTimeout(() => { if (this.copiedId === id) this.copiedId = ''; }, 2200);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(flash).catch(() => this.fallbackCopy(text, flash));
+    } else {
+      this.fallbackCopy(text, flash);
+    }
+  },
+  fallbackCopy(text, cb) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    try {
+      if (document.execCommand('copy')) cb();
+    } catch (e) {}
+    document.body.removeChild(ta);
+  }
+}">
 
   <!-- Page header -->
   <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -12,12 +42,29 @@
         </div>
         <div class="min-w-0">
           <h1 class="page-title">CLI Sessions</h1>
-          <p class="page-subtitle">Active <code class="rounded bg-muted px-1 text-xs">nd</code> CLI connections — auto-expires after 5 min of inactivity</p>
+          <p class="page-subtitle">Manage connected devices and generate tokens for <code class="rounded bg-muted px-1 text-xs">nd</code> CLI</p>
         </div>
       </div>
     </div>
-    <div class="flex gap-2">
-      <a class="btn-secondary flex h-10 items-center gap-2 px-4 text-xs" href="/cli-sessions">
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- Install CLI button (opens modal) -->
+      <button type="button" @click="installModal = true" class="btn-secondary flex h-9 items-center gap-1.5 px-3.5 text-xs font-medium">
+        <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.25V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+        </svg>
+        Install nd
+      </button>
+
+      <!-- Generate Token button (opens modal) -->
+      <button type="button" @click="tokenModal = true" class="btn btn-primary flex h-9 items-center gap-1.5 px-3.5 text-xs font-semibold">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Generate CLI Token
+      </button>
+
+      <!-- Manual Refresh button -->
+      <a class="btn-secondary flex h-9 items-center gap-1.5 px-3 text-xs" href="/cli-sessions">
         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
         </svg>
@@ -26,27 +73,62 @@
     </div>
   </div>
 
-  <!-- Install instructions card -->
-  <div class="panel-card p-5">
-    <p class="mb-3 text-sm font-semibold text-foreground">Install <code class="rounded bg-muted px-1.5 py-0.5 text-xs">nd</code></p>
-    <div class="space-y-2 text-xs text-muted-foreground">
-      <p class="font-medium text-foreground/70">Linux / macOS</p>
-      <pre class="overflow-x-auto rounded-lg bg-muted/60 px-4 py-3 font-mono text-[11px] leading-relaxed">curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh</pre>
-      <p class="mt-3 font-medium text-foreground/70">Windows (PowerShell)</p>
-      <pre class="overflow-x-auto rounded-lg bg-muted/60 px-4 py-3 font-mono text-[11px] leading-relaxed">irm https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.ps1 | iex</pre>
+  {{if .NewToken}}
+  <!-- Newly Generated Token Banner -->
+  <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 ring-1 ring-emerald-500/20">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex items-start gap-3">
+        <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-emerald-300">New Token Generated: {{.NewTokenName}}</h3>
+          <p class="mt-0.5 text-xs text-emerald-400/80">Run this command in your local terminal to authenticate immediately:</p>
+        </div>
+      </div>
+      <a href="/cli-sessions" class="rounded-lg p-1 text-emerald-400/60 hover:text-emerald-300 transition-colors" title="Dismiss">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </a>
     </div>
-    <div class="mt-4 border-t border-border pt-4 text-xs text-muted-foreground">
-      <p class="mb-2 font-medium text-foreground/70">Quick start</p>
-      <pre class="overflow-x-auto rounded-lg bg-muted/60 px-4 py-3 font-mono text-[11px] leading-relaxed">nd login https://your-panel-url   # authenticate with API token
-nd apps                           # list apps
-nd push &lt;app_id&gt;                 # sync local files → deploy
-nd logs &lt;app_id&gt;                  # stream logs
-nd env set &lt;app_id&gt; KEY=VALUE     # set environment variable</pre>
+
+    <!-- Ready to copy login command -->
+    <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div class="flex-1 overflow-x-auto rounded-xl bg-black/40 px-4 py-2.5 font-mono text-xs text-emerald-200 ring-1 ring-emerald-500/20">
+        <code>nd login {{.BaseURL}} {{.NewToken}}</code>
+      </div>
+      <button type="button" 
+              @click="copyText('nd login {{.BaseURL}} {{.NewToken}}', 'login_cmd')" 
+              class="btn bg-emerald-500 hover:bg-emerald-600 text-black font-semibold h-9 shrink-0 text-xs px-4 rounded-xl">
+        <span x-show="copiedId !== 'login_cmd'">Copy Login Command</span>
+        <span x-show="copiedId === 'login_cmd'" class="font-bold inline-flex items-center gap-1" x-cloak>✓ Copied!</span>
+      </button>
+    </div>
+
+    <div class="mt-3 flex items-center gap-2 text-[11px] text-emerald-400/70">
+      <span>Raw Token:</span>
+      <code class="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[11px] text-emerald-300 select-all">{{.NewToken}}</code>
+      <button type="button" @click="copyText('{{.NewToken}}', 'raw_token')" class="underline hover:text-emerald-200">
+        <span x-show="copiedId !== 'raw_token'">Copy token</span>
+        <span x-show="copiedId === 'raw_token'" x-cloak>✓ Copied</span>
+      </button>
     </div>
   </div>
+  {{end}}
 
-  <!-- Sessions table -->
+  <!-- Active Sessions section -->
   <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/60 px-5 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Active CLI Connections</h2>
+        <p class="text-xs text-muted-foreground">Devices currently running <code class="rounded bg-muted px-1 text-xs">nd</code> commands</p>
+      </div>
+      <span class="rounded-full bg-violet-500/10 px-2.5 py-0.5 text-xs font-medium text-violet-400 ring-1 ring-violet-500/20">
+        {{len .Sessions}} Active
+      </span>
+    </div>
+
     {{if .Sessions}}
     <div class="table-wrap border-0 rounded-none">
       <table class="min-w-full divide-y divide-border text-sm">
@@ -100,18 +182,201 @@ nd env set &lt;app_id&gt; KEY=VALUE     # set environment variable</pre>
       </div>
       <div>
         <p class="font-medium text-foreground">No active CLI sessions</p>
-        <p class="mt-1 text-sm text-muted-foreground">Run <code class="rounded bg-muted px-1 text-xs">nd login</code> on your machine to connect</p>
+        <p class="mt-1 text-sm text-muted-foreground">Click <strong class="text-foreground">Install nd</strong> or <strong class="text-foreground">Generate CLI Token</strong> above to connect your machine</p>
       </div>
     </div>
     {{end}}
   </div>
 
-  <script>
-    // Refresh sessions table every 10 seconds if tab is active
-    setInterval(function() {
-      if (!document.hidden) {
-        window.location.reload();
-      }
-    }, 10000);
-  </script>
+  <!-- API Tokens Section -->
+  <div class="panel-card overflow-hidden">
+    <div class="border-b border-border/60 px-5 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-foreground">Authorized API Tokens</h2>
+        <p class="text-xs text-muted-foreground">Tokens usable with <code class="rounded bg-muted px-1 text-xs">nd login</code> and MCP assistants</p>
+      </div>
+      <button type="button" @click="tokenModal = true" class="btn-secondary flex h-8 items-center gap-1.5 px-3 text-xs">
+        + New Token
+      </button>
+    </div>
+
+    {{if .Tokens}}
+    <div class="table-wrap border-0 rounded-none">
+      <table class="min-w-full divide-y divide-border text-sm">
+        <thead class="bg-muted/30">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Token Name</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Prefix</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Created</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+          {{range .Tokens}}
+          <tr class="hover:bg-muted/20 transition-colors">
+            <td class="px-4 py-3 font-medium text-foreground text-xs">{{.Name}}</td>
+            <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.TokenPrefix}}</td>
+            <td class="px-4 py-3 text-xs text-muted-foreground">{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+            <td class="px-4 py-3 text-right">
+              <form method="post" action="/cli-sessions/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this token immediately?')">
+                <button type="submit" class="text-xs text-destructive hover:underline">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="p-6 text-center text-xs text-muted-foreground">
+      <p>No API tokens generated yet.</p>
+      <button type="button" @click="tokenModal = true" class="mt-2 text-primary hover:underline font-medium">Generate your first token</button>
+    </div>
+    {{end}}
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <!-- MODAL 1: Install nd Instructions                                         -->
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <div x-show="installModal" x-cloak class="modal-overlay !m-0" @keydown.escape.window="installModal = false">
+    <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="installModal = false" aria-hidden="true"></div>
+    <div class="relative z-10 w-full max-w-xl rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden"
+         @click.stop
+         x-data="{ tab: 'linux' }"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95 translate-y-2"
+         x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+         x-transition:leave-end="opacity-0 scale-95 translate-y-2">
+
+      <div class="mb-5 flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400 ring-1 ring-violet-500/20">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.25V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-foreground">Install NextDeploy CLI (`nd`)</h2>
+            <p class="text-xs text-muted-foreground">Standalone binary with zero external dependencies</p>
+          </div>
+        </div>
+        <button type="button" @click="installModal = false" class="rounded-xl p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- OS Tabs -->
+      <div class="flex gap-2 border-b border-border pb-3 text-xs font-medium">
+        <button type="button" @click="tab = 'linux'" :class="tab === 'linux' ? 'bg-primary/10 text-primary ring-1 ring-primary/20' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-3 py-1.5 transition-all">
+          Linux / macOS
+        </button>
+        <button type="button" @click="tab = 'windows'" :class="tab === 'windows' ? 'bg-primary/10 text-primary ring-1 ring-primary/20' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-3 py-1.5 transition-all">
+          Windows (PowerShell)
+        </button>
+      </div>
+
+      <!-- Linux / macOS content -->
+      <div x-show="tab === 'linux'" class="mt-4 space-y-4 text-xs">
+        <div>
+          <p class="font-medium text-foreground mb-1.5">Run in your terminal:</p>
+          <div class="relative flex items-center rounded-xl bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
+            <code class="flex-1 overflow-x-auto text-foreground select-all">curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh</code>
+            <button type="button" @click="copyText('curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh', 'sh_cmd')" class="ml-2 btn-secondary px-2.5 py-1 text-[11px] shrink-0">
+              <span x-show="copiedId !== 'sh_cmd'">Copy</span>
+              <span x-show="copiedId === 'sh_cmd'" x-cloak>✓</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Windows content -->
+      <div x-show="tab === 'windows'" class="mt-4 space-y-4 text-xs" x-cloak>
+        <div>
+          <p class="font-medium text-foreground mb-1.5">Run in PowerShell:</p>
+          <div class="relative flex items-center rounded-xl bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
+            <code class="flex-1 overflow-x-auto text-foreground select-all">irm https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.ps1 | iex</code>
+            <button type="button" @click="copyText('irm https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.ps1 | iex', 'ps_cmd')" class="ml-2 btn-secondary px-2.5 py-1 text-[11px] shrink-0">
+              <span x-show="copiedId !== 'ps_cmd'">Copy</span>
+              <span x-show="copiedId === 'ps_cmd'" x-cloak>✓</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Start Snippet -->
+      <div class="mt-5 border-t border-border pt-4 text-xs space-y-2">
+        <p class="font-medium text-foreground/80">Quick Start Commands:</p>
+        <pre class="overflow-x-auto rounded-xl bg-muted/60 p-3.5 font-mono text-[11px] leading-relaxed text-muted-foreground">nd login {{.BaseURL}} &lt;token&gt;  # login directly with token
+nd apps                           # list accessible apps
+nd link &lt;app_id&gt;                  # link project folder
+nd push                           # diff local files &amp; deploy
+nd logs                           # stream container logs</pre>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button type="button" @click="installModal = false" class="btn-secondary px-4 py-2 text-xs">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <!-- MODAL 2: Generate New API Token                                          -->
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tokenModal" x-cloak class="modal-overlay !m-0" @keydown.escape.window="tokenModal = false">
+    <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
+    <div class="relative z-10 w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden"
+         @click.stop
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95 translate-y-2"
+         x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+         x-transition:leave-end="opacity-0 scale-95 translate-y-2">
+
+      <div class="mb-5 flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-foreground">Generate CLI Token</h2>
+            <p class="text-xs text-muted-foreground">Authorize your local machine or terminal session</p>
+          </div>
+        </div>
+        <button type="button" @click="tokenModal = false" class="rounded-xl p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form method="post" action="/cli-sessions/tokens" class="space-y-4">
+        <div>
+          <label for="cli_token_name" class="block text-xs font-semibold text-muted-foreground mb-1.5">Device or Client Name</label>
+          <input type="text" 
+                 id="cli_token_name" 
+                 name="name" 
+                 required 
+                 placeholder="e.g. Work Laptop, ASUS Windows, Cursor CLI" 
+                 class="input w-full text-sm h-10 px-3.5 rounded-xl"
+                 autofocus>
+        </div>
+
+        <div class="rounded-xl bg-muted/40 p-3.5 text-xs text-muted-foreground space-y-1">
+          <p class="font-medium text-foreground">Permissions Included:</p>
+          <p>✓ Application Discovery &amp; Status</p>
+          <p>✓ Differential File Sync &amp; Deployment (`nd push`)</p>
+          <p>✓ Container Logs &amp; Environment Variables</p>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" @click="tokenModal = false" class="btn-secondary px-4 py-2 text-xs">Cancel</button>
+          <button type="submit" class="btn btn-primary px-4 py-2 text-xs font-semibold">Generate Token</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </div>

@@ -12,17 +12,26 @@ import (
 )
 
 // RunLogin handles: nd login <server_url>
-// Prompts for API token, validates, saves to ~/.nd/config.json
+// Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
 func RunLogin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nd login <server_url>")
+		return fmt.Errorf("usage: nd login <server_url> [token]")
 	}
 	serverURL := strings.TrimRight(args[0], "/")
 
-	fmt.Print("API Token (from Settings → Tokens): ")
 	var token string
-	if _, err := fmt.Scanln(&token); err != nil {
-		return fmt.Errorf("failed to read token: %w", err)
+	if len(args) >= 2 {
+		token = strings.TrimSpace(args[1])
+		if token == "--token" && len(args) >= 3 {
+			token = strings.TrimSpace(args[2])
+		}
+	}
+
+	if token == "" {
+		fmt.Print("API Token (generate in panel under Developer & AI -> CLI Sessions): ")
+		if _, err := fmt.Scanln(&token); err != nil {
+			return fmt.Errorf("failed to read token: %w", err)
+		}
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -388,7 +397,7 @@ func PrintHelp() {
 	fmt.Fprintf(os.Stderr, `nd — NextDeploy CLI
 
 Usage:
-  nd login <server_url>              Authenticate with an API token
+  nd login <server_url> [token]      Authenticate with an API token
   nd logout                          Remove saved credentials
   nd whoami                          Show authenticated server and session status
 

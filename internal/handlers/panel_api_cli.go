@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -111,13 +112,78 @@ func (p *Panel) APICliSessionsList(c *fiber.Ctx) error {
 // CLISessionsPage renders the CLI sessions dashboard page.
 // GET /cli-sessions
 func (p *Panel) CLISessionsPage(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, _ := currentUser(c)
+
 	sessions, err := p.DB.ListCLISessions()
 	if err != nil {
 		sessions = nil
 	}
+
+	var tokens []db.APIToken
+	if u.ID > 0 {
+		tokens, _ = p.DB.ListAPITokensForUser(ctx, u.ID)
+	}
+
+	proto := "http"
+	if c.Protocol() == "https" || c.Get("X-Forwarded-Proto") == "https" {
+		proto = "https"
+	}
+	baseURL := fmt.Sprintf("%s://%s", proto, c.Hostname())
+
 	return c.Render("pages/cli_sessions", withUser(c, fiber.Map{
-		"Nav":      "cli-sessions",
-		"Title":    "CLI Sessions",
-		"Sessions": sessions,
+		"Nav":          "cli-sessions",
+		"Title":        "CLI Sessions",
+		"Sessions":     sessions,
+		"Tokens":       tokens,
+		"NewToken":     c.Query("new_token"),
+		"NewTokenName": c.Query("token_name"),
+		"BaseURL":      baseURL,
 	}), "layouts/shell")
+}
+
+// CreateCLITokenPost generates a new API token for CLI usage directly from /cli-sessions.
+// POST /cli-sessions/tokens
+func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		name = "CLI Device Token"
+	}
+
+	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on" || u.Role == db.RoleAdmin
+	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on" || u.Role == db.RoleAdmin
+	allowContainerExec := true
+
+	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec, allowContainerExec)
+	if err != nil {
+		return c.Redirect("/cli-sessions?error=" + url.QueryEscape(err.Error()))
+	}
+
+	p.RecordAuditLog(c, "create_cli_token", "api_token", name, "Created API token from CLI Sessions page")
+	return c.Redirect(fmt.Sprintf("/cli-sessions?new_token=%s&token_name=%s", rawToken, url.QueryEscape(name)))
+}
+
+// DeleteCLITokenPost revokes an API token from /cli-sessions.
+// POST /cli-sessions/tokens/:id/delete
+func (p *Panel) DeleteCLITokenPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+
+	_ = p.DB.DeleteAPIToken(ctx, int64(id), u.ID)
+	p.RecordAuditLog(c, "delete_cli_token", "api_token", fmt.Sprintf("Token #%d", id), "Revoked API token from CLI Sessions page")
+	return c.Redirect("/cli-sessions")
 }
