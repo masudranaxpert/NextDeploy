@@ -171,7 +171,12 @@ func main() {
 	// External HTTP REST API endpoints for agent workspace uploads
 	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
 
-	// All other routes require authentication
+	// CLI REST API — manifest, sessions
+	app.Get("/api/v1/apps/:id/manifest", p.APIAuthMiddleware, p.APIManifest)
+	app.Post("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliHeartbeat)
+	app.Delete("/api/v1/cli/sessions/:id", p.APIAuthMiddleware, p.APICliSessionDelete)
+	app.Get("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliSessionsList)
+
 	app.Use(p.AuthMiddleware)
 	app.Use("/apps/:id", p.AppAccessMiddleware)
 	app.Use("/monitor", p.RequireAdminMiddleware)
@@ -229,6 +234,7 @@ func main() {
 	app.Post("/mcp-docs/tokens/:id/toggle-container-exec", mcpServer.ToggleAPITokenContainerExecPost)
 	app.Post("/mcp-docs/tokens/:id/toggle-exec", mcpServer.ToggleAPITokenServerExecPost)
 	app.Post("/mcp-docs/toggle-status", mcpServer.ToggleMCPStatusPost)
+	app.Get("/cli-sessions", p.RequireAdminMiddleware, p.CLISessionsPage)
 	app.Get("/apps", p.AppsPage)
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.

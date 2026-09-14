@@ -214,6 +214,65 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # 2. Build nd CLI binaries and attach to the GitHub Release
+  # ─────────────────────────────────────────────────────────────────────────────
+  nd-release:
+    name: Build nd CLI binaries
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: ""
+          - goos: linux
+            goarch: arm64
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: ".exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build nd (${{ matrix.goos }}/${{ matrix.goarch }})
+        working-directory: cmd/nd
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${{ github.ref_name }}"
+          OUT="nd-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "${OUT}" .
+          echo "Built ${OUT}"
+
+      - name: Upload nd binary to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: cmd/nd/nd-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # 2. Lightweight CI check on every push/PR to main (no image push)
   # ─────────────────────────────────────────────────────────────────────────────
   ci:

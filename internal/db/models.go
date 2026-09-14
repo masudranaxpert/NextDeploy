@@ -345,3 +345,15 @@ type AuditLog struct {
 	Details    string
 	CreatedAt  time.Time
 }
+
+// CLISession represents an active nd CLI connection.
+type CLISession struct {
+	ID        string
+	UserID    int64
+	Hostname  string
+	OS        string
+	Arch      string
+	Version   string
+	LastSeen  time.Time
+	CreatedAt time.Time
+}

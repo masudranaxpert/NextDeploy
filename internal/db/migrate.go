@@ -536,6 +536,25 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN allow_container_exec INTEGER NOT NULL DEFAULT 0`)
 	}
 
+	// cli_sessions: tracks active nd CLI devices; expires after 5 min of inactivity.
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS cli_sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  hostname TEXT NOT NULL DEFAULT '',
+  os TEXT NOT NULL DEFAULT '',
+  arch TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  last_seen TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_sessions_user ON cli_sessions(user_id);`); err != nil {
+		return err
+	}
+
 	return nil
 }
 
