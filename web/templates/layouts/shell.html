@@ -227,9 +227,6 @@
       });
       document.addEventListener('htmx:afterSwap', function (event) {
         var tgt = (event.detail && event.detail.target) || event.target;
-        if (window.Alpine && tgt) {
-          window.Alpine.initTree(tgt);
-        }
         initLogWrap(tgt || document);
         scrollDeployPreToBottom();
         if (tgt && (tgt.id === 'app-tab-panel' || tgt.id === 'term-pick-wrap' || tgt.id === 'log-pick-wrap')) {
