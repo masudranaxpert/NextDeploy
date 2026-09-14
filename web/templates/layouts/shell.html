@@ -314,7 +314,7 @@
       x-transition:leave="transition ease-in duration-150"
       x-transition:leave-start="translate-x-0"
       x-transition:leave-end="-translate-x-full"
-      class="fixed inset-y-0 left-0 z-50 flex w-[min(88vw,18rem)] flex-col border-r border-border bg-card/98 shadow-2xl backdrop-blur-xl supports-[padding:max(0px)]:pb-[max(0px,env(safe-area-inset-bottom))] md:hidden"
+      class="fixed inset-y-0 left-0 z-50 flex w-[min(88vw,18rem)] flex-col border-r border-border bg-card shadow-2xl supports-[padding:max(0px)]:pb-[max(0px,env(safe-area-inset-bottom))] md:hidden"
       id="mobile-drawer"
       aria-label="Main navigation">
       <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-3 supports-[padding:max(0px)]:pt-[max(0px,env(safe-area-inset-top))]">
@@ -364,7 +364,7 @@
     </aside>
 
     <!-- Desktop sidebar -->
-    <aside class="hidden w-64 shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-xl md:flex">
+    <aside class="hidden w-64 shrink-0 flex-col border-r border-border bg-card md:flex">
       <!-- Logo -->
       <div class="flex items-center gap-3 border-b border-border px-4 py-4">
         <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-white shadow-lg shadow-primary/25">
@@ -415,9 +415,9 @@
     <!-- Main content area -->
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- Mobile top bar -->
-      <header class="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-md supports-[padding:max(0px)]:pt-[max(0px,env(safe-area-inset-top))] md:hidden">
+      <header class="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background px-3 supports-[padding:max(0px)]:pt-[max(0px,env(safe-area-inset-top))] md:hidden">
         <button type="button"
-          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card/60 text-foreground shadow-sm hover:bg-muted/60 transition-colors"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm hover:bg-muted/60 transition-colors"
           @click="mobileNav = true"
           aria-label="Open menu"
           :aria-expanded="mobileNav ? 'true' : 'false'">
