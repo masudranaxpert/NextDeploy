@@ -12,7 +12,55 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// ─── Manifest ────────────────────────────────────────────────────────────────
+// ─── Apps & Manifest ────────────────────────────────────────────────────────
+
+// APIAppsList returns all applications accessible to the authenticated user.
+// GET /api/v1/apps
+func (p *Panel) APIAppsList(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	var apps []db.App
+	var err error
+	if u.Role == db.RoleAdmin {
+		apps, err = p.DB.ListApps(ctx)
+	} else {
+		apps, err = p.DB.ListAppsForUser(ctx, u.ID)
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	type appItem struct {
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		Status    string   `json:"status"`
+		CreatedAt string   `json:"created_at"`
+		Domains   []string `json:"domains"`
+		Services  []string `json:"services"`
+	}
+	out := make([]appItem, 0, len(apps))
+	for _, a := range apps {
+		domains, _ := p.DB.ListAppDomains(ctx, a.ID)
+		dNames := make([]string, 0, len(domains))
+		for _, d := range domains {
+			dNames = append(dNames, d.Domain)
+		}
+		svcs := p.LoadComposeServices(ctx, a.ID)
+		out = append(out, appItem{
+			ID:        a.ID,
+			Name:      a.Name,
+			Status:    a.Status,
+			CreatedAt: a.CreatedAt.Format(time.RFC3339),
+			Domains:   dNames,
+			Services:  svcs,
+		})
+	}
+	return c.JSON(out)
+}
 
 // APIManifest returns workspace file manifest for a given app.
 // GET /api/v1/apps/:id/manifest?hash=true&full_hash=false&include_locks=false&depth=0

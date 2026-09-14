@@ -171,7 +171,8 @@ func main() {
 	// External HTTP REST API endpoints for agent workspace uploads
 	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
 
-	// CLI REST API — manifest, sessions
+	// CLI REST API — apps, manifest, sessions
+	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
 	app.Get("/api/v1/apps/:id/manifest", p.APIAuthMiddleware, p.APIManifest)
 	app.Post("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliHeartbeat)
 	app.Delete("/api/v1/cli/sessions/:id", p.APIAuthMiddleware, p.APICliSessionDelete)

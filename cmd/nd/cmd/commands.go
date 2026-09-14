@@ -44,17 +44,10 @@ func RunLogin(args []string) error {
 	c := client.New(cfg, "")
 	body, status, err := c.Do("GET", "/api/v1/apps", nil)
 	if err != nil {
-		// Try MCP app_list as fallback — older servers may not have REST /api/v1/apps
-		body, status, err = c.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
-		})
-	}
-	if err != nil {
 		return fmt.Errorf("could not reach server: %w", err)
 	}
 	if status == 401 {
-		return fmt.Errorf("invalid token")
+		return fmt.Errorf("invalid token: authentication failed")
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error %d: %s", status, client.JSONError(body))

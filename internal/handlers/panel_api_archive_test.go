@@ -175,3 +175,76 @@ func TestUploadWorkspaceArchive(t *testing.T) {
 		t.Errorf("expected 400 Bad Request for path traversal attempt, got %d", travResp.StatusCode)
 	}
 }
+
+func TestAPIAppsList(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "apps_list_test_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	wsStore := workspace.NewStore(tmpDir)
+	p := &Panel{
+		DB:             store,
+		Store:          wsStore,
+		WorkspacesRoot: tmpDir,
+	}
+
+	ctx := context.Background()
+	adminID, err := store.CreateUser(ctx, "adminuser", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "cli-test-token", nil, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	appID := "my-cli-app"
+	if err := store.CreateApp(ctx, appID, "My CLI App", adminID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	app := fiber.New()
+	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
+
+	// 1. Unauthorized without token
+	reqUnauth := httptest.NewRequest("GET", "/api/v1/apps", nil)
+	respUnauth, err := app.Test(reqUnauth)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respUnauth.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized, got %d", respUnauth.StatusCode)
+	}
+
+	// 2. Authorized with valid token
+	reqAuth := httptest.NewRequest("GET", "/api/v1/apps", nil)
+	reqAuth.Header.Set("Authorization", "Bearer "+rawToken)
+	respAuth, err := app.Test(reqAuth)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respAuth.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", respAuth.StatusCode)
+	}
+
+	var apps []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	bodyBytes, _ := io.ReadAll(respAuth.Body)
+	if err := json.Unmarshal(bodyBytes, &apps); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if len(apps) != 1 || apps[0].ID != appID {
+		t.Errorf("expected 1 app with ID %q, got %+v", appID, apps)
+	}
+}
