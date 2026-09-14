@@ -24,6 +24,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
+	"panel/internal/handlers/utils"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
 )
@@ -71,6 +72,12 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleAppList(ctx, u)
 	case "app_get":
 		return h.handleAppGet(ctx, u, params.Arguments)
+	case "app_create":
+		return h.handleAppCreate(ctx, u, params.Arguments)
+	case "workspace_manifest":
+		return h.handleWorkspaceManifest(ctx, u, params.Arguments)
+	case "workspace_apply":
+		return h.handleWorkspaceApply(ctx, u, params.Arguments)
 	case "file_list":
 		return h.handleFileList(ctx, u, params.Arguments)
 	case "file_read":
@@ -85,6 +92,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleEnvReveal(ctx, u, params.Arguments)
 	case "env_set":
 		return h.handleEnvSet(ctx, u, params.Arguments)
+	case "env_set_batch":
+		return h.handleEnvSetBatch(ctx, u, params.Arguments)
 	case "compose_get":
 		return h.handleComposeGet(ctx, u, params.Arguments)
 	case "deploy":
@@ -187,16 +196,145 @@ func (h *Handler) handleAppGet(ctx context.Context, u db.User, args map[string]i
 	})
 }
 
-func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	rawName := getStringArg(args, "name")
+	slug, err := h.p.ValidateAppSlug(rawName)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	exists, err := h.p.DB.AppNameExistsForUser(ctx, slug, u.ID)
+	if err != nil {
+		return errorResult(err)
+	}
+	if exists {
+		return errorResult(fmt.Errorf("an app with the name %q already exists", slug))
+	}
+
+	if u.Role != db.RoleAdmin {
+		count, err := h.p.DB.CountAppsOwnedByUser(ctx, u.ID)
+		if err == nil && u.MaxApps > 0 && count >= u.MaxApps {
+			return errorResult(fmt.Errorf("maximum app limit reached (%d)", u.MaxApps))
+		}
+	}
+
+	var id string
+	for {
+		suffix := h.p.RandomAppSuffix()
+		id = fmt.Sprintf("%s-%s", slug, suffix)
+		if _, err := h.p.DB.GetApp(ctx, id); err != nil {
+			break
+		}
+	}
+
+	wsPath := h.p.Store.Path(id)
+	if err := os.MkdirAll(wsPath, 0750); err != nil {
+		return errorResult(fmt.Errorf("failed creating workspace: %w", err))
+	}
+	if err := h.p.Store.WriteMeta(id, slug); err != nil {
+		_ = os.RemoveAll(wsPath)
+		return errorResult(fmt.Errorf("failed writing meta: %w", err))
+	}
+	if err := h.p.DB.CreateApp(ctx, id, slug, u.ID); err != nil {
+		_ = os.RemoveAll(wsPath)
+		return errorResult(fmt.Errorf("failed creating app record: %w", err))
+	}
+
+	sourceType := strings.ToLower(strings.TrimSpace(getStringArg(args, "source_type")))
+	repoURL := strings.TrimSpace(getStringArg(args, "repo_url"))
+	branch := strings.TrimSpace(getStringArg(args, "branch"))
+	if branch == "" {
+		branch = "main"
+	}
+
+	if sourceType == "git" || sourceType == "github" || repoURL != "" {
+		_ = h.p.DB.SetAppSourceType(ctx, id, "git")
+		if repoURL != "" {
+			cfg := db.AppGitConfig{
+				AppID:         id,
+				Provider:      "git",
+				RepoURL:       utils.NormalizeRepoURL(repoURL),
+				RepoFullName:  utils.RepoFullNameFromURL(repoURL),
+				Branch:        utils.NormalizeBranch(branch),
+				AuthMode:      "public",
+				WebhookSecret: utils.RandomSecret(),
+				AutoDeploy:    true,
+			}
+			_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
+			_ = os.MkdirAll(filepath.Join(h.p.Store.ReservedPath(id), "repo"), 0750)
+		}
+	}
+
+	composeContent := getStringArg(args, "compose_content")
+	if strings.TrimSpace(composeContent) != "" {
+		if err := sandbox.CheckComposeSecurity([]byte(composeContent)); err != nil {
+			return errorResult(fmt.Errorf("initial compose security check failed: %w", err))
+		}
+		composePath := filepath.Join(wsPath, "docker-compose.yml")
+		_ = os.WriteFile(composePath, []byte(composeContent), 0640)
+		_ = h.p.SyncAppCaddyOverrideCtx(ctx, id)
+	}
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "mcp_create_app",
+			TargetType: "app",
+			TargetID:   id,
+			Details:    fmt.Sprintf("Created app %s (%s) via MCP", slug, id),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	return jsonResult(map[string]interface{}{
+		"app_id":      id,
+		"name":        slug,
+		"source_type": sourceType,
+		"message":     fmt.Sprintf("Application %q successfully created with ID %q", slug, id),
+	})
+}
+
+func (h *Handler) handleWorkspaceManifest(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
+	computeHash := true
+	if v, ok := args["hash"].(bool); ok {
+		computeHash = v
+	}
+	maxEntries := getIntArg(args, "max_entries", 5000)
+
+	var customExcludes []string
+	if rawEx, ok := args["exclude"].([]interface{}); ok {
+		for _, e := range rawEx {
+			if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+				customExcludes = append(customExcludes, strings.TrimSpace(s))
+			}
+		}
+	}
+
 	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
-	children, err := h.p.Store.ListChildren(appID, path)
+
+	wsRoot := h.p.Store.Path(appID)
+	res, err := BuildWorkspaceManifest(wsRoot, appID, path, computeHash, customExcludes, maxEntries)
 	if err != nil {
-		return errorResult(fmt.Errorf("file listing failed: %w", err))
+		return errorResult(fmt.Errorf("manifest generation failed: %w", err))
 	}
+	return jsonResult(res)
+}
+
+func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	path := getStringArg(args, "path")
+	recursive := getBoolArg(args, "recursive")
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
+		return errorResult(err)
+	}
+
 	type item struct {
 		Name    string `json:"name"`
 		RelPath string `json:"rel_path"`
@@ -205,21 +343,86 @@ func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string
 		ModTime int64  `json:"mod_time"`
 	}
 	var out []item
-	for _, ch := range children {
-		out = append(out, item{
-			Name:    ch.Name,
-			RelPath: ch.RelPath,
-			IsDir:   ch.IsDir,
-			Size:    ch.Size,
-			ModTime: ch.ModTime.Unix(),
-		})
+
+	if !recursive {
+		children, err := h.p.Store.ListChildren(appID, path)
+		if err != nil {
+			return errorResult(fmt.Errorf("file listing failed: %w", err))
+		}
+		for _, ch := range children {
+			out = append(out, item{
+				Name:    ch.Name,
+				RelPath: ch.RelPath,
+				IsDir:   ch.IsDir,
+				Size:    ch.Size,
+				ModTime: ch.ModTime.Unix(),
+			})
+		}
+		return jsonResult(out)
 	}
+
+	// Recursive directory listing within application workspace
+	base := h.p.Store.Path(appID)
+	targetDir := base
+	cleanRel := filepath.ToSlash(strings.Trim(path, "/"))
+	if cleanRel != "" {
+		safe, err := h.p.Store.SafeFilePath(appID, cleanRel)
+		if err != nil {
+			return errorResult(fmt.Errorf("invalid path: %w", err))
+		}
+		targetDir = safe
+	}
+
+	err := filepath.WalkDir(targetDir, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(base, p)
+		if err != nil || rel == "." {
+			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		name := d.Name()
+
+		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		out = append(out, item{
+			Name:    name,
+			RelPath: relSlash,
+			IsDir:   d.IsDir(),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Unix(),
+		})
+		return nil
+	})
+	if err != nil {
+		return errorResult(fmt.Errorf("recursive file listing failed: %w", err))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IsDir != out[j].IsDir {
+			return out[i].IsDir
+		}
+		return out[i].RelPath < out[j].RelPath
+	})
 	return jsonResult(out)
 }
 
 func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
+	offset := getIntArg(args, "offset", 1)
+	limit := getIntArg(args, "limit", 0)
 	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
@@ -238,11 +441,40 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 	if st.Size() > maxRead {
 		return errorResult(fmt.Errorf("file size (%d bytes) exceeds 10MB limit", st.Size()))
 	}
-	b, err := os.ReadFile(full)
+
+	if offset <= 1 && limit <= 0 {
+		b, err := os.ReadFile(full)
+		if err != nil {
+			return errorResult(err)
+		}
+		return textResult(string(b))
+	}
+
+	f, err := os.Open(full)
 	if err != nil {
 		return errorResult(err)
 	}
-	return textResult(string(b))
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		if lineNum < offset {
+			continue
+		}
+		lines = append(lines, scanner.Text())
+		if limit > 0 && len(lines) >= limit {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil && len(lines) == 0 {
+		return errorResult(err)
+	}
+	return textResult(strings.Join(lines, "\n"))
 }
 
 func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, content string) error {
@@ -323,11 +555,138 @@ func (h *Handler) handleFileWriteBatch(ctx context.Context, u db.User, args map[
 		}
 		written = append(written, p)
 	}
+	InvalidateManifestCache(appID, "")
 	res := map[string]interface{}{
 		"app_id":  appID,
 		"written": written,
 		"count":   len(written),
 		"message": fmt.Sprintf("Successfully wrote %d file(s)", len(written)),
+	}
+	if h.p.IsGitApp(ctx, appID) {
+		res["git_app_notice"] = "App uses Git. Local edits are preserved on deploy (dirty workspace auto-skips git pull). " +
+			"Use git_pull:true on deploy only when you want to discard local changes and sync from remote."
+	}
+	return jsonResult(res)
+}
+
+func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	dryRun := getBoolArg(args, "dry_run")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	type fileWriteItem struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+
+	var writes []fileWriteItem
+	if rawWrites, ok := args["writes"].([]interface{}); ok {
+		for i, item := range rawWrites {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				return errorResult(fmt.Errorf("writes item at index %d is invalid", i))
+			}
+			p, _ := m["path"].(string)
+			c, _ := m["content"].(string)
+			p = strings.TrimSpace(p)
+			if p == "" {
+				return errorResult(fmt.Errorf("writes item at index %d has empty path", i))
+			}
+			writes = append(writes, fileWriteItem{Path: p, Content: c})
+		}
+	}
+
+	var deletes []string
+	if rawDeletes, ok := args["deletes"].([]interface{}); ok {
+		for i, item := range rawDeletes {
+			s, ok := item.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return errorResult(fmt.Errorf("deletes item at index %d is empty", i))
+			}
+			deletes = append(deletes, strings.TrimSpace(s))
+		}
+	}
+
+	if len(writes) == 0 && len(deletes) == 0 {
+		return errorResult(errors.New("workspace_apply requires at least one write or delete operation"))
+	}
+
+	// Validation phase: check paths, security, and permissions before touching any files.
+	type writePreview struct {
+		Path  string `json:"path"`
+		Bytes int    `json:"bytes"`
+	}
+	var writePreviews []writePreview
+
+	for _, d := range deletes {
+		if filepath.Base(d) == ".nextdeploy.generated.compose.yml" || filepath.Base(d) == ".panel-meta" {
+			return errorResult(fmt.Errorf("cannot delete protected file %q", d))
+		}
+		if _, err := h.p.Store.SafeFilePath(appID, d); err != nil {
+			return errorResult(fmt.Errorf("invalid delete path %q: %w", d, err))
+		}
+	}
+
+	for _, w := range writes {
+		if filepath.Base(w.Path) == ".nextdeploy.generated.compose.yml" || filepath.Base(w.Path) == ".panel-meta" {
+			return errorResult(fmt.Errorf("cannot write to protected file %q", w.Path))
+		}
+		if _, err := h.p.Store.SafeFilePath(appID, w.Path); err != nil {
+			return errorResult(fmt.Errorf("invalid write path %q: %w", w.Path, err))
+		}
+		cleanRel := filepath.ToSlash(strings.Trim(w.Path, "/"))
+		if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
+			if err := sandbox.CheckComposeSecurity([]byte(w.Content)); err != nil {
+				return errorResult(fmt.Errorf("compose security validation failed for %s: %w", w.Path, err))
+			}
+		}
+		writePreviews = append(writePreviews, writePreview{Path: w.Path, Bytes: len(w.Content)})
+	}
+
+	// Dry-run mode: return simulated plan without making disk changes.
+	if dryRun {
+		return jsonResult(map[string]interface{}{
+			"app_id":   appID,
+			"dry_run":  true,
+			"valid":    true,
+			"writes":   writePreviews,
+			"deletes":  deletes,
+			"message":  fmt.Sprintf("Dry run validated: %d file(s) would be written, %d item(s) would be deleted.", len(writes), len(deletes)),
+		})
+	}
+
+	// Apply deletes first
+	var deletedPaths []string
+	for _, d := range deletes {
+		if err := h.p.Store.RemoveRel(appID, d); err != nil && !os.IsNotExist(err) {
+			return errorResult(fmt.Errorf("failed deleting %s: %w", d, err))
+		}
+		deletedPaths = append(deletedPaths, d)
+	}
+
+	// Apply writes
+	var writtenPaths []string
+	for _, w := range writes {
+		if err := h.writeWorkspaceFile(ctx, app, w.Path, w.Content); err != nil {
+			return errorResult(fmt.Errorf("failed writing %s: %w", w.Path, err))
+		}
+		writtenPaths = append(writtenPaths, w.Path)
+	}
+
+	InvalidateManifestCache(appID, "")
+	h.p.InvalidateAfterAppWorkspaceChange(appID)
+
+	res := map[string]interface{}{
+		"app_id":        appID,
+		"dry_run":       false,
+		"written":       writtenPaths,
+		"deleted":       deletedPaths,
+		"written_count": len(writtenPaths),
+		"deleted_count": len(deletedPaths),
+		"message":       fmt.Sprintf("Successfully applied: %d written, %d deleted", len(writtenPaths), len(deletedPaths)),
 	}
 	if h.p.IsGitApp(ctx, appID) {
 		res["git_app_notice"] = "App uses Git. Local edits are preserved on deploy (dirty workspace auto-skips git pull). " +
@@ -454,6 +813,62 @@ func (h *Handler) handleEnvSet(ctx context.Context, u db.User, args map[string]i
 	_ = h.p.SyncWorkspaceEnvFromPanel(appID, root, updated)
 	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
 	return textResult(fmt.Sprintf("Environment variable %q set successfully", key))
+}
+
+func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
+		return errorResult(err)
+	}
+
+	var updates = make(map[string]string)
+	if rawMap, ok := args["variables"].(map[string]interface{}); ok {
+		for k, v := range rawMap {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				updates[k] = fmt.Sprint(v)
+			}
+		}
+	} else if rawList, ok := args["variables"].([]interface{}); ok {
+		for _, item := range rawList {
+			if m, ok := item.(map[string]interface{}); ok {
+				k := strings.TrimSpace(fmt.Sprint(m["key"]))
+				if k != "" && k != "<nil>" {
+					updates[k] = fmt.Sprint(m["value"])
+				}
+			}
+		}
+	}
+
+	if len(updates) == 0 {
+		return errorResult(errors.New("variables must be a non-empty map or list of key-value pairs"))
+	}
+
+	cur, _ := h.p.DB.GetPanelEnv(ctx, appID)
+	for k, v := range updates {
+		cur = setDotEnvVar(cur, k, v)
+	}
+
+	if err := h.p.DB.UpdatePanelEnv(ctx, appID, cur); err != nil {
+		return errorResult(fmt.Errorf("failed updating panel env: %w", err))
+	}
+
+	root := h.p.ComposeWorkspaceRoot(ctx, appID)
+	_ = h.p.SyncWorkspaceEnvFromPanel(appID, root, cur)
+	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
+
+	var updatedKeys []string
+	for k := range updates {
+		updatedKeys = append(updatedKeys, k)
+	}
+	sort.Strings(updatedKeys)
+
+	return jsonResult(map[string]interface{}{
+		"app_id":       appID,
+		"updated_keys": updatedKeys,
+		"count":        len(updatedKeys),
+		"message":      fmt.Sprintf("Successfully set %d environment variable(s) in a single batch", len(updatedKeys)),
+	})
 }
 
 func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -633,10 +1048,78 @@ func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[s
 
 func (h *Handler) handleDeployLogTail(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
+	jobID := strings.TrimSpace(getStringArg(args, "job_id"))
+	sinceOffset := getIntArg(args, "since_offset", 0)
+	waitSeconds := getIntArg(args, "wait_seconds", 0)
 	limit := getIntArg(args, "limit", 5)
+
+	if jobID == "" && appID == "" {
+		return errorResult(errors.New("either job_id or app_id must be provided"))
+	}
+
+	// When job_id is provided, stream or tail specific job output via long-polling
+	if jobID != "" {
+		job, found := h.p.GetDeployJob(jobID)
+		if !found {
+			return errorResult(fmt.Errorf("job %q not found", jobID))
+		}
+		if _, err := h.hasAppAccess(ctx, u, job.AppID, db.CollabRoleViewer); err != nil {
+			return errorResult(err)
+		}
+
+		if waitSeconds > 30 {
+			waitSeconds = 30
+		}
+		deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
+
+		for {
+			curJob, ok := h.p.GetDeployJob(jobID)
+			if !ok {
+				break
+			}
+			out := curJob.Output
+			currentLen := len(out)
+
+			if currentLen > sinceOffset {
+				return jsonResult(map[string]interface{}{
+					"job_id":       curJob.JobID,
+					"app_id":       curJob.AppID,
+					"action":       curJob.Action,
+					"running":      curJob.Running,
+					"ok":           curJob.OK,
+					"since_offset": sinceOffset,
+					"next_offset":  currentLen,
+					"new_output":   out[sinceOffset:],
+				})
+			}
+
+			if !curJob.Running || waitSeconds <= 0 || time.Now().After(deadline) {
+				return jsonResult(map[string]interface{}{
+					"job_id":       curJob.JobID,
+					"app_id":       curJob.AppID,
+					"action":       curJob.Action,
+					"running":      curJob.Running,
+					"ok":           curJob.OK,
+					"since_offset": sinceOffset,
+					"next_offset":  currentLen,
+					"new_output":   "",
+				})
+			}
+
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+
+	// Fallback to app_id: if an ongoing job exists, stream it; otherwise return snapshot + history.
 	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
+
+	if latestJob, ok := h.p.LatestDeployJobForApp(appID); ok && (latestJob.Running || sinceOffset > 0) {
+		args["job_id"] = latestJob.JobID
+		return h.handleDeployLogTail(ctx, u, args)
+	}
+
 	liveOut, liveAction, liveRunning := h.p.DeploySnapshot(appID)
 	history, _ := h.p.DB.ListDeployLogs(ctx, appID, limit)
 	return jsonResult(map[string]interface{}{

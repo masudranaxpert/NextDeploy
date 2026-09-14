@@ -170,6 +170,14 @@ func randomAppSuffix() string {
 	return hex.EncodeToString(buf)
 }
 
+func (p *Panel) RandomAppSuffix() string {
+	return randomAppSuffix()
+}
+
+func (p *Panel) ValidateAppSlug(raw string) (string, error) {
+	return validateAppSlug(raw)
+}
+
 func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, ok := currentUser(c)

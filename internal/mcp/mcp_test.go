@@ -92,7 +92,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	// Full-permission token sees all 27 tools.
+	// Full-permission token sees all 31 tools.
 	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true}
 	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
 	resp := srv.ProcessRPC(fullCtx, user, req)
@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 27 {
-		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 31 {
+		t.Errorf("expected 31 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -113,11 +113,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		toolSet[tool.Name] = true
 	}
 	expectedTools := []string{
-		"app_list", "app_get", "file_list", "file_read", "file_write", "file_delete",
-		"env_list", "env_reveal", "env_set", "compose_get", "deploy", "redeploy", "restart",
+		"app_list", "app_get", "app_create", "workspace_manifest", "file_list", "file_read", "file_write", "file_delete",
+		"env_list", "env_reveal", "env_set", "env_set_batch", "compose_get", "deploy", "redeploy", "restart",
 		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
 		"container_exec", "server_exec",
-		"git_pull", "file_write_batch", "deploy_and_wait", "file_patch", "app_health_check",
+		"git_pull", "file_write_batch", "workspace_apply", "deploy_and_wait", "file_patch", "app_health_check",
 		"file_search",
 	}
 	for _, name := range expectedTools {
@@ -134,11 +134,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (24 tools).
+	// No-permission token hides restricted tools (28 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 24 {
-		t.Errorf("expected 24 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 28 {
+		t.Errorf("expected 28 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -146,13 +146,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (25 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (29 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 25 {
-		t.Errorf("expected 25 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 29 {
+		t.Errorf("expected 29 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -167,13 +167,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (25 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (29 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 25 {
-		t.Errorf("expected 25 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 29 {
+		t.Errorf("expected 29 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -1158,4 +1158,336 @@ func TestMCP_NewTools(t *testing.T) {
 		t.Errorf("expected at least 2 files matching '*.txt', got %v", findOut["total_files"])
 	}
 }
+
+func TestMCP_WorkspaceManifest_And_FileEnhancements(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "manifest-test-app"
+	if err := store.CreateApp(ctx, appID, "Manifest App", user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+	appDir := p.Store.Path(appID)
+	_ = os.MkdirAll(filepath.Join(appDir, "src"), 0750)
+	_ = os.MkdirAll(filepath.Join(appDir, "node_modules", "pkg"), 0750)
+	_ = os.MkdirAll(filepath.Join(appDir, ".git"), 0750)
+	_ = os.WriteFile(filepath.Join(appDir, "src", "index.js"), []byte("console.log('hello');\nline2\nline3\nline4\n"), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "node_modules", "pkg", "ignored.js"), []byte("bad"), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, ".gitignore"), []byte("*.log\nsecret/\n"), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "test.log"), []byte("log data"), 0640)
+
+	srv := NewServer(p)
+
+	// 1. workspace_manifest (default: hash=true)
+	maniCall, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	resp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      301,
+		Method:  "tools/call",
+		Params:  maniCall,
+	})
+	res := resp.Result.(CallToolResult)
+	if res.IsError {
+		t.Fatalf("workspace_manifest failed: %+v", res)
+	}
+	var maniRes ManifestResult
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &maniRes); err != nil {
+		t.Fatalf("failed unmarshaling manifest: %v", err)
+	}
+
+	foundIndex := false
+	for _, f := range maniRes.Files {
+		if strings.Contains(f.Path, "node_modules") {
+			t.Errorf("manifest included ignored directory: %s", f.Path)
+		}
+		if strings.HasSuffix(f.Path, ".log") {
+			t.Errorf("manifest included .gitignore match: %s", f.Path)
+		}
+		if f.Path == "src/index.js" {
+			foundIndex = true
+			if f.SHA256 == "" {
+				t.Errorf("expected sha256 to be computed for src/index.js")
+			}
+		}
+	}
+	if !foundIndex {
+		t.Errorf("expected src/index.js in manifest")
+	}
+
+	// 2. workspace_manifest with hash=false
+	maniNoHashCall, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"hash":   false,
+		},
+	})
+	respNoHash := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      302,
+		Method:  "tools/call",
+		Params:  maniNoHashCall,
+	})
+	var maniNoHashRes ManifestResult
+	_ = json.Unmarshal([]byte(respNoHash.Result.(CallToolResult).Content[0].Text), &maniNoHashRes)
+	for _, f := range maniNoHashRes.Files {
+		if f.Path == "src/index.js" && f.SHA256 != "" {
+			t.Errorf("expected empty sha256 when hash=false, got %s", f.SHA256)
+		}
+	}
+
+	// 3. file_list with recursive=true
+	flCall, _ := json.Marshal(CallToolParams{
+		Name: "file_list",
+		Arguments: map[string]interface{}{
+			"app_id":    appID,
+			"recursive": true,
+		},
+	})
+	flResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      303,
+		Method:  "tools/call",
+		Params:  flCall,
+	})
+	flRes := flResp.Result.(CallToolResult)
+	if flRes.IsError {
+		t.Fatalf("recursive file_list failed: %+v", flRes)
+	}
+	if !strings.Contains(flRes.Content[0].Text, "src/index.js") {
+		t.Errorf("expected recursive file_list to include src/index.js")
+	}
+
+	// 4. file_read with offset and limit
+	frCall, _ := json.Marshal(CallToolParams{
+		Name: "file_read",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"path":   "src/index.js",
+			"offset": 2,
+			"limit":  2,
+		},
+	})
+	frResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      304,
+		Method:  "tools/call",
+		Params:  frCall,
+	})
+	frRes := frResp.Result.(CallToolResult)
+	if frRes.IsError {
+		t.Fatalf("file_read with offset/limit failed: %+v", frRes)
+	}
+	expectedLines := "line2\nline3"
+	if frRes.Content[0].Text != expectedLines {
+		t.Errorf("expected %q, got %q", expectedLines, frRes.Content[0].Text)
+	}
+}
+
+func TestMCP_WorkspaceApply_And_EnvSetBatch(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "apply-batch-app"
+	if err := store.CreateApp(ctx, appID, "Apply Batch App", user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+	appDir := p.Store.Path(appID)
+	_ = os.MkdirAll(appDir, 0750)
+	_ = os.WriteFile(filepath.Join(appDir, "delete_me.txt"), []byte("bye"), 0640)
+
+	srv := NewServer(p)
+
+	// 1. workspace_apply dry_run: true
+	applyDryParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_apply",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"writes": []map[string]string{
+				{"path": "new_file.txt", "content": "hello world"},
+			},
+			"deletes": []string{"delete_me.txt"},
+			"dry_run": true,
+		},
+	})
+	dryResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      401,
+		Method:  "tools/call",
+		Params:  applyDryParams,
+	})
+	dryRes := dryResp.Result.(CallToolResult)
+	if dryRes.IsError {
+		t.Fatalf("dry_run workspace_apply failed: %+v", dryRes)
+	}
+	// Verify file was NOT created or deleted during dry run
+	if _, err := os.Stat(filepath.Join(appDir, "new_file.txt")); !os.IsNotExist(err) {
+		t.Errorf("new_file.txt should not exist after dry run")
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "delete_me.txt")); err != nil {
+		t.Errorf("delete_me.txt should still exist after dry run")
+	}
+
+	// 2. workspace_apply execution
+	applyParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_apply",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"writes": []map[string]string{
+				{"path": "new_file.txt", "content": "hello world"},
+			},
+			"deletes": []string{"delete_me.txt"},
+			"dry_run": false,
+		},
+	})
+	applyResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      402,
+		Method:  "tools/call",
+		Params:  applyParams,
+	})
+	applyRes := applyResp.Result.(CallToolResult)
+	if applyRes.IsError {
+		t.Fatalf("workspace_apply execution failed: %+v", applyRes)
+	}
+	// Verify disk state
+	if b, err := os.ReadFile(filepath.Join(appDir, "new_file.txt")); err != nil || string(b) != "hello world" {
+		t.Errorf("new_file.txt not created with expected content: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "delete_me.txt")); !os.IsNotExist(err) {
+		t.Errorf("delete_me.txt was not deleted")
+	}
+
+	// 3. env_set_batch
+	envBatchParams, _ := json.Marshal(CallToolParams{
+		Name: "env_set_batch",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"variables": map[string]string{
+				"PORT":     "8080",
+				"NODE_ENV": "production",
+			},
+		},
+	})
+	envResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      403,
+		Method:  "tools/call",
+		Params:  envBatchParams,
+	})
+	envRes := envResp.Result.(CallToolResult)
+	if envRes.IsError {
+		t.Fatalf("env_set_batch failed: %+v", envRes)
+	}
+	savedEnv, _ := store.GetPanelEnv(ctx, appID)
+	if !strings.Contains(savedEnv, "PORT=8080") || !strings.Contains(savedEnv, "NODE_ENV=production") {
+		t.Errorf("saved env missing keys: %s", savedEnv)
+	}
+}
+
+func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	srv := NewServer(p)
+
+	// 1. app_create tool
+	createParams, _ := json.Marshal(CallToolParams{
+		Name: "app_create",
+		Arguments: map[string]interface{}{
+			"name":            "my-new-app",
+			"compose_content": "services:\n  web:\n    image: nginx:alpine\n",
+		},
+	})
+	createResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      501,
+		Method:  "tools/call",
+		Params:  createParams,
+	})
+	createRes := createResp.Result.(CallToolResult)
+	if createRes.IsError {
+		t.Fatalf("app_create failed: %+v", createRes)
+	}
+	var createOut map[string]interface{}
+	_ = json.Unmarshal([]byte(createRes.Content[0].Text), &createOut)
+	newAppID := createOut["app_id"].(string)
+	if newAppID == "" {
+		t.Fatalf("expected non-empty app_id from app_create")
+	}
+
+	app, err := store.GetApp(ctx, newAppID)
+	if err != nil {
+		t.Fatalf("GetApp failed for created app %s: %v", newAppID, err)
+	}
+	if app.Name != "my-new-app" {
+		t.Errorf("expected name 'my-new-app', got %s", app.Name)
+	}
+
+	// 2. Start a compose job and test busy error check
+	wsPath := p.Store.Path(newAppID)
+	blockCh := make(chan struct{})
+	jobID, err := p.StartComposeJob(newAppID, "testproj", []string{filepath.Join(wsPath, "docker-compose.yml")}, "Deploy", func(ctx context.Context, dir string, paths []string, project string, w io.Writer, envs []string) dockerx.Result {
+		_, _ = w.Write([]byte("line 1\nline 2\nline 3\n"))
+		<-blockCh
+		return dockerx.Result{OK: true}
+	}, "")
+	if err != nil {
+		t.Fatalf("StartComposeJob failed: %v", err)
+	}
+
+	// Verify second deploy attempt while running returns busy error with job_id
+	_, busyErr := p.StartComposeJob(newAppID, "testproj", []string{filepath.Join(wsPath, "docker-compose.yml")}, "Redeploy", func(ctx context.Context, dir string, paths []string, project string, w io.Writer, envs []string) dockerx.Result {
+		return dockerx.Result{OK: true}
+	}, "")
+	if busyErr == nil {
+		t.Errorf("expected busy error on concurrent job start")
+	} else {
+		if !strings.Contains(busyErr.Error(), jobID) || !strings.Contains(busyErr.Error(), "Poll deploy_status") {
+			t.Errorf("expected busy error to contain job_id and 'Poll deploy_status', got: %v", busyErr)
+		}
+	}
+
+	// Allow goroutine to start and write logs
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. deploy_log_tail with since_offset while running
+	tailParams, _ := json.Marshal(CallToolParams{
+		Name: "deploy_log_tail",
+		Arguments: map[string]interface{}{
+			"job_id":       jobID,
+			"since_offset": 0,
+		},
+	})
+	tailResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      502,
+		Method:  "tools/call",
+		Params:  tailParams,
+	})
+	tailRes := tailResp.Result.(CallToolResult)
+	if tailRes.IsError {
+		t.Fatalf("deploy_log_tail failed: %+v", tailRes)
+	}
+	var tailOut map[string]interface{}
+	_ = json.Unmarshal([]byte(tailRes.Content[0].Text), &tailOut)
+	if !strings.Contains(tailOut["new_output"].(string), "line 2") || !strings.Contains(tailOut["new_output"].(string), "line 3") {
+		t.Errorf("expected tail output to contain 'line 2' and 'line 3', got %q", tailOut["new_output"])
+	}
+
+	close(blockCh)
+	time.Sleep(50 * time.Millisecond)
+}
+
 

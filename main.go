@@ -168,6 +168,9 @@ func main() {
 	mcpServer := mcp.NewServer(p)
 	mcpServer.RegisterRoutes(app)
 
+	// External HTTP REST API endpoints for agent workspace uploads
+	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
+
 	// All other routes require authentication
 	app.Use(p.AuthMiddleware)
 	app.Use("/apps/:id", p.AppAccessMiddleware)

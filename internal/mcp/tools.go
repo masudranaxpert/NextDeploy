@@ -23,13 +23,46 @@ func AllTools() []Tool {
 			},
 		},
 		{
+			Name:        "app_create",
+			Description: "Create a new NextDeploy application directly via MCP. Allows full automated project provisioning without needing the web UI.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"name":            {Type: "string", Description: "Name or slug for the new application"},
+					"source_type":     {Type: "string", Description: "Optional source type: 'upload' (default) or 'git'"},
+					"repo_url":        {Type: "string", Description: "Optional Git repository URL (when source_type is 'git')"},
+					"branch":          {Type: "string", Description: "Optional Git branch name (default 'main')"},
+					"compose_content": {Type: "string", Description: "Optional initial docker-compose.yml content to seed into workspace"},
+				},
+				Required: []string{"name"},
+			},
+		},
+		{
+			Name: "workspace_manifest",
+			Description: "Generate a compact manifest of all files in an application workspace with relative path, size, modification timestamp, and SHA-256 hash. " +
+				"Filters out heavy/irrelevant paths (node_modules, .git, vendor, .venv, .nextdeploy) and respects workspace .gitignore. " +
+				"Caches hashes by (path, size, mtime) for high performance. Pass hash:false for ultra-fast size+mtime scanning without hashing.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":      {Type: "string", Description: "The application ID"},
+					"path":        {Type: "string", Description: "Optional subdirectory inside workspace to scope the manifest"},
+					"hash":        {Type: "boolean", Description: "Whether to compute sha256 hash for files (default true). Set false for fastest size+mtime scan."},
+					"exclude":     {Type: "array", Description: "Optional list of additional glob patterns to exclude (e.g. ['*.log', 'dist/*'])"},
+					"max_entries": {Type: "integer", Description: "Maximum entries to return (default 5000, max 20000). Sets truncated:true if exceeded."},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
 			Name:        "file_list",
 			Description: "List files and directories within an application's workspace (strictly restricted to workspace)",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
-					"path":   {Type: "string", Description: "Relative path inside workspace (default empty for root)"},
+					"app_id":    {Type: "string", Description: "The application ID"},
+					"path":      {Type: "string", Description: "Relative path inside workspace (default empty for root)"},
+					"recursive": {Type: "boolean", Description: "If true, recursively lists all files and directories under path (default false)"},
 				},
 				Required: []string{"app_id"},
 			},
@@ -42,6 +75,8 @@ func AllTools() []Tool {
 				Properties: map[string]ToolProperty{
 					"app_id": {Type: "string", Description: "The application ID"},
 					"path":   {Type: "string", Description: "Relative file path inside workspace"},
+					"offset": {Type: "integer", Description: "Optional 1-based line number to start reading from (default 1)"},
+					"limit":  {Type: "integer", Description: "Optional maximum number of lines to read (default 0 reads to end of file)"},
 				},
 				Required: []string{"app_id", "path"},
 			},
@@ -109,6 +144,21 @@ func AllTools() []Tool {
 					"value":  {Type: "string", Description: "Environment variable value"},
 				},
 				Required: []string{"app_id", "key", "value"},
+			},
+		},
+		{
+			Name:        "env_set_batch",
+			Description: "Set or update multiple environment variables in a single operation and synchronize workspace .env and Caddy configuration once.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"variables": {
+						Type:        "object",
+						Description: "Key-value map of environment variables (e.g. {\"PORT\": \"3000\", \"NODE_ENV\": \"production\"})",
+					},
+				},
+				Required: []string{"app_id", "variables"},
 			},
 		},
 		{
@@ -200,14 +250,16 @@ func AllTools() []Tool {
 		},
 		{
 			Name:        "deploy_log_tail",
-			Description: "Fetch deployment history and logs for an application (or live logs if deploy is ongoing)",
+			Description: "Fetch deployment history and logs for an application (or live logs if deploy is ongoing). Supports streaming via long-polling: pass job_id, since_offset, and wait_seconds (e.g. 20) to receive new log output as soon as it arrives, or return empty when timeout elapses.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
-					"limit":  {Type: "integer", Description: "Number of recent logs to fetch (default 5)"},
+					"app_id":       {Type: "string", Description: "Optional application ID"},
+					"job_id":       {Type: "string", Description: "Optional deployment job ID (returned from deploy or redeploy)"},
+					"since_offset": {Type: "integer", Description: "Byte offset in log output to read from (default 0). Pass next_offset from previous call for continuous streaming."},
+					"wait_seconds": {Type: "integer", Description: "Seconds to wait for new log output if none currently available (long-polling, default 0, max 30)."},
+					"limit":        {Type: "integer", Description: "Number of historical deploy logs to fetch when falling back to app history (default 5)"},
 				},
-				Required: []string{"app_id"},
 			},
 		},
 		{
@@ -290,8 +342,31 @@ func AllTools() []Tool {
 			},
 		},
 		{
+			Name: "workspace_apply",
+			Description: "Atomically apply a batch of file writes and deletes to an application workspace in a single round-trip. " +
+				"All paths are validated beforehand against path traversal and forbidden system files. " +
+				"Supports dry_run:true to preview what would change without modifying files.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"writes": {
+						Type:        "array",
+						Description: "Optional list of file writes, each object with 'path' (relative file path) and 'content' (text content)",
+					},
+					"deletes": {
+						Type:        "array",
+						Description: "Optional list of relative file or directory paths to delete",
+					},
+					"dry_run": {Type: "boolean", Description: "If true, simulates validation and returns planned actions without modifying any files (default false)"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
 			Name: "deploy_and_wait",
 			Description: "Trigger an application deployment (docker compose up) and wait synchronously for completion, returning the final job status, duration, and tail logs. " +
+				"Best suited for short builds (up to 300s). For long-running builds or continuous progress streaming, use deploy to obtain a job_id, followed by deploy_log_tail with wait_seconds (e.g. 20s) long-polling. " +
 				"Same Git-sync behavior as deploy: dirty workspace skips git pull; clean workspace auto-pulls. " +
 				"Pass git_pull:true to force-pull from remote (discards local edits). Max timeout 300s.",
 			InputSchema: ToolInputSchema{

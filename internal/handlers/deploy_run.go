@@ -179,8 +179,9 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 	r := p.GetDeployRun(id)
 	r.Mu.Lock()
 	if r.Running {
+		activeJobID := r.JobID
 		r.Mu.Unlock()
-		return "", fmt.Errorf("busy")
+		return "", fmt.Errorf("busy: deployment job %q is already in progress for app %q. Poll deploy_status with job_id=%q then retry once finished", activeJobID, id, activeJobID)
 	}
 	jobID := fmt.Sprintf("job_%s_%d", id, time.Now().UnixNano()/1e6)
 	r.JobID = jobID
