@@ -1441,7 +1441,7 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 	// container_exec is restricted; require explicit token flag.
 	tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken)
 	if !ok || !tok.AllowContainerExec {
-		return errorResult(errors.New("permission denied: container_exec is restricted. Enable 'Allow container_exec' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
+		return errorResult(errors.New("permission denied: container_exec is restricted. Enable 'Allow container_exec' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)"))
 	}
 
 	command := getStringArg(args, "command")
@@ -1538,7 +1538,7 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 	// server_exec is highest-privilege; require explicit token flag.
 	tok, ok := ctx.Value(apiTokenContextKey{}).(db.APIToken)
 	if !ok || !tok.AllowServerExec {
-		return errorResult(errors.New("permission denied: server_exec is restricted. Enable 'Allow server_exec' for this API token in NextDeploy Panel under MCP Settings (/mcp-docs)"))
+		return errorResult(errors.New("permission denied: server_exec is restricted. Enable 'Allow server_exec' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)"))
 	}
 
 	command := getStringArg(args, "command")

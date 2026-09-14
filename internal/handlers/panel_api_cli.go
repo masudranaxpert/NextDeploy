@@ -156,11 +156,8 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 		name = "CLI Device Token"
 	}
 
-	// CLI tokens follow Principle of Least Privilege: only standard app lifecycle,
-	// file sync, deployment, and log access are granted. High-risk permissions
-	// (Host VPS Server Exec, revealing masked secrets) must stay disabled by default.
 	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
-	allowServerExec := false
+	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
 
 	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec, allowContainerExec)
@@ -170,6 +167,54 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 
 	p.RecordAuditLog(c, "create_cli_token", "api_token", name, "Created API token from CLI Sessions page")
 	return c.Redirect(fmt.Sprintf("/cli-sessions?new_token=%s&token_name=%s", rawToken, url.QueryEscape(name)))
+}
+
+// ToggleCLITokenEnvRevealPost toggles env_reveal permission for an API token.
+// POST /cli-sessions/tokens/:id/toggle-reveal
+func (p *Panel) ToggleCLITokenEnvRevealPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+	_, _ = p.DB.ToggleAPITokenEnvReveal(ctx, int64(id), u.ID)
+	return c.Redirect("/cli-sessions")
+}
+
+// ToggleCLITokenContainerExecPost toggles container_exec permission for an API token.
+// POST /cli-sessions/tokens/:id/toggle-container-exec
+func (p *Panel) ToggleCLITokenContainerExecPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+	_, _ = p.DB.ToggleAPITokenContainerExec(ctx, int64(id), u.ID)
+	return c.Redirect("/cli-sessions")
+}
+
+// ToggleCLITokenServerExecPost toggles server_exec permission for an API token.
+// POST /cli-sessions/tokens/:id/toggle-exec
+func (p *Panel) ToggleCLITokenServerExecPost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+	_, _ = p.DB.ToggleAPITokenServerExec(ctx, int64(id), u.ID)
+	return c.Redirect("/cli-sessions")
 }
 
 // DeleteCLITokenPost revokes an API token from /cli-sessions.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"nd/internal/client"
@@ -249,8 +250,26 @@ func RunDeploy(cl *client.Client, args []string) error {
 }
 
 // RunLogs streams recent logs for an app.
+// Usage: nd logs [app_id] [-n lines]
 func RunLogs(cl *client.Client, args []string) error {
-	appID, _, err := resolveAppID(args)
+	lines := 100
+	var cleanArgs []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if (arg == "-n" || arg == "--tail" || arg == "--lines") && i+1 < len(args) {
+			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+				lines = n
+			}
+			i++
+		} else if n, err := strconv.Atoi(arg); err == nil && n > 0 && len(cleanArgs) > 0 {
+			lines = n
+		} else {
+			cleanArgs = append(cleanArgs, arg)
+		}
+	}
+
+	appID, _, err := resolveAppID(cleanArgs)
 	if err != nil {
 		return err
 	}
@@ -259,7 +278,7 @@ func RunLogs(cl *client.Client, args []string) error {
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "container_logs",
-			"arguments": map[string]interface{}{"app_id": appID, "lines": 100},
+			"arguments": map[string]interface{}{"app_id": appID, "lines": lines},
 		},
 	})
 	if err != nil {
@@ -281,6 +300,236 @@ func RunLogs(cl *client.Client, args []string) error {
 	} else {
 		fmt.Println(string(body))
 	}
+	return nil
+}
+
+// RunExec executes a command inside an application container (Heroku-style: nd run / nd exec)
+// Usage:
+//   nd exec [flags] [app_id] <command...>
+//   nd run [flags] [app_id] <command...>
+//
+// Flags:
+//   -a, --app <app_id>       Target application ID (optional if linked)
+//   -s, --service <service>  Target compose service name (optional)
+//   -w, --workdir <dir>      Working directory inside container
+//   --server                 Run directly on the host VPS (requires allow_server_exec)
+func RunExec(cl *client.Client, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: nd exec [flags] [app_id] <command...>\nexample: nd exec myapp ls -la\n         nd exec -a myapp python manage.py migrate")
+	}
+
+	var (
+		appID     string
+		service   string
+		workDir   string
+		isServer  bool
+		cmdTokens []string
+	)
+
+	// Check if local project is linked
+	linkedAppID := ""
+	if pc, err := config.LoadProject("."); err == nil && pc.AppID != "" {
+		linkedAppID = pc.AppID
+	}
+
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if arg == "--server" {
+			isServer = true
+			i++
+		} else if (arg == "-a" || arg == "--app") && i+1 < len(args) {
+			appID = args[i+1]
+			i += 2
+		} else if (arg == "-s" || arg == "--service") && i+1 < len(args) {
+			service = args[i+1]
+			i += 2
+		} else if (arg == "-w" || arg == "--workdir") && i+1 < len(args) {
+			workDir = args[i+1]
+			i += 2
+		} else if arg == "--" {
+			i++
+			cmdTokens = append(cmdTokens, args[i:]...)
+			break
+		} else {
+			cmdTokens = append(cmdTokens, args[i:]...)
+			break
+		}
+	}
+
+	if isServer {
+		if len(cmdTokens) == 0 {
+			return fmt.Errorf("command required for server execution")
+		}
+		return RunServerExec(cl, cmdTokens)
+	}
+
+	if len(cmdTokens) == 0 {
+		return fmt.Errorf("command required: nd exec [app_id] <command...>")
+	}
+
+	// If appID not provided via -a, resolve from cmdTokens or linked app
+	if appID == "" {
+		if linkedAppID != "" {
+			if cmdTokens[0] == linkedAppID {
+				appID = linkedAppID
+				cmdTokens = cmdTokens[1:]
+			} else if len(cmdTokens) == 1 {
+				appID = linkedAppID
+			} else {
+				first := strings.ToLower(cmdTokens[0])
+				if isCommonCommand(first) {
+					appID = linkedAppID
+				} else {
+					appID = cmdTokens[0]
+					cmdTokens = cmdTokens[1:]
+				}
+			}
+		} else {
+			if len(cmdTokens) < 2 {
+				return fmt.Errorf("app_id and command required: nd exec <app_id> <command...>")
+			}
+			appID = cmdTokens[0]
+			cmdTokens = cmdTokens[1:]
+		}
+	}
+
+	if len(cmdTokens) == 0 {
+		return fmt.Errorf("command required to execute inside container")
+	}
+
+	cmdStr := strings.Join(cmdTokens, " ")
+
+	mcpArgs := map[string]interface{}{
+		"app_id":  appID,
+		"command": cmdStr,
+	}
+	if service != "" {
+		mcpArgs["service"] = service
+	}
+	if workDir != "" {
+		mcpArgs["work_dir"] = workDir
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "container_exec",
+			"arguments": mcpArgs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to execute: %w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error (%d): %s", status, client.JSONError(body))
+	}
+
+	return parseAndPrintExecResult(body)
+}
+
+// RunServerExec executes a command directly on the panel host server (requires allow_server_exec).
+// Usage: nd server-exec <command...>
+func RunServerExec(cl *client.Client, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: nd server-exec <command...>")
+	}
+	cmdStr := strings.Join(args, " ")
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name": "server_exec",
+			"arguments": map[string]interface{}{
+				"command": cmdStr,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to call server_exec: %w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error (%d): %s", status, client.JSONError(body))
+	}
+	return parseAndPrintExecResult(body)
+}
+
+func isCommonCommand(cmd string) bool {
+	switch cmd {
+	case "ls", "ps", "cat", "sh", "bash", "zsh", "python", "python3", "node", "npm", "npx",
+		"yarn", "pnpm", "pip", "pip3", "go", "php", "artisan", "composer", "rails", "rake",
+		"bundle", "django-admin", "echo", "env", "grep", "find", "mkdir", "rm", "touch",
+		"cp", "mv", "tail", "head", "curl", "wget", "git", "docker", "tar", "gzip", "whoami",
+		"pwd", "export", "sleep", "which", "chmod", "chown", "test":
+		return true
+	}
+	return false
+}
+
+func parseAndPrintExecResult(body []byte) error {
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		fmt.Println(string(body))
+		return nil
+	}
+
+	if resp.Error != nil {
+		return fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	if resp.Result.IsError || len(resp.Result.Content) == 0 {
+		if len(resp.Result.Content) > 0 {
+			return fmt.Errorf("%s", resp.Result.Content[0].Text)
+		}
+		return fmt.Errorf("command execution failed")
+	}
+
+	rawText := resp.Result.Content[0].Text
+
+	var res struct {
+		AppID     string `json:"app_id"`
+		Container string `json:"container"`
+		Service   string `json:"service"`
+		Command   string `json:"command"`
+		OK        bool   `json:"ok"`
+		ExitCode  int    `json:"exit_code"`
+		Output    string `json:"output"`
+	}
+
+	if err := json.Unmarshal([]byte(rawText), &res); err != nil {
+		fmt.Print(rawText)
+		if !strings.HasSuffix(rawText, "\n") {
+			fmt.Println()
+		}
+		return nil
+	}
+
+	if res.Output != "" {
+		fmt.Print(res.Output)
+		if !strings.HasSuffix(res.Output, "\n") {
+			fmt.Println()
+		}
+	}
+
+	if !res.OK || res.ExitCode != 0 {
+		if res.ExitCode != 0 {
+			return fmt.Errorf("exit status %d", res.ExitCode)
+		}
+		return fmt.Errorf("command failed")
+	}
+
 	return nil
 }
 
@@ -409,13 +658,22 @@ Usage:
   nd deploy [app_id]                 Redeploy without file sync
   nd stop [app_id]                   Stop an app
   nd restart [app_id]                Restart an app
-  nd logs [app_id]                   Show recent container logs
+  nd logs [app_id] [-n lines]        Show recent container logs (default: 100 lines)
+
+  nd exec [flags] [app_id] <cmd...>  Run command inside app container (alias: nd run)
+  nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
 
   nd env list [app_id]               Show environment variables
   nd env set [app_id] KEY=VALUE ...  Set environment variables
 
   nd version                         Print version
   nd help                            Print this help
+
+Exec Flags:
+  -a, --app <app_id>                 Target application ID
+  -s, --service <service>            Target compose service
+  -w, --workdir <dir>                Working directory inside container
+  --server                           Execute on host VPS instead of container
 
 Environment variables:
   ND_SERVER_URL                      Panel URL fallback (e.g. in CI/CD)

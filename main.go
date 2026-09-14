@@ -237,6 +237,9 @@ func main() {
 	app.Get("/cli-sessions", p.RequireAdminMiddleware, p.CLISessionsPage)
 	app.Post("/cli-sessions/tokens", p.RequireAdminMiddleware, p.CreateCLITokenPost)
 	app.Post("/cli-sessions/tokens/:id/delete", p.RequireAdminMiddleware, p.DeleteCLITokenPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-reveal", p.RequireAdminMiddleware, p.ToggleCLITokenEnvRevealPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-container-exec", p.RequireAdminMiddleware, p.ToggleCLITokenContainerExecPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.RequireAdminMiddleware, p.ToggleCLITokenServerExecPost)
 	app.Get("/apps", p.AppsPage)
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.

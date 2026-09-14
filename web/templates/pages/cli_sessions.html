@@ -188,38 +188,123 @@
     {{end}}
   </div>
 
-  <!-- API Tokens Section -->
-  <div class="panel-card overflow-hidden">
-    <div class="border-b border-border/60 px-5 py-4 flex items-center justify-between">
-      <div>
-        <h2 class="text-sm font-semibold text-foreground">Authorized API Tokens</h2>
-        <p class="text-xs text-muted-foreground">Tokens usable with <code class="rounded bg-muted px-1 text-xs">nd login</code> and MCP assistants</p>
+  <!-- API Tokens & Authentication Section -->
+  <div class="panel-card p-5 space-y-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/50 pb-4">
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30">
+          <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold text-foreground">API Tokens &amp; Authentication</h2>
+          <p class="text-xs text-muted-foreground">Generate secret tokens to authorize your local CLI (<code class="rounded bg-muted px-1 text-xs">nd</code>) and AI assistants without sharing passwords.</p>
+        </div>
       </div>
-      <button type="button" @click="tokenModal = true" class="btn-secondary flex h-8 items-center gap-1.5 px-3 text-xs">
-        + New Token
+      <button type="button" @click="tokenModal = true" class="btn btn-primary h-9 gap-1.5 px-3.5 text-xs font-semibold shrink-0">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Generate API Token
       </button>
     </div>
 
     {{if .Tokens}}
-    <div class="table-wrap border-0 rounded-none">
-      <table class="min-w-full divide-y divide-border text-sm">
-        <thead class="bg-muted/30">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Token Name</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Prefix</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Created</th>
-            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action</th>
+    <div class="overflow-x-auto rounded-xl border border-border/50 bg-muted/5">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-border/50 bg-muted/20 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <th class="px-4 py-3">Token Name</th>
+            <th class="px-4 py-3">Token Prefix</th>
+            <th class="px-4 py-3">Permissions</th>
+            <th class="px-4 py-3">Created</th>
+            <th class="px-4 py-3">Last Used</th>
+            <th class="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-border">
+        <tbody class="divide-y divide-border/40 text-xs">
           {{range .Tokens}}
-          <tr class="hover:bg-muted/20 transition-colors">
-            <td class="px-4 py-3 font-medium text-foreground text-xs">{{.Name}}</td>
-            <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{.TokenPrefix}}</td>
-            <td class="px-4 py-3 text-xs text-muted-foreground">{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+          <tr class="hover:bg-muted/10 transition-colors">
+            <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+            <td class="px-4 py-3 font-mono text-muted-foreground">{{.TokenPrefix}}</td>
+            <td class="px-4 py-3">
+              <div class="flex flex-col gap-1.5">
+                <!-- env_reveal badge -->
+                <div class="flex items-center gap-2">
+                  {{if .AllowEnvReveal}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                      <svg class="h-3 w-3 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+                      Secrets
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-reveal" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                    </form>
+                  {{else}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                      <svg class="h-3 w-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-2.18-7.915a48.507 48.507 0 00-4.048.455m7.854 0a48.508 48.508 0 014.048.455c.18.025.358.057.535.094a2.25 2.25 0 011.83 2.18 48.208 48.208 0 01-.607 7.104 2.25 2.25 0 01-1.391 1.776l-5.69 2.133a2.25 2.25 0 01-1.572 0l-5.69-2.133a2.25 2.25 0 01-1.39-1.776 48.207 48.207 0 01-.608-7.104 2.25 2.25 0 011.83-2.18c.177-.037.355-.069.535-.094"/></svg>
+                      Safe
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-reveal" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-amber-400/80 hover:text-amber-300 underline decoration-dotted transition-colors">Allow Secrets</button>
+                    </form>
+                  {{end}}
+                </div>
+                <!-- container_exec badge -->
+                <div class="flex items-center gap-2">
+                  {{if .AllowContainerExec}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">
+                      <svg class="h-3 w-3 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                      Container Exec
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-container-exec" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                    </form>
+                  {{else}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+                      No Container
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-container-exec" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-indigo-400/80 hover:text-indigo-300 underline decoration-dotted transition-colors">Allow Container</button>
+                    </form>
+                  {{end}}
+                </div>
+                <!-- server_exec badge -->
+                <div class="flex items-center gap-2">
+                  {{if .AllowServerExec}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                      <svg class="h-3 w-3 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                      Server Exec
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-exec" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                    </form>
+                  {{else}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                      No Server
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-exec" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Server</button>
+                    </form>
+                  {{end}}
+                </div>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-muted-foreground">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="px-4 py-3 text-muted-foreground">
+              {{if .LastUsedAt}}
+                <span class="text-emerald-400 font-medium">{{.LastUsedAt.Format "2006-01-02 15:04"}}</span>
+              {{else}}
+                <span class="text-muted-foreground/60 italic">Never</span>
+              {{end}}
+            </td>
             <td class="px-4 py-3 text-right">
-              <form method="post" action="/cli-sessions/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this token immediately?')">
-                <button type="submit" class="text-xs text-destructive hover:underline">Revoke</button>
+              <form method="post" action="/cli-sessions/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this API token immediately?')">
+                <button type="submit" class="text-rose-400 hover:text-rose-300 font-medium transition-colors">
+                  Revoke
+                </button>
               </form>
             </td>
           </tr>
@@ -228,9 +313,11 @@
       </table>
     </div>
     {{else}}
-    <div class="p-6 text-center text-xs text-muted-foreground">
-      <p>No API tokens generated yet.</p>
-      <button type="button" @click="tokenModal = true" class="mt-2 text-primary hover:underline font-medium">Generate your first token</button>
+    <div class="rounded-xl border border-dashed border-border/60 bg-muted/5 py-8 px-4 text-center space-y-2">
+      <p class="text-xs text-muted-foreground">No active API tokens found. You need an API token to connect your local terminal or CLI.</p>
+      <button type="button" @click="tokenModal = true" class="btn btn-secondary text-xs py-1.5 px-3">
+        + Create Your First Token
+      </button>
     </div>
     {{end}}
   </div>
@@ -326,54 +413,224 @@ nd logs                           # stream container logs</pre>
   <!-- ════════════════════════════════════════════════════════════════════════ -->
   <div x-show="tokenModal" x-cloak class="modal-overlay !m-0" @keydown.escape.window="tokenModal = false">
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
-    <div class="relative z-10 w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden"
-         @click.stop
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 scale-95 translate-y-2"
+    <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
+         @click.stop 
+         x-data="{ allowReveal: false, allowContainerExec: true, allowServerExec: false }"
+         x-transition:enter="transition ease-out duration-200" 
+         x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
          x-transition:enter-end="opacity-100 scale-100 translate-y-0"
          x-transition:leave="transition ease-in duration-150"
          x-transition:leave-start="opacity-100 scale-100 translate-y-0"
          x-transition:leave-end="opacity-0 scale-95 translate-y-2">
+      
+      <!-- Top subtle gradient specular highlight -->
+      <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"></div>
 
-      <div class="mb-5 flex items-start justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <!-- Modal Header -->
+      <div class="mb-6 flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent ring-1 ring-primary/30 text-primary shadow-lg shadow-primary/10">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
             </svg>
           </div>
           <div>
-            <h2 class="text-base font-semibold text-foreground">Generate CLI Token</h2>
-            <p class="text-xs text-muted-foreground">Authorize your local machine or terminal session</p>
+            <h2 class="text-lg font-semibold tracking-tight text-foreground">Generate New API Token</h2>
+            <p class="text-xs text-muted-foreground mt-0.5">Authorize local CLI (<code class="font-mono text-primary">nd</code>) &amp; AI assistants</p>
           </div>
         </div>
-        <button type="button" @click="tokenModal = false" class="rounded-xl p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        <button type="button" @click="tokenModal = false" class="rounded-xl p-2 text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close modal">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
 
-      <form method="post" action="/cli-sessions/tokens" class="space-y-4">
-        <div>
-          <label for="cli_token_name" class="block text-xs font-semibold text-muted-foreground mb-1.5">Device or Client Name</label>
-          <input type="text" 
-                 id="cli_token_name" 
-                 name="name" 
-                 required 
-                 placeholder="e.g. Work Laptop, ASUS Windows, Cursor CLI" 
-                 class="input w-full text-sm h-10 px-3.5 rounded-xl"
-                 autofocus>
+      <form method="post" action="/cli-sessions/tokens" class="space-y-5">
+        <!-- Token Identifier Input -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label for="cli_token_name" class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Token Description / Device Name</label>
+            <span class="text-[11px] text-muted-foreground/80">Required</span>
+          </div>
+          <div class="relative">
+            <input type="text" 
+                   id="cli_token_name" 
+                   name="name" 
+                   required 
+                   placeholder="e.g. Work Laptop, ASUS Windows, Cursor CLI" 
+                   class="input w-full bg-background/50 border-border/70 focus:bg-background focus:border-primary focus:ring-2 focus:ring-primary/25 placeholder:text-muted-foreground/45 transition-all text-sm h-10 px-3.5 rounded-xl" 
+                   autofocus>
+          </div>
+          
+          <!-- Quick Preset Chips -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-1">
+            <span class="text-[11px] text-muted-foreground/60 mr-1">Quick presets:</span>
+            <button type="button" onclick="document.getElementById('cli_token_name').value='Work Laptop CLI'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Laptop CLI</button>
+            <button type="button" onclick="document.getElementById('cli_token_name').value='ASUS Windows'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">ASUS Windows</button>
+            <button type="button" onclick="document.getElementById('cli_token_name').value='Cursor'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Cursor</button>
+            <button type="button" onclick="document.getElementById('cli_token_name').value='Claude Code'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Claude Code</button>
+            <button type="button" onclick="document.getElementById('cli_token_name').value='CI / CD Agent'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">CI / CD</button>
+          </div>
         </div>
 
-        <div class="rounded-xl bg-muted/40 p-3.5 text-xs text-muted-foreground space-y-1">
-          <p class="font-medium text-foreground">Permissions Included:</p>
-          <p>✓ Application Discovery &amp; Status</p>
-          <p>✓ Differential File Sync &amp; Deployment (`nd push`)</p>
-          <p>✓ Container Logs &amp; Environment Variables</p>
+        <!-- Permission Level 1: Secret Exposure (env_reveal) Interactive Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowReveal ? 'border-amber-500/50 bg-amber-500/[0.07] ring-1 ring-amber-500/20 shadow-md shadow-amber-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+          
+          <input type="checkbox" name="allow_env_reveal" value="1" x-model="allowReveal" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowReveal = !allowReveal">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowReveal ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <template x-if="!allowReveal">
+                  <svg class="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-2.18-7.915a48.507 48.507 0 00-4.048.455m7.854 0a48.508 48.508 0 014.048.455c.18.025.358.057.535.094a2.25 2.25 0 011.83 2.18 48.208 48.208 0 01-.607 7.104 2.25 2.25 0 01-1.391 1.776l-5.69 2.133a2.25 2.25 0 01-1.572 0l-5.69-2.133a2.25 2.25 0 01-1.39-1.776 48.207 48.207 0 01-.608-7.104 2.25 2.25 0 011.83-2.18c.177-.037.355-.069.535-.094"/>
+                  </svg>
+                </template>
+                <template x-if="allowReveal">
+                  <svg class="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                  </svg>
+                </template>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow env_reveal (Expose Secrets)</span>
+                  <template x-if="!allowReveal">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400 uppercase tracking-wider">
+                      Protected (Safe)
+                    </span>
+                  </template>
+                  <template x-if="allowReveal">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-300 uppercase tracking-wider animate-pulse">
+                      High Privilege
+                    </span>
+                  </template>
+                </div>
+                
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowReveal">
+                    <strong>Default (Safe):</strong> The CLI can list environment variable names, but secret values and passwords stay strictly masked.
+                  </span>
+                  <span x-show="allowReveal" class="text-amber-200/90" x-cloak>
+                    <strong>High Privilege:</strong> The CLI and agents can read unmasked plaintext passwords, database URLs, and API keys via <code class="px-1 py-0.5 rounded bg-amber-500/20 font-mono text-[10px] text-amber-200">env_reveal</code>.
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" 
+                    role="switch" 
+                    :aria-checked="allowReveal"
+                    @click.stop="allowReveal = !allowReveal"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowReveal ? 'bg-amber-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle secret exposure</span>
+              <span aria-hidden="true" 
+                    class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowReveal ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" @click="tokenModal = false" class="btn-secondary px-4 py-2 text-xs">Cancel</button>
-          <button type="submit" class="btn btn-primary px-4 py-2 text-xs font-semibold">Generate Token</button>
+        <!-- Permission Level 2: Container Exec (container_exec) Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowContainerExec ? 'border-indigo-500/50 bg-indigo-500/[0.06] ring-1 ring-indigo-500/20 shadow-md shadow-indigo-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+
+          <input type="checkbox" name="allow_container_exec" value="1" x-model="allowContainerExec" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowContainerExec = !allowContainerExec">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowContainerExec ? 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowContainerExec ? 'text-indigo-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+                </svg>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow container_exec (Container Shell / nd exec)</span>
+                  <template x-if="!allowContainerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
+                  </template>
+                  <template x-if="allowContainerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-indigo-500/20 border border-indigo-500/40 px-1.5 py-0.5 text-[9px] font-bold text-indigo-300 uppercase tracking-wider">Active</span>
+                  </template>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowContainerExec">Commands cannot be executed inside application containers.</span>
+                  <span x-show="allowContainerExec" class="text-indigo-200/90" x-cloak>Allows arbitrary shell commands inside Docker containers via <code class="px-1 py-0.5 rounded bg-indigo-500/20 font-mono text-[10px] text-indigo-200">nd exec</code> or MCP <code class="px-1 py-0.5 rounded bg-indigo-500/20 font-mono text-[10px] text-indigo-200">container_exec</code>.</span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" role="switch" :aria-checked="allowContainerExec" @click.stop="allowContainerExec = !allowContainerExec"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowContainerExec ? 'bg-indigo-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle container exec permission</span>
+              <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowContainerExec ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Permission Level 3: Host Server Exec (server_exec) Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowServerExec ? 'border-rose-500/50 bg-rose-500/[0.06] ring-1 ring-rose-500/20 shadow-md shadow-rose-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+
+          <input type="checkbox" name="allow_server_exec" value="1" x-model="allowServerExec" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowServerExec = !allowServerExec">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowServerExec ? 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowServerExec ? 'text-rose-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>
+                </svg>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow server_exec (Host VPS Shell)</span>
+                  <template x-if="!allowServerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
+                  </template>
+                  <template x-if="allowServerExec">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[9px] font-bold text-rose-300 uppercase tracking-wider animate-pulse">CRITICAL PRIVILEGE</span>
+                  </template>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowServerExec">Shell commands on the panel host server cannot be executed via this token. Recommended.</span>
+                  <span x-show="allowServerExec" class="text-rose-200/90" x-cloak><strong>Critical:</strong> Allows arbitrary shell commands directly on the panel host server (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">server_exec</code>). Only for fully trusted admin agents.</span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" role="switch" :aria-checked="allowServerExec" @click.stop="allowServerExec = !allowServerExec"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowServerExec ? 'bg-rose-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle server exec permission</span>
+              <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowServerExec ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t border-border/50">
+          <button type="button" 
+                  @click="tokenModal = false" 
+                  class="btn btn-secondary text-xs h-10 px-4 rounded-xl font-medium hover:bg-muted/80 transition-colors">
+            Cancel
+          </button>
+          <button type="submit" 
+                  class="btn btn-primary text-xs h-10 px-5 rounded-xl font-semibold gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            Generate Token
+          </button>
         </div>
       </form>
     </div>

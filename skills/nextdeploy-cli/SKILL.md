@@ -144,7 +144,9 @@ Once linked, all commands (`nd push`, `nd logs`, `nd status`, `nd deploy`, `nd r
 | `deploy` | `nd deploy [app_id]` | Trigger remote container redeployment without file sync |
 | `stop` | `nd stop [app_id]` | Stop container stack |
 | `restart` | `nd restart [app_id]` | Restart container stack |
-| `logs` | `nd logs [app_id]` | Stream the last 100 lines of container stdout/stderr |
+| `logs` | `nd logs [app_id] [-n lines]` | Stream container stdout/stderr (default: 100 lines) |
+| `exec` / `run` | `nd exec [app_id] <cmd...>` | Heroku-style shell execution inside application container |
+| `server-exec` | `nd server-exec <cmd...>` | Run arbitrary shell command on host VPS (requires `allow_server_exec`) |
 | `env list`| `nd env list [app_id]` | Display environment variables |
 | `env set` | `nd env set [app_id] K=V` | Set or update one or multiple environment variables |
 | `version` | `nd version` | Print CLI version, target OS, and architecture |

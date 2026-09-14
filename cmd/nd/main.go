@@ -104,6 +104,10 @@ func run() int {
 		err = cmd.RunRestart(cl, rest)
 	case "logs":
 		err = cmd.RunLogs(cl, rest)
+	case "exec", "run":
+		err = cmd.RunExec(cl, rest)
+	case "server-exec":
+		err = cmd.RunServerExec(cl, rest)
 	case "env":
 		err = cmd.RunEnv(cl, rest)
 	default:
