@@ -577,7 +577,6 @@
         <button type="button" @click="activeCategory = 'deploy'" :class="activeCategory === 'deploy' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Deploy</button>
         <button type="button" @click="activeCategory = 'logs'" :class="activeCategory === 'logs' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Logs</button>
         <button type="button" @click="activeCategory = 'terminal'" :class="activeCategory === 'terminal' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Terminal</button>
-        <button type="button" @click="activeCategory = 'dev'" :class="activeCategory === 'dev' ? 'bg-primary/20 text-primary ring-1 ring-primary/30 font-semibold' : 'text-muted-foreground hover:text-foreground'" class="rounded-lg px-2.5 py-1 text-[11px] transition-colors">Dev Mode</button>
       </div>
     </div>
 
@@ -588,8 +587,7 @@
                   (activeCategory === 'file' && ('{{.Name}}' === 'workspace_manifest' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete' || '{{.Name}}' === 'file_patch' || '{{.Name}}' === 'file_search' || '{{.Name}}' === 'workspace_apply')) ||
                   (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'git_pull')) ||
                   (activeCategory === 'terminal' && ('{{.Name}}' === 'container_exec' || '{{.Name}}' === 'server_exec')) ||
-                  (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail')) ||
-                  (activeCategory === 'dev' && ('{{.Name}}' === 'dev_mode_set' || '{{.Name}}' === 'reset_dev_deps'))"
+                  (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail'))"
         class="rounded-xl border border-border/60 bg-muted/10 p-3.5 space-y-2.5 transition-all hover:border-border hover:bg-muted/20">
         <div class="flex items-center justify-between">
           <code class="font-mono text-xs font-bold text-primary">{{.Name}}</code>

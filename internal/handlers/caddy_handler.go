@@ -17,7 +17,6 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
-	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/sandbox"
@@ -145,55 +144,11 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	project := p.ActiveComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	devMount := dev.DevMount{
-		Enabled:    app.DevMode,
-		AppID:      appID,
-		Service:    app.DevService,
-		Target:     app.DevTarget,
-		DevCommand: app.DevCommand,
-	}
-	if app.DevMode {
-		root := p.composeWorkspaceRoot(ctx, appID)
-		devMount.PreservePaths = dev.DetectPreservePaths(root)
-		devMount.HostRoot = p.discoverHostWorkspaceRoot(ctx, appID)
-		if devMount.HostRoot == "" {
-			log.Printf("[dev] WARNING: Could not discover host workspace root for app %s; falling back to relative path './'. Bind mounts may fail if panel runs inside a container with custom data mounts.", appID)
-		}
-	}
-	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent, devMount)
+	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent)
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
 	return atomicWriteFile(overridePath, content, 0640)
-}
-
-// discoverHostWorkspaceRoot resolves the true host path of an app workspace when
-// the panel runs in Docker with custom host mounts (e.g. -v /mnt/data:/data).
-func (p *Panel) discoverHostWorkspaceRoot(ctx context.Context, appID string) string {
-	workspaceRoot := p.composeWorkspaceRoot(ctx, appID)
-	if h := strings.TrimSpace(os.Getenv("HOST_WORKSPACES_ROOT")); h != "" {
-		rel, err := filepath.Rel(p.Store.Root, workspaceRoot)
-		if err == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join(h, rel)
-		}
-	}
-	// Inspect running panel container mounts
-	_, source, err := dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", p.Store.Root)
-	if err == nil && strings.TrimSpace(source) != "" {
-		rel, relErr := filepath.Rel(p.Store.Root, workspaceRoot)
-		if relErr == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join(source, rel)
-		}
-	}
-	dataDir := filepath.Dir(p.Store.Root)
-	_, source, err = dockerapi.ContainerComposeProjectAndMountSource(ctx, "panel", dataDir)
-	if err == nil && strings.TrimSpace(source) != "" {
-		rel, relErr := filepath.Rel(dataDir, workspaceRoot)
-		if relErr == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join(source, rel)
-		}
-	}
-	return ""
 }
 
 // SyncAndApplyBackground writes the Caddy override then runs `docker compose up -d`

@@ -328,20 +328,6 @@ venv
           <code>services:<br>&nbsp;&nbsp;web:<br>&nbsp;&nbsp;&nbsp;&nbsp;build: .<br>&nbsp;&nbsp;&nbsp;&nbsp;image: myapp:latest<br>&nbsp;&nbsp;worker:<br>&nbsp;&nbsp;&nbsp;&nbsp;image: myapp:latest  # Reuses the image without a second build</code>
         </div>
       </div>
-
-      <!-- 4. NextDeploy Dev Mode -->
-      <div class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 space-y-2">
-        <div class="flex items-center gap-2">
-          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">4</span>
-          <h3 class="font-semibold text-amber-200 text-sm">Need zero build time? Use Dev Mode</h3>
-        </div>
-        <p class="leading-relaxed text-amber-100/90">
-          In the <a href="/apps/{{.ID}}?tab=dev" class="font-medium text-amber-300 underline underline-offset-2 hover:text-amber-200">Dev</a> tab, you can enable <strong>Development Mode</strong>. This live-mounts your project files directly into the container (<code class="font-mono text-[11px]">/app</code>).
-        </p>
-        <p class="leading-relaxed text-amber-100/80">
-          With Dev Mode on, clicking <strong>Deploy</strong> updates the running stack <em>without rebuilding images</em>, letting watch tools (<code class="font-mono text-[11px]">npm run dev</code>, <code class="font-mono text-[11px]">uvicorn --reload</code>, <code class="font-mono text-[11px]">air</code>) reload code instantly.
-        </p>
-      </div>
     </div>
 
     <!-- Footer -->

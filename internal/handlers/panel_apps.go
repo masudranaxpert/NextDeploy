@@ -8,14 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"panel/internal/handlers/utils"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"panel/internal/db"
-	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/workspace"
@@ -291,148 +289,6 @@ func (p *Panel) renderComposeFileCard(c *fiber.Ctx, app db.App, id string, saved
 		"HasDockerfile":      hasDF,
 		"ComposePathSaved":   saved,
 	})
-}
-
-// SaveAppDevMode stores the development mode settings and regenerates the compose
-// override so the workspace bind mount is added or removed right away.
-func (p *Panel) SaveAppDevMode(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(fiber.StatusNotFound).SendString("app not found")
-	}
-	enabled := c.FormValue("dev_mode") == "on"
-	service := strings.TrimSpace(c.FormValue("dev_service"))
-	target := strings.TrimSpace(c.FormValue("dev_target"))
-	command := strings.TrimSpace(c.FormValue("dev_command"))
-	if target != "" && !dev.ValidTarget(target) {
-		utils.SetFlash(c, "devTargetInvalid")
-		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
-	}
-	if err := p.DB.UpdateAppDevMode(c.UserContext(), id, enabled, service, target, command); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	if enabled && service != "" {
-		svcs := p.LoadComposeServices(c.UserContext(), id)
-		found := false
-		for _, s := range svcs {
-			if s == service {
-				found = true
-				break
-			}
-		}
-		if !found && len(svcs) > 0 {
-			_ = p.DB.InsertDeployLog(c.UserContext(), id, "Dev mode update", true,
-				fmt.Sprintf("Warning: configured dev service %q not found in compose services (%s). Dev mount is skipped until names match.",
-					service, strings.Join(svcs, ", ")))
-		}
-	}
-	if err := p.syncAndApplyBackground(c, id); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	utils.SetFlash(c, "devModeSaved")
-	state := "disabled"
-	if enabled {
-		state = "enabled"
-	}
-	p.RecordAuditLog(c, "app_dev_mode", "app", id, "Development mode "+state)
-	return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
-}
-
-// ResetAppDevDependencies removes the app-scoped dev dependency named volumes (nddev_<appID>_*)
-// and recreates the containers so fresh packages from the image are pulled, without touching databases.
-func (p *Panel) ResetAppDevDependencies(c *fiber.Ctx) error {
-	id := c.Params("id")
-	app, err := p.DB.GetApp(c.UserContext(), id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).SendString("app not found")
-	}
-
-	volPrefix := fmt.Sprintf("nddev_%s_", id)
-	listCtx, listCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	cmd := exec.CommandContext(listCtx, "docker", "volume", "ls", "-q", "--filter", "name="+volPrefix)
-	out, _ := cmd.Output()
-	listCancel()
-
-	var vols []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && strings.HasPrefix(line, volPrefix) {
-			vols = append(vols, line)
-		}
-	}
-
-	if len(vols) == 0 {
-		utils.SetFlash(c, "devDepsNoVolumes")
-		return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
-	}
-
-	// Identify services to stop/restart (so databases keep running with zero downtime)
-	var targetServices []string
-	if s := strings.TrimSpace(app.DevService); s != "" {
-		targetServices = []string{s}
-	} else {
-		// Forward-match volume names against known compose services using longest prefix match.
-		// This avoids corrupting service names that contain underscores (e.g. "api_worker" vs "api").
-		svcs := p.loadComposeServices(c.UserContext(), id)
-		svcSet := make(map[string]bool)
-		for _, v := range vols {
-			if s := dev.MatchDevVolumeService(v, volPrefix, svcs); s != "" {
-				svcSet[s] = true
-			}
-		}
-		for s := range svcSet {
-			targetServices = append(targetServices, s)
-		}
-		if len(targetServices) == 0 {
-			targetServices = svcs
-		}
-	}
-
-	p.RecordAuditLog(c, "app_dev_deps_reset", "app", id, fmt.Sprintf("Reset %d dev volumes", len(vols)))
-	utils.SetFlash(c, "devDepsResetSuccess")
-
-	// Run recreate in background with context.Background() so client disconnection does not abort the reset
-	go func() {
-		bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer bgCancel()
-
-		project := p.ActiveComposeProjectName(bgCtx, app, id)
-		dir := p.appSourcePath(bgCtx, id)
-		paths := p.effectiveComposePaths(bgCtx, app, id)
-		envFiles := p.composeEnvFiles(bgCtx, id)
-
-		// 1. Stop and remove only the targeted dev service containers (e.g. web, worker). Databases keep running!
-		_ = dockerx.ComposeRmServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
-
-		// 2. Remove the app-scoped dev dependency named volumes, capturing errors
-		var volErrs []string
-		for _, v := range vols {
-			if out, err := exec.CommandContext(bgCtx, "docker", "volume", "rm", "-f", v).CombinedOutput(); err != nil {
-				msg := strings.TrimSpace(string(out))
-				if msg == "" {
-					msg = err.Error()
-				}
-				volErrs = append(volErrs, fmt.Sprintf("%s (%s)", v, msg))
-			}
-		}
-
-		// 3. Recreate and start the targeted services with fresh volumes from image
-		res := dockerx.ComposeApplyServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
-
-		ok := res.OK && len(volErrs) == 0
-		statusMsg := fmt.Sprintf("Reset %d development dependency volume(s) for service(s) [%s]:\n%s\n\nContainers recreated with fresh image dependencies.",
-			len(vols), strings.Join(targetServices, ", "), strings.Join(vols, "\n"))
-		if len(volErrs) > 0 {
-			statusMsg += "\n\n[error] Failed to delete volume(s):\n" + strings.Join(volErrs, "\n")
-		}
-		if !res.OK {
-			statusMsg += "\n\n[error] Service start warning/failure:\n" + strings.TrimSpace(res.Output)
-		}
-
-		_ = p.DB.InsertDeployLog(bgCtx, id, "Reset dev dependencies", ok, statusMsg)
-	}()
-
-	return c.Redirect(fmt.Sprintf("/apps/%s?tab=dev", id))
 }
 
 func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {

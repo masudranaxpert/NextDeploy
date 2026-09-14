@@ -302,34 +302,6 @@ func AllTools() []Tool {
 			},
 		},
 		{
-			Name: "dev_mode_set",
-			Description: "Configure or toggle Development Mode (workspace bind-mounting and hot reload). " +
-				"When enabled, workspace file edits take effect immediately inside containers without redeploying.",
-			InputSchema: ToolInputSchema{
-				Type: "object",
-				Properties: map[string]ToolProperty{
-					"app_id":  {Type: "string", Description: "The application ID"},
-					"enabled": {Type: "boolean", Description: "Whether dev mode is enabled"},
-					"service": {Type: "string", Description: "Target service name to mount workspace into"},
-					"target":  {Type: "string", Description: "Absolute target path inside container (e.g. /app)"},
-					"command": {Type: "string", Description: "Optional custom start command override for dev"},
-				},
-				Required: []string{"app_id", "enabled"},
-			},
-		},
-		{
-			Name: "reset_dev_deps",
-			Description: "Reset development dependency volumes (nddev_*) and recreate containers with fresh packages with zero database downtime. " +
-				"Use after adding or updating package dependencies (e.g. package.json, requirements.txt) in dev mode.",
-			InputSchema: ToolInputSchema{
-				Type: "object",
-				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
-				},
-				Required: []string{"app_id"},
-			},
-		},
-		{
 			Name: "container_exec",
 			Description: "Execute a shell command inside an application container. " +
 				"Use for running migrations, tests, or CLI commands inside the container. Requires explicit 'Allow container_exec' token permission. For host server commands, use server_exec.",

@@ -657,13 +657,6 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	if !cfg.AutoDeploy {
 		return c.SendStatus(fiber.StatusAccepted)
 	}
-	// Dev mode keeps the workspace dirty for live editing. A webhook sync would
-	// run git checkout -f / clean and wipe those edits, so skip until Dev is off.
-	if app.DevMode {
-		_ = p.DB.InsertDeployLog(c.UserContext(), appID, "Webhook redeploy", true,
-			"Skipped: development mode is on. Turn Dev mode off to resume auto-deploy from Git.")
-		return c.SendStatus(fiber.StatusOK)
-	}
 	go func() {
 		bg := context.Background()
 		gitOut, err := p.SyncGitAppSource(bg, appID)

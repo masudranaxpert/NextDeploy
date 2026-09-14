@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"panel/internal/db"
-	"panel/internal/dev"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
@@ -110,10 +109,6 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleContainerLogs(ctx, u, params.Arguments)
 	case "deploy_log_tail":
 		return h.handleDeployLogTail(ctx, u, params.Arguments)
-	case "dev_mode_set":
-		return h.handleDevModeSet(ctx, u, params.Arguments)
-	case "reset_dev_deps":
-		return h.handleResetDevDeps(ctx, u, params.Arguments)
 	case "container_exec":
 		return h.handleContainerExec(ctx, u, params.Arguments)
 	case "server_exec":
@@ -171,7 +166,6 @@ func (h *Handler) handleAppList(ctx context.Context, u db.User) (CallToolResult,
 		ID        string   `json:"id"`
 		Name      string   `json:"name"`
 		Status    string   `json:"status"`
-		DevMode   bool     `json:"dev_mode"`
 		CreatedAt string   `json:"created_at"`
 		Domains   []string `json:"domains"`
 		Services  []string `json:"services"`
@@ -188,7 +182,6 @@ func (h *Handler) handleAppList(ctx context.Context, u db.User) (CallToolResult,
 			ID:        a.ID,
 			Name:      a.Name,
 			Status:    a.Status,
-			DevMode:   a.DevMode,
 			CreatedAt: a.CreatedAt.Format(time.RFC3339),
 			Domains:   dNames,
 			Services:  svcs,
@@ -1010,16 +1003,12 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		}
 	}()
 
-	if app.DevMode && action == "Deploy" {
-		fn = dockerx.ComposeApply
-	}
-
 	// git_pull:true = force sync from remote (discards local workspace edits).
 	// Default (omitted/false): perform a dirty-check first; skip sync if workspace has local
 	// changes so that file_write → deploy workflows are never silently destructive.
 	var gitSyncWarning string
 	forceGitPull := getBoolArg(args, "git_pull")
-	if h.p.IsGitApp(ctx, appID) && !app.DevMode && (action == "Deploy" || action == "Redeploy (pull + up)") {
+	if h.p.IsGitApp(ctx, appID) && (action == "Deploy" || action == "Redeploy (pull + up)") {
 		repoDir := h.p.AppCheckoutPath(appID)
 		if forceGitPull {
 			// Caller explicitly requested a git pull — proceed even if workspace is dirty.
@@ -1344,91 +1333,6 @@ func (h *Handler) handleDeployLogTail(ctx context.Context, u db.User, args map[s
 		"live_output":  liveOut,
 		"history":      history,
 	})
-}
-
-func (h *Handler) handleDevModeSet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	appID := getStringArg(args, "app_id")
-	enabled := getBoolArg(args, "enabled")
-	service := strings.TrimSpace(getStringArg(args, "service"))
-	target := strings.TrimSpace(getStringArg(args, "target"))
-	command := getStringArg(args, "command")
-	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
-		return errorResult(err)
-	}
-	if enabled && (target == "" || !filepath.IsAbs(target) || !strings.HasPrefix(target, "/")) {
-		return errorResult(errors.New("target path must be an absolute path inside container (e.g. /app)"))
-	}
-	if err := h.p.DB.UpdateAppDevMode(ctx, appID, enabled, service, target, command); err != nil {
-		return errorResult(err)
-	}
-	_ = h.p.SyncAndApplyBackground(ctx, appID)
-	return textResult(fmt.Sprintf("Dev mode saved (enabled=%v, service=%s, target=%s)", enabled, service, target))
-}
-
-func (h *Handler) handleResetDevDeps(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
-	if err != nil {
-		return errorResult(err)
-	}
-	volPrefix := fmt.Sprintf("nddev_%s_", appID)
-	listCtx, listCancel := context.WithTimeout(ctx, 15*time.Second)
-	cmd := exec.CommandContext(listCtx, "docker", "volume", "ls", "-q", "--filter", "name="+volPrefix)
-	out, _ := cmd.Output()
-	listCancel()
-
-	var vols []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && strings.HasPrefix(line, volPrefix) {
-			vols = append(vols, line)
-		}
-	}
-	if len(vols) == 0 {
-		return textResult("No dev dependency volumes found to reset.")
-	}
-
-	var targetServices []string
-	if s := strings.TrimSpace(app.DevService); s != "" {
-		targetServices = []string{s}
-	} else {
-		svcs := h.p.LoadComposeServices(ctx, appID)
-		svcSet := make(map[string]bool)
-		for _, v := range vols {
-			if s := dev.MatchDevVolumeService(v, volPrefix, svcs); s != "" {
-				svcSet[s] = true
-			}
-		}
-		for s := range svcSet {
-			targetServices = append(targetServices, s)
-		}
-		if len(targetServices) == 0 {
-			targetServices = svcs
-		}
-	}
-
-	go func() {
-		bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer bgCancel()
-		project := h.p.ActiveComposeProjectName(bgCtx, app, appID)
-		dir := h.p.AppSourcePath(bgCtx, appID)
-		paths := h.p.EffectiveComposePaths(bgCtx, app, appID)
-		envFiles := h.p.ComposeEnvFiles(bgCtx, appID)
-
-		_ = dockerx.ComposeRmServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
-		var volErrs []string
-		for _, v := range vols {
-			if out, err := exec.CommandContext(bgCtx, "docker", "volume", "rm", "-f", v).CombinedOutput(); err != nil {
-				volErrs = append(volErrs, fmt.Sprintf("%s (%s)", v, strings.TrimSpace(string(out))))
-			}
-		}
-		res := dockerx.ComposeApplyServices(bgCtx, dir, paths, project, nil, envFiles, targetServices...)
-		ok := res.OK && len(volErrs) == 0
-		msg := fmt.Sprintf("Reset %d dev volume(s) for service(s) [%s]. Containers recreated.", len(vols), strings.Join(targetServices, ", "))
-		_ = h.p.DB.InsertDeployLog(bgCtx, appID, "Reset dev dependencies", ok, msg)
-	}()
-
-	return textResult(fmt.Sprintf("Resetting %d dev volume(s) for service(s) [%s] in the background.", len(vols), strings.Join(targetServices, ", ")))
 }
 
 func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {

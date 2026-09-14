@@ -291,8 +291,6 @@ const (
 	settingRootApplyStatus          = "root_apply_status"
 	settingCaddySharedMountPrefix   = "caddy_shared_mount_prefix"
 	settingCaddySharedVolumeNames   = "caddy_shared_volume_names"
-	// settingDevModeFeature gates the Dev tab globally; default off (beta).
-	settingDevModeFeature           = "dev_mode_feature_enabled"
 )
 
 type intervalOption struct {
@@ -682,7 +680,6 @@ func (p *Panel) SettingsPage(c *fiber.Ctx) error {
 		"TmpFileCount":               tmpCount,
 		"TmpFileSize":                formatBytes(tmpBytes),
 		"TmpFileSizeRaw":             tmpBytes,
-		"DevModeFeatureEnabled":      settingBool(cfg[settingDevModeFeature], false),
 	}), "layouts/shell")
 }
 
@@ -723,7 +720,6 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 	enabled := c.FormValue(settingCleanupEnabled) == "on"
 	interval := normalizeCleanupInterval(c.FormValue(settingCleanupInterval))
 	includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on"
-	devModeFeature := c.FormValue(settingDevModeFeature) == "on"
 	if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -731,9 +727,6 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 	if err := p.DB.SetSetting(ctx, settingCleanupIncludeBuildCache, boolString(includeBuildCache)); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	if err := p.DB.SetSetting(ctx, settingDevModeFeature, boolString(devModeFeature)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if p.DB.GetSetting(ctx, settingCleanupLastRun) == "" {

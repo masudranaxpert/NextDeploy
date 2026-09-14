@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"panel/internal/db"
-	"panel/internal/dev"
 
 	"gopkg.in/yaml.v3"
 )
@@ -309,19 +308,6 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 	return out
 }
 
-// DevMount describes the development-mode workspace bind mount. The source is always
-// the compose project directory ("./"), which Docker resolves to the app workspace on
-// DevMount is an alias to dev.DevMount for backward compatibility.
-type DevMount = dev.DevMount
-
-// DefaultDevTarget is the container path used when an app enables dev mode without
-// specifying one.
-const DefaultDevTarget = dev.DefaultTarget
-
-// ValidDevTarget reports whether target is usable as the container side of a short syntax bind mount.
-func ValidDevTarget(target string) bool {
-	return dev.ValidTarget(target)
-}
 
 // ParseComposeServiceNames extracts service names from compose YAML, supporting any indentation.
 func ParseComposeServiceNames(data []byte) []string {
@@ -370,8 +356,7 @@ func ParseComposeServiceNames(data []byte) []string {
 // env_file so panel-managed variables reach containers regardless of source type.
 // When cgroupParent is non-empty it is forced onto every service so all of the owner's
 // containers run under a single cgroup with a shared, kernel-enforced resource limit.
-// When dev is enabled the workspace is bind-mounted into the selected services.
-func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string, devMount DevMount) ([]byte, error) {
+func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -408,8 +393,6 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 			services[svcKey] = svc
 		}
 	}
-
-	dev.Apply(services, devMount, doc)
 
 	byService := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {

@@ -1,6 +1,6 @@
 ---
 name: nextdeploy-mcp
-description: Guide and tool reference for AI coding agents connecting to NextDeploy via Model Context Protocol (MCP). Covers inspecting apps, managing workspace files, editing environment variables, running non-blocking deployments, polling deploy logs, and toggling development mode.
+description: Guide and tool reference for AI coding agents connecting to NextDeploy via Model Context Protocol (MCP). Covers inspecting apps, managing workspace files, editing environment variables, running non-blocking deployments, and polling deploy logs.
 version: 1.0.0
 ---
 
@@ -29,8 +29,7 @@ Unlike basic SSH bind mounts where an agent can edit files but cannot deploy or 
 │   3. Trigger deployment   →   deploy / redeploy (async)     │
 │   4. Poll build output    →   deploy_status(job_id)         │
 │   5. Read runtime logs    →   container_logs, deploy_tail   │
-│   6. Dev hot-reload       →   dev_mode_set, reset_dev_deps  │
-│   7. Terminal execution   →   container_exec, server_exec   │
+│   6. Terminal execution   →   container_exec, server_exec   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,11 +87,11 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **25 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
+The NextDeploy MCP server provides **23 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
 
 ### Area 1: Application Discovery & Lifecycle
 - **`app_list`**: Lists all applications the user can access.
-  - Returns: `id`, `name`, `status`, `dev_mode`, `domains`, and compose `services`.
+  - Returns: `id`, `name`, `status`, `domains`, and compose `services`.
 - **`app_get`**: Detailed metadata, compose services, container status (`ps`), and optional health check.
   - Arguments: `app_id` (string, required), `include_health` (boolean, optional).
 - **`app_create`**: Provisions a new application directly via MCP.
@@ -141,18 +140,7 @@ All file paths are strictly sandboxed inside the app workspace.
 - **`deploy_log_tail`**: Inspects recent historical deployment logs or live ongoing deployment output.
   - Arguments: `app_id` (string, required), `limit` (integer, default 5).
 
-### Area 6: Development Mode & Anti-Shadowing
-- **`dev_mode_set`**: Configures bind-mounting the workspace directly into the container so local code edits reflect immediately.
-  - Arguments:
-    - `app_id` (string, required)
-    - `enabled` (boolean, required)
-    - `service` (string, optional, e.g. `"web"`)
-    - `target` (string, optional, e.g. `"/app"`)
-    - `command` (string, optional, e.g. `"npm run dev"` or `"uvicorn main:app --reload"`)
-- **`reset_dev_deps`**: Deletes app-scoped named volumes (`nddev_<appID>_*`) and recreates containers with fresh image dependencies with zero database downtime.
-  - Arguments: `app_id` (string, required).
-
-### Area 7: Terminal & Command Execution
+### Area 6: Terminal & Command Execution
 - **`container_exec`**: Runs commands inside an application container (or specific compose service) and returns stdout/stderr with exit status. Essential for running database migrations (`php artisan migrate`, `python manage.py migrate`, `npx prisma migrate deploy`), executing test suites (`npm test`, `pytest`, `go test`), and inspecting live container states.
   - Arguments:
     - `app_id` (string, required)
@@ -208,32 +196,8 @@ All file paths are strictly sandboxed inside the app workspace.
 
 ---
 
-### Recipe B: Enabling Instant Live-Reload (Dev Mode)
-
-1. Turn on Dev Mode with bind mount:
-   ```json
-   {
-     "tool": "dev_mode_set",
-     "arguments": {
-       "app_id": "my-web",
-       "enabled": true,
-       "service": "web",
-       "target": "/app",
-       "command": "npm run dev"
-     }
-   }
-   ```
-2. Now, whenever you call `file_write(path, content)`, the changes are instantly reflected inside the running container without rebuilding!
-3. If new npm packages were added to the image and you need fresh `node_modules`:
-   ```json
-   { "tool": "reset_dev_deps", "arguments": { "app_id": "my-web" } }
-   ```
-
----
-
 ## 5. Security & Safety Rules for Agents
 
 1. **Never write outside the workspace**: Paths starting with `/` or containing `..` will be rejected with `os.ErrInvalid`.
 2. **Do not modify `.nextdeploy.generated.compose.yml`**: This file is generated dynamically by NextDeploy for Caddy reverse proxy routing. Always edit `docker-compose.yml`.
 3. **Respect Deploy Mutexes**: Never send multiple simultaneous deploy requests for the same app. Wait for `deploy_status` to report `"running": false` before triggering another action.
-4. **Protect Database Volumes**: Dev mode uses app-scoped named volumes (`nddev_*`) for anti-shadowing paths like `node_modules` or `.venv`. Databases use persistent standard named volumes and are never wiped by dev resets.

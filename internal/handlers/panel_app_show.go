@@ -6,15 +6,12 @@ import (
 	"context"
 	"fmt"
 	"html/template"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"panel/internal/caddy"
 	"panel/internal/db"
-	"panel/internal/dev"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
@@ -174,24 +171,6 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	if tab == "git" || tab == "deployment" {
 		panelDomain = p.DB.GetSetting(reqCtx, settingPanelDomain)
 	}
-
-	devTarget := strings.TrimSpace(app.DevTarget)
-	if devTarget == "" {
-		devTarget = caddy.DefaultDevTarget
-	}
-	var devServices []string
-	sshHost := ""
-	if tab == "dev" {
-		mark = time.Now()
-		devServices = p.loadComposeServices(reqCtx, id)
-		// The SSH endpoint is the Docker host, which is the same machine serving the
-		// panel; the request host is the closest thing the panel can know about it.
-		sshHost = c.Hostname()
-		if h, _, err := net.SplitHostPort(sshHost); err == nil {
-			sshHost = h
-		}
-		tr.StepDur("dev_data", mark)
-	}
 	var gitSaved, gitSynced bool
 	var gitErrFlash string
 	if tab == "git" {
@@ -304,18 +283,6 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"ComposeFileSetting":     composeDisplay,
 		"ID":                     id,
 		"StoragePath":            storagePath,
-		"DevMode":                app.DevMode,
-		"ShowDevTab":             settingBool(p.DB.GetSetting(reqCtx, "dev_mode_feature_enabled"), false),
-		"DevService":             app.DevService,
-		"DevTarget":              devTarget,
-		"DevCommand":             app.DevCommand,
-		"DevServices":            devServices,
-		"DevPreservePaths":       dev.DetectPreservePaths(p.composeWorkspaceRoot(c.UserContext(), id)),
-		"SSHHost":                sshHost,
-		"DevModeSaved":           appShowFlash == "devModeSaved",
-		"DevTargetInvalid":       appShowFlash == "devTargetInvalid",
-		"DevDepsResetSuccess":    appShowFlash == "devDepsResetSuccess",
-		"DevDepsNoVolumes":       appShowFlash == "devDepsNoVolumes",
 		"UploadZipTarget":        fmt.Sprintf("/apps/%s/upload-zip", id),
 		"UploadFileTarget":       fmt.Sprintf("/apps/%s/upload", id),
 		"ComposeRows":            composeRows,

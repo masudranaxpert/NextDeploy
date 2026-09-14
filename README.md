@@ -25,8 +25,8 @@
 | **Docker Resources** | Browse and remove containers, images, and volumes; scheduled auto-prune |
 | **Multi-user** | Admin + user roles; per-user resource limits; audit log |
 | **MCP Server** | Native [Model Context Protocol](skills/nextdeploy-mcp/SKILL.md) server — let Cursor, Claude Code or Windsurf edit, deploy, and inspect apps directly over your local API token |
+| **NextDeploy CLI (`nd`)** | Native CLI to push local projects, stream logs, manage apps and tokens |
 | **Panel Migration** | Export selected apps to a `.nd-migrate` bundle and restore on another VPS |
-| **Development Mode** | *(Beta — enable in Settings)* Bind-mount workspace into containers for live hot-reload without image rebuilds |
 
 ## Requirements
 
@@ -84,19 +84,6 @@ NextDeploy ships a native **Model Context Protocol** server at `/mcp/sse`. AI co
 3. The assistant can now edit files, trigger deploys, and tail logs directly.
 
 See [`skills/nextdeploy-mcp/SKILL.md`](skills/nextdeploy-mcp/SKILL.md) for the full agent skill guide.
-
----
-
-## Development Mode *(Beta)*
-
-Turns on a **Dev** tab per app. Enable globally in **Settings → Enable Development Mode**.
-
-When Dev mode is active for an app:
-- Workspace files are **bind-mounted** into the container — changes are visible immediately, no rebuild needed.
-- `Deploy` runs `docker compose up -d` without rebuilding the image.
-- Git auto-deploy is **paused** so local edits are never overwritten by a push.
-
-> **You supply the reload command** — use `npm run dev`, `uvicorn ... --reload`, or `air` in your compose file.
 
 ---
 

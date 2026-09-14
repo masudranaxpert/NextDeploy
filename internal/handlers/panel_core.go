@@ -53,8 +53,6 @@ func appShowTabPartialName(tab string) string {
 		return utils.TmplPartialAppShowBackup
 	case "collaborators":
 		return utils.TmplPartialAppShowCollaborators
-	case "dev":
-		return utils.TmplPartialAppShowDev
 	default:
 		return utils.TmplPartialAppShowOverview
 	}

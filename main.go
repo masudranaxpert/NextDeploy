@@ -301,8 +301,6 @@ func main() {
 	app.Post("/apps/:id/compose/redeploy", p.ComposeRedeploy)
 	app.Post("/apps/:id/compose-file", p.SaveAppCompose)
 	app.Post("/apps/:id/env", p.SaveAppEnv)
-	app.Post("/apps/:id/dev-mode", p.SaveAppDevMode)
-	app.Post("/apps/:id/dev-reset-deps", p.ResetAppDevDependencies)
 	app.Post("/apps/:id/delete", p.DeleteApp)
 	app.Post("/apps/:id/collaborators", p.AddCollaborator)
 	app.Post("/apps/:id/collaborators/:uid/delete", p.DeleteCollaborator)

@@ -313,59 +313,25 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	// Dev mode deploys from the workspace as-is: a Git sync would discard local
-	// edits, and rebuilding the image would defeat the workspace bind mount.
 	var gitSyncPreamble string
 	if p.IsGitApp(c.UserContext(), id) {
-		if app.DevMode {
-			gitSyncPreamble = "Dev mode is on — skipped Git sync so local workspace edits are kept."
-		} else {
-			ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
-			out, err := p.SyncGitAppSource(ctx, id)
-			if err != nil {
-				cancel()
-				msg := "[error]\nGit sync failed.\n\n" + err.Error()
-				if strings.TrimSpace(out) != "" {
-					msg += "\n\n" + out
-				}
-				_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-				return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
-			}
+		ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
+		out, err := p.SyncGitAppSource(ctx, id)
+		if err != nil {
 			cancel()
-			gitSyncPreamble = strings.TrimSpace(out)
-			if gitSyncPreamble == "" {
-				gitSyncPreamble = "Repository sync completed."
+			msg := "[error]\nGit sync failed.\n\n" + err.Error()
+			if strings.TrimSpace(out) != "" {
+				msg += "\n\n" + out
 			}
-			p.InvalidateAfterAppWorkspaceChange(id)
+			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 		}
-	}
-	// Redeploy stays a full pull-and-build so there is still a way to rebuild
-	// without leaving dev mode.
-	if app.DevMode {
-		if targetSvc := strings.TrimSpace(app.DevService); targetSvc != "" {
-			svcs := p.LoadComposeServices(c.UserContext(), id)
-			found := false
-			for _, s := range svcs {
-				if s == targetSvc {
-					found = true
-					break
-				}
-			}
-			if !found {
-				if gitSyncPreamble != "" {
-					gitSyncPreamble += "\n"
-				}
-				gitSyncPreamble += fmt.Sprintf("[warning] Dev mode: target service %q was not found in compose file — dev mount skipped to prevent modifying unintended containers.", targetSvc)
-			}
+		cancel()
+		gitSyncPreamble = strings.TrimSpace(out)
+		if gitSyncPreamble == "" {
+			gitSyncPreamble = "Repository sync completed."
 		}
-		if action == "Deploy" {
-			// `up -d` still builds when the image is missing, so the first dev deploy works.
-			fn = dockerx.ComposeApply
-			if gitSyncPreamble != "" {
-				gitSyncPreamble += "\n"
-			}
-			gitSyncPreamble += "Dev mode is on — starting without an image rebuild. Use Redeploy to rebuild from the current workspace."
-		}
+		p.InvalidateAfterAppWorkspaceChange(id)
 	}
 	cp := p.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {

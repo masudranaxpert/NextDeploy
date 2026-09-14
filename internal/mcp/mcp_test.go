@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 25 {
-		t.Errorf("expected 25 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 23 {
+		t.Errorf("expected 23 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -115,8 +115,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	expectedTools := []string{
 		"app_list", "app_get", "app_create", "workspace_manifest", "file_read", "file_write", "file_delete",
 		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "compose_get",
-		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set",
-		"reset_dev_deps", "container_exec", "server_exec", "git_pull",
+		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail",
+		"container_exec", "server_exec", "git_pull",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -153,11 +153,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (22 tools).
+	// No-permission token hides restricted tools (20 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 22 {
-		t.Errorf("expected 22 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 20 {
+		t.Errorf("expected 20 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -165,13 +165,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (23 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (21 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 23 {
-		t.Errorf("expected 23 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 21 {
+		t.Errorf("expected 21 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -186,13 +186,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (23 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (21 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 23 {
-		t.Errorf("expected 23 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 21 {
+		t.Errorf("expected 21 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
