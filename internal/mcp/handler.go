@@ -78,28 +78,26 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleWorkspaceManifest(ctx, u, params.Arguments)
 	case "workspace_apply":
 		return h.handleWorkspaceApply(ctx, u, params.Arguments)
-	case "file_list":
-		return h.handleFileList(ctx, u, params.Arguments)
 	case "file_read":
 		return h.handleFileRead(ctx, u, params.Arguments)
 	case "file_write":
 		return h.handleFileWrite(ctx, u, params.Arguments)
 	case "file_delete":
 		return h.handleFileDelete(ctx, u, params.Arguments)
+	case "file_patch":
+		return h.handleFilePatch(ctx, u, params.Arguments)
+	case "file_search":
+		return h.handleFileSearch(ctx, u, params.Arguments)
 	case "env_list":
 		return h.handleEnvList(ctx, u, params.Arguments)
 	case "env_reveal":
 		return h.handleEnvReveal(ctx, u, params.Arguments)
 	case "env_set":
 		return h.handleEnvSet(ctx, u, params.Arguments)
-	case "env_set_batch":
-		return h.handleEnvSetBatch(ctx, u, params.Arguments)
 	case "compose_get":
 		return h.handleComposeGet(ctx, u, params.Arguments)
 	case "deploy":
 		return h.handleDeploy(ctx, u, params.Arguments, "Deploy", dockerx.ComposeUp)
-	case "redeploy":
-		return h.handleDeploy(ctx, u, params.Arguments, "Redeploy (pull + up)", dockerx.ComposePullUp)
 	case "restart":
 		return h.handleRestart(ctx, u, params.Arguments)
 	case "stop":
@@ -120,16 +118,34 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleServerExec(ctx, u, params.Arguments)
 	case "git_pull":
 		return h.handleGitPull(ctx, u, params.Arguments)
+
+	// Backward compatibility aliases for merged tools
+	case "redeploy":
+		if params.Arguments == nil {
+			params.Arguments = make(map[string]interface{})
+		}
+		params.Arguments["rebuild"] = true
+		return h.handleDeploy(ctx, u, params.Arguments, "Redeploy (pull + up)", dockerx.ComposePullUp)
+	case "deploy_and_wait":
+		if params.Arguments == nil {
+			params.Arguments = make(map[string]interface{})
+		}
+		if _, ok := params.Arguments["wait_seconds"]; !ok {
+			if to, ok := params.Arguments["timeout_seconds"]; ok {
+				params.Arguments["wait_seconds"] = to
+			} else {
+				params.Arguments["wait_seconds"] = 180
+			}
+		}
+		return h.handleDeploy(ctx, u, params.Arguments, "Deploy", dockerx.ComposeUp)
 	case "file_write_batch":
 		return h.handleFileWriteBatch(ctx, u, params.Arguments)
-	case "deploy_and_wait":
-		return h.handleDeployAndWait(ctx, u, params.Arguments)
-	case "file_patch":
-		return h.handleFilePatch(ctx, u, params.Arguments)
+	case "env_set_batch":
+		return h.handleEnvSet(ctx, u, params.Arguments)
+	case "file_list":
+		return h.handleFileList(ctx, u, params.Arguments)
 	case "app_health_check":
 		return h.handleAppHealthCheck(ctx, u, params.Arguments)
-	case "file_search":
-		return h.handleFileSearch(ctx, u, params.Arguments)
 	default:
 		return CallToolResult{
 			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Unknown tool: %s", params.Name)}},
@@ -188,12 +204,19 @@ func (h *Handler) handleAppGet(ctx context.Context, u db.User, args map[string]i
 	domains, _ := h.p.DB.ListAppDomains(ctx, appID)
 	svcs := h.p.LoadComposeServices(ctx, appID)
 	_, psRows, _ := h.p.ComposeProjectAndPS(ctx, app, appID)
-	return jsonResult(map[string]interface{}{
+	out := map[string]interface{}{
 		"app":      app,
 		"domains":  domains,
 		"services": svcs,
 		"ps":       psRows,
-	})
+	}
+	if getBoolArg(args, "include_health") {
+		health, hErr := h.collectAppHealth(ctx, app, appID)
+		if hErr == nil {
+			out["health"] = health
+		}
+	}
+	return jsonResult(out)
 }
 
 func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -300,6 +323,7 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 func (h *Handler) handleWorkspaceManifest(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	path := getStringArg(args, "path")
+	depth := getIntArg(args, "depth", 0)
 	computeHash := true
 	if v, ok := args["hash"].(bool); ok {
 		computeHash = v
@@ -320,7 +344,7 @@ func (h *Handler) handleWorkspaceManifest(ctx context.Context, u db.User, args m
 	}
 
 	wsRoot := h.p.Store.Path(appID)
-	res, err := BuildWorkspaceManifest(wsRoot, appID, path, computeHash, customExcludes, maxEntries)
+	res, err := BuildWorkspaceManifest(wsRoot, appID, path, depth, computeHash, customExcludes, maxEntries)
 	if err != nil {
 		return errorResult(fmt.Errorf("manifest generation failed: %w", err))
 	}
@@ -796,32 +820,16 @@ func (h *Handler) handleEnvReveal(ctx context.Context, u db.User, args map[strin
 
 func (h *Handler) handleEnvSet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
-	key := strings.TrimSpace(getStringArg(args, "key"))
-	value := getStringArg(args, "value")
-	if key == "" {
-		return errorResult(errors.New("key is required"))
-	}
-	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
-		return errorResult(err)
-	}
-	cur, _ := h.p.DB.GetPanelEnv(ctx, appID)
-	updated := setDotEnvVar(cur, key, value)
-	if err := h.p.DB.UpdatePanelEnv(ctx, appID, updated); err != nil {
-		return errorResult(err)
-	}
-	root := h.p.ComposeWorkspaceRoot(ctx, appID)
-	_ = h.p.SyncWorkspaceEnvFromPanel(appID, root, updated)
-	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
-	return textResult(fmt.Sprintf("Environment variable %q set successfully", key))
-}
-
-func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	appID := getStringArg(args, "app_id")
 	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
 		return errorResult(err)
 	}
 
-	var updates = make(map[string]string)
+	updates := make(map[string]string)
+	singleKey := strings.TrimSpace(getStringArg(args, "key"))
+	if singleKey != "" {
+		updates[singleKey] = getStringArg(args, "value")
+	}
+
 	if rawMap, ok := args["variables"].(map[string]interface{}); ok {
 		for k, v := range rawMap {
 			k = strings.TrimSpace(k)
@@ -841,7 +849,7 @@ func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[str
 	}
 
 	if len(updates) == 0 {
-		return errorResult(errors.New("variables must be a non-empty map or list of key-value pairs"))
+		return errorResult(errors.New("either 'key' and 'value' or 'variables' must be provided"))
 	}
 
 	cur, _ := h.p.DB.GetPanelEnv(ctx, appID)
@@ -857,6 +865,10 @@ func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[str
 	_ = h.p.SyncWorkspaceEnvFromPanel(appID, root, cur)
 	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
 
+	if len(updates) == 1 && singleKey != "" {
+		return textResult(fmt.Sprintf("Environment variable %q set successfully", singleKey))
+	}
+
 	var updatedKeys []string
 	for k := range updates {
 		updatedKeys = append(updatedKeys, k)
@@ -867,8 +879,12 @@ func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[str
 		"app_id":       appID,
 		"updated_keys": updatedKeys,
 		"count":        len(updatedKeys),
-		"message":      fmt.Sprintf("Successfully set %d environment variable(s) in a single batch", len(updatedKeys)),
+		"message":      fmt.Sprintf("Successfully set %d environment variable(s)", len(updatedKeys)),
 	})
+}
+
+func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	return h.handleEnvSet(ctx, u, args)
 }
 
 func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -896,10 +912,22 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	if err != nil {
 		return errorResult(err)
 	}
+
+	// rebuild:true triggers full image pull and rebuild (redeploy behavior)
+	if getBoolArg(args, "rebuild") {
+		action = "Redeploy (pull + up)"
+		fn = dockerx.ComposePullUp
+	}
+
 	v, _ := h.p.ComposeMu.LoadOrStore(appID, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
 	mu.Lock()
-	defer mu.Unlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			mu.Unlock()
+		}
+	}()
 
 	if app.DevMode && action == "Deploy" {
 		fn = dockerx.ComposeApply
@@ -954,6 +982,21 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	if err != nil {
 		return errorResult(fmt.Errorf("failed to start %s job: %w", action, err))
 	}
+
+	// Synchronous waiting if wait_seconds or timeout_seconds is requested
+	waitSec := getIntArg(args, "wait_seconds", 0)
+	if waitSec <= 0 {
+		waitSec = getIntArg(args, "timeout_seconds", 0)
+	}
+	if waitSec > 0 {
+		if waitSec > 300 {
+			waitSec = 300
+		}
+		mu.Unlock()
+		unlocked = true
+		return h.waitForDeployJob(ctx, jobID, appID, action, waitSec)
+	}
+
 	out := map[string]interface{}{
 		"job_id":  jobID,
 		"app_id":  appID,
@@ -1428,28 +1471,20 @@ func (h *Handler) handleGitPull(ctx context.Context, u db.User, args map[string]
 }
 
 func (h *Handler) handleDeployAndWait(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	timeoutSec := getIntArg(args, "timeout_seconds", 180)
-	if timeoutSec <= 0 {
-		timeoutSec = 180
+	if args == nil {
+		args = make(map[string]interface{})
 	}
-	if timeoutSec > 300 {
-		timeoutSec = 300
+	if _, ok := args["wait_seconds"]; !ok {
+		if to, ok := args["timeout_seconds"]; ok {
+			args["wait_seconds"] = to
+		} else {
+			args["wait_seconds"] = 180
+		}
 	}
+	return h.handleDeploy(ctx, u, args, "Deploy", dockerx.ComposeUp)
+}
 
-	res, err := h.handleDeploy(ctx, u, args, "Deploy", dockerx.ComposeUp)
-	if err != nil || res.IsError {
-		return res, err
-	}
-
-	var startInfo map[string]interface{}
-	if len(res.Content) > 0 {
-		_ = json.Unmarshal([]byte(res.Content[0].Text), &startInfo)
-	}
-	jobID, _ := startInfo["job_id"].(string)
-	if jobID == "" {
-		return errorResult(errors.New("failed to retrieve job_id for deployment"))
-	}
-
+func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action string, timeoutSec int) (CallToolResult, error) {
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	pollInterval := 1500 * time.Millisecond
 
@@ -1630,13 +1665,8 @@ func revertUnifiedPatch(ctx context.Context, dir string, patch string) error {
 	return cmd0.Run()
 }
 
-func (h *Handler) handleAppHealthCheck(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
-	appID := getStringArg(args, "app_id")
-	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
-	if err != nil {
-		return errorResult(err)
-	}
-
+// collectAppHealth inspects container runtime states and performs live HTTP domain checks.
+func (h *Handler) collectAppHealth(ctx context.Context, app db.App, appID string) (map[string]interface{}, error) {
 	project, psRows, psRes := h.p.ComposeProjectAndPS(ctx, app, appID)
 	containers := make([]map[string]interface{}, 0, len(psRows))
 	allRunning := len(psRows) > 0
@@ -1720,7 +1750,7 @@ func (h *Handler) handleAppHealthCheck(ctx context.Context, u db.User, args map[
 
 	healthy := allRunning && (len(domains) == 0 || allHttpOK)
 
-	return jsonResult(map[string]interface{}{
+	return map[string]interface{}{
 		"app_id":      appID,
 		"app_name":    app.Name,
 		"project":     project,
@@ -1728,7 +1758,20 @@ func (h *Handler) handleAppHealthCheck(ctx context.Context, u db.User, args map[
 		"containers":  containers,
 		"http_checks": httpChecks,
 		"compose_ok":  psRes.OK,
-	})
+	}, nil
+}
+
+func (h *Handler) handleAppHealthCheck(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
+	if err != nil {
+		return errorResult(err)
+	}
+	health, err := h.collectAppHealth(ctx, app, appID)
+	if err != nil {
+		return errorResult(err)
+	}
+	return jsonResult(health)
 }
 
 func truncateLogLines(s string, maxLines int) string {

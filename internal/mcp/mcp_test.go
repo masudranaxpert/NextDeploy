@@ -92,7 +92,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	// Full-permission token sees all 31 tools.
+	// Full-permission token sees all 25 tools.
 	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true}
 	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
 	resp := srv.ProcessRPC(fullCtx, user, req)
@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 31 {
-		t.Errorf("expected 31 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 25 {
+		t.Errorf("expected 25 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -113,12 +113,10 @@ func TestMCP_ToolsList(t *testing.T) {
 		toolSet[tool.Name] = true
 	}
 	expectedTools := []string{
-		"app_list", "app_get", "app_create", "workspace_manifest", "file_list", "file_read", "file_write", "file_delete",
-		"env_list", "env_reveal", "env_set", "env_set_batch", "compose_get", "deploy", "redeploy", "restart",
-		"stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set", "reset_dev_deps",
-		"container_exec", "server_exec",
-		"git_pull", "file_write_batch", "workspace_apply", "deploy_and_wait", "file_patch", "app_health_check",
-		"file_search",
+		"app_list", "app_get", "app_create", "workspace_manifest", "file_read", "file_write", "file_delete",
+		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "compose_get",
+		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail", "dev_mode_set",
+		"reset_dev_deps", "container_exec", "server_exec", "git_pull",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -127,18 +125,39 @@ func TestMCP_ToolsList(t *testing.T) {
 	}
 
 	for _, tool := range listRes.Tools {
-		if tool.Name == "deploy" || tool.Name == "redeploy" || tool.Name == "deploy_and_wait" {
+		if tool.Name == "deploy" {
 			if _, ok := tool.InputSchema.Properties["git_pull"]; !ok {
 				t.Errorf("tool %s missing git_pull property in schema", tool.Name)
+			}
+			if _, ok := tool.InputSchema.Properties["rebuild"]; !ok {
+				t.Errorf("tool %s missing rebuild property in schema", tool.Name)
+			}
+			if _, ok := tool.InputSchema.Properties["wait_seconds"]; !ok {
+				t.Errorf("tool %s missing wait_seconds property in schema", tool.Name)
+			}
+		}
+		if tool.Name == "workspace_manifest" {
+			if _, ok := tool.InputSchema.Properties["depth"]; !ok {
+				t.Errorf("tool %s missing depth property in schema", tool.Name)
+			}
+		}
+		if tool.Name == "app_get" {
+			if _, ok := tool.InputSchema.Properties["include_health"]; !ok {
+				t.Errorf("tool %s missing include_health property in schema", tool.Name)
+			}
+		}
+		if tool.Name == "env_set" {
+			if _, ok := tool.InputSchema.Properties["variables"]; !ok {
+				t.Errorf("tool %s missing variables property in schema", tool.Name)
 			}
 		}
 	}
 
-	// No-permission token hides restricted tools (28 tools).
+	// No-permission token hides restricted tools (22 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 28 {
-		t.Errorf("expected 28 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 22 {
+		t.Errorf("expected 22 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -146,13 +165,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (29 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (23 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 29 {
-		t.Errorf("expected 29 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 23 {
+		t.Errorf("expected 23 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -167,13 +186,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (29 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (23 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 29 {
-		t.Errorf("expected 29 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 23 {
+		t.Errorf("expected 23 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -1242,6 +1261,35 @@ func TestMCP_WorkspaceManifest_And_FileEnhancements(t *testing.T) {
 			t.Errorf("expected empty sha256 when hash=false, got %s", f.SHA256)
 		}
 	}
+	// 2b. workspace_manifest with depth=1 (ls directory listing mode)
+	maniDepthCall, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"depth":  1,
+			"hash":   false,
+		},
+	})
+	respDepth := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      3022,
+		Method:  "tools/call",
+		Params:  maniDepthCall,
+	})
+	var maniDepthRes ManifestResult
+	_ = json.Unmarshal([]byte(respDepth.Result.(CallToolResult).Content[0].Text), &maniDepthRes)
+	hasSrcDir := false
+	for _, f := range maniDepthRes.Files {
+		if f.Path == "src" && f.IsDir {
+			hasSrcDir = true
+		}
+		if f.Path == "src/index.js" {
+			t.Errorf("expected depth=1 not to traverse inside src/")
+		}
+	}
+	if !hasSrcDir {
+		t.Errorf("expected src directory entry with IsDir=true in depth=1 manifest")
+	}
 
 	// 3. file_list with recursive=true
 	flCall, _ := json.Marshal(CallToolParams{
@@ -1392,6 +1440,30 @@ func TestMCP_WorkspaceApply_And_EnvSetBatch(t *testing.T) {
 	if !strings.Contains(savedEnv, "PORT=8080") || !strings.Contains(savedEnv, "NODE_ENV=production") {
 		t.Errorf("saved env missing keys: %s", savedEnv)
 	}
+
+	// 4. env_set with batch variables map
+	envSetBatchMap, _ := json.Marshal(CallToolParams{
+		Name: "env_set",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"variables": map[string]string{
+				"API_KEY": "secret123",
+			},
+		},
+	})
+	respSetBatch := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      404,
+		Method:  "tools/call",
+		Params:  envSetBatchMap,
+	})
+	if respSetBatch.Result.(CallToolResult).IsError {
+		t.Fatalf("env_set with variables failed: %+v", respSetBatch.Result)
+	}
+	savedEnv, _ = store.GetPanelEnv(ctx, appID)
+	if !strings.Contains(savedEnv, "API_KEY=secret123") {
+		t.Errorf("expected API_KEY in saved env: %s", savedEnv)
+	}
 }
 
 func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
@@ -1488,6 +1560,55 @@ func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
 
 	close(blockCh)
 	time.Sleep(50 * time.Millisecond)
+
+	// 4. app_get with include_health:true
+	appGetParams, _ := json.Marshal(CallToolParams{
+		Name: "app_get",
+		Arguments: map[string]interface{}{
+			"app_id":         newAppID,
+			"include_health": true,
+		},
+	})
+	appGetResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      503,
+		Method:  "tools/call",
+		Params:  appGetParams,
+	})
+	appGetRes := appGetResp.Result.(CallToolResult)
+	if appGetRes.IsError {
+		t.Fatalf("app_get with include_health failed: %+v", appGetRes)
+	}
+	var appGetOut map[string]interface{}
+	_ = json.Unmarshal([]byte(appGetRes.Content[0].Text), &appGetOut)
+	if _, ok := appGetOut["health"]; !ok {
+		t.Errorf("expected 'health' key in app_get result when include_health:true")
+	}
+
+	// 5. deploy with wait_seconds and rebuild
+	deployParams, _ := json.Marshal(CallToolParams{
+		Name: "deploy",
+		Arguments: map[string]interface{}{
+			"app_id":       newAppID,
+			"rebuild":      true,
+			"wait_seconds": 1,
+		},
+	})
+	deployResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      504,
+		Method:  "tools/call",
+		Params:  deployParams,
+	})
+	deployRes := deployResp.Result.(CallToolResult)
+	if deployRes.IsError {
+		t.Fatalf("deploy with rebuild & wait_seconds failed: %+v", deployRes)
+	}
+	var deployOut map[string]interface{}
+	_ = json.Unmarshal([]byte(deployRes.Content[0].Text), &deployOut)
+	if deployOut["job_id"] == nil || deployOut["job_id"] == "" {
+		t.Errorf("expected job_id in deploy result, got: %+v", deployOut)
+	}
 }
 
 

@@ -419,6 +419,13 @@
   }
 }</code></pre>
       </div>
+
+      <div class="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 flex items-start gap-2.5 text-xs text-sky-200">
+        <svg class="h-4 w-4 shrink-0 text-sky-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+        <div>
+          <span class="font-semibold text-sky-300">Cursor 40-Tool Global Limit:</span> Cursor enforces a strict cap of 40 tools across all active MCP servers. NextDeploy is architected with exactly <strong class="text-white">25 consolidated tools</strong>, leaving 15 slots open for your other servers (e.g. GitHub, PostgreSQL) and preventing silent tool dropouts.
+        </div>
+      </div>
     </div>
 
     <!-- Claude Code Tab -->
@@ -440,7 +447,7 @@
         </button>
         <pre class="overflow-x-auto text-foreground font-mono text-xs leading-relaxed pr-28"><code>claude mcp add --transport sse nextdeploy {{.BaseURL}}/mcp/sse --header "Authorization: Bearer {{if .NewToken}}{{.NewToken}}{{else}}YOUR_API_TOKEN_HERE{{end}}"</code></pre>
       </div>
-      <p class="text-[11px] text-muted-foreground">Claude Code will automatically detect all 18 NextDeploy tools without installing Node.js or Docker on your laptop!</p>
+      <p class="text-[11px] text-muted-foreground">Claude Code 2.1+ dynamic tool search will automatically index all 25 NextDeploy tools with prompt-style descriptions for instant, accurate zero-shot tool selection.</p>
     </div>
 
     <!-- Windsurf Tab -->
@@ -577,9 +584,9 @@
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {{range .Tools}}
       <div x-show="activeCategory === 'all' || 
-                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get' || '{{.Name}}' === 'app_health_check' || '{{.Name}}' === 'git_pull')) ||
-                  (activeCategory === 'file' && ('{{.Name}}' === 'file_list' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete' || '{{.Name}}' === 'file_write_batch' || '{{.Name}}' === 'file_patch' || '{{.Name}}' === 'file_search')) ||
-                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'redeploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'deploy_and_wait' || '{{.Name}}' === 'git_pull')) ||
+                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'app_create' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get' || '{{.Name}}' === 'git_pull')) ||
+                  (activeCategory === 'file' && ('{{.Name}}' === 'workspace_manifest' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete' || '{{.Name}}' === 'file_patch' || '{{.Name}}' === 'file_search' || '{{.Name}}' === 'workspace_apply')) ||
+                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'git_pull')) ||
                   (activeCategory === 'terminal' && ('{{.Name}}' === 'container_exec' || '{{.Name}}' === 'server_exec')) ||
                   (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail')) ||
                   (activeCategory === 'dev' && ('{{.Name}}' === 'dev_mode_set' || '{{.Name}}' === 'reset_dev_deps'))"

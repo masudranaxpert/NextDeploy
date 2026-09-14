@@ -16,6 +16,7 @@ import (
 // ManifestEntry represents file metadata and optional content hash.
 type ManifestEntry struct {
 	Path    string `json:"path"`
+	IsDir   bool   `json:"is_dir,omitempty"`
 	Size    int64  `json:"size"`
 	ModTime int64  `json:"mod_time"`
 	SHA256  string `json:"sha256,omitempty"`
@@ -175,7 +176,8 @@ func matchesIgnore(relPath string, isDir bool, rules []string, customExcludes []
 }
 
 // BuildWorkspaceManifest traverses the workspace and builds a filtered file manifest.
-func BuildWorkspaceManifest(wsRoot, appID, relScope string, computeHash bool, customExcludes []string, maxEntries int) (ManifestResult, error) {
+// If depth > 0, traversal stops at that depth and directories at target depth are included as IsDir entries (like ls).
+func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHash bool, customExcludes []string, maxEntries int) (ManifestResult, error) {
 	if maxEntries <= 0 {
 		maxEntries = 5000
 	} else if maxEntries > 20000 {
@@ -207,6 +209,14 @@ func BuildWorkspaceManifest(wsRoot, appID, relScope string, computeHash bool, cu
 		}
 		rel = filepath.ToSlash(rel)
 
+		// Calculate relative depth from scanRoot
+		relScan, err := filepath.Rel(scanRoot, path)
+		if err != nil || relScan == "." {
+			return nil
+		}
+		relScan = filepath.ToSlash(relScan)
+		currentDepth := strings.Count(relScan, "/") + 1
+
 		isDir := d.IsDir()
 		if matchesIgnore(rel, isDir, gitignoreRules, customExcludes) {
 			if isDir {
@@ -215,7 +225,27 @@ func BuildWorkspaceManifest(wsRoot, appID, relScope string, computeHash bool, cu
 			return nil
 		}
 
+		if depth > 0 && currentDepth > depth {
+			if isDir {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
 		if isDir {
+			if depth > 0 && currentDepth == depth {
+				info, err := d.Info()
+				var modTime int64
+				if err == nil {
+					modTime = info.ModTime().Unix()
+				}
+				res.Files = append(res.Files, ManifestEntry{
+					Path:    rel,
+					IsDir:   true,
+					ModTime: modTime,
+				})
+				return fs.SkipDir
+			}
 			return nil
 		}
 

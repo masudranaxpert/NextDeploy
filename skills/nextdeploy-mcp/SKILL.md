@@ -88,52 +88,52 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **21 tools** across 7 core functional areas:
+The NextDeploy MCP server provides **25 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
 
-### Area 1: Application Discovery
+### Area 1: Application Discovery & Lifecycle
 - **`app_list`**: Lists all applications the user can access.
   - Returns: `id`, `name`, `status`, `dev_mode`, `domains`, and compose `services`.
-  - Example Call: `{}`
-- **`app_get`**: Detailed metadata, compose services, and container status (`ps`).
-  - Arguments: `app_id` (string, required).
+- **`app_get`**: Detailed metadata, compose services, container status (`ps`), and optional health check.
+  - Arguments: `app_id` (string, required), `include_health` (boolean, optional).
+- **`app_create`**: Provisions a new application directly via MCP.
+  - Arguments: `name` (string, required), `source_type` ("upload" or "git"), `repo_url`, `branch`, `compose_content`.
 
 ### Area 2: Workspace File Operations
-All file paths are strictly sandboxed inside `/data/workspaces/<app_id>`. Path traversal attempts (`../`) and access to internal metadata (`.panel-meta`) are automatically blocked.
-- **`file_list`**: Lists directory contents.
-  - Arguments: `app_id` (string, required), `path` (string, optional, e.g. `"src"`).
-- **`file_read`**: Reads file contents as plain text.
-  - Arguments: `app_id` (string, required), `path` (string, required).
-- **`file_write`**: Creates or updates a file.
+All file paths are strictly sandboxed inside the app workspace.
+- **`workspace_manifest`**: High-performance directory scanner and file manifest with SHA-256 caching and .gitignore filtering. Pass `depth: 1, hash: false` for instant directory listing (like `ls`).
+  - Arguments: `app_id` (string, required), `path` (string, optional), `depth` (integer, optional), `hash` (boolean, default true).
+- **`file_read`**: Reads single file contents as plain text.
+  - Arguments: `app_id` (string, required), `path` (string, required), `offset`, `limit`.
+- **`file_write`**: Creates or updates a single file. For modifying multiple files atomically, use `workspace_apply`.
   - Arguments: `app_id` (string, required), `path` (string, required), `content` (string, required).
-  - *Safety Guard*: If writing `docker-compose.yml`, the content is automatically verified against NextDeploy security rules (e.g. privileged mode, host device binds, and unmanaged networks are rejected).
-- **`file_delete`**: Deletes a file or directory.
+- **`file_delete`**: Deletes a single file or directory.
   - Arguments: `app_id` (string, required), `path` (string, required).
+- **`file_patch`**: Applies a unified diff patch to the workspace via git apply.
+  - Arguments: `app_id` (string, required), `patch` (string, required).
+- **`file_search`**: Fast line-by-line grep and filename glob searching across the workspace.
+  - Arguments: `app_id` (string, required), `query`, `pattern`, `path`, `max_results`.
+- **`workspace_apply`**: Atomically executes multiple file writes and/or deletions in a single round-trip.
+  - Arguments: `app_id` (string, required), `writes` (array of {path, content}), `deletes` (array of string paths), `dry_run` (boolean).
 
 ### Area 3: Environment Configuration & Secret Protection
-- **`env_list`**: Safe discovery of environment variable keys. Returns sorted key names and count without exposing sensitive values, passwords, or raw `.env` contents.
+- **`env_list`**: Safe discovery of environment variable keys without exposing sensitive values.
   - Arguments: `app_id` (string, required).
-  - Returns: `{"keys": ["PORT", "DATABASE_URL", ...], "count": 2}`.
-- **`env_reveal`**: Explicitly reveals sensitive environment variable values (passwords, tokens, API keys). Requires 'Allow env_reveal' permission to be enabled on the API token in NextDeploy Panel.
+- **`env_reveal`**: Explicitly reveals sensitive values. Requires 'Allow env_reveal' token permission.
   - Arguments: `app_id` (string, required), `keys` (array of strings, optional).
-- **`env_set`**: Sets or updates an environment variable. Updates both the panel database and the workspace `.env` file automatically.
-  - Arguments: `app_id` (string, required), `key` (string, required), `value` (string, required).
+- **`env_set`**: Sets or updates environment variables and synchronizes workspace `.env`. Supports setting a single key-value pair or multiple variables at once.
+  - Arguments: `app_id` (string, required), `key` (string, optional), `value` (string, optional), `variables` (map of string key-values, optional).
 
 ### Area 4: Deployment & Stack Control
-Deployments are **non-blocking**. They acquire the app's `ComposeMu` lock, trigger the build/up process in the background, and return a `job_id` immediately.
-- **`compose_get`**: Fetches the effective `docker-compose.yml` (including active overrides).
+- **`compose_get`**: Fetches effective `docker-compose.yml` (including overrides).
   - Arguments: `app_id` (string, required).
-- **`deploy`**: Starts standard stack deployment (`docker compose up -d`). If Dev Mode is active, uses `ComposeApply` to avoid unnecessary image rebuilds.
-  - Arguments: `app_id` (string, required).
-  - Returns: `{"job_id": "job_myapp_123...", "status": "started"}`.
-- **`redeploy`**: Pulls latest images and forces a full rebuild (`docker compose up -d --build`).
-  - Arguments: `app_id` (string, required).
+- **`deploy`**: Deploys stack (`docker compose up -d`). Returns `job_id` immediately, or pass `wait_seconds` for synchronous waiting. Pass `rebuild: true` for full container rebuild with image pull. Automatically skips git pull if workspace has local edits.
+  - Arguments: `app_id` (string, required), `rebuild` (boolean, optional), `wait_seconds` (integer, optional), `git_pull` (boolean, optional).
 - **`restart`**: Restarts either a specific service container or the entire stack.
   - Arguments: `app_id` (string, required), `service` (string, optional).
 - **`stop`**: Shuts down the stack (`docker compose down`).
   - Arguments: `app_id` (string, required).
-- **`deploy_status`**: Polls the live output or final result of a deployment job.
+- **`deploy_status`**: Polls live output or final result of a deployment job.
   - Arguments: `job_id` (string, optional), `app_id` (string, optional).
-  - Returns: `{"job_id": "...", "running": true|false, "ok": true|false, "output": "..."}`.
 
 ### Area 5: Logs & Diagnosis
 - **`container_logs`**: Fetches recent stdout/stderr lines from any service container.
@@ -191,9 +191,9 @@ Deployments are **non-blocking**. They acquire the app's `ComposeMu` lock, trigg
    ```json
    { "tool": "file_write", "arguments": { "app_id": "my-api", "path": "src/server.py", "content": "..." } }
    ```
-5. **Trigger Non-Blocking Redeploy**:
+5. **Trigger Non-Blocking Redeploy (rebuild: true)**:
    ```json
-   { "tool": "redeploy", "arguments": { "app_id": "my-api" } }
+   { "tool": "deploy", "arguments": { "app_id": "my-api", "rebuild": true } }
    ```
    *Response:* `{"job_id": "job_my-api_1726000000"}`
 6. **Poll Deploy Status until Finished**:
