@@ -33,15 +33,24 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 	autoConfirm := false
 	jsonOutput := false
 	var args []string
+	var flagAppID string
 
-	for _, a := range rawArgs {
-		switch a {
-		case "--prune":
+	for i := 0; i < len(rawArgs); i++ {
+		a := rawArgs[i]
+		switch {
+		case a == "--prune":
 			prune = true
-		case "-y", "--yes":
+		case a == "-y" || a == "--yes":
 			autoConfirm = true
-		case "--json", "-j":
+		case a == "--json" || a == "-j":
 			jsonOutput = true
+		case (a == "-a" || a == "--app") && i+1 < len(rawArgs):
+			flagAppID = rawArgs[i+1]
+			i++
+		case strings.HasPrefix(a, "--app="):
+			flagAppID = strings.TrimPrefix(a, "--app=")
+		case strings.HasPrefix(a, "-a="):
+			flagAppID = strings.TrimPrefix(a, "-a=")
 		default:
 			args = append(args, a)
 		}
@@ -50,7 +59,12 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 	var appID string
 	localDir := "."
 
-	if len(args) >= 1 && !strings.HasPrefix(args[0], "-") {
+	if flagAppID != "" {
+		appID = flagAppID
+		if len(args) >= 1 {
+			localDir = args[0]
+		}
+	} else if len(args) >= 1 && !strings.HasPrefix(args[0], "-") {
 		if fi, err := os.Stat(args[0]); err == nil && fi.IsDir() {
 			pc, lerr := config.LoadProject(".")
 			if lerr == nil && pc.AppID != "" {
@@ -96,20 +110,32 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		fmt.Println("→ Fetching server manifest...")
 	}
 
-	// Fetch server manifest
-	manifestBody, status, err := cl.Do("GET", "/api/v1/apps/"+appID+"/manifest?hash=true", nil)
+	// Fetch server manifest with locks included so lockfiles are checked via hash and not needlessly re-uploaded
+	manifestBody, status, err := cl.Do("GET", "/api/v1/apps/"+appID+"/manifest?hash=true&include_locks=true", nil)
 	if err != nil {
-		return fmt.Errorf("manifest fetch failed: %w", err)
+		return fmt.Errorf("manifest fetch failed: %w (deployment aborted)", err)
 	}
 	if status >= 400 {
-		return fmt.Errorf("manifest error: %s", client.JSONError(manifestBody))
+		return fmt.Errorf("manifest error: %s (deployment aborted)", client.JSONError(manifestBody))
 	}
 
 	// Compute diff
 	toUpload, toDelete, err := sync.Diff(manifestBody, localHashes)
 	if err != nil {
-		return fmt.Errorf("diff computation failed: %w", err)
+		return fmt.Errorf("diff computation failed: %w (deployment aborted)", err)
 	}
+
+	// Exclude protected environment and configuration files from pruning defensively
+	var safeToDelete []string
+	for _, p := range toDelete {
+		clean := filepath.ToSlash(strings.TrimSpace(p))
+		base := filepath.Base(clean)
+		if base == ".env" || strings.HasPrefix(base, ".env.") || strings.HasPrefix(clean, ".nd/") || clean == ".nd" {
+			continue
+		}
+		safeToDelete = append(safeToDelete, p)
+	}
+	toDelete = safeToDelete
 
 	inSyncCount := len(localHashes) - len(toUpload)
 	if !jsonOutput {
@@ -142,22 +168,22 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 
 		tarReader, _, err := sync.PackTarGz(abs, toUpload)
 		if err != nil {
-			return fmt.Errorf("pack failed: %w", err)
+			return fmt.Errorf("pack failed: %w (deployment aborted)", err)
 		}
 
 		tarBytes, err := io.ReadAll(tarReader)
 		if err != nil {
-			return fmt.Errorf("read tar failed: %w", err)
+			return fmt.Errorf("read tar failed: %w (deployment aborted)", err)
 		}
 
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 		part, err := mw.CreateFormFile("archive", "workspace.tar.gz")
 		if err != nil {
-			return err
+			return fmt.Errorf("archive part creation failed: %w (deployment aborted)", err)
 		}
 		if _, err := part.Write(tarBytes); err != nil {
-			return err
+			return fmt.Errorf("archive write failed: %w (deployment aborted)", err)
 		}
 		_ = mw.Close()
 
@@ -176,6 +202,9 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 			FilesExtracted int `json:"files_extracted"`
 		}
 		_ = json.Unmarshal(respBody, &resp)
+		if resp.FilesExtracted == 0 && len(toUpload) > 0 {
+			return fmt.Errorf("upload error: no files were extracted on server (deployment aborted)")
+		}
 		if !jsonOutput {
 			fmt.Printf("  ✓ %d file(s) extracted on server\n", resp.FilesExtracted)
 		}

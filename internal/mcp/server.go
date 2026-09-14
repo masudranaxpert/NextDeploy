@@ -59,17 +59,6 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 		return c.Next()
 	}
 
-	isCLI := c.Get("X-NextDeploy-Client") == "cli" || strings.HasPrefix(c.Get("User-Agent"), "nd/")
-	if !isCLI && !s.IsEnabled(c.UserContext()) {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-			"jsonrpc": "2.0",
-			"error": fiber.Map{
-				"code":    ErrCodeInternal,
-				"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
-			},
-		})
-	}
-
 	var token string
 	authHeader := c.Get("Authorization")
 	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
@@ -101,6 +90,30 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 				"message": "Unauthorized: invalid or expired API token",
 			},
 		})
+	}
+
+	// Policy check based on token.Kind — client headers cannot spoof or bypass this
+	if apiToken.Kind == "cli" {
+		if s.p.DB.GetSetting(ctx, "cli_enabled") == "0" {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"jsonrpc": "2.0",
+				"error": fiber.Map{
+					"code":    ErrCodeInternal,
+					"message": "NextDeploy CLI access is currently disabled in system settings.",
+				},
+			})
+		}
+	} else {
+		// Default or "mcp": must pass s.IsEnabled(ctx)
+		if !s.IsEnabled(ctx) {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"jsonrpc": "2.0",
+				"error": fiber.Map{
+					"code":    ErrCodeInternal,
+					"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
+				},
+			})
+		}
 	}
 
 	c.Locals("auth_user", user)
@@ -381,7 +394,11 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
 	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
-	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec, allowContainerExec)
+	kind := strings.TrimSpace(c.FormValue("kind"))
+	if kind != "cli" && kind != "mcp" {
+		kind = "mcp"
+	}
+	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec)
 	if err != nil {
 		utils.SetFlash(c, "Failed to create API token: "+err.Error())
 		return c.Redirect("/mcp-docs")

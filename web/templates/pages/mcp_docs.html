@@ -245,6 +245,7 @@
         <thead>
           <tr class="border-b border-border/50 bg-muted/20 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <th class="px-4 py-3">Token Name</th>
+            <th class="px-4 py-3">Type</th>
             <th class="px-4 py-3">Token Prefix</th>
             <th class="px-4 py-3">Permissions</th>
             <th class="px-4 py-3">Created</th>
@@ -256,6 +257,17 @@
           {{range .Tokens}}
           <tr class="hover:bg-muted/10 transition-colors">
             <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
+            <td class="px-4 py-3">
+              {{if eq .Kind "cli"}}
+              <span class="inline-flex items-center rounded-md bg-sky-500/10 border border-sky-500/25 px-2 py-0.5 text-[10px] font-semibold text-sky-400">
+                CLI
+              </span>
+              {{else}}
+              <span class="inline-flex items-center rounded-md bg-purple-500/10 border border-purple-500/25 px-2 py-0.5 text-[10px] font-semibold text-purple-400">
+                AI / MCP
+              </span>
+              {{end}}
+            </td>
             <td class="px-4 py-3 font-mono text-muted-foreground">{{.TokenPrefix}}</td>
             <td class="px-4 py-3">
             <div class="flex flex-col gap-1.5">
@@ -674,6 +686,36 @@
             <button type="button" onclick="document.getElementById('token_name').value='Claude Code'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Claude Code</button>
             <button type="button" onclick="document.getElementById('token_name').value='Windsurf IDE'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">Windsurf</button>
             <button type="button" onclick="document.getElementById('token_name').value='CI / CD Agent'" class="inline-flex items-center rounded-lg border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">CI / CD</button>
+          </div>
+        </div>
+
+        <!-- Token Type Selector -->
+        <div class="space-y-2" x-data="{ tokenKind: 'mcp' }">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Token Purpose</label>
+          <div class="grid grid-cols-2 gap-2.5">
+            <label class="flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-colors select-none"
+                   :class="tokenKind === 'mcp' ? 'border-purple-500/50 bg-purple-500/10 ring-1 ring-purple-500/30' : 'border-border/60 bg-muted/20 hover:border-border'">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <input type="radio" name="kind" value="mcp" x-model="tokenKind" class="sr-only">
+                <div class="h-2.5 w-2.5 rounded-full ring-1" :class="tokenKind === 'mcp' ? 'bg-purple-400 ring-purple-400' : 'bg-transparent ring-muted-foreground/40'"></div>
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold text-foreground">AI / MCP Token</p>
+                  <p class="text-[10px] text-muted-foreground truncate">Cursor, Claude, Antigravity</p>
+                </div>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-colors select-none"
+                   :class="tokenKind === 'cli' ? 'border-sky-500/50 bg-sky-500/10 ring-1 ring-sky-500/30' : 'border-border/60 bg-muted/20 hover:border-border'">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <input type="radio" name="kind" value="cli" x-model="tokenKind" class="sr-only">
+                <div class="h-2.5 w-2.5 rounded-full ring-1" :class="tokenKind === 'cli' ? 'bg-sky-400 ring-sky-400' : 'bg-transparent ring-muted-foreground/40'"></div>
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold text-foreground">CLI Token</p>
+                  <p class="text-[10px] text-muted-foreground truncate">nd command-line tool</p>
+                </div>
+              </div>
+            </label>
           </div>
         </div>
 

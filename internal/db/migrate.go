@@ -536,6 +536,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN allow_container_exec INTEGER NOT NULL DEFAULT 0`)
 	}
 
+	var hasKind int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('api_tokens') WHERE name = 'kind'`).Scan(&hasKind)
+	if hasKind == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE api_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'cli'`)
+	}
+
 	// cli_sessions: tracks active nd CLI devices; expires after 5 min of inactivity.
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS cli_sessions (

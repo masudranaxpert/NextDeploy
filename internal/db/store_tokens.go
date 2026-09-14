@@ -19,6 +19,7 @@ type APIToken struct {
 	Name               string     `json:"name"`
 	TokenHash          string     `json:"-"`
 	TokenPrefix        string     `json:"token_prefix"`
+	Kind               string     `json:"kind"` // "cli" | "mcp"
 	AllowEnvReveal     bool       `json:"allow_env_reveal"`
 	AllowServerExec    bool       `json:"allow_server_exec"`
 	AllowContainerExec bool       `json:"allow_container_exec"`
@@ -34,10 +35,14 @@ func HashToken(raw string) string {
 }
 
 // CreateAPIToken generates a new secure token, stores its hash, and returns the raw secret.
-func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name string, expiresAt *time.Time, allowEnvReveal, allowServerExec, allowContainerExec bool) (string, APIToken, error) {
+func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind string, expiresAt *time.Time, allowEnvReveal, allowServerExec, allowContainerExec bool) (string, APIToken, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Default API Token"
+	}
+	kind = strings.TrimSpace(kind)
+	if kind != "mcp" && kind != "cli" {
+		kind = "cli"
 	}
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
@@ -67,9 +72,9 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name string, e
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, name, tokenHash, prefix, revealVal, execVal, containerExecVal, now.Format(time.RFC3339), expStr)
+		`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, kind, allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, name, tokenHash, prefix, kind, revealVal, execVal, containerExecVal, now.Format(time.RFC3339), expStr)
 	if err != nil {
 		return "", APIToken{}, err
 	}
@@ -84,6 +89,7 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name string, e
 		Name:               name,
 		TokenHash:          tokenHash,
 		TokenPrefix:        prefix,
+		Kind:               kind,
 		AllowEnvReveal:     allowEnvReveal,
 		AllowServerExec:    allowServerExec,
 		AllowContainerExec: allowContainerExec,
@@ -105,18 +111,23 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, AP
 	var expStr sql.NullString
 	var lastUsed sql.NullString
 	var createdStr string
+	var kindStr sql.NullString
 	var allowRevealInt, allowServerExecInt, allowContainerExecInt int
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, token_prefix, allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
+		`SELECT id, user_id, name, token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
 		 FROM api_tokens 
 		 WHERE token_hash = ? AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)`,
-		tokenHash, nowStr).Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &createdStr, &expStr, &lastUsed)
+		tokenHash, nowStr).Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &createdStr, &expStr, &lastUsed)
 	if err != nil {
 		return User{}, APIToken{}, err
 	}
 
 	t.TokenHash = tokenHash
+	t.Kind = kindStr.String
+	if t.Kind == "" {
+		t.Kind = "cli"
+	}
 	t.AllowEnvReveal = allowRevealInt == 1
 	t.AllowServerExec = allowServerExecInt == 1
 	t.AllowContainerExec = allowContainerExecInt == 1
@@ -142,7 +153,7 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, AP
 // ListAPITokensForUser returns metadata for all tokens belonging to the specified user.
 func (s *Store) ListAPITokensForUser(ctx context.Context, userID int64) ([]APIToken, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, user_id, name, token_prefix, allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
+		`SELECT id, user_id, name, token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
 		 FROM api_tokens WHERE user_id = ? ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -153,10 +164,15 @@ func (s *Store) ListAPITokensForUser(ctx context.Context, userID int64) ([]APITo
 	for rows.Next() {
 		var t APIToken
 		var created string
+		var kindStr sql.NullString
 		var expires, lastUsed sql.NullString
 		var allowRevealInt, allowServerExecInt, allowContainerExecInt int
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &created, &expires, &lastUsed); err != nil {
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &created, &expires, &lastUsed); err != nil {
 			return nil, err
+		}
+		t.Kind = kindStr.String
+		if t.Kind == "" {
+			t.Kind = "cli"
 		}
 		t.AllowEnvReveal = allowRevealInt == 1
 		t.AllowServerExec = allowServerExecInt == 1

@@ -378,7 +378,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	regUser, _ := store.GetUserByID(ctx, regularUserID)
 	_ = store.AddCollaborator(ctx, appID, regularUserID, "developer")
 
-	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", nil, false, false, false)
+	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", "mcp", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	}
 
 	// 5. Test that even an ADMIN cannot env_reveal if their API token does not have AllowEnvReveal
-	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", nil, false, false, false)
+	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", "mcp", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "cli", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestMCP_ServerDisabledByDefault(t *testing.T) {
 	// Disable MCP explicitly
 	_ = store.SetSetting(ctx, "mcp_enabled", "0")
 
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "mcp", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -707,6 +707,19 @@ func TestMCP_ServerDisabledByDefault(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when MCP disabled, got %d", resp.StatusCode)
+	}
+
+	// Header spoofing attempt: client claiming to be CLI cannot bypass disabled MCP for an MCP token
+	reqSpoof := httptest.NewRequest("GET", "/mcp", nil)
+	reqSpoof.Header.Set("Authorization", "Bearer "+rawToken)
+	reqSpoof.Header.Set("X-NextDeploy-Client", "cli")
+	reqSpoof.Header.Set("User-Agent", "nd/1.0.8")
+	respSpoof, err := app.Test(reqSpoof)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respSpoof.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 despite CLI header spoofing when MCP disabled, got %d", respSpoof.StatusCode)
 	}
 }
 

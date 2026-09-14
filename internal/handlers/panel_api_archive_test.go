@@ -84,7 +84,7 @@ func TestUploadWorkspaceArchive(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Archive Test Token", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Archive Test Token", "cli", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestAPIAppsList(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "cli-test-token", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "cli-test-token", "cli", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestAPIAppDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "del-token", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "del-token", "cli", nil, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}

@@ -93,7 +93,7 @@ func (p *Panel) APIAppDelete(c *fiber.Ctx) error {
 }
 
 // APIManifest returns workspace file manifest for a given app.
-// GET /api/v1/apps/:id/manifest?hash=true&full_hash=false&include_locks=false&depth=0
+// GET /api/v1/apps/:id/manifest?hash=true&full_hash=false&include_locks=true&depth=0
 func (p *Panel) APIManifest(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, ok := currentUser(c)
@@ -109,7 +109,8 @@ func (p *Panel) APIManifest(c *fiber.Ctx) error {
 
 	computeHash := c.QueryBool("hash", true)
 	fullHash := c.QueryBool("full_hash", false)
-	includeLocks := c.QueryBool("include_locks", false)
+	// CLI sync requires lockfiles by default to maintain dependency consistency and avoid redundant re-uploads
+	includeLocks := c.QueryBool("include_locks", true)
 	depth := c.QueryInt("depth", 0)
 	relPath := c.Query("path", "")
 
@@ -286,7 +287,12 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
 
-	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec, allowContainerExec)
+	kind := strings.TrimSpace(c.FormValue("kind"))
+	if kind != "cli" && kind != "mcp" {
+		kind = "cli"
+	}
+
+	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec)
 	if err != nil {
 		return c.Redirect("/cli-sessions?error=" + url.QueryEscape(err.Error()))
 	}
