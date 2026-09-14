@@ -179,6 +179,7 @@ func main() {
 	app.Post("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliHeartbeat)
 	app.Delete("/api/v1/cli/sessions/:id", p.APIAuthMiddleware, p.APICliSessionDelete)
 	app.Get("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliSessionsList)
+	app.Get("/api/v1/cli/whoami", p.APIAuthMiddleware, p.APICliWhoami)
 
 	app.Use(p.AuthMiddleware)
 	app.Use("/apps/:id", p.AppAccessMiddleware)

@@ -12,10 +12,11 @@ import (
 
 	"nd/internal/client"
 	"nd/internal/config"
+	"nd/internal/ui"
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.0.6"
+var Version = "1.0.7"
 
 // RunLogin handles: nd login <server_url>
 // Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
@@ -34,7 +35,7 @@ func RunLogin(args []string) error {
 	}
 
 	if token == "" {
-		fmt.Print("API Token (generate in panel under Developer & AI -> CLI Sessions): ")
+		fmt.Print(ui.Bold("API Token") + " (generate in panel under Developer & AI -> CLI Sessions): ")
 		if _, err := fmt.Scanln(&token); err != nil {
 			return fmt.Errorf("failed to read token: %w", err)
 		}
@@ -67,7 +68,7 @@ func RunLogin(args []string) error {
 	hostname, _ := os.Hostname()
 	_ = c.HeartbeatSync(hostname, runtime.GOOS, runtime.GOARCH, Version)
 
-	fmt.Printf("✓ Logged in to %s\n", serverURL)
+	ui.Success("Logged in to %s", ui.Cyan(serverURL))
 	return nil
 }
 
@@ -81,7 +82,7 @@ func RunLogout(_ []string) error {
 	if err := config.Save(config.Config{}); err != nil {
 		return err
 	}
-	fmt.Println("✓ Logged out successfully.")
+	ui.Success("Logged out successfully.")
 	return nil
 }
 
@@ -148,17 +149,18 @@ func RunApps(cl *client.Client, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-30s %-20s %s\n", "ID", "NAME", "STATUS")
-	fmt.Println(strings.Repeat("─", 60))
+	headers := []string{"ID", "Name", "Status"}
+	var rows [][]string
 	for _, a := range apps {
-		status := a.Status
-		if status == "active" {
-			status = "● " + status
-		}
-		fmt.Printf("%-30s %-20s %s\n", a.ID, a.Name, status)
+		rows = append(rows, []string{
+			ui.Cyan(a.ID),
+			ui.Bold(a.Name),
+			ui.StatePill(a.Status),
+		})
 	}
+	ui.PrintTable(os.Stdout, headers, rows)
 	if len(apps) == 0 {
-		fmt.Println("No apps found. Create one with: nd create <name>")
+		fmt.Println(ui.Dim("No apps found. Create one with: nd create <name>"))
 	}
 	return nil
 }
@@ -226,13 +228,18 @@ func RunCreate(cl *client.Client, args []string) error {
 		appID = appName
 	}
 
-	fmt.Printf("✓ Created application %s (ID: %s)\n", resData.Name, appID)
+	ui.Success("Created application %s (ID: %s)", ui.Bold(resData.Name), ui.Cyan(appID))
 	if autoLink {
 		if err := config.SaveProject(".", appID); err == nil {
-			fmt.Printf("✓ Linked current directory to %s (.nd/project.json)\n", appID)
+			ui.Success("Linked current directory to %s (.nd/project.json)", ui.Cyan(appID))
 		}
 	}
-	fmt.Printf("\nNext steps:\n  nd push         # Upload code and build/deploy\n  nd logs         # View live container logs\n  nd status       # Check app health and URLs\n")
+	fmt.Printf("\n%s\n  %s %s\n  %s %s\n  %s %s\n",
+		ui.Bold("Next steps:"),
+		ui.Cyan("nd push"), ui.Dim("# Upload code and build/deploy"),
+		ui.Cyan("nd logs"), ui.Dim("# View live container logs"),
+		ui.Cyan("nd status"), ui.Dim("# Check app health and URLs"),
+	)
 	return nil
 }
 
@@ -249,7 +256,7 @@ func RunDelete(cl *client.Client, args []string) error {
 		}
 	}
 	if !force {
-		fmt.Printf("WARNING: Deleting %q will remove its containers, volumes, and workspace files.\n", appID)
+		ui.Warn("Deleting %q will remove its containers, volumes, and workspace files.", ui.Red(appID))
 		fmt.Printf("Type the app ID %q to confirm deletion: ", appID)
 		var confirm string
 		_, _ = fmt.Scanln(&confirm)
@@ -289,7 +296,7 @@ func RunDelete(cl *client.Client, args []string) error {
 	}
 
 	_ = config.ClearProject(".")
-	fmt.Printf("✓ Application %s deleted successfully.\n", appID)
+	ui.Success("Application %s deleted successfully.", ui.Cyan(appID))
 	return nil
 }
 
@@ -350,7 +357,7 @@ func RunLink(cl *client.Client, args []string) error {
 	if err := config.SaveProject(".", appID); err != nil {
 		return fmt.Errorf("failed to link project: %w", err)
 	}
-	fmt.Printf("✓ Linked current directory to %s (.nd/project.json)\n", appID)
+	ui.Success("Linked current directory to %s (.nd/project.json)", ui.Cyan(appID))
 	return nil
 }
 
@@ -359,7 +366,7 @@ func RunUnlink(_ *client.Client, _ []string) error {
 	if err := config.ClearProject("."); err != nil {
 		return fmt.Errorf("failed to unlink: %w", err)
 	}
-	fmt.Println("✓ Unlinked project from current directory.")
+	ui.Success("Unlinked project from current directory.")
 	return nil
 }
 
@@ -368,8 +375,8 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 	jsonOut, _ := extractJSONFlag(args)
 	hostname, _ := os.Hostname()
 	maskedToken := cfg.Token
-	if len(maskedToken) > 8 {
-		maskedToken = maskedToken[:4] + "..." + maskedToken[len(maskedToken)-4:]
+	if len(maskedToken) > 12 {
+		maskedToken = maskedToken[:8] + "..." + maskedToken[len(maskedToken)-4:]
 	}
 
 	var linkedApp string
@@ -377,11 +384,33 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		linkedApp = pc.AppID
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
-	})
-	authOK := err == nil && status < 400
+	// Try fetching server-side whoami information (username, role, token_name, permissions)
+	var whoamiData struct {
+		OK                 bool   `json:"ok"`
+		Username           string `json:"username"`
+		Role               string `json:"role"`
+		TokenName          string `json:"token_name"`
+		TokenPrefix        string `json:"token_prefix"`
+		AllowEnvReveal     bool   `json:"allow_env_reveal"`
+		AllowServerExec    bool   `json:"allow_server_exec"`
+		AllowContainerExec bool   `json:"allow_container_exec"`
+	}
+
+	wBody, wStatus, wErr := cl.Do("GET", "/api/v1/cli/whoami", nil)
+	authOK := wErr == nil && wStatus < 400
+	if authOK {
+		_ = json.Unmarshal(wBody, &whoamiData)
+	} else {
+		// Fallback for older server versions: test auth via app_list
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
+		})
+		authOK = err == nil && status < 400
+		if !authOK && wBody == nil {
+			wBody = body
+		}
+	}
 
 	if jsonOut {
 		out := map[string]interface{}{
@@ -394,7 +423,20 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		}
 		if !authOK {
 			out["status"] = "error"
-			out["error"] = client.JSONError(body)
+			out["error"] = client.JSONError(wBody)
+		}
+		if whoamiData.Username != "" {
+			out["username"] = whoamiData.Username
+			out["role"] = whoamiData.Role
+		}
+		if whoamiData.TokenName != "" {
+			out["token_name"] = whoamiData.TokenName
+			out["token_prefix"] = whoamiData.TokenPrefix
+			out["permissions"] = map[string]bool{
+				"env_reveal":     whoamiData.AllowEnvReveal,
+				"server_exec":    whoamiData.AllowServerExec,
+				"container_exec": whoamiData.AllowContainerExec,
+			}
 		}
 		if linkedApp != "" {
 			out["linked_app"] = linkedApp
@@ -402,26 +444,50 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		pretty, _ := json.MarshalIndent(out, "", "  ")
 		fmt.Println(string(pretty))
 		if !authOK {
-			return fmt.Errorf("authentication failed: %s", client.JSONError(body))
+			return fmt.Errorf("authentication failed: %s", client.JSONError(wBody))
 		}
 		return nil
 	}
 
-	fmt.Printf("Server URL:  %s\n", cfg.ServerURL)
-	fmt.Printf("Device:      %s (%s/%s)\n", hostname, runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("Device ID:   %s\n", cfg.DeviceID)
-	fmt.Printf("Token:       %s\n", maskedToken)
+	ui.KeyValue("Server URL", ui.Cyan(cfg.ServerURL))
+	if whoamiData.Username != "" {
+		ui.KeyValue("User", fmt.Sprintf("%s (%s)", ui.Bold(whoamiData.Username), whoamiData.Role))
+	}
+	if whoamiData.TokenName != "" {
+		ui.KeyValue("Token Name", ui.HiYellow(whoamiData.TokenName))
+	}
+	ui.KeyValue("Token", ui.Dim(maskedToken))
+
+	if whoamiData.TokenName != "" {
+		var perms []string
+		if whoamiData.AllowContainerExec {
+			perms = append(perms, ui.Green("container_exec"))
+		}
+		if whoamiData.AllowServerExec {
+			perms = append(perms, ui.Yellow("server_exec"))
+		}
+		if whoamiData.AllowEnvReveal {
+			perms = append(perms, ui.Yellow("secrets"))
+		}
+		if len(perms) == 0 {
+			perms = append(perms, ui.Dim("standard"))
+		}
+		ui.KeyValue("Permissions", strings.Join(perms, ", "))
+	}
+
+	ui.KeyValue("Device", fmt.Sprintf("%s (%s/%s)", hostname, runtime.GOOS, runtime.GOARCH))
+	ui.KeyValue("Device ID", ui.Dim(cfg.DeviceID))
 
 	// Check if local project is linked
 	if linkedApp != "" {
-		fmt.Printf("Linked App:  %s\n", linkedApp)
+		ui.KeyValue("Linked App", ui.HiCyan(linkedApp))
 	}
 
 	if !authOK {
-		fmt.Printf("Status:      Error connecting (%s)\n", client.JSONError(body))
-		return err
+		ui.KeyValue("Status", ui.Red("Connection Error (%s)", client.JSONError(wBody)))
+		return fmt.Errorf("server error: %s", client.JSONError(wBody))
 	}
-	fmt.Println("Status:      Authenticated ✓")
+	ui.KeyValue("Status", ui.Green("Authenticated ✓"))
 	return nil
 }
 
@@ -518,49 +584,51 @@ func RunStatus(cl *client.Client, args []string) error {
 		created = t.Format("Jan 02, 2006 15:04")
 	}
 
-	fmt.Printf("=== %s (%s)\n", data.App.Name, data.App.ID)
-	fmt.Printf("Status:    %s\n", data.App.Status)
-	fmt.Printf("Created:   %s\n", created)
+	fmt.Printf("\n=== %s (%s)\n", ui.HiCyan(data.App.Name), ui.Dim(data.App.ID))
+	ui.KeyValue("Status", ui.StatePill(data.App.Status))
+	ui.KeyValue("Created", created)
 
 	// Domains
 	if len(data.Domains) > 0 {
-		fmt.Printf("Domains:\n")
+		fmt.Printf("\n%s\n", ui.Bold("Domains:"))
 		for _, d := range data.Domains {
 			scheme := "http"
 			if d.EnableHTTPS {
 				scheme = "https"
 			}
-			fmt.Printf("  • %s://%s (port %d)\n", scheme, d.Domain, d.Port)
+			fmt.Printf("  • %s %s\n", ui.Cyan(fmt.Sprintf("%s://%s", scheme, d.Domain)), ui.Dim(fmt.Sprintf("(port %d)", d.Port)))
 		}
 	} else {
-		fmt.Printf("Domains:   (none configured)\n")
+		ui.KeyValue("Domains", ui.Dim("(none configured)"))
 	}
 
 	// Containers
-	fmt.Printf("\nContainers (%d):\n", len(data.PS))
+	fmt.Printf("\n%s (%d):\n", ui.Bold("Containers"), len(data.PS))
 	if len(data.PS) > 0 {
-		fmt.Printf("  %-12s %-25s %-12s %s\n", "SERVICE", "CONTAINER", "STATE", "STATUS")
-		fmt.Printf("  %s\n", strings.Repeat("─", 65))
+		headers := []string{"Service", "Container", "State", "Status"}
+		var rows [][]string
 		for _, p := range data.PS {
-			st := p.State
-			if st == "running" {
-				st = "● running"
-			}
-			fmt.Printf("  %-12s %-25s %-12s %s\n", p.Service, p.Name, st, p.Status)
+			rows = append(rows, []string{
+				ui.Bold(p.Service),
+				p.Name,
+				ui.StatePill(p.State),
+				p.Status,
+			})
 		}
+		ui.PrintTable(os.Stdout, headers, rows)
 	} else {
-		fmt.Printf("  (no running containers — run 'nd deploy' or 'nd push')\n")
+		fmt.Printf("  %s\n", ui.Dim("(no running containers — run 'nd deploy' or 'nd push')"))
 	}
 
 	// Health
 	if len(data.Health.HTTPChecks) > 0 {
-		fmt.Printf("\nHealth Checks:\n")
+		fmt.Printf("\n%s\n", ui.Bold("Health Checks:"))
 		for _, hc := range data.Health.HTTPChecks {
-			icon := "✓"
+			icon := ui.Green("✓")
 			if !hc.OK {
-				icon = "✗"
+				icon = ui.Red("✗")
 			}
-			fmt.Printf("  %s %s -> %d (%dms)\n", icon, hc.URL, hc.StatusCode, hc.LatencyMS)
+			fmt.Printf("  %s %s -> %d (%dms)\n", icon, ui.Cyan(hc.URL), hc.StatusCode, hc.LatencyMS)
 		}
 	}
 
@@ -640,29 +708,33 @@ func RunPS(cl *client.Client, args []string) error {
 		return nil
 	}
 
-	healthStr := "healthy"
-	if !data.Health.Healthy && len(data.PS) > 0 {
-		healthStr = "unhealthy"
-	}
-	fmt.Printf("=== %s (%s) — %s (%d containers)\n", data.App.Name, data.App.ID, healthStr, len(data.PS))
+	healthStr := ui.HealthBadge(data.Health.Healthy)
 	if len(data.PS) == 0 {
-		fmt.Println("No containers running. Deploy with: nd push or nd deploy")
+		healthStr = ui.Dim("idle")
+	}
+	fmt.Printf("\n=== %s (%s) — %s (%d containers)\n",
+		ui.HiCyan(data.App.Name), ui.Dim(data.App.ID), healthStr, len(data.PS))
+	if len(data.PS) == 0 {
+		fmt.Println("  No containers running. Deploy with: nd push or nd deploy")
 		return nil
 	}
 
-	fmt.Printf("%-15s %-25s %-25s %-12s %s\n", "SERVICE", "CONTAINER", "IMAGE", "STATE", "STATUS")
-	fmt.Println(strings.Repeat("─", 90))
+	headers := []string{"Service", "Container", "Image", "State", "Status"}
+	var rows [][]string
 	for _, p := range data.PS {
 		img := p.Image
 		if img == "" {
-			img = "-"
+			img = ui.Dim("-")
 		}
-		state := p.State
-		if state == "running" {
-			state = "● running"
-		}
-		fmt.Printf("%-15s %-25s %-25s %-12s %s\n", p.Service, p.Name, img, state, p.Status)
+		rows = append(rows, []string{
+			ui.Bold(p.Service),
+			p.Name,
+			img,
+			ui.StatePill(p.State),
+			p.Status,
+		})
 	}
+	ui.PrintTable(os.Stdout, headers, rows)
 	return nil
 }
 
@@ -1003,7 +1075,7 @@ func RunDeploy(cl *client.Client, args []string) error {
 		return err
 	}
 	if !jsonOut {
-		fmt.Printf("Deploying %s...\n", appID)
+		ui.Step("Deploying %s...", ui.Cyan(appID))
 	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
@@ -1080,7 +1152,7 @@ func RunDeploy(cl *client.Client, args []string) error {
 		return fmt.Errorf("deployment failed after %.0fs (Job ID: %s)", data.DurationS, data.JobID)
 	}
 
-	fmt.Printf("✓ Deployment succeeded in %.0fs (Job ID: %s)\n", data.DurationS, data.JobID)
+	ui.Success("Deployment succeeded in %.0fs (Job ID: %s)", data.DurationS, ui.Cyan(data.JobID))
 	return nil
 }
 
@@ -1626,6 +1698,7 @@ Environment Variables:
   nd env set [app_id] KEY=VAL ...    Set or update environment variables
 
 Other:
+  nd update                          Update nd CLI to the latest release from GitHub
   nd completion [bash|zsh|ps1]       Generate shell autocompletion script
   nd version                         Print version
   nd help                            Print this help

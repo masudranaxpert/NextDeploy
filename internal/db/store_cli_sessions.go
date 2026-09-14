@@ -8,15 +8,18 @@ import (
 // UpsertCLISession inserts or updates a CLI session heartbeat.
 func (s *Store) UpsertCLISession(sess CLISession) error {
 	_, err := s.db.Exec(`
-INSERT INTO cli_sessions (id, user_id, hostname, os, arch, version, last_seen, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO cli_sessions (id, user_id, hostname, os, arch, version, token_name, token_prefix, last_seen, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-  hostname  = excluded.hostname,
-  os        = excluded.os,
-  arch      = excluded.arch,
-  version   = excluded.version,
-  last_seen = excluded.last_seen`,
+  hostname     = excluded.hostname,
+  os           = excluded.os,
+  arch         = excluded.arch,
+  version      = excluded.version,
+  token_name   = CASE WHEN excluded.token_name != '' THEN excluded.token_name ELSE cli_sessions.token_name END,
+  token_prefix = CASE WHEN excluded.token_prefix != '' THEN excluded.token_prefix ELSE cli_sessions.token_prefix END,
+  last_seen    = excluded.last_seen`,
 		sess.ID, sess.UserID, sess.Hostname, sess.OS, sess.Arch, sess.Version,
+		sess.TokenName, sess.TokenPrefix,
 		sess.LastSeen.UTC().Format("2006-01-02 15:04:05"),
 		sess.CreatedAt.UTC().Format("2006-01-02 15:04:05"),
 	)
@@ -27,7 +30,7 @@ ON CONFLICT(id) DO UPDATE SET
 func (s *Store) ListCLISessions() ([]CLISession, error) {
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	rows, err := s.db.Query(`
-SELECT id, user_id, hostname, os, arch, version, last_seen, created_at
+SELECT id, user_id, hostname, os, arch, version, COALESCE(token_name, ''), COALESCE(token_prefix, ''), last_seen, created_at
 FROM cli_sessions
 WHERE last_seen >= ?
 ORDER BY last_seen DESC`, cutoff)
@@ -40,7 +43,7 @@ ORDER BY last_seen DESC`, cutoff)
 	for rows.Next() {
 		var sess CLISession
 		var lastSeen, createdAt string
-		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.Hostname, &sess.OS, &sess.Arch, &sess.Version, &lastSeen, &createdAt); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.Hostname, &sess.OS, &sess.Arch, &sess.Version, &sess.TokenName, &sess.TokenPrefix, &lastSeen, &createdAt); err != nil {
 			return nil, err
 		}
 		sess.LastSeen, _ = time.ParseInLocation("2006-01-02 15:04:05", lastSeen, time.UTC)

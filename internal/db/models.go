@@ -339,14 +339,16 @@ type AuditLog struct {
 
 // CLISession represents an active nd CLI connection.
 type CLISession struct {
-	ID        string
-	UserID    int64
-	Hostname  string
-	OS        string
-	Arch      string
-	Version   string
-	LastSeen  time.Time
-	CreatedAt time.Time
+	ID          string
+	UserID      int64
+	Hostname    string
+	OS          string
+	Arch        string
+	Version     string
+	TokenName   string
+	TokenPrefix string
+	LastSeen    time.Time
+	CreatedAt   time.Time
 }
 
 // IsActive returns true if the session sent a heartbeat within the last 5 minutes.

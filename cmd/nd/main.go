@@ -77,6 +77,12 @@ func run() int {
 	case "version", "--version", "-v":
 		fmt.Printf("nd version %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 		return 0
+	case "update":
+		if err := cmd.RunUpdate(rest); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "completion":
 		cmd.RunCompletion(rest)
 		return 0

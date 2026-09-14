@@ -135,6 +135,7 @@
         <thead class="bg-muted/30">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Device</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Token Used</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">OS / Arch</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Version</th>
             <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last Seen</th>
@@ -154,6 +155,23 @@
                 </div>
                 <span class="font-medium text-foreground text-xs">{{.Hostname}}</span>
               </div>
+            </td>
+            <td class="px-4 py-3">
+              {{if .TokenName}}
+              <div class="flex items-center gap-1.5">
+                <span class="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
+                  <svg class="h-3 w-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+                  </svg>
+                  {{.TokenName}}
+                </span>
+                {{if .TokenPrefix}}
+                <span class="font-mono text-[11px] text-muted-foreground/70">{{.TokenPrefix}}...</span>
+                {{end}}
+              </div>
+              {{else}}
+              <span class="font-mono text-xs text-muted-foreground/50">Legacy/Direct</span>
+              {{end}}
             </td>
             <td class="px-4 py-3 text-xs text-muted-foreground">{{.OS}} / {{.Arch}}</td>
             <td class="px-4 py-3">

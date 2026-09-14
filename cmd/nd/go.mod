@@ -1,5 +1,11 @@
 module nd
 
-go 1.24
+go 1.25.0
 
-require github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
+require (
+	github.com/fatih/color v1.19.0 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+)

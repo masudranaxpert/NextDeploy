@@ -132,31 +132,79 @@ func (p *Panel) APICliHeartbeat(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		ID       string `json:"id"`
-		Hostname string `json:"hostname"`
-		OS       string `json:"os"`
-		Arch     string `json:"arch"`
-		Version  string `json:"version"`
+		ID          string `json:"id"`
+		Hostname    string `json:"hostname"`
+		OS          string `json:"os"`
+		Arch        string `json:"arch"`
+		Version     string `json:"version"`
+		TokenName   string `json:"token_name"`
+		TokenPrefix string `json:"token_prefix"`
 	}
 	if err := c.BodyParser(&req); err != nil || strings.TrimSpace(req.ID) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "id is required"})
 	}
 
+	tokenName := strings.TrimSpace(req.TokenName)
+	tokenPrefix := strings.TrimSpace(req.TokenPrefix)
+	if tok, ok := c.Locals("api_token").(db.APIToken); ok && tok.ID > 0 {
+		if tokenName == "" {
+			tokenName = tok.Name
+		}
+		if tokenPrefix == "" {
+			tokenPrefix = tok.TokenPrefix
+		}
+	}
+
 	now := time.Now()
 	sess := db.CLISession{
-		ID:        req.ID,
-		UserID:    u.ID,
-		Hostname:  req.Hostname,
-		OS:        req.OS,
-		Arch:      req.Arch,
-		Version:   req.Version,
-		LastSeen:  now,
-		CreatedAt: now,
+		ID:          req.ID,
+		UserID:      u.ID,
+		Hostname:    req.Hostname,
+		OS:          req.OS,
+		Arch:        req.Arch,
+		Version:     req.Version,
+		TokenName:   tokenName,
+		TokenPrefix: tokenPrefix,
+		LastSeen:    now,
+		CreatedAt:   now,
 	}
 	if err := p.DB.UpsertCLISession(sess); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{"ok": true})
+	return c.JSON(fiber.Map{
+		"ok":           true,
+		"user":         u.Username,
+		"role":         u.Role,
+		"token_name":   tokenName,
+		"token_prefix": tokenPrefix,
+	})
+}
+
+// APICliWhoami returns authenticated user and token metadata for nd whoami.
+// GET /api/v1/cli/whoami
+func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	res := fiber.Map{
+		"ok":       true,
+		"user_id":  u.ID,
+		"username": u.Username,
+		"role":     u.Role,
+	}
+	if tok, ok := c.Locals("api_token").(db.APIToken); ok && tok.ID > 0 {
+		res["token_name"] = tok.Name
+		res["token_prefix"] = tok.TokenPrefix
+		res["allow_env_reveal"] = tok.AllowEnvReveal
+		res["allow_server_exec"] = tok.AllowServerExec
+		res["allow_container_exec"] = tok.AllowContainerExec
+		if tok.CreatedAt.Unix() > 0 {
+			res["created_at"] = tok.CreatedAt.Format("2006-01-02 15:04")
+		}
+	}
+	return c.JSON(res)
 }
 
 // APICliSessionDelete removes a CLI session on logout/exit.

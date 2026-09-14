@@ -545,12 +545,16 @@ CREATE TABLE IF NOT EXISTS cli_sessions (
   os TEXT NOT NULL DEFAULT '',
   arch TEXT NOT NULL DEFAULT '',
   version TEXT NOT NULL DEFAULT '',
+  token_name TEXT NOT NULL DEFAULT '',
+  token_prefix TEXT NOT NULL DEFAULT '',
   last_seen TEXT NOT NULL,
   created_at TEXT NOT NULL,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );`); err != nil {
 		return err
 	}
+	_, _ = s.db.Exec(`ALTER TABLE cli_sessions ADD COLUMN token_name TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE cli_sessions ADD COLUMN token_prefix TEXT NOT NULL DEFAULT ''`)
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_sessions_user ON cli_sessions(user_id);`); err != nil {
 		return err
 	}
