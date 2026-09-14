@@ -1,0 +1,111 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+)
+
+// RunCompletion generates shell completion scripts for bash, zsh, and powershell.
+func RunCompletion(args []string) {
+	shell := "bash"
+	if len(args) > 0 {
+		shell = args[0]
+	}
+
+	switch shell {
+	case "bash":
+		fmt.Print(bashCompletionScript)
+	case "zsh":
+		fmt.Print(zshCompletionScript)
+	case "powershell", "ps1":
+		fmt.Print(powershellCompletionScript)
+	default:
+		fmt.Fprintf(os.Stderr, "Unsupported shell: %s. Supported: bash, zsh, powershell\n", shell)
+		os.Exit(1)
+	}
+}
+
+const bashCompletionScript = `# bash completion for nd
+_nd_completions() {
+    local cur prev commands
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy stop restart logs exec run server-exec env version help completion"
+
+    if [ $COMP_CWORD -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+        return 0
+    fi
+
+    case "${prev}" in
+        -a|--app)
+            # Cannot dynamically complete without server, complete nothing
+            return 0
+            ;;
+        env)
+            COMPREPLY=( $(compgen -W "list set" -- ${cur}) )
+            return 0
+            ;;
+        completion)
+            COMPREPLY=( $(compgen -W "bash zsh powershell" -- ${cur}) )
+            return 0
+            ;;
+    esac
+
+    if [[ ${cur} == -* ]] ; then
+        COMPREPLY=( $(compgen -W "--help --json -a --app -f --follow --force --prune -y" -- ${cur}) )
+        return 0
+    fi
+}
+complete -F _nd_completions nd
+`
+
+const zshCompletionScript = `#compdef nd
+_nd() {
+    local -a commands
+    commands=(
+        'login:Authenticate with an API token'
+        'logout:Remove credentials and disconnect'
+        'whoami:Show current user, server, and session status'
+        'apps:List applications'
+        'create:Create and link a new application'
+        'delete:Delete an application'
+        'link:Link current directory to an app'
+        'unlink:Remove current directory app link'
+        'info:Show application details'
+        'status:Show application details'
+        'open:Open application domain in browser'
+        'ps:List containers and processes'
+        'containers:List VPS host containers'
+        'images:List Docker images'
+        'push:Sync files and deploy'
+        'deploy:Redeploy application'
+        'stop:Stop application containers'
+        'restart:Restart application containers'
+        'logs:Show container logs'
+        'exec:Execute command inside container'
+        'run:Execute command inside container'
+        'server-exec:Execute command on host server'
+        'env:Manage environment variables'
+        'version:Print version'
+        'help:Show help'
+        'completion:Generate shell completion'
+    )
+    _describe -t commands 'nd command' commands
+}
+_nd "$@"
+`
+
+const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandName nd -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $commands = @(
+        'login', 'logout', 'whoami', 'apps', 'create', 'delete',
+        'link', 'unlink', 'info', 'status', 'open', 'ps',
+        'containers', 'images', 'push', 'deploy', 'stop', 'restart',
+        'logs', 'exec', 'run', 'server-exec', 'env', 'version', 'help', 'completion'
+    )
+    $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+    }
+}
+`

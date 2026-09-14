@@ -59,7 +59,8 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 		return c.Next()
 	}
 
-	if !s.IsEnabled(c.UserContext()) {
+	isCLI := c.Get("X-NextDeploy-Client") == "cli" || strings.HasPrefix(c.Get("User-Agent"), "nd/")
+	if !isCLI && !s.IsEnabled(c.UserContext()) {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"jsonrpc": "2.0",
 			"error": fiber.Map{

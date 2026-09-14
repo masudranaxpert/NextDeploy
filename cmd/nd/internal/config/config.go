@@ -139,7 +139,35 @@ func SaveProject(dir, appID string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dotNd, "project.json"), data, 0644)
+	if err := os.WriteFile(filepath.Join(dotNd, "project.json"), data, 0644); err != nil {
+		return err
+	}
+	ensureGitIgnore(dir, ".nd/")
+	return nil
+}
+
+// ensureGitIgnore makes sure the specified pattern is present in .gitignore.
+func ensureGitIgnore(dir, pattern string) {
+	giPath := filepath.Join(dir, ".gitignore")
+	content, err := os.ReadFile(giPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			_ = os.WriteFile(giPath, []byte(pattern+"\n"), 0644)
+		}
+		return
+	}
+	for _, l := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == pattern || trimmed == strings.TrimSuffix(pattern, "/") {
+			return
+		}
+	}
+	newContent := string(content)
+	if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	newContent += pattern + "\n"
+	_ = os.WriteFile(giPath, []byte(newContent), 0644)
 }
 
 // ClearProject removes .nd/project.json in the specified directory.

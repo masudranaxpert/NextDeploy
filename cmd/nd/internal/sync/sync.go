@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
 // FileEntry represents a local or remote file snapshot.
@@ -35,6 +37,7 @@ type manifestResponse struct {
 var DefaultIgnore = map[string]bool{
 	"node_modules": true,
 	".git":         true,
+	".nd":          true,
 	".next":        true,
 	"dist":         true,
 	"build":        true,
@@ -43,9 +46,9 @@ var DefaultIgnore = map[string]bool{
 	"vendor":       true,
 }
 
-// loadIgnoreRules parses .gitignore and .ndignore in localDir.
-func loadIgnoreRules(localDir string) []string {
-	var rules []string
+// loadGitIgnore compiles rules from .gitignore and .ndignore in localDir.
+func loadGitIgnore(localDir string) *ignore.GitIgnore {
+	var lines []string
 	for _, fname := range []string{".gitignore", ".ndignore"} {
 		path := filepath.Join(localDir, fname)
 		f, err := os.Open(path)
@@ -58,35 +61,13 @@ func loadIgnoreRules(localDir string) []string {
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
-			rules = append(rules, filepath.ToSlash(line))
+			lines = append(lines, line)
 		}
 		_ = f.Close()
 	}
-	return rules
-}
-
-// matchesIgnoreRule checks if a relative path matches simple gitignore patterns.
-func matchesIgnoreRule(rel string, isDir bool, rules []string) bool {
-	base := filepath.Base(rel)
-	for _, rule := range rules {
-		rule = strings.TrimPrefix(rule, "/")
-		if isDir && strings.HasSuffix(rule, "/") {
-			trimmed := strings.TrimSuffix(rule, "/")
-			if rel == trimmed || strings.HasPrefix(rel, trimmed+"/") {
-				return true
-			}
-		}
-		if rel == rule || strings.HasPrefix(rel, rule+"/") {
-			return true
-		}
-		if matched, _ := filepath.Match(rule, base); matched {
-			return true
-		}
-		if matched, _ := filepath.Match(rule, rel); matched {
-			return true
-		}
-	}
-	return false
+	// Always ignore VCS, local nd files, and sensitive env files
+	lines = append(lines, ".git", ".nd", ".env", ".env.*")
+	return ignore.CompileIgnoreLines(lines...)
 }
 
 // hashesMatch safely compares two hashes which may be 16-character short SHA or full 64-char SHA256.
@@ -104,7 +85,7 @@ func hashesMatch(h1, h2 string) bool {
 
 // LocalHashes walks localDir and returns path→sha256 for all non-ignored files.
 func LocalHashes(localDir string) (map[string]string, error) {
-	rules := loadIgnoreRules(localDir)
+	ignorer := loadGitIgnore(localDir)
 	out := make(map[string]string)
 	err := filepath.WalkDir(localDir, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -119,13 +100,18 @@ func LocalHashes(localDir string) (map[string]string, error) {
 		isDir := d.IsDir()
 
 		if isDir {
-			if DefaultIgnore[name] || strings.HasPrefix(name, ".") || matchesIgnoreRule(relSlash, true, rules) {
+			if DefaultIgnore[name] || ignorer.MatchesPath(relSlash) || ignorer.MatchesPath(relSlash+"/") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if matchesIgnoreRule(relSlash, false, rules) {
+		// Never sync .env files to prevent server data loss
+		if name == ".env" || strings.HasPrefix(name, ".env.") {
+			return nil
+		}
+
+		if ignorer.MatchesPath(relSlash) {
 			return nil
 		}
 
@@ -160,6 +146,10 @@ func Diff(serverManifestJSON []byte, local map[string]string) (toUpload []string
 		}
 	}
 	for path := range remote {
+		base := filepath.Base(path)
+		if base == ".env" || strings.HasPrefix(base, ".env.") {
+			continue
+		}
 		if _, exists := local[path]; !exists {
 			toDelete = append(toDelete, path)
 		}

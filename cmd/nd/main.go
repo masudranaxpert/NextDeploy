@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"time"
 
 	"nd/cmd"
@@ -25,7 +26,29 @@ func main() {
 
 func run() int {
 	cmd.Version = version
-	args := os.Args[1:]
+	rawArgs := os.Args[1:]
+	if len(rawArgs) == 0 {
+		cmd.PrintHelp()
+		return 0
+	}
+
+	// Extract global flags like -a / --app before command dispatch
+	var globalApp string
+	var args []string
+	for i := 0; i < len(rawArgs); i++ {
+		a := rawArgs[i]
+		if (a == "-a" || a == "--app") && i+1 < len(rawArgs) {
+			globalApp = rawArgs[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--app=") {
+			globalApp = strings.TrimPrefix(a, "--app=")
+		} else if strings.HasPrefix(a, "-a=") {
+			globalApp = strings.TrimPrefix(a, "-a=")
+		} else {
+			args = append(args, a)
+		}
+	}
+
 	if len(args) == 0 {
 		cmd.PrintHelp()
 		return 0
@@ -33,6 +56,9 @@ func run() int {
 
 	command := args[0]
 	rest := args[1:]
+	if globalApp != "" {
+		rest = append(rest, "--app", globalApp)
+	}
 
 	// Commands that don't need auth
 	switch command {
@@ -50,6 +76,9 @@ func run() int {
 		return 0
 	case "version", "--version", "-v":
 		fmt.Printf("nd version %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		return 0
+	case "completion":
+		cmd.RunCompletion(rest)
 		return 0
 	case "help", "--help", "-h":
 		cmd.PrintHelp()
@@ -85,7 +114,7 @@ func run() int {
 
 	switch command {
 	case "whoami":
-		err = cmd.RunWhoami(cl, cfg)
+		err = cmd.RunWhoami(cl, cfg, rest)
 	case "apps", "list":
 		err = cmd.RunApps(cl, rest)
 	case "create", "new":

@@ -87,6 +87,7 @@ func RunLogout(_ []string) error {
 
 // RunApps prints all accessible apps, or dispatches subcommands.
 func RunApps(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	if len(args) > 0 {
 		switch args[0] {
 		case "create", "new":
@@ -131,6 +132,19 @@ func RunApps(cl *client.Client, args []string) error {
 	}
 	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &apps); err != nil {
 		fmt.Println(resp.Result.Content[0].Text)
+		return nil
+	}
+
+	if jsonOut {
+		if apps == nil {
+			apps = []struct {
+				ID     string `json:"id"`
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			}{}
+		}
+		pretty, _ := json.MarshalIndent(apps, "", "  ")
+		fmt.Println(string(pretty))
 		return nil
 	}
 
@@ -279,16 +293,51 @@ func RunDelete(cl *client.Client, args []string) error {
 	return nil
 }
 
-// resolveAppID extracts appID from args or falls back to locally linked project (.nd/project.json).
-func resolveAppID(args []string) (string, []string, error) {
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && !strings.Contains(args[0], "=") {
-		return args[0], args[1:], nil
+// extractJSONFlag removes --json / -j from args and returns whether it was present.
+func extractJSONFlag(args []string) (bool, []string) {
+	var remaining []string
+	jsonOut := false
+	for _, a := range args {
+		if a == "--json" || a == "-j" {
+			jsonOut = true
+		} else {
+			remaining = append(remaining, a)
+		}
 	}
+	return jsonOut, remaining
+}
+
+// resolveAppID extracts appID from args (--app / -a flag, positional argument, or .nd/project.json).
+func resolveAppID(args []string) (string, []string, error) {
+	var appID string
+	var remaining []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if (a == "-a" || a == "--app") && i+1 < len(args) {
+			appID = args[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--app=") {
+			appID = strings.TrimPrefix(a, "--app=")
+		} else if strings.HasPrefix(a, "-a=") {
+			appID = strings.TrimPrefix(a, "-a=")
+		} else {
+			remaining = append(remaining, a)
+		}
+	}
+
+	if appID != "" {
+		return appID, remaining, nil
+	}
+
+	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") && !strings.Contains(remaining[0], "=") {
+		return remaining[0], remaining[1:], nil
+	}
+
 	pc, err := config.LoadProject(".")
 	if err == nil && pc.AppID != "" {
-		return pc.AppID, args, nil
+		return pc.AppID, remaining, nil
 	}
-	return "", args, fmt.Errorf("app_id required (specify as argument or link with: nd link <app_id>)")
+	return "", remaining, fmt.Errorf("app_id required (pass --app <id>, specify as argument, or run 'nd link <id>')")
 }
 
 // RunLink links the current directory to an app ID (.nd/project.json).
@@ -315,27 +364,60 @@ func RunUnlink(_ *client.Client, _ []string) error {
 }
 
 // RunWhoami prints currently configured server, device info, and token validity.
-func RunWhoami(cl *client.Client, cfg config.Config) error {
+func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
+	jsonOut, _ := extractJSONFlag(args)
 	hostname, _ := os.Hostname()
 	maskedToken := cfg.Token
 	if len(maskedToken) > 8 {
 		maskedToken = maskedToken[:4] + "..." + maskedToken[len(maskedToken)-4:]
 	}
-	fmt.Printf("Server URL:  %s\n", cfg.ServerURL)
-	fmt.Printf("Device:      %s (%s/%s)\n", hostname, runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("Device ID:   %s\n", cfg.DeviceID)
-	fmt.Printf("Token:       %s\n", maskedToken)
 
-	// Check if local project is linked
+	var linkedApp string
 	if pc, err := config.LoadProject("."); err == nil && pc.AppID != "" {
-		fmt.Printf("Linked App:  %s\n", pc.AppID)
+		linkedApp = pc.AppID
 	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
 	})
-	if err != nil || status >= 400 {
+	authOK := err == nil && status < 400
+
+	if jsonOut {
+		out := map[string]interface{}{
+			"server_url": cfg.ServerURL,
+			"device_id":  cfg.DeviceID,
+			"hostname":   hostname,
+			"os":         runtime.GOOS,
+			"arch":       runtime.GOARCH,
+			"status":     "authenticated",
+		}
+		if !authOK {
+			out["status"] = "error"
+			out["error"] = client.JSONError(body)
+		}
+		if linkedApp != "" {
+			out["linked_app"] = linkedApp
+		}
+		pretty, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Println(string(pretty))
+		if !authOK {
+			return fmt.Errorf("authentication failed: %s", client.JSONError(body))
+		}
+		return nil
+	}
+
+	fmt.Printf("Server URL:  %s\n", cfg.ServerURL)
+	fmt.Printf("Device:      %s (%s/%s)\n", hostname, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Device ID:   %s\n", cfg.DeviceID)
+	fmt.Printf("Token:       %s\n", maskedToken)
+
+	// Check if local project is linked
+	if linkedApp != "" {
+		fmt.Printf("Linked App:  %s\n", linkedApp)
+	}
+
+	if !authOK {
 		fmt.Printf("Status:      Error connecting (%s)\n", client.JSONError(body))
 		return err
 	}
@@ -345,6 +427,7 @@ func RunWhoami(cl *client.Client, cfg config.Config) error {
 
 // RunStatus prints detailed info for an app in clean Heroku/Railway style.
 func RunStatus(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	appID, _, err := resolveAppID(args)
 	if err != nil {
 		return err
@@ -376,6 +459,17 @@ func RunStatus(cl *client.Client, args []string) error {
 	}
 	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
 		fmt.Println(string(body))
+		return nil
+	}
+
+	if jsonOut {
+		var raw interface{}
+		if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &raw); err == nil {
+			pretty, _ := json.MarshalIndent(raw, "", "  ")
+			fmt.Println(string(pretty))
+		} else {
+			fmt.Println(resp.Result.Content[0].Text)
+		}
 		return nil
 	}
 
@@ -475,9 +569,10 @@ func RunStatus(cl *client.Client, args []string) error {
 
 // RunPS lists containers, their state, status, and images for an app (or all apps).
 func RunPS(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	appID, _, err := resolveAppID(args)
 	if err != nil {
-		return runAllPS(cl)
+		return runAllPS(cl, jsonOut)
 	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
@@ -530,6 +625,21 @@ func RunPS(cl *client.Client, args []string) error {
 		return nil
 	}
 
+	if jsonOut {
+		if data.PS == nil {
+			data.PS = []struct {
+				Name    string `json:"Name"`
+				Service string `json:"Service"`
+				State   string `json:"State"`
+				Status  string `json:"Status"`
+				Image   string `json:"Image"`
+			}{}
+		}
+		pretty, _ := json.MarshalIndent(data.PS, "", "  ")
+		fmt.Println(string(pretty))
+		return nil
+	}
+
 	healthStr := "healthy"
 	if !data.Health.Healthy && len(data.PS) > 0 {
 		healthStr = "unhealthy"
@@ -556,7 +666,7 @@ func RunPS(cl *client.Client, args []string) error {
 	return nil
 }
 
-func runAllPS(cl *client.Client) error {
+func runAllPS(cl *client.Client, jsonOut bool) error {
 	body, status, err := cl.Do("GET", "/api/v1/apps", nil)
 	if err != nil || status >= 400 {
 		return RunApps(cl, nil)
@@ -566,46 +676,126 @@ func runAllPS(cl *client.Client) error {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(body, &apps); err != nil || len(apps) == 0 {
-		fmt.Println("No apps found.")
+		if jsonOut {
+			fmt.Println("[]")
+		} else {
+			fmt.Println("No apps found.")
+		}
 		return nil
 	}
 
+	type containerWithApp struct {
+		AppID   string `json:"app_id"`
+		AppName string `json:"app_name"`
+		Name    string `json:"name"`
+		Service string `json:"service"`
+		Image   string `json:"image"`
+		State   string `json:"state"`
+		Status  string `json:"status"`
+	}
+	var allContainers []containerWithApp
+
 	for i, a := range apps {
-		if i > 0 {
-			fmt.Println()
+		cBody, cStatus, cErr := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name": "app_get",
+				"arguments": map[string]interface{}{
+					"app_id": a.ID,
+				},
+			},
+		})
+		if cErr != nil || cStatus >= 400 {
+			continue
 		}
-		_ = RunPS(cl, []string{a.ID})
+		var cResp struct {
+			Result struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(cBody, &cResp) != nil || len(cResp.Result.Content) == 0 {
+			continue
+		}
+		var data struct {
+			PS []struct {
+				Name    string `json:"Name"`
+				Service string `json:"Service"`
+				State   string `json:"State"`
+				Status  string `json:"Status"`
+				Image   string `json:"Image"`
+			} `json:"ps"`
+		}
+		if json.Unmarshal([]byte(cResp.Result.Content[0].Text), &data) != nil {
+			continue
+		}
+		if jsonOut {
+			for _, p := range data.PS {
+				allContainers = append(allContainers, containerWithApp{
+					AppID:   a.ID,
+					AppName: a.Name,
+					Name:    p.Name,
+					Service: p.Service,
+					Image:   p.Image,
+					State:   p.State,
+					Status:  p.Status,
+				})
+			}
+		} else {
+			if i > 0 {
+				fmt.Println()
+			}
+			_ = RunPS(cl, []string{a.ID})
+		}
+	}
+
+	if jsonOut {
+		if allContainers == nil {
+			allContainers = []containerWithApp{}
+		}
+		pretty, _ := json.MarshalIndent(allContainers, "", "  ")
+		fmt.Println(string(pretty))
 	}
 	return nil
 }
 
 // RunContainers lists all Docker containers on the host VPS.
 func RunContainers(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	cmdArgs := []string{"docker", "ps"}
 	for _, a := range args {
 		if a == "-a" || a == "--all" {
 			cmdArgs = append(cmdArgs, "-a")
 		}
 	}
+	if jsonOut {
+		cmdArgs = append(cmdArgs, "--format", "{{json .}}")
+	}
 	err := executeHostCommand(cl, strings.Join(cmdArgs, " "))
 	if err != nil {
 		// Fallback: list containers across all accessible apps
-		return runAllPS(cl)
+		return runAllPS(cl, jsonOut)
 	}
 	return nil
 }
 
 // RunImages lists Docker images on the host VPS, or falls back to app image breakdown.
-func RunImages(cl *client.Client, _ []string) error {
-	err := executeHostCommand(cl, "docker images")
+func RunImages(cl *client.Client, args []string) error {
+	jsonOut, _ := extractJSONFlag(args)
+	cmdStr := "docker images"
+	if jsonOut {
+		cmdStr = "docker images --format {{json .}}"
+	}
+	err := executeHostCommand(cl, cmdStr)
 	if err != nil {
 		// Fallback: extract images used by each app
-		return runAppImages(cl)
+		return runAppImages(cl, jsonOut)
 	}
 	return nil
 }
 
-func runAppImages(cl *client.Client) error {
+func runAppImages(cl *client.Client, jsonOut bool) error {
 	body, status, err := cl.Do("GET", "/api/v1/apps", nil)
 	if err != nil || status >= 400 {
 		return fmt.Errorf("failed to list apps: %v", err)
@@ -615,14 +805,18 @@ func runAppImages(cl *client.Client) error {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(body, &apps); err != nil || len(apps) == 0 {
-		fmt.Println("No applications found.")
+		if jsonOut {
+			fmt.Println("[]")
+		} else {
+			fmt.Println("No applications found.")
+		}
 		return nil
 	}
 
 	type imgUsage struct {
-		Image   string
-		App     string
-		Service string
+		Image   string `json:"image"`
+		App     string `json:"app"`
+		Service string `json:"service"`
 	}
 	var usages []imgUsage
 	distinctImages := make(map[string]bool)
@@ -692,6 +886,15 @@ func runAppImages(cl *client.Client) error {
 			})
 			distinctImages[img] = true
 		}
+	}
+
+	if jsonOut {
+		if usages == nil {
+			usages = []imgUsage{}
+		}
+		pretty, _ := json.MarshalIndent(usages, "", "  ")
+		fmt.Println(string(pretty))
+		return nil
 	}
 
 	fmt.Printf("=== Application Images (%d images across %d apps)\n", len(distinctImages), len(apps))
@@ -794,11 +997,14 @@ func openBrowser(url string) error {
 
 // RunDeploy triggers a redeploy for an app.
 func RunDeploy(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	appID, _, err := resolveAppID(args)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Deploying %s...\n", appID)
+	if !jsonOut {
+		fmt.Printf("Deploying %s...\n", appID)
+	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
@@ -813,20 +1019,83 @@ func RunDeploy(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("deploy error: %s", client.JSONError(body))
 	}
-	fmt.Println("✓ Deploy triggered.")
-	fmt.Println(string(body))
+
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(body, &resp)
+
+	var data struct {
+		JobID      string  `json:"job_id"`
+		AppID      string  `json:"app_id"`
+		Action     string  `json:"action"`
+		OK         bool    `json:"ok"`
+		Status     string  `json:"status"`
+		DurationS  float64 `json:"duration_s"`
+		OutputTail string  `json:"output_tail"`
+		Message    string  `json:"message"`
+	}
+	if len(resp.Result.Content) > 0 {
+		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &data)
+	}
+
+	deployStatus := "success"
+	if resp.Result.IsError || (!data.OK && data.Status != "started") {
+		deployStatus = "failed"
+		if data.Status == "timeout" {
+			deployStatus = "timeout"
+		}
+	}
+
+	if jsonOut {
+		out := map[string]interface{}{
+			"job_id":     data.JobID,
+			"app_id":     appID,
+			"status":     deployStatus,
+			"duration_s": data.DurationS,
+		}
+		if data.Message != "" {
+			out["message"] = data.Message
+		}
+		if deployStatus == "failed" && data.OutputTail != "" {
+			out["error_tail"] = data.OutputTail
+		}
+		pretty, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Println(string(pretty))
+		if deployStatus == "failed" {
+			return fmt.Errorf("deployment failed")
+		}
+		return nil
+	}
+
+	if deployStatus == "failed" {
+		if data.OutputTail != "" {
+			fmt.Println(data.OutputTail)
+		}
+		return fmt.Errorf("deployment failed after %.0fs (Job ID: %s)", data.DurationS, data.JobID)
+	}
+
+	fmt.Printf("✓ Deployment succeeded in %.0fs (Job ID: %s)\n", data.DurationS, data.JobID)
 	return nil
 }
 
 // RunLogs streams recent logs for an app.
-// Usage: nd logs [app_id] [-n lines]
+// Usage: nd logs [app_id] [-n lines] [-f/--follow]
 func RunLogs(cl *client.Client, args []string) error {
 	lines := 100
+	follow := false
 	var cleanArgs []string
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if (arg == "-n" || arg == "--tail" || arg == "--lines") && i+1 < len(args) {
+		if arg == "-f" || arg == "--follow" {
+			follow = true
+		} else if (arg == "-n" || arg == "--tail" || arg == "--lines") && i+1 < len(args) {
 			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
 				lines = n
 			}
@@ -843,33 +1112,88 @@ func RunLogs(cl *client.Client, args []string) error {
 		return err
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "container_logs",
-			"arguments": map[string]interface{}{"app_id": appID, "lines": lines},
-		},
-	})
+	fetchLogs := func(tailCount int) (string, error) {
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "container_logs",
+				"arguments": map[string]interface{}{"app_id": appID, "lines": tailCount},
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		if status >= 400 {
+			return "", fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+		var resp struct {
+			Result struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
+			return resp.Result.Content[0].Text, nil
+		}
+		return string(body), nil
+	}
+
+	initialLogs, err := fetchLogs(lines)
 	if err != nil {
 		return err
 	}
-	if status >= 400 {
-		return fmt.Errorf("server error: %s", client.JSONError(body))
+	if initialLogs != "" {
+		fmt.Print(initialLogs)
+		if !strings.HasSuffix(initialLogs, "\n") {
+			fmt.Println()
+		}
 	}
 
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
+	if !follow {
+		return nil
 	}
-	if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
-		fmt.Println(resp.Result.Content[0].Text)
-	} else {
-		fmt.Println(string(body))
+
+	// Follow loop: polls every 1500ms and prints newly appended lines
+	lastLogs := initialLogs
+	for {
+		time.Sleep(1500 * time.Millisecond)
+		current, err := fetchLogs(100)
+		if err != nil {
+			continue
+		}
+		if current == lastLogs {
+			continue
+		}
+
+		curLines := strings.Split(current, "\n")
+		oldLines := strings.Split(lastLogs, "\n")
+
+		// Find the longest overlap between tail of oldLines and head of curLines
+		bestOverlap := 0
+		for k := 1; k <= len(oldLines) && k <= len(curLines); k++ {
+			match := true
+			for j := 0; j < k; j++ {
+				if oldLines[len(oldLines)-k+j] != curLines[j] {
+					match = false
+					break
+				}
+			}
+			if match {
+				bestOverlap = k
+			}
+		}
+
+		newLines := curLines[bestOverlap:]
+		if len(newLines) > 0 {
+			for _, l := range newLines {
+				if strings.TrimSpace(l) != "" {
+					fmt.Println(l)
+				}
+			}
+		}
+		lastLogs = current
 	}
-	return nil
 }
 
 // RunExec executes a command inside an application container (Heroku-style: nd run / nd exec)
@@ -1102,10 +1426,11 @@ func parseAndPrintExecResult(body []byte) error {
 	return nil
 }
 
-// RunEnv handles: nd env list [app_id] | nd env set [app_id] KEY=VALUE ...
+// RunEnv handles: nd env list [app_id] [--json] | nd env set [app_id] KEY=VALUE ...
 func RunEnv(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nd env list [app_id] | nd env set [app_id] KEY=VALUE ...")
+		return fmt.Errorf("usage: nd env list [app_id] [--json] | nd env set [app_id] KEY=VALUE ...")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -1144,6 +1469,20 @@ func RunEnv(cl *client.Client, args []string) error {
 				Count int      `json:"count"`
 			}
 			if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &envData); err == nil {
+				if jsonOut {
+					if envData.Keys == nil {
+						envData.Keys = []string{}
+					}
+					out := map[string]interface{}{
+						"app_id": appID,
+						"count":  envData.Count,
+						"keys":   envData.Keys,
+					}
+					pretty, _ := json.MarshalIndent(out, "", "  ")
+					fmt.Println(string(pretty))
+					return nil
+				}
+
 				fmt.Printf("=== %s Environment Variables (%d)\n", appID, envData.Count)
 				if len(envData.Keys) == 0 {
 					fmt.Println("  (no environment variables set)")
@@ -1255,44 +1594,46 @@ func PrintHelp() {
 Authentication & Session:
   nd login <server_url> [token]      Authenticate with an API token
   nd logout                          Remove saved credentials and disconnect session
-  nd whoami                          Show authenticated server, user, and session status
+  nd whoami [--json]                 Show authenticated server, user, and session status
 
 App Management:
-  nd apps                            List all applications
+  nd apps [--json]                   List all applications
   nd create <name>                   Create and link a new application
-  nd delete [app_id]                 Delete an application (requires confirmation)
+  nd delete [app_id] [-f]            Delete an application (requires confirmation unless -f)
   nd link <app_id>                   Link current directory to an app (.nd/project.json)
   nd unlink                          Remove link from current directory
-  nd info [app_id]                   Show app details, domains, health, and status (alias: nd status)
+  nd info [app_id] [--json]          Show app details, domains, health, and status (alias: nd status)
   nd open [app_id]                   Open app domain or panel URL in browser
 
 Process & Container Inspection:
-  nd ps [app_id]                     Show containers, services, state, status, and images
-  nd containers [-a]                 List all Docker containers on the host VPS
-  nd images                          List Docker images on the host VPS
+  nd ps [app_id] [--json]            Show containers, services, state, status, and images
+  nd containers [-a] [--json]        List all Docker containers on the host VPS
+  nd images [--json]                 List Docker images on the host VPS
 
 Deployments & Lifecycle:
-  nd push [app_id] [dir]             Sync local files and trigger deployment
-  nd deploy [app_id]                 Redeploy without file sync
+  nd push [app_id] [--prune] [-y]    Sync local files and deploy (--prune removes server-only files)
+  nd deploy [app_id] [--json]        Redeploy without file sync
   nd stop [app_id]                   Stop application containers
   nd restart [app_id]                Restart application containers
-  nd logs [app_id] [-n lines]        Show recent container logs (default: 100 lines)
+  nd logs [app_id] [-n 50] [-f]      Show container logs (-f/--follow to stream in real time)
 
 Execution & Command Run:
   nd exec [flags] [app_id] <cmd...>  Run command inside app container (alias: nd run)
   nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
 
 Environment Variables:
-  nd env list [app_id]               List configured environment variable keys
-  nd env set [app_id] KEY=VALUE ...  Set or update environment variables
+  nd env list [app_id] [--json]      List configured environment variable keys
+  nd env set [app_id] KEY=VAL ...    Set or update environment variables
 
 Other:
+  nd completion [bash|zsh|ps1]       Generate shell autocompletion script
   nd version                         Print version
   nd help                            Print this help
 
-Exec Flags:
-  -a, --app <app_id>                 Target application ID
-  -s, --service <service>            Target compose service
+Flags:
+  -a, --app <app_id>                 Target application ID (overrides linked directory)
+  -j, --json                         Output structured JSON (compatible with CI/CD and AI agents)
+  -s, --service <service>            Target compose service for exec
   -w, --workdir <dir>                Working directory inside container
   --server                           Execute on host VPS instead of container
 

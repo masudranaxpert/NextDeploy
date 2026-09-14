@@ -53,16 +53,6 @@ type App struct {
 	ComposeFile string
 	OwnerID     int64
 	Status      string
-	// DevMode bind-mounts the workspace into the container and makes deploys
-	// skip both the image rebuild and the Git sync, so local edits survive.
-	DevMode bool
-	// DevService limits the bind mount to one compose service. Empty means every
-	// service that builds from source.
-	DevService string
-	// DevTarget is the container path the workspace is mounted at (default /app).
-	DevTarget string
-	// DevCommand is an optional container startup command override in dev mode (e.g. "npm run dev").
-	DevCommand string
 }
 
 type AppCollaborator struct {

@@ -45,6 +45,8 @@ func (c *Client) Do(method, path string, body any) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	req.Header.Set("X-NextDeploy-Client", "cli")
+	req.Header.Set("User-Agent", "nd/1.0.6")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -67,6 +69,8 @@ func (c *Client) DoRaw(method, path string, contentType string, body io.Reader) 
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	req.Header.Set("X-NextDeploy-Client", "cli")
+	req.Header.Set("User-Agent", "nd/1.0.6")
 	req.Header.Set("Content-Type", contentType)
 
 	// Increase timeout for uploads

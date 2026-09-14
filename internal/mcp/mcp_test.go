@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 23 {
-		t.Errorf("expected 23 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 24 {
+		t.Errorf("expected 24 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -113,7 +113,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		toolSet[tool.Name] = true
 	}
 	expectedTools := []string{
-		"app_list", "app_get", "app_create", "workspace_manifest", "file_read", "file_write", "file_delete",
+		"app_list", "app_get", "app_create", "app_delete", "workspace_manifest", "file_read", "file_write", "file_delete",
 		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "compose_get",
 		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail",
 		"container_exec", "server_exec", "git_pull",
@@ -153,11 +153,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (20 tools).
+	// No-permission token hides restricted tools (21 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 20 {
-		t.Errorf("expected 20 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 21 {
+		t.Errorf("expected 21 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
@@ -165,13 +165,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (21 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (22 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 21 {
-		t.Errorf("expected 21 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 22 {
+		t.Errorf("expected 22 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -186,13 +186,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (21 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (22 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 21 {
-		t.Errorf("expected 21 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 22 {
+		t.Errorf("expected 22 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -510,14 +510,21 @@ func TestMCP_DeployGitPullFlag(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	appID := "deployapp_gitflag"
-	if err := store.CreateApp(ctx, appID, "Deploy App", user.ID); err != nil {
-		t.Fatalf("CreateApp failed: %v", err)
+	createTestApp := func(id string) {
+		if err := store.CreateApp(ctx, id, id, user.ID); err != nil {
+			t.Fatalf("CreateApp %s failed: %v", id, err)
+		}
+		dir := filepath.Join(tmpDir, id)
+		_ = os.MkdirAll(dir, 0750)
+		_ = os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx\n"), 0640)
 	}
 
-	appDir := filepath.Join(tmpDir, appID)
-	_ = os.MkdirAll(appDir, 0750)
-	_ = os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx\n"), 0640)
+	app1 := "deployapp_git1"
+	app2 := "deployapp_git2"
+	app3 := "deployapp_git3"
+	createTestApp(app1)
+	createTestApp(app2)
+	createTestApp(app3)
 
 	srv := NewServer(p)
 
@@ -525,7 +532,7 @@ func TestMCP_DeployGitPullFlag(t *testing.T) {
 	deployParams, _ := json.Marshal(CallToolParams{
 		Name: "deploy",
 		Arguments: map[string]interface{}{
-			"app_id":   appID,
+			"app_id":   app1,
 			"git_pull": true,
 		},
 	})
@@ -550,7 +557,7 @@ func TestMCP_DeployGitPullFlag(t *testing.T) {
 	// 2. deploy without git_pull on non-git app should also succeed.
 	deployParams2, _ := json.Marshal(CallToolParams{
 		Name:      "deploy",
-		Arguments: map[string]interface{}{"app_id": appID},
+		Arguments: map[string]interface{}{"app_id": app2},
 	})
 	resp2 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -567,7 +574,7 @@ func TestMCP_DeployGitPullFlag(t *testing.T) {
 	redeployParams, _ := json.Marshal(CallToolParams{
 		Name: "redeploy",
 		Arguments: map[string]interface{}{
-			"app_id":   appID,
+			"app_id":   app3,
 			"git_pull": true,
 		},
 	})

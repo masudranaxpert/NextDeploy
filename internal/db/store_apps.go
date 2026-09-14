@@ -109,30 +109,17 @@ func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error
 func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	var a App
 	var created string
-	var devMode int
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(dev_mode, 0), COALESCE(dev_service,''), COALESCE(dev_target,''), COALESCE(dev_command,'') FROM apps WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &devMode, &a.DevService, &a.DevTarget, &a.DevCommand)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps WHERE id = ?`, id).
+		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status)
 	if err != nil {
 		return App{}, err
 	}
 	t, _ := time.Parse(time.RFC3339, created)
 	a.CreatedAt = t
-	a.DevMode = devMode != 0
 	if strings.TrimSpace(a.ComposeFile) == "" {
 		a.ComposeFile = "docker-compose.yml"
 	}
 	return a, nil
-}
-
-// UpdateAppDevMode persists the per-app development mode toggle and its mount settings.
-func (s *Store) UpdateAppDevMode(ctx context.Context, id string, enabled bool, service, target, command string) error {
-	service = strings.TrimSpace(service)
-	target = strings.TrimSpace(target)
-	command = strings.TrimSpace(command)
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE apps SET dev_mode = ?, dev_service = ?, dev_target = ?, dev_command = ? WHERE id = ?`,
-		boolInt(enabled), service, target, command, id)
-	return err
 }
 
 func (s *Store) UpdateAppStatus(ctx context.Context, id string, status string) error {
