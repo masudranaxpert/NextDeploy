@@ -27,8 +27,8 @@ services:
             DATA_DIR: /data
             DOCKER_API_VERSION: "1.54"
             LISTEN_ADDR: :8080
-            WORKSPACES_ROOT: /data/workspaces
             PANEL_PERF_LOG: "false"
+            WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
         networks:
             - nextdeploy
