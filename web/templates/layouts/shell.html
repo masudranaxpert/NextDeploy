@@ -263,21 +263,30 @@
   </script>
   <script src="/static/vendor/alpine.min.js" defer></script>
   <script>
-    // Close mobile nav immediately before any hx-boost navigation (avoids flash of open drawer).
+    // Close mobile nav immediately before any HTMX boost request
     document.addEventListener('htmx:configRequest', function () {
       var w = document.querySelector('.flex.min-h-screen[x-data]');
-      if (!w) return;
-      // Walk Alpine's reactive data stack and zero mobileNav synchronously.
-      var stack = w._x_dataStack;
-      if (stack) {
-        for (var i = 0; i < stack.length; i++) {
-          if ('mobileNav' in stack[i]) { stack[i].mobileNav = false; break; }
+      if (w && window.Alpine) {
+        var data = Alpine.$data(w);
+        if (data && 'mobileNav' in data) {
+          data.mobileNav = false;
         }
       }
     });
-    // Re-initialize Alpine on the swapped subtree (body for hx-boost, partial for hx-target swaps).
+
+    // Re-initialize Alpine on swapped content and ensure drawer is closed
     document.addEventListener('htmx:afterSwap', function (evt) {
-      if (window.Alpine) Alpine.initTree(evt.detail.target || evt.detail.elt);
+      var target = evt.detail.target || evt.detail.elt;
+      if (window.Alpine && target) {
+        Alpine.initTree(target);
+        var w = document.querySelector('.flex.min-h-screen[x-data]');
+        if (w) {
+          var data = Alpine.$data(w);
+          if (data && 'mobileNav' in data) {
+            data.mobileNav = false;
+          }
+        }
+      }
     });
   </script>
   <link rel="stylesheet" href="/static/css/app.css">
