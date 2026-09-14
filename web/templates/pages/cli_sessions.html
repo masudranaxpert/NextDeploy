@@ -106,4 +106,12 @@ nd env set &lt;app_id&gt; KEY=VALUE     # set environment variable</pre>
     {{end}}
   </div>
 
+  <script>
+    // Refresh sessions table every 10 seconds if tab is active
+    setInterval(function() {
+      if (!document.hidden) {
+        window.location.reload();
+      }
+    }, 10000);
+  </script>
 </div>

@@ -3,27 +3,31 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"time"
 
 	"nd/cmd"
 	"nd/internal/client"
 	"nd/internal/config"
-
-	"crypto/rand"
-	"encoding/hex"
 )
 
 // version is set at build time via -ldflags "-X main.version=1.2.3"
 var version = "dev"
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		cmd.PrintHelp()
-		os.Exit(0)
+		return 0
 	}
 
 	command := args[0]
@@ -33,27 +37,29 @@ func main() {
 	switch command {
 	case "login":
 		if err := cmd.RunLogin(rest); err != nil {
-			fatalf("%v", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
 		}
-		return
+		return 0
 	case "logout":
 		if err := cmd.RunLogout(rest); err != nil {
-			fatalf("%v", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
 		}
-		return
+		return 0
 	case "version", "--version", "-v":
 		fmt.Printf("nd version %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
-		return
+		return 0
 	case "help", "--help", "-h":
 		cmd.PrintHelp()
-		return
+		return 0
 	}
 
-	// All other commands require a saved config
+	// All other commands require a saved config or env variables
 	cfg, err := config.Load()
 	if err != nil || cfg.ServerURL == "" || cfg.Token == "" {
-		fmt.Fprintln(os.Stderr, "Not logged in. Run: nd login <server_url>")
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, "Not logged in. Run: nd login <server_url> or set ND_SERVER_URL and ND_TOKEN")
+		return 1
 	}
 
 	// Generate a stable session ID for this process lifetime
@@ -68,9 +74,24 @@ func main() {
 	// Disconnect cleanly on exit
 	defer cl.Disconnect()
 
+	// Handle graceful termination on Ctrl+C (SIGINT)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	go func() {
+		<-sigChan
+		cl.Disconnect()
+		os.Exit(130)
+	}()
+
 	switch command {
+	case "whoami":
+		err = cmd.RunWhoami(cl, cfg)
 	case "apps", "list":
 		err = cmd.RunApps(cl, rest)
+	case "link":
+		err = cmd.RunLink(cl, rest)
+	case "unlink":
+		err = cmd.RunUnlink(cl, rest)
 	case "status":
 		err = cmd.RunStatus(cl, rest)
 	case "push":
@@ -88,17 +109,14 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		cmd.PrintHelp()
-		os.Exit(1)
+		return 1
 	}
 
 	if err != nil {
-		fatalf("%v", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
 	}
-}
-
-func fatalf(format string, v ...any) {
-	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", v...)
-	os.Exit(1)
+	return 0
 }
 
 // processSessionID generates a random session ID stable for this process run.

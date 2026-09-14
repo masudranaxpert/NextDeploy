@@ -8,21 +8,43 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"nd/internal/client"
+	"nd/internal/config"
 	"nd/internal/sync"
 )
 
 // RunPush syncs local workspace files to the server and triggers deploy.
-// Usage: nd push <app_id> [local_dir]
+// Usage: nd push [app_id] [local_dir]
 func RunPush(cl *client.Client, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd push <app_id> [local_dir]")
-	}
-	appID := args[0]
+	var appID string
 	localDir := "."
-	if len(args) >= 2 {
-		localDir = args[1]
+
+	if len(args) >= 1 && !strings.HasPrefix(args[0], "-") {
+		if fi, err := os.Stat(args[0]); err == nil && fi.IsDir() {
+			pc, lerr := config.LoadProject(".")
+			if lerr == nil && pc.AppID != "" {
+				appID = pc.AppID
+				localDir = args[0]
+			} else {
+				appID = args[0]
+			}
+		} else {
+			appID = args[0]
+			if len(args) >= 2 {
+				localDir = args[1]
+			}
+		}
+	} else {
+		pc, err := config.LoadProject(".")
+		if err != nil || pc.AppID == "" {
+			return fmt.Errorf("app_id required: nd push [app_id] [local_dir] (or run 'nd link <app_id>' first)")
+		}
+		appID = pc.AppID
+		if len(args) >= 1 {
+			localDir = args[0]
+		}
 	}
 
 	abs, err := filepath.Abs(localDir)

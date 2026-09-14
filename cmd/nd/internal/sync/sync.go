@@ -3,6 +3,7 @@ package sync
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -42,29 +43,97 @@ var DefaultIgnore = map[string]bool{
 	"vendor":       true,
 }
 
-// LocalHashes walks localDir and returns path→sha256 for all files.
+// loadIgnoreRules parses .gitignore and .ndignore in localDir.
+func loadIgnoreRules(localDir string) []string {
+	var rules []string
+	for _, fname := range []string{".gitignore", ".ndignore"} {
+		path := filepath.Join(localDir, fname)
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			rules = append(rules, filepath.ToSlash(line))
+		}
+		_ = f.Close()
+	}
+	return rules
+}
+
+// matchesIgnoreRule checks if a relative path matches simple gitignore patterns.
+func matchesIgnoreRule(rel string, isDir bool, rules []string) bool {
+	base := filepath.Base(rel)
+	for _, rule := range rules {
+		rule = strings.TrimPrefix(rule, "/")
+		if isDir && strings.HasSuffix(rule, "/") {
+			trimmed := strings.TrimSuffix(rule, "/")
+			if rel == trimmed || strings.HasPrefix(rel, trimmed+"/") {
+				return true
+			}
+		}
+		if rel == rule || strings.HasPrefix(rel, rule+"/") {
+			return true
+		}
+		if matched, _ := filepath.Match(rule, base); matched {
+			return true
+		}
+		if matched, _ := filepath.Match(rule, rel); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// hashesMatch safely compares two hashes which may be 16-character short SHA or full 64-char SHA256.
+func hashesMatch(h1, h2 string) bool {
+	h1 = strings.ToLower(strings.TrimSpace(h1))
+	h2 = strings.ToLower(strings.TrimSpace(h2))
+	if h1 == "" || h2 == "" {
+		return false
+	}
+	if len(h1) < len(h2) {
+		return strings.HasPrefix(h2, h1)
+	}
+	return strings.HasPrefix(h1, h2)
+}
+
+// LocalHashes walks localDir and returns path→sha256 for all non-ignored files.
 func LocalHashes(localDir string) (map[string]string, error) {
+	rules := loadIgnoreRules(localDir)
 	out := make(map[string]string)
 	err := filepath.WalkDir(localDir, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
 		}
 		name := d.Name()
-		if d.IsDir() {
-			if DefaultIgnore[name] || strings.HasPrefix(name, ".") {
+		rel, err := filepath.Rel(localDir, p)
+		if err != nil || rel == "." {
+			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		isDir := d.IsDir()
+
+		if isDir {
+			if DefaultIgnore[name] || strings.HasPrefix(name, ".") || matchesIgnoreRule(relSlash, true, rules) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		rel, err := filepath.Rel(localDir, p)
-		if err != nil {
+
+		if matchesIgnoreRule(relSlash, false, rules) {
 			return nil
 		}
+
 		h, err := fileHash(p)
 		if err != nil {
 			return nil
 		}
-		out[filepath.ToSlash(rel)] = h
+		out[relSlash] = h
 		return nil
 	})
 	return out, err
@@ -85,8 +154,8 @@ func Diff(serverManifestJSON []byte, local map[string]string) (toUpload []string
 	}
 
 	for path, lhash := range local {
-		if rhash, exists := remote[path]; !exists || rhash[:16] != lhash[:16] {
-			// ponytail: using 16-char prefix match (same as server short_hash default)
+		rhash, exists := remote[path]
+		if !exists || !hashesMatch(rhash, lhash) {
 			toUpload = append(toUpload, path)
 		}
 	}

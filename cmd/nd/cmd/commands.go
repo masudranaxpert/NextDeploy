@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"nd/internal/client"
@@ -122,12 +123,75 @@ func RunApps(cl *client.Client, _ []string) error {
 	return nil
 }
 
-// RunStatus prints detailed info for an app.
-func RunStatus(cl *client.Client, args []string) error {
+// resolveAppID extracts appID from args or falls back to locally linked project (.nd/project.json).
+func resolveAppID(args []string) (string, []string, error) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:], nil
+	}
+	pc, err := config.LoadProject(".")
+	if err == nil && pc.AppID != "" {
+		return pc.AppID, args, nil
+	}
+	return "", args, fmt.Errorf("app_id required (specify as argument or link with: nd link <app_id>)")
+}
+
+// RunLink links the current directory to an app ID (.nd/project.json).
+func RunLink(cl *client.Client, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nd status <app_id>")
+		fmt.Println("Usage: nd link <app_id>\nAvailable applications:")
+		return RunApps(cl, nil)
 	}
 	appID := args[0]
+	if err := config.SaveProject(".", appID); err != nil {
+		return fmt.Errorf("failed to link project: %w", err)
+	}
+	fmt.Printf("✓ Linked current directory to %s (.nd/project.json)\n", appID)
+	return nil
+}
+
+// RunUnlink removes the project link in the current directory.
+func RunUnlink(_ *client.Client, _ []string) error {
+	if err := config.ClearProject("."); err != nil {
+		return fmt.Errorf("failed to unlink: %w", err)
+	}
+	fmt.Println("✓ Unlinked project from current directory.")
+	return nil
+}
+
+// RunWhoami prints currently configured server, device info, and token validity.
+func RunWhoami(cl *client.Client, cfg config.Config) error {
+	hostname, _ := os.Hostname()
+	maskedToken := cfg.Token
+	if len(maskedToken) > 8 {
+		maskedToken = maskedToken[:4] + "..." + maskedToken[len(maskedToken)-4:]
+	}
+	fmt.Printf("Server URL:  %s\n", cfg.ServerURL)
+	fmt.Printf("Device:      %s (%s/%s)\n", hostname, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Token:       %s\n", maskedToken)
+
+	// Check if local project is linked
+	if pc, err := config.LoadProject("."); err == nil && pc.AppID != "" {
+		fmt.Printf("Linked App:  %s\n", pc.AppID)
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
+	})
+	if err != nil || status >= 400 {
+		fmt.Printf("Status:      Error connecting (%s)\n", client.JSONError(body))
+		return err
+	}
+	fmt.Println("Status:      Authenticated ✓")
+	return nil
+}
+
+// RunStatus prints detailed info for an app.
+func RunStatus(cl *client.Client, args []string) error {
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
+	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
@@ -151,10 +215,10 @@ func RunStatus(cl *client.Client, args []string) error {
 
 // RunDeploy triggers a redeploy for an app.
 func RunDeploy(cl *client.Client, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd deploy <app_id>")
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
 	}
-	appID := args[0]
 	fmt.Printf("Deploying %s...\n", appID)
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
@@ -177,10 +241,10 @@ func RunDeploy(cl *client.Client, args []string) error {
 
 // RunLogs streams recent logs for an app.
 func RunLogs(cl *client.Client, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd logs <app_id>")
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
 	}
-	appID := args[0]
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
@@ -211,13 +275,18 @@ func RunLogs(cl *client.Client, args []string) error {
 	return nil
 }
 
-// RunEnv handles: nd env list <app_id> | nd env set <app_id> KEY=VALUE ...
+// RunEnv handles: nd env list [app_id] | nd env set [app_id] KEY=VALUE ...
 func RunEnv(cl *client.Client, args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: nd env list <app_id> | nd env set <app_id> KEY=VALUE ...")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: nd env list [app_id] | nd env set [app_id] KEY=VALUE ...")
 	}
 	sub := args[0]
-	appID := args[1]
+	rest := args[1:]
+
+	appID, envArgs, err := resolveAppID(rest)
+	if err != nil {
+		return err
+	}
 
 	switch sub {
 	case "list":
@@ -237,13 +306,12 @@ func RunEnv(cl *client.Client, args []string) error {
 		fmt.Println(string(body))
 
 	case "set":
-		if len(args) < 3 {
-			return fmt.Errorf("usage: nd env set <app_id> KEY=VALUE [KEY2=VALUE2 ...]")
+		if len(envArgs) < 1 {
+			return fmt.Errorf("usage: nd env set [app_id] KEY=VALUE [KEY2=VALUE2 ...]")
 		}
 		// Merge all KEY=VALUE pairs into one env block
-		envPairs := args[2:]
-		lines := make([]string, 0, len(envPairs))
-		for _, kv := range envPairs {
+		lines := make([]string, 0, len(envArgs))
+		for _, kv := range envArgs {
 			if !strings.Contains(kv, "=") {
 				return fmt.Errorf("invalid env format %q, expected KEY=VALUE", kv)
 			}
@@ -277,39 +345,41 @@ func RunEnv(cl *client.Client, args []string) error {
 
 // RunStop stops an app.
 func RunStop(cl *client.Client, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd stop <app_id>")
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
 	}
-	_, _, err := cl.Do("POST", "/mcp", map[string]interface{}{
+	_, _, err = cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "stop",
-			"arguments": map[string]interface{}{"app_id": args[0]},
+			"arguments": map[string]interface{}{"app_id": appID},
 		},
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("✓ %s stopped.\n", args[0])
+	fmt.Printf("✓ %s stopped.\n", appID)
 	return nil
 }
 
 // RunRestart restarts an app.
 func RunRestart(cl *client.Client, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd restart <app_id>")
+	appID, _, err := resolveAppID(args)
+	if err != nil {
+		return err
 	}
-	_, _, err := cl.Do("POST", "/mcp", map[string]interface{}{
+	_, _, err = cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "restart",
-			"arguments": map[string]interface{}{"app_id": args[0]},
+			"arguments": map[string]interface{}{"app_id": appID},
 		},
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("✓ %s restarted.\n", args[0])
+	fmt.Printf("✓ %s restarted.\n", appID)
 	return nil
 }
 
@@ -320,20 +390,26 @@ func PrintHelp() {
 Usage:
   nd login <server_url>              Authenticate with an API token
   nd logout                          Remove saved credentials
+  nd whoami                          Show authenticated server and session status
 
   nd apps                            List all applications
-  nd status <app_id>                 Show app status and containers
-  nd push <app_id> [dir]             Sync local files and deploy
-  nd deploy <app_id>                 Redeploy without file sync
-  nd stop <app_id>                   Stop an app
-  nd restart <app_id>                Restart an app
-  nd logs <app_id>                   Show recent container logs
+  nd link <app_id>                   Link current directory to an app (.nd/project.json)
+  nd unlink                          Remove link from current directory
+  nd status [app_id]                 Show app status and containers
+  nd push [app_id] [dir]             Sync local files and deploy
+  nd deploy [app_id]                 Redeploy without file sync
+  nd stop [app_id]                   Stop an app
+  nd restart [app_id]                Restart an app
+  nd logs [app_id]                   Show recent container logs
 
-  nd env list <app_id>               Show environment variables
-  nd env set <app_id> KEY=VALUE ...  Set environment variables
+  nd env list [app_id]               Show environment variables
+  nd env set [app_id] KEY=VALUE ...  Set environment variables
 
   nd version                         Print version
   nd help                            Print this help
 
+Environment variables:
+  ND_SERVER_URL                      Panel URL fallback (e.g. in CI/CD)
+  ND_TOKEN                           API token fallback
 `)
 }
