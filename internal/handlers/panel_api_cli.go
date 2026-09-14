@@ -156,9 +156,12 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 		name = "CLI Device Token"
 	}
 
-	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on" || u.Role == db.RoleAdmin
-	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on" || u.Role == db.RoleAdmin
-	allowContainerExec := true
+	// CLI tokens follow Principle of Least Privilege: only standard app lifecycle,
+	// file sync, deployment, and log access are granted. High-risk permissions
+	// (Host VPS Server Exec, revealing masked secrets) must stay disabled by default.
+	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
+	allowServerExec := false
+	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
 
 	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, nil, allowEnvReveal, allowServerExec, allowContainerExec)
 	if err != nil {
