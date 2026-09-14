@@ -11,8 +11,9 @@ import (
 
 // Result holds the outcome of a command execution.
 type Result struct {
-	OK     bool
-	Output string
+	OK       bool
+	Output   string
+	ExitCode int
 }
 
 // Run executes a command in dir with optional extra env vars and captures stdout+stderr.
@@ -37,9 +38,13 @@ func Run(ctx context.Context, dir string, env []string, args ...string) Result {
 		if output == "" {
 			output = err.Error()
 		}
-		return Result{OK: false, Output: output}
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		return Result{OK: false, Output: output, ExitCode: exitCode}
 	}
-	return Result{OK: true, Output: output}
+	return Result{OK: true, Output: output, ExitCode: 0}
 }
 
 // StatusText formats a Result as [ok] or [error] with output.

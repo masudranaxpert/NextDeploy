@@ -46,16 +46,20 @@ func AllTools() []Tool {
 			Name: "workspace_manifest",
 			Description: "Inspect workspace files, sizes, timestamps, and SHA-256 hashes. " +
 				"Filters out node_modules, .git, and respects .gitignore. Use this FIRST to see project structure or detect changed files. " +
+				"Pass local_files: {path: hash} for instant server-side differential check (saves 98%+ tokens). " +
 				"Pass depth:1, hash:false for fast directory listing (equivalent to ls).",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id":      {Type: "string", Description: "The application ID"},
-					"path":        {Type: "string", Description: "Optional subdirectory inside workspace to scope the manifest"},
-					"depth":       {Type: "integer", Description: "Optional directory depth (e.g. 1 for immediate directory listing like ls, default 0 for full recursive scan)"},
-					"hash":        {Type: "boolean", Description: "Whether to compute sha256 hash for files (default true). Set false for fastest size+mtime scan."},
-					"exclude":     {Type: "array", Description: "Optional list of additional glob patterns to exclude (e.g. ['*.log', 'dist/*'])"},
-					"max_entries": {Type: "integer", Description: "Maximum entries to return (default 5000, max 20000). Sets truncated:true if exceeded."},
+					"app_id":        {Type: "string", Description: "The application ID"},
+					"path":          {Type: "string", Description: "Optional subdirectory inside workspace to scope the manifest"},
+					"depth":         {Type: "integer", Description: "Optional directory depth (e.g. 1 for immediate directory listing like ls, default 0 for full recursive scan)"},
+					"hash":          {Type: "boolean", Description: "Whether to compute sha256 hash for files (default true). Set false for fastest size+mtime scan."},
+					"full_hash":     {Type: "boolean", Description: "Whether to return full 64-character SHA-256 instead of 16-character short SHA (default false)."},
+					"include_locks": {Type: "boolean", Description: "Whether to include package lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, etc.). Default false."},
+					"local_files":   {Type: "object", Description: "Optional map of {path: hash}. When provided, returns differential sync list {to_upload, to_delete, in_sync_count} saving 98%+ tokens."},
+					"exclude":       {Type: "array", Description: "Optional list of additional glob patterns to exclude (e.g. ['*.log', 'dist/*'])"},
+					"max_entries":   {Type: "integer", Description: "Maximum entries to return (default 5000, max 20000). Sets truncated:true if exceeded."},
 				},
 				Required: []string{"app_id"},
 			},
@@ -71,6 +75,7 @@ func AllTools() []Tool {
 					"path":   {Type: "string", Description: "Relative file path inside workspace"},
 					"offset": {Type: "integer", Description: "Optional 1-based line number to start reading from (default 1)"},
 					"limit":  {Type: "integer", Description: "Optional maximum number of lines to read (default 0 reads to end of file)"},
+					"full":   {Type: "boolean", Description: "Optional. If true, reads full file content even if large (>256KB). Default false (truncates with notice to prevent context exhaustion)."},
 				},
 				Required: []string{"app_id", "path"},
 			},
@@ -126,6 +131,7 @@ func AllTools() []Tool {
 					"query":       {Type: "string", Description: "Optional text to search for inside files (case-insensitive grep). If omitted, only matching filenames are returned."},
 					"pattern":     {Type: "string", Description: "Optional filename or glob pattern to filter files (e.g. *.go, *.json, Dockerfile*). Defaults to *."},
 					"path":        {Type: "string", Description: "Optional subdirectory inside workspace to scope the search"},
+					"names_only":  {Type: "boolean", Description: "If true, returns only matching file paths without line content snippets (equivalent to grep -l), saving 80%+ tokens."},
 					"max_results": {Type: "integer", Description: "Maximum number of results to return (default 50, max 200)"},
 				},
 				Required: []string{"app_id"},
@@ -198,11 +204,13 @@ func AllTools() []Tool {
 		{
 			Name: "compose_get",
 			Description: "Get the effective docker-compose.yml configuration for an application. " +
-				"Use when inspecting services, ports, or volumes before deploying.",
+				"Pass summary:true to get only services and port mappings (saving 95%+ tokens). Pass service to inspect a single service.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
+					"app_id":  {Type: "string", Description: "The application ID"},
+					"summary": {Type: "boolean", Description: "If true, returns concise service and port summary object instead of full YAML file."},
+					"service": {Type: "string", Description: "Optional specific service name to return only that service's configuration block."},
 				},
 				Required: []string{"app_id"},
 			},
@@ -218,6 +226,7 @@ func AllTools() []Tool {
 					"app_id":       {Type: "string", Description: "The application ID"},
 					"rebuild":      {Type: "boolean", Description: "Optional. If true, forces image pull and full container rebuild (redeploy mode). Default false."},
 					"wait_seconds": {Type: "integer", Description: "Optional. If > 0, waits synchronously up to wait_seconds (max 300) for completion and returns final status and output. Default 0 (returns job_id immediately)."},
+					"summary_only": {Type: "boolean", Description: "Optional. When wait_seconds > 0, return concise summary without raw build logs on success (default true). Set false for full output tail."},
 					"git_pull":     {Type: "boolean", Description: "Optional. If true, force-pulls from Git remote before deploying (discards local workspace edits). Default: auto-detect via dirty-check."},
 				},
 				Required: []string{"app_id"},
@@ -255,21 +264,24 @@ func AllTools() []Tool {
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"job_id": {Type: "string", Description: "The job ID returned from deploy, restart, or stop"},
-					"app_id": {Type: "string", Description: "Optional fallback app ID to check current or latest deploy run"},
+					"job_id":       {Type: "string", Description: "The job ID returned from deploy, restart, or stop"},
+					"app_id":       {Type: "string", Description: "Optional fallback app ID to check current or latest deploy run"},
+					"summary_only": {Type: "boolean", Description: "Optional. Return concise summary and status without bloating context with full build logs (default true). If deploy failed, returns error tail."},
 				},
 			},
 		},
 		{
 			Name: "container_logs",
 			Description: "Fetch recent runtime stdout/stderr logs from an application container or compose service. " +
-				"Use this to diagnose application errors, crashes, or runtime behavior. For build/deploy output, use deploy_log_tail instead.",
+				"Filters out repetitive healthcheck probes by default. Use level:'error' to isolate errors.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id":  {Type: "string", Description: "The application ID"},
-					"service": {Type: "string", Description: "Optional service or container name (defaults to primary)"},
-					"tail":    {Type: "integer", Description: "Number of lines to tail (default 100)"},
+					"app_id":        {Type: "string", Description: "The application ID"},
+					"service":       {Type: "string", Description: "Optional service or container name (defaults to primary)"},
+					"tail":          {Type: "integer", Description: "Number of lines to tail (default 30)"},
+					"filter_health": {Type: "boolean", Description: "If true (default), automatically filters out /healthz and polling access logs."},
+					"level":         {Type: "string", Description: "Optional log level filter ('error' or 'warn') to return only matching lines."},
 				},
 				Required: []string{"app_id"},
 			},

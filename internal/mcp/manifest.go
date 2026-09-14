@@ -109,6 +109,26 @@ var defaultExcludedDirs = map[string]bool{
 	".nextdeploy.generated.compose.yml": true,
 }
 
+// defaultLockFiles are dependency lock files excluded unless include_locks is set.
+var defaultLockFiles = map[string]bool{
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"bun.lockb":         true,
+	"Cargo.lock":        true,
+	"poetry.lock":       true,
+	"Pipfile.lock":      true,
+	"composer.lock":     true,
+	"uv.lock":           true,
+}
+
+// defaultExcludedFilePatterns are common noise/build patterns skipped to save tokens.
+var defaultExcludedFilePatterns = []string{
+	"*.map",
+	".DS_Store",
+	"Thumbs.db",
+}
+
 // loadGitignoreRules parses simple wildcard and prefix ignore rules from .gitignore.
 func loadGitignoreRules(wsRoot string) []string {
 	giPath := filepath.Join(wsRoot, ".gitignore")
@@ -131,10 +151,21 @@ func loadGitignoreRules(wsRoot string) []string {
 }
 
 // matchesIgnore reports whether a slash-separated relative path should be excluded.
-func matchesIgnore(relPath string, isDir bool, rules []string, customExcludes []string) bool {
+func matchesIgnore(relPath string, isDir bool, rules []string, customExcludes []string, includeLocks bool) bool {
 	base := filepath.Base(relPath)
 	if defaultExcludedDirs[base] || defaultExcludedDirs[relPath] {
 		return true
+	}
+
+	if !isDir {
+		if !includeLocks && defaultLockFiles[base] {
+			return true
+		}
+		for _, pattern := range defaultExcludedFilePatterns {
+			if matched, _ := filepath.Match(pattern, base); matched {
+				return true
+			}
+		}
 	}
 
 	for _, rule := range rules {
@@ -177,7 +208,7 @@ func matchesIgnore(relPath string, isDir bool, rules []string, customExcludes []
 
 // BuildWorkspaceManifest traverses the workspace and builds a filtered file manifest.
 // If depth > 0, traversal stops at that depth and directories at target depth are included as IsDir entries (like ls).
-func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHash bool, customExcludes []string, maxEntries int) (ManifestResult, error) {
+func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHash bool, includeLocks bool, fullHash bool, customExcludes []string, maxEntries int) (ManifestResult, error) {
 	if maxEntries <= 0 {
 		maxEntries = 5000
 	} else if maxEntries > 20000 {
@@ -218,7 +249,7 @@ func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHa
 		currentDepth := strings.Count(relScan, "/") + 1
 
 		isDir := d.IsDir()
-		if matchesIgnore(rel, isDir, gitignoreRules, customExcludes) {
+		if matchesIgnore(rel, isDir, gitignoreRules, customExcludes, includeLocks) {
 			if isDir {
 				return fs.SkipDir
 			}
@@ -268,7 +299,11 @@ func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHa
 		if computeHash {
 			h, herr := getCachedOrComputeHash(appID, rel, path, info.Size(), info.ModTime().UnixNano())
 			if herr == nil {
-				entry.SHA256 = h
+				if fullHash || len(h) <= 16 {
+					entry.SHA256 = h
+				} else {
+					entry.SHA256 = h[:16]
+				}
 			}
 		}
 
@@ -287,3 +322,89 @@ func BuildWorkspaceManifest(wsRoot, appID, relScope string, depth int, computeHa
 	res.TotalEntries = len(res.Files)
 	return res, nil
 }
+
+// ManifestDiffResult represents the server-side diff against client local files.
+type ManifestDiffResult struct {
+	AppID       string   `json:"app_id"`
+	Diff        bool     `json:"diff"`
+	InSyncCount int      `json:"in_sync_count"`
+	ToUpload    []string `json:"to_upload"`
+	ToDelete    []string `json:"to_delete"`
+	TotalRemote int      `json:"total_remote"`
+	TotalLocal  int      `json:"total_local"`
+}
+
+// hashesMatch safely compares two hashes which may be 16-character short SHA or full 64-char SHA256.
+func hashesMatch(h1, h2 string) bool {
+	h1 = strings.ToLower(strings.TrimSpace(h1))
+	h2 = strings.ToLower(strings.TrimSpace(h2))
+	if h1 == "" || h2 == "" {
+		return false
+	}
+	if h1 == h2 {
+		return true
+	}
+	if len(h1) < len(h2) {
+		return strings.HasPrefix(h2, h1)
+	}
+	return strings.HasPrefix(h1, h2)
+}
+
+// ComputeManifestDiff calculates which files need uploading or deleting compared to local client files.
+func ComputeManifestDiff(res ManifestResult, localFiles map[string]string) ManifestDiffResult {
+	remoteMap := make(map[string]ManifestEntry, len(res.Files))
+	for _, f := range res.Files {
+		if !f.IsDir {
+			remoteMap[filepath.ToSlash(f.Path)] = f
+		}
+	}
+
+	normLocal := make(map[string]string, len(localFiles))
+	for p, h := range localFiles {
+		clean := filepath.ToSlash(strings.Trim(p, "/"))
+		if clean == "" {
+			continue
+		}
+		// If manifest was scoped to a subpath, only compare within that scope.
+		if res.Root != "" && !strings.HasPrefix(clean, res.Root+"/") && clean != res.Root {
+			continue
+		}
+		normLocal[clean] = strings.TrimSpace(h)
+	}
+
+	inSyncCount := 0
+	var toUpload []string
+	for p, localHash := range normLocal {
+		remote, exists := remoteMap[p]
+		if !exists {
+			toUpload = append(toUpload, p)
+			continue
+		}
+		if remote.SHA256 != "" && localHash != "" && hashesMatch(remote.SHA256, localHash) {
+			inSyncCount++
+		} else {
+			toUpload = append(toUpload, p)
+		}
+	}
+
+	var toDelete []string
+	for p := range remoteMap {
+		if _, exists := normLocal[p]; !exists {
+			toDelete = append(toDelete, p)
+		}
+	}
+
+	sort.Strings(toUpload)
+	sort.Strings(toDelete)
+
+	return ManifestDiffResult{
+		AppID:       res.AppID,
+		Diff:        true,
+		InSyncCount: inSyncCount,
+		ToUpload:    toUpload,
+		ToDelete:    toDelete,
+		TotalRemote: len(remoteMap),
+		TotalLocal:  len(normLocal),
+	}
+}
+

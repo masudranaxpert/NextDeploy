@@ -27,6 +27,8 @@ import (
 	"panel/internal/handlers/utils"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Handler handles execution of MCP tools.
@@ -328,7 +330,19 @@ func (h *Handler) handleWorkspaceManifest(ctx context.Context, u db.User, args m
 	if v, ok := args["hash"].(bool); ok {
 		computeHash = v
 	}
+	includeLocks := getBoolArg(args, "include_locks")
+	fullHash := getBoolArg(args, "full_hash")
 	maxEntries := getIntArg(args, "max_entries", 5000)
+
+	var localFiles map[string]string
+	if rawFiles, ok := args["local_files"].(map[string]interface{}); ok {
+		localFiles = make(map[string]string, len(rawFiles))
+		for k, v := range rawFiles {
+			if s, ok := v.(string); ok {
+				localFiles[k] = s
+			}
+		}
+	}
 
 	var customExcludes []string
 	if rawEx, ok := args["exclude"].([]interface{}); ok {
@@ -344,9 +358,12 @@ func (h *Handler) handleWorkspaceManifest(ctx context.Context, u db.User, args m
 	}
 
 	wsRoot := h.p.Store.Path(appID)
-	res, err := BuildWorkspaceManifest(wsRoot, appID, path, depth, computeHash, customExcludes, maxEntries)
+	res, err := BuildWorkspaceManifest(wsRoot, appID, path, depth, computeHash, includeLocks, fullHash, customExcludes, maxEntries)
 	if err != nil {
 		return errorResult(fmt.Errorf("manifest generation failed: %w", err))
+	}
+	if localFiles != nil {
+		return jsonResult(ComputeManifestDiff(res, localFiles))
 	}
 	return jsonResult(res)
 }
@@ -466,6 +483,19 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 		return errorResult(fmt.Errorf("file size (%d bytes) exceeds 10MB limit", st.Size()))
 	}
 
+	fullRead := getBoolArg(args, "full")
+	if !fullRead && offset <= 1 && limit <= 0 && st.Size() > 128*1024 {
+		f, err := os.Open(full)
+		if err != nil {
+			return errorResult(err)
+		}
+		defer f.Close()
+		buf := make([]byte, 128*1024)
+		n, _ := io.ReadFull(f, buf)
+		notice := fmt.Sprintf("[File truncated: showing first 128KB of %d bytes. Pass 'offset' and 'limit' to paginate, or 'full: true' to read entire file.]\n\n", st.Size())
+		return textResult(notice + string(buf[:n]))
+	}
+
 	if offset <= 1 && limit <= 0 {
 		b, err := os.ReadFile(full)
 		if err != nil {
@@ -492,6 +522,10 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 		}
 		lines = append(lines, scanner.Text())
 		if limit > 0 && len(lines) >= limit {
+			break
+		}
+		if !fullRead && limit <= 0 && len(lines) >= 1000 {
+			lines = append(lines, fmt.Sprintf("\n[File truncated: showing first 1000 lines. Pass 'offset' and 'limit' to paginate, or 'full: true' for all lines.]"))
 			break
 		}
 	}
@@ -903,6 +937,53 @@ func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[stri
 			return errorResult(errors.New("compose file not found"))
 		}
 	}
+
+	summary := getBoolArg(args, "summary")
+	targetService := strings.TrimSpace(getStringArg(args, "service"))
+
+	if summary || targetService != "" {
+		var doc map[string]interface{}
+		if yerr := yaml.Unmarshal(b, &doc); yerr == nil {
+			services, _ := doc["services"].(map[string]interface{})
+			if targetService != "" {
+				if svc, ok := services[targetService]; ok {
+					outYaml, merr := yaml.Marshal(map[string]interface{}{
+						targetService: svc,
+					})
+					if merr == nil {
+						return textResult(string(outYaml))
+					}
+					return jsonResult(map[string]interface{}{targetService: svc})
+				}
+				return errorResult(fmt.Errorf("service %q not found in docker-compose.yml", targetService))
+			}
+			if summary {
+				summaryMap := make(map[string]interface{}, len(services))
+				for name, raw := range services {
+					if svcMap, ok := raw.(map[string]interface{}); ok {
+						info := map[string]interface{}{}
+						if img, ok := svcMap["image"]; ok {
+							info["image"] = img
+						}
+						if ports, ok := svcMap["ports"]; ok {
+							info["ports"] = ports
+						}
+						if len(info) == 0 {
+							info["configured"] = true
+						}
+						summaryMap[name] = info
+					} else {
+						summaryMap[name] = "configured"
+					}
+				}
+				return jsonResult(map[string]interface{}{
+					"app_id":   appID,
+					"services": summaryMap,
+				})
+			}
+		}
+	}
+
 	return textResult(string(b))
 }
 
@@ -988,13 +1069,17 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	if waitSec <= 0 {
 		waitSec = getIntArg(args, "timeout_seconds", 0)
 	}
+	summaryOnly := true
+	if v, ok := args["summary_only"].(bool); ok {
+		summaryOnly = v
+	}
 	if waitSec > 0 {
 		if waitSec > 300 {
 			waitSec = 300
 		}
 		mu.Unlock()
 		unlocked = true
-		return h.waitForDeployJob(ctx, jobID, appID, action, waitSec)
+		return h.waitForDeployJob(ctx, jobID, appID, action, waitSec, summaryOnly)
 	}
 
 	out := map[string]interface{}{
@@ -1034,12 +1119,43 @@ func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]
 func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	jobID := strings.TrimSpace(getStringArg(args, "job_id"))
 	appID := strings.TrimSpace(getStringArg(args, "app_id"))
+	summaryOnly := true
+	if v, ok := args["summary_only"].(bool); ok {
+		summaryOnly = v
+	}
+
+	buildJobResult := func(job handlers.DeployJobRecord) (CallToolResult, error) {
+		if !summaryOnly {
+			return jsonResult(job)
+		}
+		res := map[string]interface{}{
+			"job_id":     job.JobID,
+			"app_id":     job.AppID,
+			"action":     job.Action,
+			"running":    job.Running,
+			"ok":         job.OK,
+			"created_at": job.CreatedAt,
+		}
+		if !job.FinishedAt.IsZero() {
+			res["finished_at"] = job.FinishedAt
+			res["duration_s"] = job.FinishedAt.Sub(job.CreatedAt).Round(time.Second).Seconds()
+		}
+		if job.Running {
+			res["output_tail"] = truncateLogLines(job.Output, 5)
+		} else if !job.OK {
+			res["output_tail"] = truncateLogLines(job.Output, 30)
+		} else {
+			res["message"] = "Deployment completed successfully"
+		}
+		return jsonResult(res)
+	}
+
 	if jobID != "" {
 		if job, ok := h.p.GetDeployJob(jobID); ok {
 			if _, err := h.hasAppAccess(ctx, u, job.AppID, db.CollabRoleViewer); err != nil {
 				return errorResult(err)
 			}
-			return jsonResult(job)
+			return buildJobResult(job)
 		}
 	}
 	if appID != "" {
@@ -1047,15 +1163,28 @@ func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[st
 			return errorResult(err)
 		}
 		if job, ok := h.p.LatestDeployJobForApp(appID); ok {
-			return jsonResult(job)
+			return buildJobResult(job)
 		}
 		out, action, running := h.p.DeploySnapshot(appID)
-		return jsonResult(map[string]interface{}{
+		if !summaryOnly {
+			return jsonResult(map[string]interface{}{
+				"app_id":  appID,
+				"action":  action,
+				"running": running,
+				"output":  out,
+			})
+		}
+		res := map[string]interface{}{
 			"app_id":  appID,
 			"action":  action,
 			"running": running,
-			"output":  out,
-		})
+		}
+		if running {
+			res["output_tail"] = truncateLogLines(out, 5)
+		} else {
+			res["output_tail"] = truncateLogLines(out, 20)
+		}
+		return jsonResult(res)
 	}
 	return errorResult(errors.New("either job_id or app_id must be provided"))
 }
@@ -1063,7 +1192,13 @@ func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[st
 func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	service := strings.TrimSpace(getStringArg(args, "service"))
-	tail := getIntArg(args, "tail", 100)
+	tail := getIntArg(args, "tail", 30)
+	filterHealth := true
+	if v, ok := args["filter_health"].(bool); ok {
+		filterHealth = v
+	}
+	level := strings.ToLower(strings.TrimSpace(getStringArg(args, "level")))
+
 	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
 	if err != nil {
 		return errorResult(err)
@@ -1086,6 +1221,43 @@ func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[s
 	if ferr != nil && strings.TrimSpace(raw) == "" {
 		return errorResult(fmt.Errorf("failed fetching container logs: %w", ferr))
 	}
+
+	if filterHealth || level != "" {
+		lines := strings.Split(raw, "\n")
+		var filtered []string
+		for _, l := range lines {
+			trimmed := strings.TrimSpace(l)
+			if trimmed == "" {
+				continue
+			}
+			if filterHealth {
+				lower := strings.ToLower(trimmed)
+				if strings.Contains(lower, "/healthz") || strings.Contains(lower, "/health") ||
+					strings.Contains(lower, "get /ping") || strings.Contains(lower, "head / http") ||
+					strings.Contains(lower, "kube-probe") || strings.Contains(lower, "docker-healthcheck") {
+					continue
+				}
+			}
+			if level == "error" {
+				lower := strings.ToLower(trimmed)
+				if !strings.Contains(lower, "error") && !strings.Contains(lower, "fatal") &&
+					!strings.Contains(lower, "exception") && !strings.Contains(lower, "panic") &&
+					!strings.Contains(lower, "failed") {
+					continue
+				}
+			} else if level == "warn" {
+				lower := strings.ToLower(trimmed)
+				if !strings.Contains(lower, "warn") && !strings.Contains(lower, "error") &&
+					!strings.Contains(lower, "fatal") && !strings.Contains(lower, "exception") &&
+					!strings.Contains(lower, "panic") && !strings.Contains(lower, "failed") {
+					continue
+				}
+			}
+			filtered = append(filtered, l)
+		}
+		return textResult(strings.Join(filtered, "\n"))
+	}
+
 	return textResult(raw)
 }
 
@@ -1353,6 +1525,7 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 		"service":   matchedService,
 		"command":   command,
 		"ok":        res.OK,
+		"exit_code": res.ExitCode,
 		"output":    res.Output,
 	})
 }
@@ -1404,9 +1577,10 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 	}()
 
 	return jsonResult(map[string]interface{}{
-		"command": command,
-		"ok":      res.OK,
-		"output":  res.Output,
+		"command":   command,
+		"ok":        res.OK,
+		"exit_code": res.ExitCode,
+		"output":    res.Output,
 	})
 }
 
@@ -1484,7 +1658,7 @@ func (h *Handler) handleDeployAndWait(ctx context.Context, u db.User, args map[s
 	return h.handleDeploy(ctx, u, args, "Deploy", dockerx.ComposeUp)
 }
 
-func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action string, timeoutSec int) (CallToolResult, error) {
+func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action string, timeoutSec int, summaryOnly bool) (CallToolResult, error) {
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	pollInterval := 1500 * time.Millisecond
 
@@ -1501,7 +1675,22 @@ func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action str
 		}
 
 		if !job.Running {
-			output := truncateLogLines(job.Output, 60)
+			if summaryOnly && job.OK {
+				return jsonResult(map[string]interface{}{
+					"job_id":     job.JobID,
+					"app_id":     job.AppID,
+					"action":     job.Action,
+					"ok":         true,
+					"running":    false,
+					"duration_s": time.Since(job.CreatedAt).Round(time.Second).Seconds(),
+					"message":    "Deployment succeeded",
+				})
+			}
+			tailLines := 60
+			if summaryOnly && !job.OK {
+				tailLines = 40
+			}
+			output := truncateLogLines(job.Output, tailLines)
 			return jsonResult(map[string]interface{}{
 				"job_id":      job.JobID,
 				"app_id":      job.AppID,
@@ -1887,10 +2076,18 @@ func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[stri
 		scanner := bufio.NewScanner(file)
 		buf := make([]byte, 64*1024)
 		scanner.Buffer(buf, 256*1024)
+		namesOnly := getBoolArg(args, "names_only")
 		lineNum := 1
 		for scanner.Scan() {
 			lineText := scanner.Text()
 			if strings.Contains(strings.ToLower(lineText), lowerQuery) {
+				if namesOnly {
+					fileMatches = append(fileMatches, rel)
+					if len(fileMatches) >= maxResults {
+						return filepath.SkipAll
+					}
+					break
+				}
 				trimmed := strings.TrimSpace(lineText)
 				if len(trimmed) > 300 {
 					trimmed = trimmed[:297] + "..."
@@ -1917,7 +2114,8 @@ func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[stri
 		"app_id":  appID,
 		"pattern": pattern,
 	}
-	if query != "" {
+	namesOnly := getBoolArg(args, "names_only")
+	if query != "" && !namesOnly {
 		resMap["query"] = query
 		resMap["matches"] = contentMatches
 		resMap["total_matches"] = len(contentMatches)
@@ -1925,6 +2123,10 @@ func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[stri
 	} else {
 		resMap["files"] = fileMatches
 		resMap["total_files"] = len(fileMatches)
+		if query != "" {
+			resMap["query"] = query
+			resMap["files_searched"] = filesSearched
+		}
 	}
 
 	return jsonResult(resMap)
@@ -1937,7 +2139,7 @@ func textResult(s string) (CallToolResult, error) {
 }
 
 func jsonResult(v interface{}) (CallToolResult, error) {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := json.Marshal(v)
 	if err != nil {
 		return errorResult(err)
 	}

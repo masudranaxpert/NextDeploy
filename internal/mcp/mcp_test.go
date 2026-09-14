@@ -1611,4 +1611,343 @@ func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
 	}
 }
 
+// TestMCP_TokenAndContextOptimizations verifies the token reduction mechanisms:
+// 1. Minified JSON serialization.
+// 2. Short 16-hex SHA256 hashes by default, full SHA with full_hash:true.
+// 3. Exclusion of lock files and *.map by default, inclusion with include_locks:true.
+// 4. Differential sync check via workspace_manifest(local_files: {...}).
+// 5. Deploy summary_only mode suppressing successful build logs.
+// 6. file_read safety guard truncating >256KB files without full:true.
+func TestMCP_TokenAndContextOptimizations(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	srv := NewServer(p)
+	appID := "app_tokenopt"
+
+	if err := store.CreateApp(ctx, appID, "Token Opt App", user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, appID)
+	_ = os.MkdirAll(filepath.Join(appDir, "src"), 0750)
+	_ = os.WriteFile(filepath.Join(appDir, "src", "index.js"), []byte("console.log('optimized');"), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "package-lock.json"), []byte(`{"name":"lock","version":"1.0"}`), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "app.min.js"), []byte("/*minified*/"), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "app.js.map"), []byte(`{"version":3}`), 0640)
+	_ = os.WriteFile(filepath.Join(appDir, "old_remote.txt"), []byte("to delete"), 0640)
+
+	// 1. Minified JSON and default exclusions / short SHA
+	maniParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	resp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      601,
+		Method:  "tools/call",
+		Params:  maniParams,
+	})
+	res := resp.Result.(CallToolResult)
+	if res.IsError {
+		t.Fatalf("workspace_manifest failed: %+v", res)
+	}
+	respText := res.Content[0].Text
+
+	// Verify Minified JSON: should not contain indented newline-spaces like "\n  \""
+	if strings.Contains(respText, "\n  \"") {
+		t.Errorf("expected minified JSON without indentation, got formatted: %s", respText)
+	}
+
+	var maniRes ManifestResult
+	if err := json.Unmarshal([]byte(respText), &maniRes); err != nil {
+		t.Fatalf("failed unmarshaling manifest: %v", err)
+	}
+
+	var indexEntry *ManifestEntry
+	foundMinJs := false
+	for _, f := range maniRes.Files {
+		if f.Path == "package-lock.json" {
+			t.Errorf("expected package-lock.json to be excluded by default")
+		}
+		if f.Path == "app.js.map" {
+			t.Errorf("expected build/map files to be excluded by default, found: %s", f.Path)
+		}
+		if f.Path == "app.min.js" {
+			foundMinJs = true
+		}
+		if f.Path == "src/index.js" {
+			copyF := f
+			indexEntry = &copyF
+		}
+	}
+	if !foundMinJs {
+		t.Errorf("expected production asset app.min.js to NOT be excluded")
+	}
+	if indexEntry == nil {
+		t.Fatalf("expected src/index.js in manifest files")
+	}
+	if len(indexEntry.SHA256) != 16 {
+		t.Errorf("expected short 16-hex SHA256 by default, got len=%d (%s)", len(indexEntry.SHA256), indexEntry.SHA256)
+	}
+
+	// 2. full_hash: true
+	maniFullHashParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id":    appID,
+			"full_hash": true,
+		},
+	})
+	respFH := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      602,
+		Method:  "tools/call",
+		Params:  maniFullHashParams,
+	})
+	var maniFHRes ManifestResult
+	_ = json.Unmarshal([]byte(respFH.Result.(CallToolResult).Content[0].Text), &maniFHRes)
+	for _, f := range maniFHRes.Files {
+		if f.Path == "src/index.js" && len(f.SHA256) != 64 {
+			t.Errorf("expected full 64-hex SHA256 with full_hash:true, got len=%d (%s)", len(f.SHA256), f.SHA256)
+		}
+	}
+
+	// 3. include_locks: true
+	maniLocksParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id":        appID,
+			"include_locks": true,
+		},
+	})
+	respLocks := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      603,
+		Method:  "tools/call",
+		Params:  maniLocksParams,
+	})
+	var maniLocksRes ManifestResult
+	_ = json.Unmarshal([]byte(respLocks.Result.(CallToolResult).Content[0].Text), &maniLocksRes)
+	hasLock := false
+	for _, f := range maniLocksRes.Files {
+		if f.Path == "package-lock.json" {
+			hasLock = true
+			break
+		}
+	}
+	if !hasLock {
+		t.Errorf("expected package-lock.json to be included when include_locks:true")
+	}
+
+	// 4. Differential sync check via local_files
+	diffParams, _ := json.Marshal(CallToolParams{
+		Name: "workspace_manifest",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"local_files": map[string]string{
+				"src/index.js":   indexEntry.SHA256,
+				"src/newfile.js": "aabbccddeeff0011",
+			},
+		},
+	})
+	diffResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      604,
+		Method:  "tools/call",
+		Params:  diffParams,
+	})
+	var diffRes ManifestDiffResult
+	if err := json.Unmarshal([]byte(diffResp.Result.(CallToolResult).Content[0].Text), &diffRes); err != nil {
+		t.Fatalf("failed unmarshaling diff response: %v", err)
+	}
+	if !diffRes.Diff {
+		t.Errorf("expected diff: true in differential sync response")
+	}
+	if diffRes.InSyncCount != 1 {
+		t.Errorf("expected 1 in_sync file (src/index.js), got %d", diffRes.InSyncCount)
+	}
+	if len(diffRes.ToUpload) != 1 || diffRes.ToUpload[0] != "src/newfile.js" {
+		t.Errorf("expected to_upload: ['src/newfile.js'], got %+v", diffRes.ToUpload)
+	}
+	hasOldRemote := false
+	for _, d := range diffRes.ToDelete {
+		if d == "old_remote.txt" {
+			hasOldRemote = true
+		}
+	}
+	if !hasOldRemote {
+		t.Errorf("expected old_remote.txt in to_delete list, got %+v", diffRes.ToDelete)
+	}
+
+	// 5. file_read safety guard (>128KB)
+	bigFilePath := filepath.Join(appDir, "large_file.txt")
+	bigData := strings.Repeat("0123456789abcdef\n", 10000) // ~170KB
+	_ = os.WriteFile(bigFilePath, []byte(bigData), 0640)
+
+	frTruncParams, _ := json.Marshal(CallToolParams{
+		Name: "file_read",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"path":   "large_file.txt",
+		},
+	})
+	frTruncResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      605,
+		Method:  "tools/call",
+		Params:  frTruncParams,
+	})
+	truncText := frTruncResp.Result.(CallToolResult).Content[0].Text
+	if !strings.HasPrefix(truncText, "[File truncated: showing first 128KB") {
+		t.Errorf("expected truncation notice for large file read, got: %s", truncText[:100])
+	}
+
+	frFullParams, _ := json.Marshal(CallToolParams{
+		Name: "file_read",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"path":   "large_file.txt",
+			"full":   true,
+		},
+	})
+	frFullResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      606,
+		Method:  "tools/call",
+		Params:  frFullParams,
+	})
+	fullText := frFullResp.Result.(CallToolResult).Content[0].Text
+	if strings.HasPrefix(fullText, "[File truncated:") {
+		t.Errorf("did not expect truncation when full:true was passed")
+	}
+	if len(fullText) != len(bigData) {
+		t.Errorf("expected full read length %d, got %d", len(bigData), len(fullText))
+	}
+
+	// 6. deploy_status summary_only mode
+	jobID, err := p.StartComposeJob(appID, "tokenopt_proj", []string{}, "Deploy", func(ctx context.Context, dir string, paths []string, project string, w io.Writer, envs []string) dockerx.Result {
+		_, _ = w.Write([]byte("Step 1/10: downloading base image...\nStep 2/10: npm install complete\nStep 10/10: done\n"))
+		return dockerx.Result{OK: true}
+	}, "")
+	if err != nil {
+		t.Fatalf("StartComposeJob failed: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// summary_only: true (default)
+	statusSummaryParams, _ := json.Marshal(CallToolParams{
+		Name: "deploy_status",
+		Arguments: map[string]interface{}{
+			"job_id": jobID,
+		},
+	})
+	statSummResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      607,
+		Method:  "tools/call",
+		Params:  statusSummaryParams,
+	})
+	var summOut map[string]interface{}
+	_ = json.Unmarshal([]byte(statSummResp.Result.(CallToolResult).Content[0].Text), &summOut)
+	if summOut["output"] != nil {
+		t.Errorf("expected raw output to be suppressed in summary_only mode on success, got: %+v", summOut["output"])
+	}
+	if summOut["message"] != "Deployment completed successfully" {
+		t.Errorf("expected success message in summary output, got: %+v", summOut["message"])
+	}
+
+	// summary_only: false (full raw output)
+	statusFullParams, _ := json.Marshal(CallToolParams{
+		Name: "deploy_status",
+		Arguments: map[string]interface{}{
+			"job_id":       jobID,
+			"summary_only": false,
+		},
+	})
+	statFullResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      608,
+		Method:  "tools/call",
+		Params:  statusFullParams,
+	})
+	var fullOut map[string]interface{}
+	_ = json.Unmarshal([]byte(statFullResp.Result.(CallToolResult).Content[0].Text), &fullOut)
+	if fullOut["output"] == nil || !strings.Contains(fullOut["output"].(string), "Step 1/10") {
+		t.Errorf("expected full raw output when summary_only:false, got: %+v", fullOut)
+	}
+
+	// 7. compose_get summary:true and service:"web"
+	composeContent := "services:\n  web:\n    image: nginx:alpine\n    ports:\n      - \"8080:80\"\n  db:\n    image: postgres:15\n"
+	_ = os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte(composeContent), 0640)
+
+	compSummParams, _ := json.Marshal(CallToolParams{
+		Name: "compose_get",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"summary": true,
+		},
+	})
+	compSummResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      609,
+		Method:  "tools/call",
+		Params:  compSummParams,
+	})
+	var compSummOut map[string]interface{}
+	_ = json.Unmarshal([]byte(compSummResp.Result.(CallToolResult).Content[0].Text), &compSummOut)
+	svcs, ok := compSummOut["services"].(map[string]interface{})
+	if !ok || svcs["web"] == nil || svcs["db"] == nil {
+		t.Errorf("expected services summary in compose_get, got: %+v", compSummOut)
+	}
+
+	compSvcParams, _ := json.Marshal(CallToolParams{
+		Name: "compose_get",
+		Arguments: map[string]interface{}{
+			"app_id":  appID,
+			"service": "web",
+		},
+	})
+	compSvcResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      610,
+		Method:  "tools/call",
+		Params:  compSvcParams,
+	})
+	svcText := compSvcResp.Result.(CallToolResult).Content[0].Text
+	if !strings.Contains(svcText, "nginx:alpine") || strings.Contains(svcText, "postgres:15") {
+		t.Errorf("expected only web service in compose_get, got: %s", svcText)
+	}
+
+	// 8. file_search names_only:true
+	searchParams, _ := json.Marshal(CallToolParams{
+		Name: "file_search",
+		Arguments: map[string]interface{}{
+			"app_id":     appID,
+			"query":      "optimized",
+			"names_only": true,
+		},
+	})
+	searchResp := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      611,
+		Method:  "tools/call",
+		Params:  searchParams,
+	})
+	var searchOut map[string]interface{}
+	_ = json.Unmarshal([]byte(searchResp.Result.(CallToolResult).Content[0].Text), &searchOut)
+	if searchOut["matches"] != nil {
+		t.Errorf("expected no code snippet matches when names_only:true, got: %+v", searchOut["matches"])
+	}
+	filesList, _ := searchOut["files"].([]interface{})
+	if len(filesList) == 0 || filesList[0] != "src/index.js" {
+		t.Errorf("expected ['src/index.js'] in files list, got: %+v", searchOut)
+	}
+}
+
+
 

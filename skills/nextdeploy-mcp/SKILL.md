@@ -100,10 +100,10 @@ The NextDeploy MCP server provides **25 tools** designed for high accuracy and o
 
 ### Area 2: Workspace File Operations
 All file paths are strictly sandboxed inside the app workspace.
-- **`workspace_manifest`**: High-performance directory scanner and file manifest with SHA-256 caching and .gitignore filtering. Pass `depth: 1, hash: false` for instant directory listing (like `ls`).
-  - Arguments: `app_id` (string, required), `path` (string, optional), `depth` (integer, optional), `hash` (boolean, default true).
-- **`file_read`**: Reads single file contents as plain text.
-  - Arguments: `app_id` (string, required), `path` (string, required), `offset`, `limit`.
+- **`workspace_manifest`**: High-performance directory scanner and file manifest with short 16-hex SHA-256 caching and .gitignore filtering. Excludes dependency lock files (`package-lock.json`, `yarn.lock`, etc.) and `*.map` by default to minimize context overhead. Pass `local_files: {path: hash}` for instant server-side differential check (saves 98%+ tokens by returning only `{to_upload, to_delete, in_sync_count}`). Pass `depth: 1, hash: false` for instant directory listing (like `ls`).
+  - Arguments: `app_id` (string, required), `path` (string, optional), `depth` (integer, optional), `hash` (boolean, default true), `full_hash` (boolean, default false), `include_locks` (boolean, default false), `local_files` (map of {path: hash}, optional).
+- **`file_read`**: Reads single file contents as plain text. Files over 256KB are safely truncated with a notice unless `full: true` is passed to protect context windows.
+  - Arguments: `app_id` (string, required), `path` (string, required), `offset`, `limit`, `full` (boolean, default false).
 - **`file_write`**: Creates or updates a single file. For modifying multiple files atomically, use `workspace_apply`.
   - Arguments: `app_id` (string, required), `path` (string, required), `content` (string, required).
 - **`file_delete`**: Deletes a single file or directory.
@@ -126,14 +126,14 @@ All file paths are strictly sandboxed inside the app workspace.
 ### Area 4: Deployment & Stack Control
 - **`compose_get`**: Fetches effective `docker-compose.yml` (including overrides).
   - Arguments: `app_id` (string, required).
-- **`deploy`**: Deploys stack (`docker compose up -d`). Returns `job_id` immediately, or pass `wait_seconds` for synchronous waiting. Pass `rebuild: true` for full container rebuild with image pull. Automatically skips git pull if workspace has local edits.
-  - Arguments: `app_id` (string, required), `rebuild` (boolean, optional), `wait_seconds` (integer, optional), `git_pull` (boolean, optional).
+- **`deploy`**: Deploys stack (`docker compose up -d`). Returns `job_id` immediately, or pass `wait_seconds` for synchronous waiting. Pass `rebuild: true` for full container rebuild with image pull. Pass `summary_only: false` if full raw build logs are needed on success. Automatically skips git pull if workspace has local edits.
+  - Arguments: `app_id` (string, required), `rebuild` (boolean, optional), `wait_seconds` (integer, optional), `summary_only` (boolean, default true), `git_pull` (boolean, optional).
 - **`restart`**: Restarts either a specific service container or the entire stack.
   - Arguments: `app_id` (string, required), `service` (string, optional).
 - **`stop`**: Shuts down the stack (`docker compose down`).
   - Arguments: `app_id` (string, required).
-- **`deploy_status`**: Polls live output or final result of a deployment job.
-  - Arguments: `job_id` (string, optional), `app_id` (string, optional).
+- **`deploy_status`**: Polls live output or final result of a deployment job. By default (`summary_only: true`), successful deployments suppress raw log dumping to prevent context bloat.
+  - Arguments: `job_id` (string, optional), `app_id` (string, optional), `summary_only` (boolean, default true).
 
 ### Area 5: Logs & Diagnosis
 - **`container_logs`**: Fetches recent stdout/stderr lines from any service container.
