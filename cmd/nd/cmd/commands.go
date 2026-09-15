@@ -16,7 +16,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.1.0"
+var Version = "1.1.1"
 
 // RunLogin handles: nd login <server_url>
 // Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
@@ -1445,13 +1445,13 @@ func runDeployLogs(cl *client.Client, appID string, follow bool) error {
 //   nd run [flags] [app_id] <command...>
 //
 // Flags:
-//   -a, --app <app_id>       Target application ID (optional if linked)
-//   -s, --service <service>  Target compose service name (optional)
-//   -w, --workdir <dir>      Working directory inside container
-//   --server                 Run directly on the host VPS (requires allow_server_exec)
+//   -a, --app <app_id>               Target application ID (optional if linked)
+//   -s, --service, -c, --container   Target service or container name (optional)
+//   -w, --workdir <dir>              Working directory inside container
+//   --server                         Run directly on the host VPS (requires allow_server_exec)
 func RunExec(cl *client.Client, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: nd exec [flags] [app_id] <command...>\nexample: nd exec myapp ls -la\n         nd exec -a myapp python manage.py migrate")
+		return fmt.Errorf("usage: nd exec [flags] [app_id] <command...>\nexample: nd exec myapp ls -la\n         nd exec myapp -s redis redis-cli ping\n         nd exec -c myapp_db_1 psql -U postgres")
 	}
 
 	var (
@@ -1477,12 +1477,24 @@ func RunExec(cl *client.Client, args []string) error {
 		} else if (arg == "-a" || arg == "--app") && i+1 < len(args) {
 			appID = args[i+1]
 			i += 2
-		} else if (arg == "-s" || arg == "--service") && i+1 < len(args) {
+		} else if strings.HasPrefix(arg, "--app=") {
+			appID = strings.TrimPrefix(arg, "--app=")
+			i++
+		} else if (arg == "-s" || arg == "--service" || arg == "-c" || arg == "--container") && i+1 < len(args) {
 			service = args[i+1]
 			i += 2
+		} else if strings.HasPrefix(arg, "--service=") {
+			service = strings.TrimPrefix(arg, "--service=")
+			i++
+		} else if strings.HasPrefix(arg, "--container=") {
+			service = strings.TrimPrefix(arg, "--container=")
+			i++
 		} else if (arg == "-w" || arg == "--workdir") && i+1 < len(args) {
 			workDir = args[i+1]
 			i += 2
+		} else if strings.HasPrefix(arg, "--workdir=") {
+			workDir = strings.TrimPrefix(arg, "--workdir=")
+			i++
 		} else if arg == "--" {
 			i++
 			cmdTokens = append(cmdTokens, args[i:]...)
@@ -1938,7 +1950,7 @@ Process & Container Inspection:
   nd images [--json]                 List Docker images on the host VPS
 
 Deployments & Lifecycle:
-  nd push [app_id] [--prune] [-y]    Sync local files and deploy (--prune removes server-only files)
+  nd push [app_id] [--deploy] [--prune] [-y] Sync local files (--deploy to auto-deploy, --prune removes server-only files)
   nd deploy [app_id] [--rebuild]     Deploy application (--rebuild to pull & build image; alias: nd redeploy)
   nd stop [app_id] [service]         Stop application stack or a specific service container
   nd restart [app_id] [service]      Restart application stack or a specific service container
@@ -1946,7 +1958,7 @@ Deployments & Lifecycle:
   nd logs [app_id] [-n 50] [-f]      Show container logs (--deploy to view deployment build logs)
 
 Execution & Command Run:
-  nd exec [flags] [app_id] <cmd...>  Run command inside app container (alias: nd run)
+  nd exec [flags] [app_id] <cmd...>  Run command inside container (primary, or specified -s service / -c container)
   nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
 
 Environment Variables:
@@ -1962,7 +1974,8 @@ Other:
 Flags:
   -a, --app <app_id>                 Target application ID (overrides linked directory)
   -j, --json                         Output structured JSON (compatible with CI/CD and AI agents)
-  -s, --service <service>            Target compose service for exec
+  -s, --service <service>            Target compose service for exec / logs / stop / restart
+  -c, --container <container>        Target specific container name for exec
   -w, --workdir <dir>                Working directory inside container
   --server                           Execute on host VPS instead of container
 

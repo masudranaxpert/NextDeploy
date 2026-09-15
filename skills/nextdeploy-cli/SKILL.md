@@ -56,7 +56,7 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 | **stop** | `nd stop [app_id] [service]` | Stop container stack, or stop a specific service container |
 | **restart** | `nd restart [app_id] [service]` | Restart container stack, or restart a specific service container |
 | **down** | `nd down [app_id]` | Stop and remove application container stack |
-| **exec** | `nd exec [app_id] <cmd...>` | Execute command inside application primary container |
+| **exec** | `nd exec [app_id] [-s service/-c container] <cmd...>` | Execute command inside container (primary, or specified service/container) |
 | **apps** | `nd apps` | List all provisioned applications on the connected server |
 | **create** | `nd create <name>` | Provision a new application on the server and link locally |
 | **delete** | `nd delete [app_id]` | Delete an application from the server |
