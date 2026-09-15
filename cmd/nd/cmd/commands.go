@@ -832,14 +832,36 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 	return nil
 }
 
-// RunContainers lists all Docker containers on the host VPS.
+// RunContainers lists all Docker containers on the host VPS, or for a specific app if provided.
 func RunContainers(cl *client.Client, args []string) error {
 	jsonOut, args := extractJSONFlag(args)
-	cmdArgs := []string{"docker", "ps"}
+
+	// If appID is provided or directory is linked and explicit app requested, delegate to RunPS
+	var cleanArgs []string
+	hasAllFlag := false
 	for _, a := range args {
 		if a == "-a" || a == "--all" {
-			cmdArgs = append(cmdArgs, "-a")
+			hasAllFlag = true
+		} else {
+			cleanArgs = append(cleanArgs, a)
 		}
+	}
+
+	if len(cleanArgs) > 0 {
+		appID, _, err := resolveAppID(cleanArgs)
+		if err == nil && appID != "" {
+			var psArgs []string
+			if jsonOut {
+				psArgs = append(psArgs, "--json")
+			}
+			psArgs = append(psArgs, appID)
+			return RunPS(cl, psArgs)
+		}
+	}
+
+	cmdArgs := []string{"docker", "ps"}
+	if hasAllFlag {
+		cmdArgs = append(cmdArgs, "-a")
 	}
 	if jsonOut {
 		cmdArgs = append(cmdArgs, "--format", "{{json .}}")
@@ -1070,19 +1092,38 @@ func openBrowser(url string) error {
 // RunDeploy triggers a redeploy for an app.
 func RunDeploy(cl *client.Client, args []string) error {
 	jsonOut, args := extractJSONFlag(args)
-	appID, _, err := resolveAppID(args)
+	rebuild := false
+	var cleanArgs []string
+	for _, a := range args {
+		if a == "--rebuild" || a == "-r" {
+			rebuild = true
+		} else {
+			cleanArgs = append(cleanArgs, a)
+		}
+	}
+
+	appID, _, err := resolveAppID(cleanArgs)
 	if err != nil {
 		return err
 	}
 	if !jsonOut {
-		ui.Step("Deploying %s...", ui.Cyan(appID))
+		if rebuild {
+			ui.Step("Rebuilding & deploying %s...", ui.Cyan(appID))
+		} else {
+			ui.Step("Deploying %s...", ui.Cyan(appID))
+		}
+	}
+
+	deployArgs := map[string]interface{}{"app_id": appID, "wait_seconds": 120}
+	if rebuild {
+		deployArgs["rebuild"] = true
 	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "deploy",
-			"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
+			"arguments": deployArgs,
 		},
 	})
 	if err != nil {
@@ -1156,17 +1197,22 @@ func RunDeploy(cl *client.Client, args []string) error {
 	return nil
 }
 
-// RunLogs streams recent logs for an app.
-// Usage: nd logs [app_id] [-n lines] [-f/--follow]
+// RunLogs streams recent logs for an app (container logs or deployment logs).
+// Usage:
+//   nd logs [app_id] [-n lines] [-f/--follow]
+//   nd logs --deploy [app_id] [-f/--follow]
 func RunLogs(cl *client.Client, args []string) error {
 	lines := 100
 	follow := false
+	isDeploy := false
 	var cleanArgs []string
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "-f" || arg == "--follow" {
 			follow = true
+		} else if arg == "--deploy" || arg == "-d" {
+			isDeploy = true
 		} else if (arg == "-n" || arg == "--tail" || arg == "--lines") && i+1 < len(args) {
 			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
 				lines = n
@@ -1182,6 +1228,10 @@ func RunLogs(cl *client.Client, args []string) error {
 	appID, _, err := resolveAppID(cleanArgs)
 	if err != nil {
 		return err
+	}
+
+	if isDeploy {
+		return runDeployLogs(cl, appID, follow)
 	}
 
 	fetchLogs := func(tailCount int) (string, error) {
@@ -1266,6 +1316,127 @@ func RunLogs(cl *client.Client, args []string) error {
 		}
 		lastLogs = current
 	}
+}
+
+func runDeployLogs(cl *client.Client, appID string, follow bool) error {
+	fetchTail := func(offset int, waitSec int) (output string, nextOffset int, running bool, err error) {
+		payload := map[string]interface{}{
+			"app_id":       appID,
+			"since_offset": offset,
+			"wait_seconds": waitSec,
+		}
+		body, status, doErr := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "deploy_log_tail",
+				"arguments": payload,
+			},
+		})
+		if doErr != nil {
+			return "", offset, false, doErr
+		}
+		if status >= 400 {
+			return "", offset, false, fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+
+		var resp struct {
+			Result struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if unErr := json.Unmarshal(body, &resp); unErr != nil || len(resp.Result.Content) == 0 {
+			return "", offset, false, fmt.Errorf("empty response from server")
+		}
+
+		// Check if active job streaming response
+		var streamData struct {
+			JobID      string `json:"job_id"`
+			Action     string `json:"action"`
+			Running    bool   `json:"running"`
+			NextOffset int    `json:"next_offset"`
+			NewOutput  string `json:"new_output"`
+		}
+		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &streamData) == nil && streamData.JobID != "" {
+			return streamData.NewOutput, streamData.NextOffset, streamData.Running, nil
+		}
+
+		// Otherwise fallback snapshot
+		var snapData struct {
+			LiveRunning bool   `json:"live_running"`
+			LiveAction  string `json:"live_action"`
+			LiveOutput  string `json:"live_output"`
+			History     []struct {
+				Action    string `json:"action"`
+				Output    string `json:"output"`
+				CreatedAt string `json:"created_at"`
+				OK        bool   `json:"ok"`
+			} `json:"history"`
+		}
+		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &snapData) == nil {
+			if snapData.LiveOutput != "" {
+				return snapData.LiveOutput, len(snapData.LiveOutput), snapData.LiveRunning, nil
+			}
+			if len(snapData.History) > 0 {
+				h := snapData.History[0]
+				statusStr := "succeeded"
+				if !h.OK {
+					statusStr = "failed"
+				}
+				header := fmt.Sprintf("[%s - %s (%s)]\n", h.CreatedAt, h.Action, statusStr)
+				return header + h.Output, len(h.Output), false, nil
+			}
+		}
+
+		return "", offset, false, nil
+	}
+
+	initial, offset, running, err := fetchTail(0, 0)
+	if err != nil {
+		return err
+	}
+	if initial != "" {
+		fmt.Print(initial)
+		if !strings.HasSuffix(initial, "\n") {
+			fmt.Println()
+		}
+	} else if !follow {
+		fmt.Println("No deployment logs found for", appID)
+		return nil
+	}
+
+	if !follow {
+		return nil
+	}
+
+	// Stream logs if follow is enabled
+	for {
+		time.Sleep(500 * time.Millisecond)
+		newOutput, next, isRunning, tailErr := fetchTail(offset, 15)
+		if tailErr != nil {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		if newOutput != "" {
+			fmt.Print(newOutput)
+			if !strings.HasSuffix(newOutput, "\n") {
+				fmt.Println()
+			}
+			offset = next
+		}
+		if running && !isRunning {
+			// Deployment finished
+			break
+		}
+		running = isRunning
+		if !running && newOutput == "" {
+			// No ongoing job
+			break
+		}
+	}
+
+	return nil
 }
 
 // RunExec executes a command inside an application container (Heroku-style: nd run / nd exec)
@@ -1619,13 +1790,64 @@ func RunEnv(cl *client.Client, args []string) error {
 	return nil
 }
 
-// RunStop stops an app.
+// RunStop stops an app or a specific service container.
+// Usage: nd stop [app_id] [service] [-s <service>]
 func RunStop(cl *client.Client, args []string) error {
+	service := ""
+	var cleanArgs []string
+	for i := 0; i < len(args); i++ {
+		if (args[i] == "-s" || args[i] == "--service") && i+1 < len(args) {
+			service = args[i+1]
+			i++
+		} else {
+			cleanArgs = append(cleanArgs, args[i])
+		}
+	}
+
+	appID, rest, err := resolveAppID(cleanArgs)
+	if err != nil {
+		return err
+	}
+	if service == "" && len(rest) > 0 {
+		service = rest[0]
+	}
+
+	payload := map[string]interface{}{"app_id": appID}
+	if service != "" {
+		payload["service"] = service
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "stop",
+			"arguments": payload,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+
+	if service != "" {
+		fmt.Printf("✓ %s service %s stopped.\n", appID, ui.Cyan(service))
+	} else {
+		fmt.Printf("✓ %s stopped.\n", appID)
+	}
+	return nil
+}
+
+// RunDown stops and removes application containers.
+// Usage: nd down [app_id]
+func RunDown(cl *client.Client, args []string) error {
 	appID, _, err := resolveAppID(args)
 	if err != nil {
 		return err
 	}
-	_, _, err = cl.Do("POST", "/mcp", map[string]interface{}{
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "stop",
@@ -1635,27 +1857,60 @@ func RunStop(cl *client.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("✓ %s stopped.\n", appID)
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+
+	fmt.Printf("✓ %s containers stopped and removed.\n", appID)
 	return nil
 }
 
-// RunRestart restarts an app.
+// RunRestart restarts an app or a specific service container.
+// Usage: nd restart [app_id] [service] [-s <service>]
 func RunRestart(cl *client.Client, args []string) error {
-	appID, _, err := resolveAppID(args)
+	service := ""
+	var cleanArgs []string
+	for i := 0; i < len(args); i++ {
+		if (args[i] == "-s" || args[i] == "--service") && i+1 < len(args) {
+			service = args[i+1]
+			i++
+		} else {
+			cleanArgs = append(cleanArgs, args[i])
+		}
+	}
+
+	appID, rest, err := resolveAppID(cleanArgs)
 	if err != nil {
 		return err
 	}
-	_, _, err = cl.Do("POST", "/mcp", map[string]interface{}{
+	if service == "" && len(rest) > 0 {
+		service = rest[0]
+	}
+
+	payload := map[string]interface{}{"app_id": appID}
+	if service != "" {
+		payload["service"] = service
+	}
+
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "restart",
-			"arguments": map[string]interface{}{"app_id": appID},
+			"arguments": payload,
 		},
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("✓ %s restarted.\n", appID)
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+
+	if service != "" {
+		fmt.Printf("✓ %s service %s restarted.\n", appID, ui.Cyan(service))
+	} else {
+		fmt.Printf("✓ %s restarted.\n", appID)
+	}
 	return nil
 }
 
@@ -1679,15 +1934,16 @@ App Management:
 
 Process & Container Inspection:
   nd ps [app_id] [--json]            Show containers, services, state, status, and images
-  nd containers [-a] [--json]        List all Docker containers on the host VPS
+  nd containers [app_id] [-a]        List all host containers, or filter by application
   nd images [--json]                 List Docker images on the host VPS
 
 Deployments & Lifecycle:
   nd push [app_id] [--prune] [-y]    Sync local files and deploy (--prune removes server-only files)
-  nd deploy [app_id] [--json]        Redeploy without file sync
-  nd stop [app_id]                   Stop application containers
-  nd restart [app_id]                Restart application containers
-  nd logs [app_id] [-n 50] [-f]      Show container logs (-f/--follow to stream in real time)
+  nd deploy [app_id] [--rebuild]     Deploy application (--rebuild to pull & build image; alias: nd redeploy)
+  nd stop [app_id] [service]         Stop application stack or a specific service container
+  nd restart [app_id] [service]      Restart application stack or a specific service container
+  nd down [app_id]                   Stop and remove application containers
+  nd logs [app_id] [-n 50] [-f]      Show container logs (--deploy to view deployment build logs)
 
 Execution & Command Run:
   nd exec [flags] [app_id] <cmd...>  Run command inside app container (alias: nd run)

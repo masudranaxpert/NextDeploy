@@ -30,7 +30,7 @@ _nd_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy stop restart logs exec run server-exec env version help completion"
+    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy redeploy stop restart down logs exec run server-exec env version help completion"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
@@ -79,9 +79,11 @@ _nd() {
         'containers:List VPS host containers'
         'images:List Docker images'
         'push:Sync files and deploy'
-        'deploy:Redeploy application'
+        'deploy:Deploy application'
+        'redeploy:Rebuild and redeploy application'
         'stop:Stop application containers'
         'restart:Restart application containers'
+        'down:Stop and remove application containers'
         'logs:Show container logs'
         'exec:Execute command inside container'
         'run:Execute command inside container'
@@ -101,7 +103,7 @@ const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandN
     $commands = @(
         'login', 'logout', 'whoami', 'apps', 'create', 'delete',
         'link', 'unlink', 'info', 'status', 'open', 'ps',
-        'containers', 'images', 'push', 'deploy', 'stop', 'restart',
+        'containers', 'images', 'push', 'deploy', 'redeploy', 'stop', 'restart', 'down',
         'logs', 'exec', 'run', 'server-exec', 'env', 'version', 'help', 'completion'
     )
     $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {

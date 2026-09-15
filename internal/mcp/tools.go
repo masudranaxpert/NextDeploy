@@ -259,12 +259,13 @@ func AllTools() []Tool {
 		},
 		{
 			Name: "stop",
-			Description: "Stop the application container stack (docker compose down). " +
-				"Use when taking an application offline or decommissioning services.",
+			Description: "Stop the application container stack (docker compose down) or a specific service container. " +
+				"Use when taking an application offline or stopping specific services.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID"},
+					"app_id":  {Type: "string", Description: "The application ID"},
+					"service": {Type: "string", Description: "Optional service name to stop only that container"},
 				},
 				Required: []string{"app_id"},
 			},

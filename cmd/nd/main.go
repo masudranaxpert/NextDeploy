@@ -143,10 +143,12 @@ func run() int {
 		err = cmd.RunUnlink(cl, rest)
 	case "push":
 		err = cmd.RunPush(cl, rest)
-	case "deploy":
+	case "deploy", "redeploy":
 		err = cmd.RunDeploy(cl, rest)
 	case "stop":
 		err = cmd.RunStop(cl, rest)
+	case "down":
+		err = cmd.RunDown(cl, rest)
 	case "restart":
 		err = cmd.RunRestart(cl, rest)
 	case "logs":

@@ -104,7 +104,7 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 	case "restart":
 		return h.handleRestart(ctx, u, params.Arguments)
 	case "stop":
-		return h.handleDeploy(ctx, u, params.Arguments, "Stop", dockerx.ComposeDown)
+		return h.handleStop(ctx, u, params.Arguments)
 	case "deploy_status":
 		return h.handleDeployStatus(ctx, u, params.Arguments)
 	case "container_logs":
@@ -1146,6 +1146,27 @@ func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]
 		return textResult(fmt.Sprintf("Restarted container %s for service %q", cid, service))
 	}
 	return h.handleDeploy(ctx, u, args, "Stack restart", dockerx.ComposeRestart)
+}
+
+func (h *Handler) handleStop(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	service := strings.TrimSpace(getStringArg(args, "service"))
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+	if service != "" {
+		project := h.p.ActiveComposeProjectName(ctx, app, appID)
+		cid, err := dockerapi.ContainerIDForComposeService(ctx, project, service)
+		if err != nil {
+			return errorResult(fmt.Errorf("container for service %q not found: %w", service, err))
+		}
+		if err := dockerapi.StopContainerByName(ctx, cid); err != nil {
+			return errorResult(fmt.Errorf("stop failed: %w", err))
+		}
+		return textResult(fmt.Sprintf("Stopped container %s for service %q", cid, service))
+	}
+	return h.handleDeploy(ctx, u, args, "Stop", dockerx.ComposeDown)
 }
 
 func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
