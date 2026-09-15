@@ -129,8 +129,8 @@ All file paths are strictly sandboxed inside the app workspace.
   - Arguments: `app_id` (string, required), `rebuild` (boolean, optional), `wait_seconds` (integer, optional), `summary_only` (boolean, default true), `git_pull` (boolean, optional).
 - **`restart`**: Restarts either a specific service container or the entire stack.
   - Arguments: `app_id` (string, required), `service` (string, optional).
-- **`stop`**: Shuts down the stack (`docker compose down`).
-  - Arguments: `app_id` (string, required).
+- **`stop`**: Shuts down the stack (`docker compose down`), or stops a specific service container.
+  - Arguments: `app_id` (string, required), `service` (string, optional).
 - **`deploy_status`**: Polls live output or final result of a deployment job. By default (`summary_only: true`), successful deployments suppress raw log dumping to prevent context bloat.
   - Arguments: `job_id` (string, optional), `app_id` (string, optional), `summary_only` (boolean, default true).
 
