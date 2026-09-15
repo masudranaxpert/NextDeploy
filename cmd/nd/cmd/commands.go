@@ -16,7 +16,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.0.7"
+var Version = "1.1.0"
 
 // RunLogin handles: nd login <server_url>
 // Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
