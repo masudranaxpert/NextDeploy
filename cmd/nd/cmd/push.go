@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"nd/internal/client"
 	"nd/internal/config"
@@ -26,18 +27,21 @@ type PushResult struct {
 	Status      string   `json:"status"`
 }
 
-// RunPush syncs local workspace files to the server and triggers deploy.
-// Usage: nd push [app_id] [local_dir] [--prune] [-y] [--json]
+// RunPush syncs local workspace files to the server and optionally triggers deploy.
+// Usage: nd push [app_id] [local_dir] [--deploy] [--prune] [-y] [--json]
 func RunPush(cl *client.Client, rawArgs []string) error {
 	prune := false
 	autoConfirm := false
 	jsonOutput := false
+	doDeploy := false
 	var args []string
 	var flagAppID string
 
 	for i := 0; i < len(rawArgs); i++ {
 		a := rawArgs[i]
 		switch {
+		case a == "--deploy" || a == "-d":
+			doDeploy = true
 		case a == "--prune":
 			prune = true
 		case a == "-y" || a == "--yes":
@@ -280,44 +284,46 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		}
 	}
 
-	// Step 3: Trigger deploy
-	if !jsonOutput {
-		fmt.Println("→ Deploying...")
-	}
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "deploy",
-			"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("deploy failed: %w", err)
-	}
-	if status >= 400 {
-		return fmt.Errorf("deploy error: %s", client.JSONError(body))
-	}
-
 	jobID := ""
-	var depResp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &depResp); err == nil {
-		if depResp.Result.IsError && len(depResp.Result.Content) > 0 {
-			return fmt.Errorf("deploy error: %s", depResp.Result.Content[0].Text)
+	if doDeploy {
+		// Step 3: Trigger deploy
+		if !jsonOutput {
+			fmt.Println("→ Deploying...")
 		}
-		if len(depResp.Result.Content) > 0 {
-			var depData struct {
-				JobID  string `json:"job_id"`
-				Status string `json:"status"`
+		body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "deploy",
+				"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
+			},
+		}, 3*time.Minute)
+		if err != nil {
+			return fmt.Errorf("deploy failed: %w", err)
+		}
+		if status >= 400 {
+			return fmt.Errorf("deploy error: %s", client.JSONError(body))
+		}
+
+		var depResp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &depResp); err == nil {
+			if depResp.Result.IsError && len(depResp.Result.Content) > 0 {
+				return fmt.Errorf("deploy error: %s", depResp.Result.Content[0].Text)
 			}
-			_ = json.Unmarshal([]byte(depResp.Result.Content[0].Text), &depData)
-			jobID = depData.JobID
+			if len(depResp.Result.Content) > 0 {
+				var depData struct {
+					JobID  string `json:"job_id"`
+					Status string `json:"status"`
+				}
+				_ = json.Unmarshal([]byte(depResp.Result.Content[0].Text), &depData)
+				jobID = depData.JobID
+			}
 		}
 	}
 
@@ -336,6 +342,10 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		return enc.Encode(res)
 	}
 
-	fmt.Println("✓ Push and deployment completed successfully.")
+	if doDeploy {
+		fmt.Println("✓ Push and deployment completed successfully.")
+	} else {
+		fmt.Println("✓ Workspace synchronized successfully. (Run with --deploy to auto-deploy)")
+	}
 	return nil
 }

@@ -1119,13 +1119,13 @@ func RunDeploy(cl *client.Client, args []string) error {
 		deployArgs["rebuild"] = true
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "deploy",
 			"arguments": deployArgs,
 		},
-	})
+	}, 3*time.Minute)
 	if err != nil {
 		return err
 	}

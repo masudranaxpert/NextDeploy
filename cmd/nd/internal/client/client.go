@@ -30,6 +30,11 @@ func New(cfg config.Config, sessID string) *Client {
 
 // Do executes an authenticated request and returns the response body.
 func (c *Client) Do(method, path string, body any) ([]byte, int, error) {
+	return c.DoWithTimeout(method, path, body, 0)
+}
+
+// DoWithTimeout executes an authenticated request with a custom timeout duration (0 uses default).
+func (c *Client) DoWithTimeout(method, path string, body any, timeout time.Duration) ([]byte, int, error) {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -49,6 +54,12 @@ func (c *Client) Do(method, path string, body any) ([]byte, int, error) {
 	req.Header.Set("User-Agent", "nd/1.0.6")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if timeout > 0 {
+		oldTimeout := c.http.Timeout
+		c.http.Timeout = timeout
+		defer func() { c.http.Timeout = oldTimeout }()
 	}
 
 	resp, err := c.http.Do(req)

@@ -45,7 +45,7 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 
 | Command | Syntax | Purpose |
 | :--- | :--- | :--- |
-| **push** | `nd push [app_id] [dir]` | Differential sync (SHA256 delta) of local changes followed by deploy |
+| **push** | `nd push [app_id] [dir] [--deploy]` | Differential sync (SHA256 delta) of workspace files (pass `--deploy` to auto-deploy) |
 | **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild) |
 | **logs** | `nd logs [app_id] [-n lines] [-f]` | Tail container runtime stdout/stderr (default: 100 lines) |
 | **logs (deploy)** | `nd logs [app_id] --deploy [-f]` | Stream build & deployment output in real time |
@@ -72,9 +72,9 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 
 ## 4. Operational Best Practices for AI Agents
 
-1. **Fast Local Code Deployments**:
+1. **Fast Local Code Sync & Deploy**:
    - Make edits directly to local files in the workspace.
-   - Run `nd push`. NextDeploy computes the short-SHA differential hash, transmits only modified files as a compressed tarball, and triggers deployment automatically.
+   - Run `nd push` to synchronize files only, or `nd push --deploy` to sync and automatically deploy. NextDeploy computes short-SHA differential hashes, uploads only delta files, and skips full-repo re-uploading.
 2. **Rebuilding Stacks**:
    - To force a container rebuild and image re-pull without modifying files, run `nd deploy [app_id] --rebuild` (or `-r`).
 3. **Inspecting Build Failures vs. Runtime Errors**:
