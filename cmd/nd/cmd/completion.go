@@ -30,7 +30,7 @@ _nd_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy redeploy stop restart down logs exec run server-exec env version help completion"
+    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy redeploy stop restart down logs exec run server-exec env files file cat edit folder ls version help completion"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
@@ -44,6 +44,14 @@ _nd_completions() {
             ;;
         env)
             COMPREPLY=( $(compgen -W "list set" -- ${cur}) )
+            return 0
+            ;;
+        files|file)
+            COMPREPLY=( $(compgen -W "list read write edit rm" -- ${cur}) )
+            return 0
+            ;;
+        folder)
+            COMPREPLY=( $(compgen -W "rm delete" -- ${cur}) )
             return 0
             ;;
         completion)
@@ -89,6 +97,11 @@ _nd() {
         'run:Execute command inside container'
         'server-exec:Execute command on host server'
         'env:Manage environment variables'
+        'files:List or manage workspace files'
+        'file:Read, write, edit, or delete remote files'
+        'cat:View remote file contents'
+        'edit:Edit remote file in editor'
+        'folder:Manage or delete remote folders'
         'version:Print version'
         'help:Show help'
         'completion:Generate shell completion'
@@ -104,7 +117,7 @@ const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandN
         'login', 'logout', 'whoami', 'apps', 'create', 'delete',
         'link', 'unlink', 'info', 'status', 'open', 'ps',
         'containers', 'images', 'push', 'deploy', 'redeploy', 'stop', 'restart', 'down',
-        'logs', 'exec', 'run', 'server-exec', 'env', 'version', 'help', 'completion'
+        'logs', 'exec', 'run', 'server-exec', 'env', 'files', 'file', 'cat', 'edit', 'folder', 'ls', 'version', 'help', 'completion'
     )
     $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)

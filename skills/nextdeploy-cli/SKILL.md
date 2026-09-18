@@ -64,6 +64,12 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 | **images** | `nd images` | List Docker images present on the host VPS |
 | **env list**| `nd env list [app_id]` | List configured environment variable keys |
 | **env set** | `nd env set [app_id] K=V...` | Add or update environment variables |
+| **files** | `nd files [path] [-r] [--json]` | List workspace files & folders (alias: `nd file list`, `nd ls`) |
+| **file read**| `nd file read <path> [--full] [-o file]` | Read or download remote file content (alias: `nd cat`) |
+| **file write**| `nd file write <path> [content|file]` | Write/upload file to workspace (supports stdin, local file, `--from`) |
+| **file edit**| `nd file edit <path>` | Interactively edit remote file in `$EDITOR` (alias: `nd edit`) |
+| **file rm** | `nd file rm <path> [-r] [-f]` | Delete remote file or folder (alias: `nd rm`) |
+| **folder rm**| `nd folder rm <path> [-f]` | Delete remote folder and all contents (alias: `nd folder delete`) |
 | **server-exec** | `nd server-exec <cmd...>` | Execute command on host VPS (requires `allow_server_exec`) |
 | **whoami** | `nd whoami` | Inspect active session, server URL, device ID, and linked app |
 | **logout** | `nd logout` | Invalidate device session and clear local credentials |
@@ -101,4 +107,68 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
    - **Delete**: Files removed locally that still exist remotely.
 4. **Streaming In-Memory Archive**: Compresses delta into an in-memory `.tar.gz`, uploads to `POST /api/v1/apps/<app_id>/workspace/archive`, validates safe paths (anti-traversal), and extracts directly into app workspace.
 5. **Auto-Deploy**: Automatically triggers zero-downtime deployment and streams container readiness.
+
+---
+
+## 6. Remote File & Folder Management (`nd files`, `nd file`, `nd folder`)
+
+AI assistants and developers can directly inspect, read, write, edit, and delete individual files or entire folders without doing a full `nd push`:
+
+### 6.1 Listing Workspace Files
+```bash
+# List root workspace files for the linked app
+nd files
+
+# List subfolder contents
+nd files src/
+
+# List all files recursively
+nd files -r
+
+# Target a specific app when unlinked
+nd files --app <app_id>
+```
+
+### 6.2 Reading Remote Files
+```bash
+# Print remote file content directly to stdout
+nd file read docker-compose.yml
+nd cat nginx.conf
+
+# Save / download remote file to a local destination
+nd file read remote_config.json -o local_config.json
+```
+
+### 6.3 Writing & Updating Remote Files
+```bash
+# Write directly from command-line argument
+nd file write config.json '{"debug": false, "port": 8080}'
+
+# Upload a local file to remote workspace
+nd file write src/app.py local_app.py
+nd file write src/app.py --from local_app.py
+
+# Pipe content from stdin
+cat migration.sql | nd file write db/migration.sql
+echo "NEW_SETTING=true" | nd file write .env.example
+
+# Interactively edit remote file in $EDITOR (nano / vim / vi / notepad)
+nd edit docker-compose.yml
+nd file edit main.go
+```
+
+### 6.4 Deleting Files & Folders
+```bash
+# Delete a remote file
+nd file rm obsolete.js
+nd rm unused.log
+
+# Delete a remote folder and all nested contents
+nd folder rm cache/
+nd file rm -r build/
+
+# Skip confirmation prompt (-f / --force / -y)
+nd file rm -f junk.txt
+nd folder rm -f tmp/
+```
 

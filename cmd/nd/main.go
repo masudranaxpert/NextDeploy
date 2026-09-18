@@ -159,6 +159,14 @@ func run() int {
 		err = cmd.RunServerExec(cl, rest)
 	case "env":
 		err = cmd.RunEnv(cl, rest)
+	case "files", "file", "ls":
+		err = cmd.RunFiles(cl, rest)
+	case "cat":
+		err = cmd.RunFileRead(cl, rest)
+	case "edit":
+		err = cmd.RunFileEdit(cl, rest)
+	case "folder":
+		err = cmd.RunFolder(cl, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		cmd.PrintHelp()

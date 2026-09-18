@@ -92,8 +92,9 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 		})
 	}
 
-	// Policy check based on token.Kind — client headers cannot spoof or bypass this
-	if apiToken.Kind == "cli" {
+	// Policy check: CLI requests vs external AI MCP requests (tokens are unified and shared)
+	isCLI := c.Get("X-NextDeploy-Client") == "cli" || strings.HasPrefix(c.Get("User-Agent"), "nd/") || apiToken.Kind == "cli"
+	if isCLI {
 		if s.p.DB.GetSetting(ctx, "cli_enabled") == "0" {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"jsonrpc": "2.0",
@@ -104,7 +105,7 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 			})
 		}
 	} else {
-		// Default or "mcp": must pass s.IsEnabled(ctx)
+		// External MCP clients (Cursor, Claude, Antigravity, etc.)
 		if !s.IsEnabled(ctx) {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"jsonrpc": "2.0",

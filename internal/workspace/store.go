@@ -119,6 +119,16 @@ func (s *Store) RemoveRel(wsID, rel string) error {
 	return os.RemoveAll(cf)
 }
 
+// RemoveGitRepoRel removes a file or directory under the git checkout root (…/repo).
+// Deletion of .git and path traversal are rejected.
+func (s *Store) RemoveGitRepoRel(wsID, rel string) error {
+	full, err := s.SafeGitRepoFilePath(wsID, rel)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(full)
+}
+
 // SafeFilePath returns the absolute filesystem path for rel under wsID if it stays inside the workspace and is not under .panel-meta.
 func (s *Store) SafeFilePath(wsID, rel string) (string, error) {
 	rel = filepath.ToSlash(strings.TrimSpace(rel))

@@ -26,6 +26,7 @@ import (
 	"panel/internal/handlers/utils"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
+	"panel/internal/workspace"
 
 	"gopkg.in/yaml.v3"
 )
@@ -413,8 +414,15 @@ func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string
 	}
 	var out []item
 
+	isGit := h.p.IsGitApp(ctx, appID)
 	if !recursive {
-		children, err := h.p.Store.ListChildren(appID, path)
+		var children []workspace.FileEntry
+		var err error
+		if isGit {
+			children, err = h.p.Store.ListGitRepoChildren(appID, path)
+		} else {
+			children, err = h.p.Store.ListChildren(appID, path)
+		}
 		if err != nil {
 			return errorResult(fmt.Errorf("file listing failed: %w", err))
 		}
@@ -432,10 +440,19 @@ func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string
 
 	// Recursive directory listing within application workspace
 	base := h.p.Store.Path(appID)
+	if isGit {
+		base = filepath.Clean(filepath.Join(h.p.Store.ReservedPath(appID), "repo"))
+	}
 	targetDir := base
 	cleanRel := filepath.ToSlash(strings.Trim(path, "/"))
 	if cleanRel != "" {
-		safe, err := h.p.Store.SafeFilePath(appID, cleanRel)
+		var safe string
+		var err error
+		if isGit {
+			safe, err = h.p.Store.SafeGitRepoFilePath(appID, cleanRel)
+		} else {
+			safe, err = h.p.Store.SafeFilePath(appID, cleanRel)
+		}
 		if err != nil {
 			return errorResult(fmt.Errorf("invalid path: %w", err))
 		}
@@ -495,7 +512,13 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer); err != nil {
 		return errorResult(err)
 	}
-	full, err := h.p.Store.SafeFilePath(appID, path)
+	var full string
+	var err error
+	if h.p.IsGitApp(ctx, appID) {
+		full, err = h.p.Store.SafeGitRepoFilePath(appID, path)
+	} else {
+		full, err = h.p.Store.SafeFilePath(appID, path)
+	}
 	if err != nil {
 		return errorResult(fmt.Errorf("invalid path: %w", err))
 	}
@@ -564,7 +587,13 @@ func (h *Handler) handleFileRead(ctx context.Context, u db.User, args map[string
 }
 
 func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, content string) error {
-	full, err := h.p.Store.SafeFilePath(app.ID, path)
+	var full string
+	var err error
+	if h.p.IsGitApp(ctx, app.ID) {
+		full, err = h.p.Store.SafeGitRepoFilePath(app.ID, path)
+	} else {
+		full, err = h.p.Store.SafeFilePath(app.ID, path)
+	}
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}
@@ -798,8 +827,14 @@ func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[stri
 	if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" {
 		return errorResult(errors.New("cannot delete internal generated files"))
 	}
-	if err := h.p.Store.RemoveRel(appID, path); err != nil {
-		return errorResult(fmt.Errorf("delete failed: %w", err))
+	var delErr error
+	if h.p.IsGitApp(ctx, appID) {
+		delErr = h.p.Store.RemoveGitRepoRel(appID, path)
+	} else {
+		delErr = h.p.Store.RemoveRel(appID, path)
+	}
+	if delErr != nil {
+		return errorResult(fmt.Errorf("delete failed: %w", delErr))
 	}
 	h.p.InvalidateAfterAppWorkspaceChange(appID)
 	return textResult(fmt.Sprintf("Deleted %s", path))

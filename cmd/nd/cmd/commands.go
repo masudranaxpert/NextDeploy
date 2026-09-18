@@ -1965,6 +1965,14 @@ Environment Variables:
   nd env list [app_id] [--json]      List configured environment variable keys
   nd env set [app_id] KEY=VAL ...    Set or update environment variables
 
+File & Folder Management:
+  nd files [path] [-r] [--json]      List workspace files and directories (alias: nd file list, nd ls)
+  nd file read <path> [--full] [-o file] View or download remote file content (alias: nd cat)
+  nd file write <path> [content|file] Write/upload file to workspace (supports stdin, --from)
+  nd file edit <path>                Interactively edit remote file in $EDITOR (alias: nd edit)
+  nd file rm <path> [-r] [-f]        Delete remote file or directory (alias: nd rm)
+  nd folder rm <path> [-f]           Delete remote directory and contents (alias: nd folder delete)
+
 Other:
   nd update                          Update nd CLI to the latest release from GitHub
   nd completion [bash|zsh|ps1]       Generate shell autocompletion script
