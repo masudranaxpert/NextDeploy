@@ -126,56 +126,13 @@ func RunPull(cl *client.Client, rawArgs []string) error {
 	}
 	defer gzReader.Close()
 
-	tarReader := tar.NewReader(gzReader)
-	extractedCount := 0
-	var totalBytes int64
+	extractedCount, skippedCount, totalBytes, err := extractWorkspaceArchive(gzReader, absTarget)
+	if err != nil {
+		return err
+	}
 
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("archive read error: %w", err)
-		}
-
-		if !isSafeTarPath(header.Name) {
-			continue // Prevent path traversal
-		}
-		cleanName := filepath.Clean(filepath.ToSlash(header.Name))
-
-		// Strictly protect local configuration and credentials
-		base := filepath.Base(cleanName)
-		if base == ".env" || strings.HasPrefix(base, ".env.") || strings.HasPrefix(cleanName, ".nd/") || cleanName == ".nd" {
-			continue
-		}
-
-		destPath := filepath.Join(absTarget, filepath.FromSlash(cleanName))
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed creating directory %s: %w", destPath, err)
-			}
-		case tar.TypeReg, tar.TypeRegA:
-			dir := filepath.Dir(destPath)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed creating parent directory for %s: %w", destPath, err)
-			}
-
-			outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if err != nil {
-				return fmt.Errorf("failed creating file %s: %w", destPath, err)
-			}
-
-			n, err := io.Copy(outFile, tarReader)
-			_ = outFile.Close()
-			if err != nil {
-				return fmt.Errorf("failed writing file %s: %w", destPath, err)
-			}
-			extractedCount++
-			totalBytes += n
-		}
+	if skippedCount > 0 {
+		ui.Warn("%d symlink/special entries skipped", skippedCount)
 	}
 
 	ui.Success("Successfully pulled %d file(s) (%s) into %s",
@@ -189,6 +146,114 @@ func RunPull(cl *client.Client, rawArgs []string) error {
 	}
 
 	return nil
+}
+
+// extractWorkspaceArchive safely unpacks tar archive contents with symlink target validation and mode preservation.
+func extractWorkspaceArchive(r io.Reader, absTarget string) (int, int, int64, error) {
+	const maxFileBytes int64 = 500 * 1024 * 1024       // 500MB per-file ceiling
+	const maxTotalBytes int64 = 2 * 1024 * 1024 * 1024 // 2GB total archive ceiling
+
+	tarReader := tar.NewReader(r)
+	extractedCount := 0
+	skippedCount := 0
+	var totalBytes int64
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return extractedCount, skippedCount, totalBytes, fmt.Errorf("archive read error: %w", err)
+		}
+
+		if !isSafeTarPath(header.Name) {
+			skippedCount++
+			continue
+		}
+		cleanName := filepath.Clean(filepath.ToSlash(header.Name))
+
+		// Strictly protect local configuration and credentials
+		base := filepath.Base(cleanName)
+		if base == ".env" || strings.HasPrefix(base, ".env.") || strings.HasPrefix(cleanName, ".nd/") || cleanName == ".nd" {
+			continue
+		}
+
+		destPath := filepath.Join(absTarget, filepath.FromSlash(cleanName))
+		dir := filepath.Dir(destPath)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("failed creating directory %s: %w", destPath, err)
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if header.Size > maxFileBytes {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("file %s exceeds 500MB size ceiling", cleanName)
+			}
+			if totalBytes+header.Size > maxTotalBytes {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("archive extraction exceeds 2GB total size ceiling")
+			}
+
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("failed creating parent directory for %s: %w", destPath, err)
+			}
+
+			// Preserve file mode while restricting suid/sgid bits (max 0755)
+			perm := header.FileInfo().Mode().Perm() & 0755
+			if perm == 0 {
+				perm = 0644
+			}
+
+			outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+			if err != nil {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("failed creating file %s: %w", destPath, err)
+			}
+
+			n, err := io.Copy(outFile, io.LimitReader(tarReader, maxFileBytes))
+			_ = outFile.Close()
+			if err != nil {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("failed writing file %s: %w", destPath, err)
+			}
+			_ = os.Chmod(destPath, perm)
+
+			extractedCount++
+			totalBytes += n
+			if totalBytes > maxTotalBytes {
+				return extractedCount, skippedCount, totalBytes, fmt.Errorf("archive extraction exceeded 2GB total size ceiling")
+			}
+		case tar.TypeSymlink:
+			// Safely extract symlinks only if target stays strictly within destination root
+			linkTarget := filepath.Clean(filepath.ToSlash(header.Linkname))
+			if filepath.IsAbs(linkTarget) || strings.HasPrefix(linkTarget, "/") {
+				skippedCount++
+				continue
+			}
+
+			targetAbs := filepath.Clean(filepath.Join(dir, filepath.FromSlash(linkTarget)))
+			relToRoot, err := filepath.Rel(absTarget, targetAbs)
+			if err != nil || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) || strings.HasPrefix(relToRoot, "../") {
+				skippedCount++
+				continue
+			}
+
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				skippedCount++
+				continue
+			}
+
+			_ = os.Remove(destPath)
+			if err := os.Symlink(header.Linkname, destPath); err != nil {
+				skippedCount++
+			} else {
+				extractedCount++
+			}
+		default:
+			skippedCount++
+		}
+	}
+
+	return extractedCount, skippedCount, totalBytes, nil
 }
 
 // isSafeTarPath validates that an archive path does not escape the target root.
