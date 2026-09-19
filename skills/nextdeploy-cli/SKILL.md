@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-cli
 description: Operational reference and automation instructions for AI coding assistants using the NextDeploy CLI (nd) to manage application lifecycles, incremental code syncs (nd push), deployments, logs, containers, and environment variables.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # NextDeploy CLI (`nd`) Skill
@@ -37,7 +37,7 @@ nd whoami             # Confirms current linked target
 nd unlink             # Clears local link binding
 ```
 
-When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd down`, etc.) automatically target the linked application.
+When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd stop`, `nd logs`, `nd down`, etc.) automatically target the linked application.
 
 ---
 
@@ -45,18 +45,20 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 
 | Command | Syntax | Purpose |
 | :--- | :--- | :--- |
-| **push** | `nd push [app_id] [dir] [--deploy]` | Differential sync (SHA256 delta) of workspace files (pass `--deploy` to auto-deploy) |
-| **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild) |
-| **logs** | `nd logs [app_id] [-n lines] [-f]` | Tail container runtime stdout/stderr (default: 100 lines) |
+| **push** | `nd push [app_id] [path] [--deploy] [--prune] [-y]` | Differential sync (SHA256 delta) of workspace files or push single file (pass `--deploy` to auto-deploy) |
+| **pull** | `nd pull [app_id] [target_dir]` | Download remote workspace files to local directory (safeguards local `.env` and `.nd/`) |
+| **diff** | `nd diff [app_id] [path]` | Compare local workspace or file hashes against remote workspace before syncing |
+| **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild; alias: `nd redeploy`) |
+| **logs** | `nd logs [app_id] [-s service] [-n lines] [-f]` | Tail container runtime stdout/stderr (default: 50 lines; supports `-s` service filter) |
 | **logs (deploy)** | `nd logs [app_id] --deploy [-f]` | Stream build & deployment output in real time |
 | **status** | `nd status [app_id]` | Application health, uptime, exposed ports, and configuration |
 | **info** | `nd info [app_id]` | Comprehensive app inspect view (domains, container state, health) |
-| **ps** | `nd ps [app_id]` | List containers and microservices belonging to an application |
+| **ps** | `nd ps [app_id]` | List containers and microservices with state, image, and exposed port mappings |
 | **containers** | `nd containers [app_id] [-a]` | List containers for an app, or VPS host containers if omitted |
 | **stop** | `nd stop [app_id] [service]` | Stop container stack, or stop a specific service container |
-| **restart** | `nd restart [app_id] [service]` | Restart container stack, or restart a specific service container |
+| **restart** | `nd restart [app_id] [service] [--recreate]` | Restart container stack or service container (pass `--recreate` to force rebuild containers) |
 | **down** | `nd down [app_id]` | Stop and remove application container stack |
-| **exec** | `nd exec [app_id] [-s service/-c container] <cmd...>` | Execute command inside container (primary, or specified service/container) |
+| **exec** | `nd exec [flags] [app_id] <cmd...>` | Execute command inside container with safe quoting, stdin piping (`-i`), and custom timeout (`-t`) |
 | **apps** | `nd apps` | List all provisioned applications on the connected server |
 | **create** | `nd create <name>` | Provision a new application on the server and link locally |
 | **delete** | `nd delete [app_id]` | Delete an application from the server |
@@ -76,45 +78,123 @@ When linked, all commands (`nd push`, `nd deploy`, `nd stop`, `nd logs`, `nd dow
 
 ---
 
-## 4. Operational Best Practices for AI Agents
+## 4. Differential Sync Engine (`nd push`)
 
-1. **Fast Local Code Sync & Deploy**:
-   - Make edits directly to local files in the workspace.
-   - Run `nd push` to synchronize files only, or `nd push --deploy` to sync and automatically deploy. NextDeploy computes short-SHA differential hashes, uploads only delta files, and skips full-repo re-uploading.
-2. **Rebuilding Stacks**:
-   - To force a container rebuild and image re-pull without modifying files, run `nd deploy [app_id] --rebuild` (or `-r`).
-3. **Inspecting Build Failures vs. Runtime Errors**:
-   - To inspect container runtime crashes: `nd logs` or `nd logs -n 200`.
-   - To inspect build/deployment failures: `nd logs --deploy` (or `nd logs -d -f`).
-4. **Service Level Management**:
-   - Check containers with `nd containers <app_id>` or `nd ps`.
-   - Stop a specific service: `nd stop <app_id> <service>`.
-   - Restart a specific service: `nd restart <app_id> <service>`.
-   - Tear down and remove containers: `nd down <app_id>`.
-5. **Session Heartbeats**:
-   - Every CLI execution automatically updates the device heartbeat. AI agents appear in the Web UI under **CLI Sessions** with active status.
+`nd push` is the primary workhorse for zero-token, fast code deployment:
 
----
-
-## 5. Differential Sync Engine (`nd push`)
-
-`nd push` is the primary workhorse for zero-token code deployment:
-
-1. **Local Scan & Ignore**: Recursively scans directory while ignoring build artifacts (`.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`, `vendor`, `.next`, and hidden folders except `.env`), plus local `.gitignore` / `.ndignore` rules.
-2. **Remote Manifest**: Fetches cached SHA256 snapshot via `GET /api/v1/apps/<app_id>/manifest?hash=true` (<50ms remote scan latency).
-3. **Delta Computation**: Computes exact diff using short-SHA hashes:
-   - **Upload**: New or locally modified files.
-   - **Delete**: Files removed locally that still exist remotely.
-4. **Streaming In-Memory Archive**: Compresses delta into an in-memory `.tar.gz`, uploads to `POST /api/v1/apps/<app_id>/workspace/archive`, validates safe paths (anti-traversal), and extracts directly into app workspace.
-5. **Auto-Deploy**: Automatically triggers zero-downtime deployment and streams container readiness.
+1. **Local Hash Cache**:
+   - Stores mtime and SHA256 hashes in `.nd/hash_cache.json`.
+   - On repeat pushes, files whose size and modification time haven't changed skip SHA256 re-computation, providing a 2–3x speedup on large workspaces.
+2. **Single-File Push**:
+   - Push individual modified files without scanning the whole repository:
+     ```bash
+     nd push main.py
+     nd push src/app.js --deploy
+     ```
+3. **Local Scan & Ignore**:
+   - Recursively scans directory while ignoring build artifacts (`.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`, `vendor`, `.next`, and hidden folders except `.env`), plus local `.gitignore` / `.ndignore` rules.
+4. **Remote Manifest**:
+   - Fetches cached SHA256 snapshot via `GET /api/v1/apps/<app_id>/manifest?hash=true` (<50ms remote scan latency).
+5. **Delta Computation**:
+   - Computes exact diff using short-SHA hashes:
+     - **Upload**: New or locally modified files.
+     - **Delete**: Files removed locally that still exist remotely (when `--prune` is passed).
+6. **Streaming In-Memory Archive**:
+   - Compresses delta into an in-memory `.tar.gz`, uploads to `POST /api/v1/apps/<app_id>/workspace/archive`, validates safe paths (anti-traversal), and extracts directly into app workspace.
 
 ---
 
-## 6. Remote File & Folder Management (`nd files`, `nd file`, `nd folder`)
+## 5. Previewing Workspace Differences (`nd diff`)
 
-AI assistants and developers can directly inspect, read, write, edit, and delete individual files or entire folders without doing a full `nd push`:
+Before running `nd push` or `nd deploy`, compare your local files against the remote server state:
 
-### 6.1 Listing Workspace Files
+```bash
+# Compare entire workspace against remote server
+nd diff
+
+# Check diff for a specific file or subfolder
+nd diff src/server.py
+
+# Specify remote app target explicitly
+nd diff my-app src/
+```
+
+Output highlights:
+- `+ local only` (will be uploaded)
+- `~ modified` (different content hash, will be overwritten)
+- `- server only` (exists on server but not locally; deleted if `--prune` is passed)
+
+---
+
+## 6. Pulling Remote Workspaces (`nd pull`)
+
+When collaborating with teammates or bootstrapping on a new machine, pull the server workspace:
+
+```bash
+# Pull current linked app workspace into current directory
+nd pull
+
+# Pull specific app to a target folder
+nd pull my-app ./my-app-backup
+```
+
+Safety protections:
+- Existing local `.env` and `.env.*` files are preserved and never overwritten without explicit prompt.
+- Local `.nd/` project settings are retained.
+
+---
+
+## 7. Advanced Execution & Stdin Pipes (`nd exec`)
+
+`nd exec` provides direct command execution inside container stacks:
+
+### 7.1 Complex Shell Quoting
+Parentheses, quotes, and complex one-liners execute properly without remote syntax errors:
+```bash
+nd exec -s web python -c "import os; print(os.environ.get('PORT'))"
+nd exec bash -c 'echo "hello $(whoami)"'
+```
+
+### 7.2 Stdin Piping & Scripts
+Pipe scripts, queries, or data into container processes:
+```bash
+# Run a local Python script inside the container
+cat script.py | nd exec -s web python -
+
+# Run a local SQL dump into a database container
+cat dump.sql | nd exec -s db mysql -u root -psecret app_db
+
+# Pass stdin explicitly using flag
+cat payload.json | nd exec --stdin -s worker node process.js
+```
+
+### 7.3 Custom Execution Timeouts
+Long-running commands (migrations, backups, model downloads) default to 300s, adjustable up to 3600s:
+```bash
+nd exec -t 600 python manage.py migrate
+nd exec --timeout 1800 ./long-backup.sh
+```
+
+---
+
+## 8. Container Rebuilds & Force Recreate (`nd restart`)
+
+```bash
+# Standard service restart
+nd restart web
+
+# Force recreate containers (docker compose up -d --force-recreate)
+nd restart --recreate
+nd restart web --recreate
+```
+
+---
+
+## 9. Remote File & Folder Management (`nd files`, `nd file`, `nd folder`)
+
+AI assistants and developers can inspect, read, write, edit, and delete individual files or entire folders without doing a full `nd push`:
+
+### 9.1 Listing Workspace Files
 ```bash
 # List root workspace files for the linked app
 nd files
@@ -129,7 +209,7 @@ nd files -r
 nd files --app <app_id>
 ```
 
-### 6.2 Reading Remote Files
+### 9.2 Reading Remote Files
 ```bash
 # Print remote file content directly to stdout
 nd file read docker-compose.yml
@@ -139,7 +219,7 @@ nd cat nginx.conf
 nd file read remote_config.json -o local_config.json
 ```
 
-### 6.3 Writing & Updating Remote Files
+### 9.3 Writing & Updating Remote Files
 ```bash
 # Write directly from command-line argument
 nd file write config.json '{"debug": false, "port": 8080}'
@@ -157,7 +237,7 @@ nd edit docker-compose.yml
 nd file edit main.go
 ```
 
-### 6.4 Deleting Files & Folders
+### 9.4 Deleting Files & Folders
 ```bash
 # Delete a remote file
 nd file rm obsolete.js

@@ -1165,11 +1165,23 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	service := strings.TrimSpace(getStringArg(args, "service"))
+	recreate := getBoolArg(args, "recreate")
 	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
 	}
 	if service != "" {
+		if recreate {
+			composeFiles := h.p.EffectiveComposePaths(ctx, app, appID)
+			envFiles := h.p.ComposeEnvFiles(ctx, appID)
+			project := h.p.ActiveComposeProjectName(ctx, app, appID)
+			dir := h.p.AppCheckoutPath(appID)
+			res := dockerx.ComposeRecreate(ctx, dir, composeFiles, project, nil, envFiles, service)
+			if !res.OK {
+				return errorResult(fmt.Errorf("recreate failed for service %q: %s", service, res.Output))
+			}
+			return textResult(fmt.Sprintf("Recreated container for service %q: %s", service, res.Output))
+		}
 		project := h.p.ActiveComposeProjectName(ctx, app, appID)
 		cid, err := dockerapi.ContainerIDForComposeService(ctx, project, service)
 		if err != nil {
@@ -1179,6 +1191,11 @@ func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]
 			return errorResult(fmt.Errorf("restart failed: %w", err))
 		}
 		return textResult(fmt.Sprintf("Restarted container %s for service %q", cid, service))
+	}
+	if recreate {
+		return h.handleDeploy(ctx, u, args, "Stack recreate", func(c context.Context, d string, cf []string, p string, w io.Writer, ef []string) dockerx.Result {
+			return dockerx.ComposeRecreate(c, d, cf, p, w, ef)
+		})
 	}
 	return h.handleDeploy(ctx, u, args, "Stack restart", dockerx.ComposeRestart)
 }
@@ -1280,7 +1297,13 @@ func (h *Handler) handleDeployStatus(ctx context.Context, u db.User, args map[st
 func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	service := strings.TrimSpace(getStringArg(args, "service"))
-	tail := getIntArg(args, "tail", 30)
+	tail := getIntArg(args, "tail", 0)
+	if tail <= 0 {
+		tail = getIntArg(args, "lines", 30)
+	}
+	if tail <= 0 {
+		tail = 30
+	}
 	filterHealth := true
 	if v, ok := args["filter_health"].(bool); ok {
 		filterHealth = v
@@ -1447,17 +1470,37 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 		return errorResult(errors.New("permission denied: container_exec is restricted. Enable 'Allow container_exec' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)"))
 	}
 
+	var cmdArgs []string
+	if rawArr, ok := args["args"].([]interface{}); ok {
+		for _, item := range rawArr {
+			if s, ok := item.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	} else if rawStrArr, ok := args["args"].([]string); ok {
+		cmdArgs = rawStrArr
+	}
+
 	command := getStringArg(args, "command")
-	if command == "" {
-		return errorResult(errors.New("command is required"))
+	if command == "" && len(cmdArgs) == 0 {
+		return errorResult(errors.New("command or args is required"))
+	}
+	if command == "" && len(cmdArgs) > 0 {
+		command = strings.Join(cmdArgs, " ")
 	}
 	service := strings.TrimSpace(getStringArg(args, "service"))
 	workDir := strings.TrimSpace(getStringArg(args, "work_dir"))
+	stdinStr := getStringArg(args, "stdin")
+	var stdinReader io.Reader
+	if stdinStr != "" {
+		stdinReader = strings.NewReader(stdinStr)
+	}
+
 	timeoutSec := getIntArg(args, "timeout_seconds", 60)
 	if timeoutSec < 1 {
 		timeoutSec = 1
-	} else if timeoutSec > 300 {
-		timeoutSec = 300
+	} else if timeoutSec > 3600 {
+		timeoutSec = 3600
 	}
 
 	project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
@@ -1506,7 +1549,12 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	res := dockerx.DockerExecWorkDir(execCtx, targetContainer, command, workDir)
+	var res dockerx.Result
+	if len(cmdArgs) > 0 {
+		res = dockerx.DockerExecArgs(execCtx, targetContainer, cmdArgs, workDir, stdinReader)
+	} else {
+		res = dockerx.DockerExecWorkDirWithStdin(execCtx, targetContainer, command, workDir, stdinReader)
+	}
 
 	go func() {
 		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

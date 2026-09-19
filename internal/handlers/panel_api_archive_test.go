@@ -318,3 +318,113 @@ func TestAPIAppDelete(t *testing.T) {
 	}
 }
 
+func TestDownloadWorkspaceArchive(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "archive_download_test_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	wsStore := workspace.NewStore(tmpDir)
+
+	p := &Panel{
+		DB:             store,
+		Store:          wsStore,
+		WorkspacesRoot: tmpDir,
+	}
+
+	ctx := context.Background()
+	adminID, err := store.CreateUser(ctx, "adminuser2", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Download Test Token", "cli", nil, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	appID := "download-app"
+	if err := store.CreateApp(ctx, appID, "Download App", adminID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+
+	appDir := p.Store.Path(appID)
+	_ = os.MkdirAll(filepath.Join(appDir, ".git"), 0750)
+	_ = os.WriteFile(filepath.Join(appDir, ".git", "config"), []byte("git"), 0644)
+	_ = os.MkdirAll(filepath.Join(appDir, ".panel-meta"), 0750)
+	_ = os.WriteFile(filepath.Join(appDir, ".panel-meta", "meta.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(appDir, ".env"), []byte("SECRET=true"), 0600)
+	_ = os.WriteFile(filepath.Join(appDir, ".env.production"), []byte("SECRET=prod"), 0600)
+	_ = os.WriteFile(filepath.Join(appDir, "server.py"), []byte("print('server')"), 0644)
+	_ = os.MkdirAll(filepath.Join(appDir, "sub"), 0750)
+	_ = os.WriteFile(filepath.Join(appDir, "sub", "util.py"), []byte("print('util')"), 0644)
+
+	app := fiber.New()
+	app.Get("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.DownloadWorkspaceArchive)
+
+	// 1. Unauthorized
+	reqUnauth := httptest.NewRequest("GET", "/api/v1/apps/"+appID+"/workspace/archive", nil)
+	respUnauth, err := app.Test(reqUnauth)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respUnauth.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized, got %d", respUnauth.StatusCode)
+	}
+
+	// 2. Authorized
+	reqAuth := httptest.NewRequest("GET", "/api/v1/apps/"+appID+"/workspace/archive", nil)
+	reqAuth.Header.Set("Authorization", "Bearer "+rawToken)
+	respAuth, err := app.Test(reqAuth, 10000)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respAuth.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(respAuth.Body)
+		t.Fatalf("expected 200 OK, got %d: %s", respAuth.StatusCode, string(body))
+	}
+
+	// Read and verify tar.gz contents
+	gzReader, err := gzip.NewReader(respAuth.Body)
+	if err != nil {
+		t.Fatalf("invalid gzip: %v", err)
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+	seen := make(map[string]bool)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("tar read error: %v", err)
+		}
+		seen[header.Name] = true
+	}
+
+	if !seen["server.py"] {
+		t.Errorf("expected server.py in archive, got: %v", seen)
+	}
+	if !seen["sub/util.py"] {
+		t.Errorf("expected sub/util.py in archive, got: %v", seen)
+	}
+	if seen[".env"] || seen[".env.production"] {
+		t.Errorf("sensitive .env files must not be in archive: %v", seen)
+	}
+	for name := range seen {
+		if strings.HasPrefix(name, ".git") || strings.HasPrefix(name, ".panel-meta") {
+			t.Errorf("internal directory %s must not be in archive", name)
+		}
+	}
+}
+
+

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,8 +19,16 @@ type Result struct {
 
 // Run executes a command in dir with optional extra env vars and captures stdout+stderr.
 func Run(ctx context.Context, dir string, env []string, args ...string) Result {
+	return RunWithStdin(ctx, dir, env, nil, args...)
+}
+
+// RunWithStdin executes a command with optional stdin reader, extra env vars, and captures stdout+stderr.
+func RunWithStdin(ctx context.Context, dir string, env []string, stdin io.Reader, args ...string) Result {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}

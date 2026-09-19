@@ -97,3 +97,62 @@ func TestLocalHashes_WithGitIgnore(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalHashes_SingleFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "nd-sync-single-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	filePath := filepath.Join(tempDir, "script.py")
+	if err := os.WriteFile(filePath, []byte("print(42)\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	hashes, err := LocalHashes(filePath)
+	if err != nil {
+		t.Fatalf("LocalHashes on file returned error: %v", err)
+	}
+
+	if len(hashes) != 1 {
+		t.Fatalf("expected 1 file in hashes, got %d", len(hashes))
+	}
+
+	if _, ok := hashes["script.py"]; !ok {
+		t.Errorf("expected key 'script.py' in hashes, got %v", hashes)
+	}
+}
+
+func TestLocalHashes_Cache(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "nd-sync-cache-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	filePath := filepath.Join(tempDir, "app.txt")
+	_ = os.WriteFile(filePath, []byte("version1"), 0644)
+
+	// First run creates cache
+	hashes1, err := LocalHashes(tempDir)
+	if err != nil {
+		t.Fatalf("LocalHashes 1: %v", err)
+	}
+
+	cacheFile := filepath.Join(tempDir, ".nd", "hash_cache.json")
+	if _, err := os.Stat(cacheFile); err != nil {
+		t.Fatalf("expected hash_cache.json to exist at %s", cacheFile)
+	}
+
+	// Second run should return identical hash
+	hashes2, err := LocalHashes(tempDir)
+	if err != nil {
+		t.Fatalf("LocalHashes 2: %v", err)
+	}
+
+	if hashes1["app.txt"] != hashes2["app.txt"] {
+		t.Errorf("hash mismatch between cached runs: %q vs %q", hashes1["app.txt"], hashes2["app.txt"])
+	}
+}
+

@@ -26,6 +26,7 @@ type ComposePsRow struct {
 	State   string `json:"State"`
 	Status  string `json:"Status"`
 	Image   string `json:"Image,omitempty"`
+	Ports   string `json:"Ports,omitempty"`
 	// WorkingDir is com.docker.compose.project.working_dir (SDK path only; empty from CLI fallback).
 	WorkingDir string `json:"-"`
 }
@@ -151,6 +152,13 @@ func ComposeRestart(ctx context.Context, projectDir string, composeFiles []strin
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "restart")
 }
 
+// ComposeRecreate recreates containers with new configuration or images (--force-recreate).
+func ComposeRecreate(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string, services ...string) Result {
+	fixLineEndings(projectDir)
+	args := append([]string{"up", "-d", "--force-recreate"}, services...)
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, args...)
+}
+
 // ComposePullUp pulls latest images then brings the stack up (redeploy without rebuild).
 func ComposePullUp(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)
@@ -182,6 +190,7 @@ func ComposePS(ctx context.Context, projectDir string, composeFiles []string, pr
 					State:      sr.State,
 					Status:     sr.Status,
 					Image:      sr.Image,
+					Ports:      sr.Ports,
 					WorkingDir: sr.WorkingDir,
 				})
 			}
@@ -330,7 +339,8 @@ func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	return Result{OK: ok, Output: out}
 }
 
-func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string) Result {
+// DockerExecWorkDirWithStdin executes a shell command inside a container with optional stdin.
+func DockerExecWorkDirWithStdin(ctx context.Context, container, shellCmd, workDir string, stdin io.Reader) Result {
 	container = strings.TrimSpace(container)
 	shellCmd = strings.TrimSpace(shellCmd)
 	workDir = strings.TrimSpace(workDir)
@@ -347,7 +357,7 @@ func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string)
 		args = []string{"docker", "exec", "-i", container, "sh", "-c", shellCmd}
 	}
 	// Try with sh -c first
-	r := run(ctx, ".", args...)
+	r := runutil.RunWithStdin(ctx, ".", nil, stdin, args...)
 	if !r.OK && strings.Contains(r.Output, "executable file not found") {
 		// Fallback: try running the command directly without shell
 		parts := strings.Fields(shellCmd)
@@ -357,10 +367,32 @@ func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string)
 				base = append(base, "-w", workDir)
 			}
 			base = append(base, container)
-			r = run(ctx, ".", append(base, parts...)...)
+			r = runutil.RunWithStdin(ctx, ".", nil, stdin, append(base, parts...)...)
 		}
 	}
 	return r
+}
+
+// DockerExecArgs executes a command with direct arguments (no shell interpretation) inside a container.
+func DockerExecArgs(ctx context.Context, container string, cmdArgs []string, workDir string, stdin io.Reader) Result {
+	container = strings.TrimSpace(container)
+	workDir = strings.TrimSpace(workDir)
+	if container == "" {
+		return Result{OK: false, Output: "no container selected"}
+	}
+	if len(cmdArgs) == 0 {
+		return Result{OK: false, Output: "empty command"}
+	}
+	base := []string{"docker", "exec", "-i"}
+	if workDir != "" {
+		base = append(base, "-w", workDir)
+	}
+	base = append(base, container)
+	return runutil.RunWithStdin(ctx, ".", nil, stdin, append(base, cmdArgs...)...)
+}
+
+func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string) Result {
+	return DockerExecWorkDirWithStdin(ctx, container, shellCmd, workDir, nil)
 }
 
 func DockerExec(ctx context.Context, container, shellCmd string) Result {

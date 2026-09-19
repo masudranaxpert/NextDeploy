@@ -83,11 +83,60 @@ func hashesMatch(h1, h2 string) bool {
 	return strings.HasPrefix(h1, h2)
 }
 
+// HashCacheEntry stores timestamp and size alongside sha256 to avoid redundant disk reads.
+type HashCacheEntry struct {
+	MTime int64  `json:"mtime"`
+	Size  int64  `json:"size"`
+	SHA   string `json:"sha"`
+}
+
+func loadHashCache(dir string) map[string]HashCacheEntry {
+	cacheFile := filepath.Join(dir, ".nd", "hash_cache.json")
+	b, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return make(map[string]HashCacheEntry)
+	}
+	var cache map[string]HashCacheEntry
+	if err := json.Unmarshal(b, &cache); err != nil {
+		return make(map[string]HashCacheEntry)
+	}
+	return cache
+}
+
+func saveHashCache(dir string, cache map[string]HashCacheEntry) {
+	ndDir := filepath.Join(dir, ".nd")
+	if err := os.MkdirAll(ndDir, 0755); err != nil {
+		return
+	}
+	cacheFile := filepath.Join(ndDir, "hash_cache.json")
+	b, err := json.Marshal(cache)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(cacheFile, b, 0644)
+}
+
 // LocalHashes walks localDir and returns path→sha256 for all non-ignored files.
+// It utilizes .nd/hash_cache.json to bypass reading unchanged files.
 func LocalHashes(localDir string) (map[string]string, error) {
+	fi, err := os.Stat(localDir)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() {
+		h, err := fileHash(localDir)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{filepath.Base(localDir): h}, nil
+	}
+
+	cache := loadHashCache(localDir)
+	updatedCache := make(map[string]HashCacheEntry, len(cache))
 	ignorer := loadGitIgnore(localDir)
 	out := make(map[string]string)
-	err := filepath.WalkDir(localDir, func(p string, d fs.DirEntry, werr error) error {
+
+	err = filepath.WalkDir(localDir, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
 		}
@@ -115,13 +164,36 @@ func LocalHashes(localDir string) (map[string]string, error) {
 			return nil
 		}
 
-		h, err := fileHash(p)
+		info, err := d.Info()
 		if err != nil {
 			return nil
+		}
+
+		mtime := info.ModTime().UnixNano()
+		size := info.Size()
+
+		var h string
+		if cached, ok := cache[relSlash]; ok && cached.MTime == mtime && cached.Size == size && cached.SHA != "" {
+			h = cached.SHA
+		} else {
+			h, err = fileHash(p)
+			if err != nil {
+				return nil
+			}
+		}
+
+		updatedCache[relSlash] = HashCacheEntry{
+			MTime: mtime,
+			Size:  size,
+			SHA:   h,
 		}
 		out[relSlash] = h
 		return nil
 	})
+
+	if err == nil && len(out) > 0 {
+		saveHashCache(localDir, updatedCache)
+	}
 	return out, err
 }
 

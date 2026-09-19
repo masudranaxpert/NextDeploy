@@ -246,13 +246,14 @@ func AllTools() []Tool {
 		},
 		{
 			Name: "restart",
-			Description: "Restart all containers or a specific service container for an application without rebuilding. " +
-				"Use for quick restarts after config or env updates when a full compose up is not required.",
+			Description: "Restart all containers or a specific service container for an application. " +
+				"Use for quick restarts after config/env updates, or with recreate:true to force recreate containers from new images.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id":  {Type: "string", Description: "The application ID"},
-					"service": {Type: "string", Description: "Optional service name to restart only that container"},
+					"app_id":   {Type: "string", Description: "The application ID"},
+					"service":  {Type: "string", Description: "Optional service name to restart only that container"},
+					"recreate": {Type: "boolean", Description: "Force recreate containers from image (docker compose up -d --force-recreate)"},
 				},
 				Required: []string{"app_id"},
 			},
@@ -316,18 +317,20 @@ func AllTools() []Tool {
 		},
 		{
 			Name: "container_exec",
-			Description: "Execute a shell command inside an application container. " +
-				"Use for running migrations, tests, or CLI commands inside the container. Requires explicit 'Allow container_exec' token permission. For host server commands, use server_exec.",
+			Description: "Execute a command inside an application container. " +
+				"Pass 'command' for shell execution or 'args' for direct exec without shell quoting issues. Supports stdin input. Requires explicit 'Allow container_exec' token permission.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
 					"app_id":          {Type: "string", Description: "The application ID"},
 					"command":         {Type: "string", Description: "Shell command to execute inside the container"},
+					"args":            {Type: "array", Description: "Direct argument tokens for execvp execution without shell wrapping"},
+					"stdin":           {Type: "string", Description: "Optional standard input content to feed into the command"},
 					"service":         {Type: "string", Description: "Optional compose service name or container name (defaults to primary running container)"},
 					"work_dir":        {Type: "string", Description: "Optional working directory inside the container"},
-					"timeout_seconds": {Type: "integer", Description: "Command timeout in seconds (default 60, max 300)"},
+					"timeout_seconds": {Type: "integer", Description: "Command timeout in seconds (default 60, max 3600)"},
 				},
-				Required: []string{"app_id", "command"},
+				Required: []string{"app_id"},
 			},
 		},
 		{

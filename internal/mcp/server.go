@@ -92,9 +92,18 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 		})
 	}
 
-	// Policy check: CLI requests vs external AI MCP requests (tokens are unified and shared)
-	isCLI := c.Get("X-NextDeploy-Client") == "cli" || strings.HasPrefix(c.Get("User-Agent"), "nd/") || apiToken.Kind == "cli"
-	if isCLI {
+	// Policy check based on token kind and client headers
+	if apiToken.Kind == "mcp" {
+		if !s.IsEnabled(ctx) {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"jsonrpc": "2.0",
+				"error": fiber.Map{
+					"code":    ErrCodeInternal,
+					"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
+				},
+			})
+		}
+	} else if apiToken.Kind == "cli" {
 		if s.p.DB.GetSetting(ctx, "cli_enabled") == "0" {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"jsonrpc": "2.0",
@@ -105,15 +114,28 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 			})
 		}
 	} else {
-		// External MCP clients (Cursor, Claude, Antigravity, etc.)
-		if !s.IsEnabled(ctx) {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-				"jsonrpc": "2.0",
-				"error": fiber.Map{
-					"code":    ErrCodeInternal,
-					"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
-				},
-			})
+		// Unified or unassigned tokens: distinguish between CLI and external MCP clients
+		isCLI := c.Get("X-NextDeploy-Client") == "cli" || strings.HasPrefix(c.Get("User-Agent"), "nd/")
+		if isCLI {
+			if s.p.DB.GetSetting(ctx, "cli_enabled") == "0" {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+					"jsonrpc": "2.0",
+					"error": fiber.Map{
+						"code":    ErrCodeInternal,
+						"message": "NextDeploy CLI access is currently disabled in system settings.",
+					},
+				})
+			}
+		} else {
+			if !s.IsEnabled(ctx) {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+					"jsonrpc": "2.0",
+					"error": fiber.Map{
+						"code":    ErrCodeInternal,
+						"message": "NextDeploy MCP server is currently disabled. Enable MCP in the NextDeploy Panel under MCP Settings (/mcp-docs).",
+					},
+				})
+			}
 		}
 	}
 

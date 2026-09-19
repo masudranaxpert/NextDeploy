@@ -30,7 +30,7 @@ _nd_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="login logout whoami apps create delete link unlink info status open ps containers images push deploy redeploy stop restart down logs exec run server-exec env files file cat edit folder ls version help completion"
+    commands="login logout whoami apps create delete link unlink info status open ps containers images push pull diff deploy redeploy stop restart down logs exec run server-exec env files file cat edit folder ls version help completion"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
@@ -61,7 +61,7 @@ _nd_completions() {
     esac
 
     if [[ ${cur} == -* ]] ; then
-        COMPREPLY=( $(compgen -W "--help --json -a --app -f --follow --force --prune -y" -- ${cur}) )
+        COMPREPLY=( $(compgen -W "--help --json -a --app -f --follow --force --prune --recreate -i --stdin -t --timeout -s --service -c --container -w --workdir -y" -- ${cur}) )
         return 0
     fi
 }
@@ -87,6 +87,8 @@ _nd() {
         'containers:List VPS host containers'
         'images:List Docker images'
         'push:Sync files and deploy'
+        'pull:Download remote workspace files to local directory'
+        'diff:Compare local files against remote workspace'
         'deploy:Deploy application'
         'redeploy:Rebuild and redeploy application'
         'stop:Stop application containers'
@@ -116,7 +118,7 @@ const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandN
     $commands = @(
         'login', 'logout', 'whoami', 'apps', 'create', 'delete',
         'link', 'unlink', 'info', 'status', 'open', 'ps',
-        'containers', 'images', 'push', 'deploy', 'redeploy', 'stop', 'restart', 'down',
+        'containers', 'images', 'push', 'pull', 'diff', 'deploy', 'redeploy', 'stop', 'restart', 'down',
         'logs', 'exec', 'run', 'server-exec', 'env', 'files', 'file', 'cat', 'edit', 'folder', 'ls', 'version', 'help', 'completion'
     )
     $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {

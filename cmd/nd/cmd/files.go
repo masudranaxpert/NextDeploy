@@ -65,23 +65,46 @@ func resolveFileApp(args []string) (string, []string, error) {
 	return "", remaining, fmt.Errorf("app_id required (pass --app <id>, specify as argument, or run 'nd link <id>')")
 }
 
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "help" {
+			return true
+		}
+	}
+	return false
+}
+
+func printFilesUsage() {
+	fmt.Println("Usage: nd files <command> [args...]")
+	fmt.Println("       nd file <command> [args...]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  list, ls                 List files and directories in workspace")
+	fmt.Println("  read, cat <path>         Read remote file content")
+	fmt.Println("  write, put <path>        Write or upload file to workspace")
+	fmt.Println("  edit <path>              Edit remote file in $EDITOR")
+	fmt.Println("  rm, delete <path>        Delete a file from workspace")
+	fmt.Println("  folder rm <path>         Delete a folder and its contents")
+}
+
 // RunFiles dispatches file subcommands: list, read/cat, write/put, edit, rm/delete.
 // Usage: nd files [subcommand] [args...]
 func RunFiles(cl *client.Client, args []string) error {
-	if len(args) > 0 {
-		sub := args[0]
-		switch sub {
-		case "list", "ls":
-			return RunFileList(cl, args[1:])
-		case "read", "cat", "view":
-			return RunFileRead(cl, args[1:])
-		case "write", "put":
-			return RunFileWrite(cl, args[1:])
-		case "edit":
-			return RunFileEdit(cl, args[1:])
-		case "rm", "delete", "remove":
-			return RunFileDelete(cl, args[1:])
-		}
+	if len(args) == 0 || (len(args) == 1 && hasHelpFlag(args)) {
+		printFilesUsage()
+		return nil
+	}
+	sub := args[0]
+	switch sub {
+	case "list", "ls":
+		return RunFileList(cl, args[1:])
+	case "read", "cat", "view":
+		return RunFileRead(cl, args[1:])
+	case "write", "put":
+		return RunFileWrite(cl, args[1:])
+	case "edit":
+		return RunFileEdit(cl, args[1:])
+	case "rm", "delete", "remove":
+		return RunFileDelete(cl, args[1:])
 	}
 	return RunFileList(cl, args)
 }
@@ -89,6 +112,12 @@ func RunFiles(cl *client.Client, args []string) error {
 // RunFileList lists files in the workspace (or a subfolder).
 // Usage: nd files list [path] [--app <id>] [-r|--recursive] [--json]
 func RunFileList(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd files list [path] [--app <id>] [-r|--recursive] [--json]")
+		fmt.Println("       nd ls [path] [--app <id>] [-r] [--json]")
+		return nil
+	}
+
 	var recursive bool
 	var jsonOut bool
 	var filtered []string
@@ -110,7 +139,10 @@ func RunFileList(cl *client.Client, rawArgs []string) error {
 	}
 
 	var reqPath string
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if len(rest) > 0 {
+		if strings.HasPrefix(rest[0], "-") {
+			return fmt.Errorf("unknown flag: %s (run with --help for usage)", rest[0])
+		}
 		reqPath = rest[0]
 	}
 
@@ -223,6 +255,12 @@ func RunFileList(cl *client.Client, rawArgs []string) error {
 // RunFileRead reads and prints remote file content.
 // Usage: nd file read <path> [--app <id>] [--output <local_file>] [--full] [--json]
 func RunFileRead(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd file read <path> [--app <id>] [--output <local_file>] [--full] [--json]")
+		fmt.Println("       nd cat <path> [--app <id>] [--output <local_file>] [--full] [--json]")
+		return nil
+	}
+
 	var outputFile string
 	var jsonOut bool
 	var fullRead bool
@@ -254,6 +292,9 @@ func RunFileRead(cl *client.Client, rawArgs []string) error {
 
 	if len(rest) < 1 {
 		return fmt.Errorf("usage: nd file read <path> [--app <id>] [--output <file>] [--full]")
+	}
+	if strings.HasPrefix(rest[0], "-") {
+		return fmt.Errorf("unknown flag: %s (run with --help for usage)", rest[0])
 	}
 
 	filePath := rest[0]
@@ -332,6 +373,12 @@ func RunFileRead(cl *client.Client, rawArgs []string) error {
 // RunFileWrite creates or updates a remote file.
 // Usage: nd file write <path> [content_or_file] [--app <id>] [--from <local_file>]
 func RunFileWrite(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd file write <path> [content_or_file] [--from <file>] [--app <id>]")
+		fmt.Println("       nd put <path> [content_or_file] [--from <file>] [--app <id>]")
+		return nil
+	}
+
 	var fromFile string
 	var filtered []string
 
@@ -355,6 +402,9 @@ func RunFileWrite(cl *client.Client, rawArgs []string) error {
 
 	if len(rest) < 1 {
 		return fmt.Errorf("usage: nd file write <path> [content_or_local_file] [--from <file>] [--app <id>]")
+	}
+	if strings.HasPrefix(rest[0], "-") {
+		return fmt.Errorf("unknown flag: %s (run with --help for usage)", rest[0])
 	}
 
 	remotePath := rest[0]
@@ -433,6 +483,12 @@ func RunFileWrite(cl *client.Client, rawArgs []string) error {
 // RunFileEdit opens remote file in $EDITOR and writes back changes on save.
 // Usage: nd file edit <path> [--app <id>]
 func RunFileEdit(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd file edit <path> [--app <id>]")
+		fmt.Println("       nd edit <path> [--app <id>]")
+		return nil
+	}
+
 	appID, rest, err := resolveFileApp(rawArgs)
 	if err != nil {
 		return err
@@ -440,6 +496,9 @@ func RunFileEdit(cl *client.Client, rawArgs []string) error {
 
 	if len(rest) < 1 {
 		return fmt.Errorf("usage: nd file edit <remote_path> [--app <id>]")
+	}
+	if strings.HasPrefix(rest[0], "-") {
+		return fmt.Errorf("unknown flag: %s (run with --help for usage)", rest[0])
 	}
 
 	remotePath := rest[0]
@@ -554,6 +613,11 @@ func RunFileEdit(cl *client.Client, rawArgs []string) error {
 // RunFileDelete removes a remote file or directory.
 // Usage: nd file rm <path> [--app <id>] [-f|--force] [-r|--recursive]
 func RunFileDelete(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd file rm <path> [--app <id>] [-f|--force] [-r|--recursive]")
+		return nil
+	}
+
 	var force bool
 	var recursive bool
 	var filtered []string
@@ -576,6 +640,9 @@ func RunFileDelete(cl *client.Client, rawArgs []string) error {
 
 	if len(rest) < 1 {
 		return fmt.Errorf("usage: nd file rm <path> [--app <id>] [-f] [-r]")
+	}
+	if strings.HasPrefix(rest[0], "-") {
+		return fmt.Errorf("unknown flag: %s (run with --help for usage)", rest[0])
 	}
 
 	remotePath := rest[0]
@@ -629,6 +696,10 @@ func RunFileDelete(cl *client.Client, rawArgs []string) error {
 // RunFolder handles folder operations (specifically deletion / rm).
 // Usage: nd folder rm <path> [--app <id>] [-f]
 func RunFolder(cl *client.Client, rawArgs []string) error {
+	if len(rawArgs) == 0 || hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd folder rm <folder_path> [--app <id>] [-f|--force]")
+		return nil
+	}
 	if len(rawArgs) > 0 {
 		sub := rawArgs[0]
 		switch sub {
@@ -642,6 +713,10 @@ func RunFolder(cl *client.Client, rawArgs []string) error {
 // RunFolderDelete deletes a remote folder and all its contents.
 // Usage: nd folder rm <folder_path> [--app <id>] [-f]
 func RunFolderDelete(cl *client.Client, rawArgs []string) error {
+	if hasHelpFlag(rawArgs) {
+		fmt.Println("Usage: nd folder rm <folder_path> [--app <id>] [-f|--force]")
+		return nil
+	}
 	argsWithRecursive := append([]string{"-r"}, rawArgs...)
 	return RunFileDelete(cl, argsWithRecursive)
 }

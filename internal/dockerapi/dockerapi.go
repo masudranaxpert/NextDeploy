@@ -864,6 +864,7 @@ type ComposePsRow struct {
 	State      string
 	Status     string
 	Image      string
+	Ports      string
 	WorkingDir string
 }
 
@@ -893,12 +894,25 @@ func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
 		} else {
 			name = c.ID[:12]
 		}
+		var portStrs []string
+		for _, p := range c.Ports {
+			if p.PublicPort > 0 {
+				if p.IP != "" && p.IP != "0.0.0.0" {
+					portStrs = append(portStrs, fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type))
+				} else {
+					portStrs = append(portStrs, fmt.Sprintf("%d->%d/%s", p.PublicPort, p.PrivatePort, p.Type))
+				}
+			} else if p.PrivatePort > 0 {
+				portStrs = append(portStrs, fmt.Sprintf("%d/%s", p.PrivatePort, p.Type))
+			}
+		}
 		out = append(out, ComposePsRow{
 			Name:       name,
 			Service:    service,
 			State:      c.State,
 			Status:     c.Status,
 			Image:      c.Image,
+			Ports:      strings.Join(portStrs, ", "),
 			WorkingDir: c.Labels["com.docker.compose.project.working_dir"],
 		})
 	}

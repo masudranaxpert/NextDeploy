@@ -143,6 +143,10 @@ func run() int {
 		err = cmd.RunUnlink(cl, rest)
 	case "push":
 		err = cmd.RunPush(cl, rest)
+	case "pull":
+		err = cmd.RunPull(cl, rest)
+	case "diff":
+		err = cmd.RunDiff(cl, rest)
 	case "deploy", "redeploy":
 		err = cmd.RunDeploy(cl, rest)
 	case "stop":

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -16,7 +17,35 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.1.1"
+var Version = "1.2.0"
+
+// posixQuote escapes a single shell argument safely.
+func posixQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	safe := true
+	for _, r := range arg {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '.' || r == '/' || r == ':' || r == '@') {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+}
+
+// posixJoin joins tokens into a safe shell command string.
+func posixJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = posixQuote(a)
+	}
+	return strings.Join(quoted, " ")
+}
 
 // RunLogin handles: nd login <server_url>
 // Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
@@ -683,6 +712,7 @@ func RunPS(cl *client.Client, args []string) error {
 			State   string `json:"State"`
 			Status  string `json:"Status"`
 			Image   string `json:"Image"`
+			Ports   string `json:"Ports,omitempty"`
 		} `json:"ps"`
 		Health struct {
 			Healthy bool `json:"healthy"`
@@ -701,6 +731,7 @@ func RunPS(cl *client.Client, args []string) error {
 				State   string `json:"State"`
 				Status  string `json:"Status"`
 				Image   string `json:"Image"`
+				Ports   string `json:"Ports,omitempty"`
 			}{}
 		}
 		pretty, _ := json.MarshalIndent(data.PS, "", "  ")
@@ -719,17 +750,22 @@ func RunPS(cl *client.Client, args []string) error {
 		return nil
 	}
 
-	headers := []string{"Service", "Container", "Image", "State", "Status"}
+	headers := []string{"Service", "Container", "Image", "Ports", "State", "Status"}
 	var rows [][]string
 	for _, p := range data.PS {
 		img := p.Image
 		if img == "" {
 			img = ui.Dim("-")
 		}
+		ports := p.Ports
+		if ports == "" {
+			ports = ui.Dim("-")
+		}
 		rows = append(rows, []string{
 			ui.Bold(p.Service),
 			p.Name,
 			img,
+			ports,
 			ui.StatePill(p.State),
 			p.Status,
 		})
@@ -762,6 +798,7 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 		Name    string `json:"name"`
 		Service string `json:"service"`
 		Image   string `json:"image"`
+		Ports   string `json:"ports,omitempty"`
 		State   string `json:"state"`
 		Status  string `json:"status"`
 	}
@@ -797,6 +834,7 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 				State   string `json:"State"`
 				Status  string `json:"Status"`
 				Image   string `json:"Image"`
+				Ports   string `json:"Ports,omitempty"`
 			} `json:"ps"`
 		}
 		if json.Unmarshal([]byte(cResp.Result.Content[0].Text), &data) != nil {
@@ -810,6 +848,7 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 					Name:    p.Name,
 					Service: p.Service,
 					Image:   p.Image,
+					Ports:   p.Ports,
 					State:   p.State,
 					Status:  p.Status,
 				})
@@ -1205,6 +1244,7 @@ func RunLogs(cl *client.Client, args []string) error {
 	lines := 100
 	follow := false
 	isDeploy := false
+	service := ""
 	var cleanArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -1213,6 +1253,11 @@ func RunLogs(cl *client.Client, args []string) error {
 			follow = true
 		} else if arg == "--deploy" || arg == "-d" {
 			isDeploy = true
+		} else if (arg == "-s" || arg == "--service") && i+1 < len(args) {
+			service = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--service=") {
+			service = strings.TrimPrefix(arg, "--service=")
 		} else if (arg == "-n" || arg == "--tail" || arg == "--lines") && i+1 < len(args) {
 			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
 				lines = n
@@ -1235,11 +1280,19 @@ func RunLogs(cl *client.Client, args []string) error {
 	}
 
 	fetchLogs := func(tailCount int) (string, error) {
+		logArgs := map[string]interface{}{
+			"app_id": appID,
+			"tail":   tailCount,
+			"lines":  tailCount,
+		}
+		if service != "" {
+			logArgs["service"] = service
+		}
 		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 			"method": "tools/call",
 			"params": map[string]interface{}{
 				"name":      "container_logs",
-				"arguments": map[string]interface{}{"app_id": appID, "lines": tailCount},
+				"arguments": logArgs,
 			},
 		})
 		if err != nil {
@@ -1455,11 +1508,13 @@ func RunExec(cl *client.Client, args []string) error {
 	}
 
 	var (
-		appID     string
-		service   string
-		workDir   string
-		isServer  bool
-		cmdTokens []string
+		appID      string
+		service    string
+		workDir    string
+		timeoutStr string
+		stdinFlag  bool
+		isServer   bool
+		cmdTokens  []string
 	)
 
 	// Check if local project is linked
@@ -1471,7 +1526,30 @@ func RunExec(cl *client.Client, args []string) error {
 	i := 0
 	for i < len(args) {
 		arg := args[i]
-		if arg == "--server" {
+		if arg == "-h" || arg == "--help" {
+			fmt.Println("Usage: nd exec [flags] [app_id] <command...>")
+			fmt.Println("       nd run [flags] [app_id] <command...>")
+			fmt.Println("\nFlags:")
+			fmt.Println("  -a, --app <app_id>               Target application ID (optional if linked)")
+			fmt.Println("  -s, --service, -c, --container   Target service or container name (optional)")
+			fmt.Println("  -w, --workdir <dir>              Working directory inside container")
+			fmt.Println("  -i, --stdin                      Pass standard input to the command")
+			fmt.Println("  -t, --timeout <duration>         Command timeout (e.g. 300s, 5m, default: 300s)")
+			fmt.Println("  --server                         Run directly on the host VPS (requires allow_server_exec)")
+			return nil
+		} else if arg == "-i" || arg == "--stdin" {
+			stdinFlag = true
+			i++
+		} else if (arg == "-t" || arg == "--timeout") && i+1 < len(args) {
+			timeoutStr = args[i+1]
+			i += 2
+		} else if strings.HasPrefix(arg, "--timeout=") {
+			timeoutStr = strings.TrimPrefix(arg, "--timeout=")
+			i++
+		} else if strings.HasPrefix(arg, "-t=") {
+			timeoutStr = strings.TrimPrefix(arg, "-t=")
+			i++
+		} else if arg == "--server" {
 			isServer = true
 			i++
 		} else if (arg == "-a" || arg == "--app") && i+1 < len(args) {
@@ -1546,11 +1624,22 @@ func RunExec(cl *client.Client, args []string) error {
 		return fmt.Errorf("command required to execute inside container")
 	}
 
-	cmdStr := strings.Join(cmdTokens, " ")
+	var stdinData string
+	stat, err := os.Stdin.Stat()
+	isPipe := err == nil && (stat.Mode()&os.ModeCharDevice) == 0
+	if stdinFlag || isPipe {
+		data, rerr := io.ReadAll(os.Stdin)
+		if rerr == nil && len(data) > 0 {
+			stdinData = string(data)
+		}
+	}
+
+	cmdStr := posixJoin(cmdTokens)
 
 	mcpArgs := map[string]interface{}{
 		"app_id":  appID,
 		"command": cmdStr,
+		"args":    cmdTokens,
 	}
 	if service != "" {
 		mcpArgs["service"] = service
@@ -1558,14 +1647,30 @@ func RunExec(cl *client.Client, args []string) error {
 	if workDir != "" {
 		mcpArgs["work_dir"] = workDir
 	}
+	if stdinData != "" {
+		mcpArgs["stdin"] = stdinData
+	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+	timeoutSec := 300
+	if timeoutStr != "" {
+		if d, err := time.ParseDuration(timeoutStr); err == nil {
+			timeoutSec = int(d.Seconds())
+		} else if s, err := strconv.Atoi(timeoutStr); err == nil && s > 0 {
+			timeoutSec = s
+		}
+	}
+	if timeoutSec < 1 {
+		timeoutSec = 1
+	}
+	mcpArgs["timeout_seconds"] = timeoutSec
+
+	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name":      "container_exec",
 			"arguments": mcpArgs,
 		},
-	})
+	}, time.Duration(timeoutSec+15)*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to execute: %w", err)
 	}
@@ -1582,8 +1687,8 @@ func RunServerExec(cl *client.Client, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: nd server-exec <command...>")
 	}
-	cmdStr := strings.Join(args, " ")
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+	cmdStr := posixJoin(args)
+	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
 		"params": map[string]interface{}{
 			"name": "server_exec",
@@ -1591,7 +1696,7 @@ func RunServerExec(cl *client.Client, args []string) error {
 				"command": cmdStr,
 			},
 		},
-	})
+	}, 10*time.Minute)
 	if err != nil {
 		return fmt.Errorf("failed to call server_exec: %w", err)
 	}
@@ -1878,14 +1983,19 @@ func RunDown(cl *client.Client, args []string) error {
 }
 
 // RunRestart restarts an app or a specific service container.
-// Usage: nd restart [app_id] [service] [-s <service>]
+// Usage: nd restart [app_id] [service] [-s <service>] [--recreate]
 func RunRestart(cl *client.Client, args []string) error {
 	service := ""
+	recreate := false
 	var cleanArgs []string
 	for i := 0; i < len(args); i++ {
 		if (args[i] == "-s" || args[i] == "--service") && i+1 < len(args) {
 			service = args[i+1]
 			i++
+		} else if strings.HasPrefix(args[i], "--service=") {
+			service = strings.TrimPrefix(args[i], "--service=")
+		} else if args[i] == "--recreate" || args[i] == "-r" {
+			recreate = true
 		} else {
 			cleanArgs = append(cleanArgs, args[i])
 		}
@@ -1903,6 +2013,9 @@ func RunRestart(cl *client.Client, args []string) error {
 	if service != "" {
 		payload["service"] = service
 	}
+	if recreate {
+		payload["recreate"] = true
+	}
 
 	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 		"method": "tools/call",
@@ -1918,10 +2031,15 @@ func RunRestart(cl *client.Client, args []string) error {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
+	actionStr := "restarted"
+	if recreate {
+		actionStr = "recreated"
+	}
+
 	if service != "" {
-		fmt.Printf("✓ %s service %s restarted.\n", appID, ui.Cyan(service))
+		fmt.Printf("✓ %s service %s %s.\n", appID, ui.Cyan(service), actionStr)
 	} else {
-		fmt.Printf("✓ %s restarted.\n", appID)
+		fmt.Printf("✓ %s %s.\n", appID, actionStr)
 	}
 	return nil
 }
@@ -1950,15 +2068,17 @@ Process & Container Inspection:
   nd images [--json]                 List Docker images on the host VPS
 
 Deployments & Lifecycle:
-  nd push [app_id] [--deploy] [--prune] [-y] Sync local files (--deploy to auto-deploy, --prune removes server-only files)
+  nd push [app_id] [path] [--deploy] [--prune] [-y] Sync local files or single file (--deploy to auto-deploy, --prune removes server-only files)
+  nd pull [app_id] [target_dir]      Download remote workspace files to local directory (preserves local .env)
+  nd diff [app_id] [path]            Compare local files against remote workspace before sync
   nd deploy [app_id] [--rebuild]     Deploy application (--rebuild to pull & build image; alias: nd redeploy)
   nd stop [app_id] [service]         Stop application stack or a specific service container
-  nd restart [app_id] [service]      Restart application stack or a specific service container
+  nd restart [app_id] [service] [--recreate] Restart application stack or container (--recreate forces container rebuild)
   nd down [app_id]                   Stop and remove application containers
-  nd logs [app_id] [-n 50] [-f]      Show container logs (--deploy to view deployment build logs)
+  nd logs [app_id] [-s svc] [-n 50] [-f] Show container logs (--deploy to view deployment build logs)
 
 Execution & Command Run:
-  nd exec [flags] [app_id] <cmd...>  Run command inside container (primary, or specified -s service / -c container)
+  nd exec [flags] [app_id] <cmd...>  Run command inside container (supports -i/--stdin, -t/--timeout)
   nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
 
 Environment Variables:
@@ -1985,6 +2105,9 @@ Flags:
   -s, --service <service>            Target compose service for exec / logs / stop / restart
   -c, --container <container>        Target specific container name for exec
   -w, --workdir <dir>                Working directory inside container
+  -t, --timeout <secs>               Execution timeout in seconds (default: 300s, max: 3600s)
+  -i, --stdin                        Forward stdin to command inside container
+  --recreate                         Force recreate containers during restart
   --server                           Execute on host VPS instead of container
 
 Environment variables:

@@ -14,6 +14,7 @@ import (
 	"nd/internal/client"
 	"nd/internal/config"
 	"nd/internal/sync"
+	"nd/internal/ui"
 )
 
 // PushResult represents the structured JSON output for nd push --json.
@@ -40,6 +41,16 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 	for i := 0; i < len(rawArgs); i++ {
 		a := rawArgs[i]
 		switch {
+		case a == "-h" || a == "--help":
+			fmt.Println("Usage: nd push [app_id] [local_path] [--deploy] [--prune] [-y] [--json]")
+			fmt.Println("\nPush local workspace files or a single file to the server.")
+			fmt.Println("\nFlags:")
+			fmt.Println("  -a, --app <app_id>   Target application ID (optional if linked)")
+			fmt.Println("  -d, --deploy         Trigger auto-deployment after push")
+			fmt.Println("  --prune              Delete server-only files not found locally")
+			fmt.Println("  -y, --yes            Auto-confirm prune without prompt")
+			fmt.Println("  -j, --json           Output result as JSON")
+			return nil
 		case a == "--deploy" || a == "-d":
 			doDeploy = true
 		case a == "--prune":
@@ -61,45 +72,121 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 	}
 
 	var appID string
-	localDir := "."
+	target := "."
 
 	if flagAppID != "" {
 		appID = flagAppID
 		if len(args) >= 1 {
-			localDir = args[0]
+			target = args[0]
 		}
-	} else if len(args) >= 1 && !strings.HasPrefix(args[0], "-") {
-		if fi, err := os.Stat(args[0]); err == nil && fi.IsDir() {
-			pc, lerr := config.LoadProject(".")
-			if lerr == nil && pc.AppID != "" {
+	} else if len(args) == 0 {
+		pc, err := config.LoadProject(".")
+		if err != nil || pc.AppID == "" {
+			return fmt.Errorf("app_id required: nd push [app_id] [local_path] (or run 'nd link <app_id>' first)")
+		}
+		appID = pc.AppID
+		target = "."
+	} else if len(args) == 1 {
+		pc, lerr := config.LoadProject(".")
+		if lerr == nil && pc.AppID != "" {
+			// If target exists locally on disk (file or directory), use it as target for linked app
+			if _, serr := os.Stat(args[0]); serr == nil {
 				appID = pc.AppID
-				localDir = args[0]
+				target = args[0]
 			} else {
 				appID = args[0]
+				target = "."
 			}
 		} else {
 			appID = args[0]
-			if len(args) >= 2 {
-				localDir = args[1]
-			}
+			target = "."
 		}
 	} else {
-		pc, err := config.LoadProject(".")
-		if err != nil || pc.AppID == "" {
-			return fmt.Errorf("app_id required: nd push [app_id] [local_dir] (or run 'nd link <app_id>' first)")
-		}
-		appID = pc.AppID
-		if len(args) >= 1 {
-			localDir = args[0]
-		}
+		appID = args[0]
+		target = args[1]
 	}
 
-	abs, err := filepath.Abs(localDir)
+	abs, err := filepath.Abs(target)
 	if err != nil {
-		return fmt.Errorf("invalid dir: %w", err)
+		return fmt.Errorf("invalid path: %w", err)
 	}
-	if _, err := os.Stat(abs); err != nil {
-		return fmt.Errorf("directory not found: %s", abs)
+	targetFi, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("file or directory not found: %s", target)
+	}
+
+	// Single file push mode
+	if !targetFi.IsDir() {
+		cwd, _ := os.Getwd()
+		rel, rerr := filepath.Rel(cwd, abs)
+		if rerr != nil || strings.HasPrefix(rel, "..") {
+			cwd = filepath.Dir(abs)
+			rel = filepath.Base(abs)
+		}
+		relSlash := filepath.ToSlash(rel)
+
+		if !jsonOutput {
+			fmt.Printf("→ Pushing single file: %s (%d bytes) to %s\n", relSlash, targetFi.Size(), appID)
+		}
+
+		tarReader, _, err := sync.PackTarGz(cwd, []string{relSlash})
+		if err != nil {
+			return fmt.Errorf("pack failed: %w (deployment aborted)", err)
+		}
+
+		tarBytes, err := io.ReadAll(tarReader)
+		if err != nil {
+			return fmt.Errorf("read tar failed: %w (deployment aborted)", err)
+		}
+
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		part, err := mw.CreateFormFile("archive", "workspace.tar.gz")
+		if err != nil {
+			return fmt.Errorf("archive part creation failed: %w (deployment aborted)", err)
+		}
+		if _, err := part.Write(tarBytes); err != nil {
+			return fmt.Errorf("archive write failed: %w (deployment aborted)", err)
+		}
+		_ = mw.Close()
+
+		respBody, status, err := cl.DoRaw("POST",
+			"/api/v1/apps/"+appID+"/workspace/archive",
+			mw.FormDataContentType(),
+			&buf)
+		if err != nil {
+			return fmt.Errorf("upload failed: %w (deployment aborted)", err)
+		}
+		if status >= 400 {
+			return fmt.Errorf("upload error: %s (deployment aborted)", client.JSONError(respBody))
+		}
+
+		if !jsonOutput {
+			ui.Success("Successfully pushed %s to %s", relSlash, appID)
+		}
+
+		if doDeploy {
+			if !jsonOutput {
+				fmt.Println("→ Deploying...")
+			}
+			body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
+				"method": "tools/call",
+				"params": map[string]interface{}{
+					"name":      "deploy",
+					"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
+				},
+			}, 3*time.Minute)
+			if err != nil {
+				return fmt.Errorf("deploy failed: %w", err)
+			}
+			if status >= 400 {
+				return fmt.Errorf("deploy error: %s", client.JSONError(body))
+			}
+			if !jsonOutput {
+				fmt.Println("✓ Push and deployment completed successfully.")
+			}
+		}
+		return nil
 	}
 
 	if !jsonOutput {
