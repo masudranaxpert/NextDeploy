@@ -17,12 +17,14 @@ type APIToken struct {
 	ID                 int64      `json:"id"`
 	UserID             int64      `json:"user_id"`
 	Name               string     `json:"name"`
+	Token              string     `json:"token,omitempty"`
 	TokenHash          string     `json:"-"`
 	TokenPrefix        string     `json:"token_prefix"`
 	Kind               string     `json:"kind"` // "cli" | "mcp"
 	AllowEnvReveal     bool       `json:"allow_env_reveal"`
 	AllowServerExec    bool       `json:"allow_server_exec"`
 	AllowContainerExec bool       `json:"allow_container_exec"`
+	AllowAppDelete     bool       `json:"allow_app_delete"`
 	CreatedAt          time.Time  `json:"created_at"`
 	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
 	LastUsedAt         *time.Time `json:"last_used_at,omitempty"`
@@ -35,7 +37,7 @@ func HashToken(raw string) string {
 }
 
 // CreateAPIToken generates a new secure token, stores its hash, and returns the raw secret.
-func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind string, expiresAt *time.Time, allowEnvReveal, allowServerExec, allowContainerExec bool) (string, APIToken, error) {
+func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind string, expiresAt *time.Time, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete bool) (string, APIToken, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Default API Token"
@@ -70,11 +72,15 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind str
 	if allowContainerExec {
 		containerExecVal = 1
 	}
+	appDeleteVal := 0
+	if allowAppDelete {
+		appDeleteVal = 1
+	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, kind, allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, name, tokenHash, prefix, kind, revealVal, execVal, containerExecVal, now.Format(time.RFC3339), expStr)
+		`INSERT INTO api_tokens (user_id, name, token, token_hash, token_prefix, kind, allow_env_reveal, allow_server_exec, allow_container_exec, allow_app_delete, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, name, rawToken, tokenHash, prefix, kind, revealVal, execVal, containerExecVal, appDeleteVal, now.Format(time.RFC3339), expStr)
 	if err != nil {
 		return "", APIToken{}, err
 	}
@@ -87,12 +93,14 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind str
 		ID:                 id,
 		UserID:             userID,
 		Name:               name,
+		Token:              rawToken,
 		TokenHash:          tokenHash,
 		TokenPrefix:        prefix,
 		Kind:               kind,
 		AllowEnvReveal:     allowEnvReveal,
 		AllowServerExec:    allowServerExec,
 		AllowContainerExec: allowContainerExec,
+		AllowAppDelete:     allowAppDelete,
 		CreatedAt:          now,
 		ExpiresAt:          expiresAt,
 	}, nil
@@ -112,17 +120,19 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, AP
 	var lastUsed sql.NullString
 	var createdStr string
 	var kindStr sql.NullString
-	var allowRevealInt, allowServerExecInt, allowContainerExecInt int
+	var tokenCol sql.NullString
+	var allowRevealInt, allowServerExecInt, allowContainerExecInt, allowAppDeleteInt int
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
+		`SELECT id, user_id, name, COALESCE(token, ''), token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, COALESCE(allow_app_delete, 0), created_at, expires_at, last_used_at 
 		 FROM api_tokens 
 		 WHERE token_hash = ? AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)`,
-		tokenHash, nowStr).Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &createdStr, &expStr, &lastUsed)
+		tokenHash, nowStr).Scan(&t.ID, &t.UserID, &t.Name, &tokenCol, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &allowAppDeleteInt, &createdStr, &expStr, &lastUsed)
 	if err != nil {
 		return User{}, APIToken{}, err
 	}
 
+	t.Token = tokenCol.String
 	t.TokenHash = tokenHash
 	t.Kind = kindStr.String
 	if t.Kind == "" {
@@ -131,6 +141,7 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, AP
 	t.AllowEnvReveal = allowRevealInt == 1
 	t.AllowServerExec = allowServerExecInt == 1
 	t.AllowContainerExec = allowContainerExecInt == 1
+	t.AllowAppDelete = allowAppDeleteInt == 1
 	t.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
 	if expStr.Valid && expStr.String != "" {
 		if parsed, err := time.Parse(time.RFC3339, expStr.String); err == nil {
@@ -153,7 +164,7 @@ func (s *Store) ValidateAPIToken(ctx context.Context, rawToken string) (User, AP
 // ListAPITokensForUser returns metadata for all tokens belonging to the specified user.
 func (s *Store) ListAPITokensForUser(ctx context.Context, userID int64) ([]APIToken, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, user_id, name, token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, created_at, expires_at, last_used_at 
+		`SELECT id, user_id, name, COALESCE(token, ''), token_prefix, COALESCE(kind, 'cli'), allow_env_reveal, allow_server_exec, allow_container_exec, COALESCE(allow_app_delete, 0), created_at, expires_at, last_used_at 
 		 FROM api_tokens WHERE user_id = ? ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -165,11 +176,13 @@ func (s *Store) ListAPITokensForUser(ctx context.Context, userID int64) ([]APITo
 		var t APIToken
 		var created string
 		var kindStr sql.NullString
+		var tokenCol sql.NullString
 		var expires, lastUsed sql.NullString
-		var allowRevealInt, allowServerExecInt, allowContainerExecInt int
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &created, &expires, &lastUsed); err != nil {
+		var allowRevealInt, allowServerExecInt, allowContainerExecInt, allowAppDeleteInt int
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &tokenCol, &t.TokenPrefix, &kindStr, &allowRevealInt, &allowServerExecInt, &allowContainerExecInt, &allowAppDeleteInt, &created, &expires, &lastUsed); err != nil {
 			return nil, err
 		}
+		t.Token = tokenCol.String
 		t.Kind = kindStr.String
 		if t.Kind == "" {
 			t.Kind = "cli"
@@ -177,6 +190,7 @@ func (s *Store) ListAPITokensForUser(ctx context.Context, userID int64) ([]APITo
 		t.AllowEnvReveal = allowRevealInt == 1
 		t.AllowServerExec = allowServerExecInt == 1
 		t.AllowContainerExec = allowContainerExecInt == 1
+		t.AllowAppDelete = allowAppDeleteInt == 1
 		t.CreatedAt, _ = time.Parse(time.RFC3339, created)
 		if expires.Valid && expires.String != "" {
 			if parsed, err := time.Parse(time.RFC3339, expires.String); err == nil {
@@ -232,6 +246,20 @@ func (s *Store) ToggleAPITokenContainerExec(ctx context.Context, id int64, userI
 		newVal = 0
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET allow_container_exec = ? WHERE id = ? AND user_id = ?`, newVal, id, userID)
+	return newVal == 1, err
+}
+
+// ToggleAPITokenAppDelete toggles whether the token is allowed to call app_delete.
+func (s *Store) ToggleAPITokenAppDelete(ctx context.Context, id int64, userID int64) (bool, error) {
+	var cur int
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(allow_app_delete, 0) FROM api_tokens WHERE id = ? AND user_id = ?`, id, userID).Scan(&cur); err != nil {
+		return false, err
+	}
+	newVal := 1
+	if cur == 1 {
+		newVal = 0
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET allow_app_delete = ? WHERE id = ? AND user_id = ?`, newVal, id, userID)
 	return newVal == 1, err
 }
 

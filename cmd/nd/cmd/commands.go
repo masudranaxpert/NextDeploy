@@ -17,7 +17,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.2.0"
+var Version = "1.2.1"
 
 // posixQuote escapes a single shell argument safely.
 func posixQuote(arg string) string {

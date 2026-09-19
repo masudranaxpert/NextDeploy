@@ -44,7 +44,7 @@ func TestAPIAppFilesEndpoints(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Files Test Token", "cli", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Files Test Token", "cli", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}

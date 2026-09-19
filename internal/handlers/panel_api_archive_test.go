@@ -84,7 +84,7 @@ func TestUploadWorkspaceArchive(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Archive Test Token", "cli", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Archive Test Token", "cli", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestAPIAppsList(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "cli-test-token", "cli", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "cli-test-token", "cli", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -274,7 +274,14 @@ func TestAPIAppDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "del-token", "cli", nil, false, false, false)
+	// Token without allowAppDelete permission
+	noDelToken, _, err := store.CreateAPIToken(ctx, adminID, "no-del-token", "cli", nil, false, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	// Token with allowAppDelete permission
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "del-token", "cli", nil, false, false, false, true)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -300,7 +307,18 @@ func TestAPIAppDelete(t *testing.T) {
 		t.Errorf("expected 401 Unauthorized, got %d", respUnauth.StatusCode)
 	}
 
-	// 2. Authorized delete
+	// 2. Forbidden delete (token lacks AllowAppDelete)
+	reqForbidden := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID, nil)
+	reqForbidden.Header.Set("Authorization", "Bearer "+noDelToken)
+	respForbidden, err := app.Test(reqForbidden)
+	if err != nil {
+		t.Fatalf("app.Test failed: %v", err)
+	}
+	if respForbidden.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden without AllowAppDelete, got %d", respForbidden.StatusCode)
+	}
+
+	// 3. Authorized delete (token has AllowAppDelete)
 	reqAuth := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID, nil)
 	reqAuth.Header.Set("Authorization", "Bearer "+rawToken)
 	respAuth, err := app.Test(reqAuth)
@@ -312,7 +330,7 @@ func TestAPIAppDelete(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", respAuth.StatusCode, string(body))
 	}
 
-	// 3. Verify app is gone from DB
+	// 4. Verify app is gone from DB
 	if _, err := store.GetApp(ctx, appID); err == nil {
 		t.Errorf("expected app %q to be deleted from DB, but still found", appID)
 	}
@@ -345,7 +363,7 @@ func TestDownloadWorkspaceArchive(t *testing.T) {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
-	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Download Test Token", "cli", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, adminID, "Download Test Token", "cli", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}

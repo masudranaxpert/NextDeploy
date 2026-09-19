@@ -17,13 +17,14 @@
   fallbackCopy(text, cb) {
     const ta = document.createElement('textarea');
     ta.value = text;
-    ta.setAttribute('readonly', '');
     ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
     ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
-    ta.setSelectionRange(0, ta.value.length);
     try {
       if (document.execCommand('copy')) cb();
     } catch (e) {}
@@ -100,18 +101,24 @@
       </div>
       <button type="button" 
               @click="copyText('nd login {{.BaseURL}} {{.NewToken}}', 'login_cmd')" 
-              class="btn bg-emerald-500 hover:bg-emerald-600 text-black font-semibold h-9 shrink-0 text-xs px-4 rounded-xl">
+              class="btn bg-emerald-500 hover:bg-emerald-600 text-black font-semibold h-9 shrink-0 text-xs px-4 rounded-xl inline-flex items-center gap-1.5">
+        <svg x-show="copiedId !== 'login_cmd'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/>
+        </svg>
         <span x-show="copiedId !== 'login_cmd'">Copy Login Command</span>
         <span x-show="copiedId === 'login_cmd'" class="font-bold inline-flex items-center gap-1" x-cloak>✓ Copied!</span>
       </button>
     </div>
 
-    <div class="mt-3 flex items-center gap-2 text-[11px] text-emerald-400/70">
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-emerald-400/70">
       <span>Raw Token:</span>
-      <code class="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[11px] text-emerald-300 select-all">{{.NewToken}}</code>
-      <button type="button" @click="copyText('{{.NewToken}}', 'raw_token')" class="underline hover:text-emerald-200">
-        <span x-show="copiedId !== 'raw_token'">Copy token</span>
-        <span x-show="copiedId === 'raw_token'" x-cloak>✓ Copied</span>
+      <code class="rounded bg-black/40 px-2 py-1 font-mono text-[11px] text-emerald-300 select-all font-semibold break-all">{{.NewToken}}</code>
+      <button type="button" @click="copyText('{{.NewToken}}', 'raw_token')" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-2.5 py-1 text-emerald-300 hover:bg-emerald-500/30 transition-colors font-medium" title="Copy raw token">
+        <svg x-show="copiedId !== 'raw_token'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/>
+        </svg>
+        <span x-show="copiedId !== 'raw_token'">Copy Token</span>
+        <span x-show="copiedId === 'raw_token'" class="text-emerald-300 font-bold inline-flex items-center gap-1" x-cloak>✓ Copied!</span>
       </button>
     </div>
   </div>
@@ -263,7 +270,20 @@
           {{range .Tokens}}
           <tr class="hover:bg-muted/10 transition-colors">
             <td class="px-4 py-3 font-medium text-foreground">{{.Name}}</td>
-            <td class="px-4 py-3 font-mono text-muted-foreground">{{.TokenPrefix}}</td>
+            <td class="px-4 py-3 font-mono text-muted-foreground">
+              <div class="flex items-center gap-1.5">
+                <span>{{.TokenPrefix}}...</span>
+                <button type="button" 
+                        @click="copyText('{{if .Token}}{{.Token}}{{else}}{{.TokenPrefix}}{{end}}', 'tok_{{.ID}}')" 
+                        class="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" 
+                        title="{{if .Token}}Copy API Token{{else}}Copy Token Prefix{{end}}">
+                  <svg x-show="copiedId !== 'tok_{{.ID}}'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/>
+                  </svg>
+                  <span x-show="copiedId === 'tok_{{.ID}}'" class="text-emerald-400 font-bold text-[10px]" x-cloak>✓</span>
+                </button>
+              </div>
+            </td>
             <td class="px-4 py-3">
               <div class="flex flex-col gap-1.5">
                 <!-- env_reveal badge -->
@@ -323,6 +343,26 @@
                     </span>
                     <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-exec" class="inline">
                       <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Server</button>
+                    </form>
+                  {{end}}
+                </div>
+                <!-- app_delete badge -->
+                <div class="flex items-center gap-2">
+                  {{if .AllowAppDelete}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                      <svg class="h-3 w-3 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                      App Delete
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-app-delete" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-muted-foreground hover:text-foreground underline decoration-dotted transition-colors">Disable</button>
+                    </form>
+                  {{else}}
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/20 border border-border/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                      No Delete
+                    </span>
+                    <form method="post" action="/cli-sessions/tokens/{{.ID}}/toggle-app-delete" class="inline">
+                      <button type="submit" class="text-[10px] font-medium text-rose-400/80 hover:text-rose-300 underline decoration-dotted transition-colors">Allow Delete</button>
                     </form>
                   {{end}}
                 </div>
@@ -451,7 +491,7 @@ nd logs                           # stream container logs</pre>
     <div class="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity" @click="tokenModal = false" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-lg rounded-2xl border border-border/80 bg-card p-6 shadow-2xl shadow-black/80 ring-1 ring-white/10 sm:p-7 overflow-hidden" 
          @click.stop 
-         x-data="{ allowReveal: false, allowContainerExec: true, allowServerExec: false }"
+         x-data="{ allowReveal: false, allowContainerExec: true, allowServerExec: false, allowAppDelete: false }"
          x-transition:enter="transition ease-out duration-200" 
          x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
          x-transition:enter-end="opacity-100 scale-100 translate-y-0"
@@ -652,6 +692,48 @@ nd logs                           # stream container logs</pre>
               <span class="sr-only">Toggle server exec permission</span>
               <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
                     :class="allowServerExec ? 'translate-x-5' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Permission Level 4: App Deletion (app_delete) Toggle Card -->
+        <div class="rounded-2xl border transition-all duration-200 p-4"
+             :class="allowAppDelete ? 'border-rose-500/50 bg-rose-500/[0.06] ring-1 ring-rose-500/20 shadow-md shadow-rose-500/5' : 'border-border/70 bg-muted/15 hover:border-border/90 hover:bg-muted/25'">
+
+          <input type="checkbox" name="allow_app_delete" value="1" x-model="allowAppDelete" class="sr-only">
+
+          <div class="flex items-start justify-between gap-3 cursor-pointer select-none" @click="allowAppDelete = !allowAppDelete">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
+                   :class="allowAppDelete ? 'bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40' : 'bg-muted/40 text-muted-foreground ring-1 ring-border'">
+                <svg class="h-4 w-4" :class="allowAppDelete ? 'text-rose-400' : 'text-muted-foreground'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+              </div>
+
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-semibold text-foreground">Allow app_delete (Delete Applications)</span>
+                  <template x-if="!allowAppDelete">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-muted/30 border border-border/50 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Disabled</span>
+                  </template>
+                  <template x-if="allowAppDelete">
+                    <span class="inline-flex items-center gap-1 rounded-md bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 text-[9px] font-bold text-rose-300 uppercase tracking-wider animate-pulse">DESTRUCTIVE PRIVILEGE</span>
+                  </template>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  <span x-show="!allowAppDelete">Applications and their data cannot be permanently deleted via this token. Safe default.</span>
+                  <span x-show="allowAppDelete" class="text-rose-200/90" x-cloak><strong>Destructive:</strong> Allows deleting apps and project directories via CLI (<code class="px-1 py-0.5 rounded bg-rose-500/20 font-mono text-[10px] text-rose-200">nd app delete</code>) or MCP.</span>
+                </p>
+              </div>
+            </div>
+
+            <button type="button" role="switch" :aria-checked="allowAppDelete" @click.stop="allowAppDelete = !allowAppDelete"
+                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    :class="allowAppDelete ? 'bg-rose-500' : 'bg-muted/70'">
+              <span class="sr-only">Toggle app delete permission</span>
+              <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                    :class="allowAppDelete ? 'translate-x-5' : 'translate-x-0'"></span>
             </button>
           </div>
         </div>

@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-cli
 description: Operational reference and automation instructions for AI coding assistants using the NextDeploy CLI (nd) to manage application lifecycles, incremental code syncs (nd push), deployments, logs, containers, and environment variables.
-version: 1.2.0
+version: 1.2.1
 ---
 
 # NextDeploy CLI (`nd`) Skill

@@ -82,6 +82,14 @@ func (p *Panel) APIAppDelete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only app owner or admin can delete this app"})
 	}
 
+	if tok, ok := c.Locals("api_token").(db.APIToken); ok {
+		if !tok.AllowAppDelete {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "permission denied: app deletion is restricted. Enable 'Allow App Delete' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)",
+			})
+		}
+	}
+
 	delCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
@@ -286,13 +294,14 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
 	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
+	allowAppDelete := c.FormValue("allow_app_delete") == "1" || c.FormValue("allow_app_delete") == "on"
 
 	kind := strings.TrimSpace(c.FormValue("kind"))
 	if kind != "cli" && kind != "mcp" {
 		kind = "cli"
 	}
 
-	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec)
+	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
 	if err != nil {
 		return c.Redirect("/cli-sessions?error=" + url.QueryEscape(err.Error()))
 	}
@@ -346,6 +355,30 @@ func (p *Panel) ToggleCLITokenServerExecPost(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
 	}
 	_, _ = p.DB.ToggleAPITokenServerExec(ctx, int64(id), u.ID)
+	return c.Redirect("/cli-sessions")
+}
+
+// ToggleCLITokenAppDeletePost toggles app_delete permission for an API token.
+// POST /cli-sessions/tokens/:id/toggle-app-delete
+func (p *Panel) ToggleCLITokenAppDeletePost(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid token id")
+	}
+	enabled, err := p.DB.ToggleAPITokenAppDelete(ctx, int64(id), u.ID)
+	if err != nil {
+		return c.Redirect("/cli-sessions?error=" + url.QueryEscape(err.Error()))
+	}
+	stateStr := "disabled"
+	if enabled {
+		stateStr = "enabled"
+	}
+	p.RecordAuditLog(c, "toggle_cli_token_app_delete", "api_token", fmt.Sprintf("%d", id), "Toggled app_delete to "+stateStr)
 	return c.Redirect("/cli-sessions")
 }
 

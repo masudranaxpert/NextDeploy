@@ -92,8 +92,8 @@ func TestMCP_ToolsList(t *testing.T) {
 		Method:  "tools/list",
 	}
 
-	// Full-permission token sees all 25 tools.
-	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true}
+	// Full-permission token sees all 24 tools.
+	fullTok := db.APIToken{ID: 1, AllowEnvReveal: true, AllowServerExec: true, AllowContainerExec: true, AllowAppDelete: true}
 	fullCtx := context.WithValue(context.Background(), apiTokenContextKey{}, fullTok)
 	resp := srv.ProcessRPC(fullCtx, user, req)
 	if resp.Error != nil {
@@ -153,29 +153,29 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (21 tools).
+	// No-permission token hides restricted tools (20 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 21 {
-		t.Errorf("expected 21 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 20 {
+		t.Errorf("expected 20 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
-		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" {
+		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" || tool.Name == "app_delete" {
 			t.Errorf("restricted tool %q must not appear without permission", tool.Name)
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec or env_reveal (22 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec, env_reveal, or app_delete (21 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 22 {
-		t.Errorf("expected 22 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 21 {
+		t.Errorf("expected 21 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
-		if tool.Name == "server_exec" || tool.Name == "env_reveal" {
+		if tool.Name == "server_exec" || tool.Name == "env_reveal" || tool.Name == "app_delete" {
 			t.Errorf("unpermitted tool %q appeared in container-only list", tool.Name)
 		}
 		if tool.Name == "container_exec" {
@@ -186,17 +186,17 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec or env_reveal (22 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec, env_reveal, or app_delete (21 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 22 {
-		t.Errorf("expected 22 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 21 {
+		t.Errorf("expected 21 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
-		if tool.Name == "container_exec" || tool.Name == "env_reveal" {
+		if tool.Name == "container_exec" || tool.Name == "env_reveal" || tool.Name == "app_delete" {
 			t.Errorf("unpermitted tool %q appeared in server-only list", tool.Name)
 		}
 		if tool.Name == "server_exec" {
@@ -205,6 +205,27 @@ func TestMCP_ToolsList(t *testing.T) {
 	}
 	if !hasServerExec {
 		t.Errorf("expected server_exec to be present for AllowServerExec token")
+	}
+
+	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (21 tools).
+	appDelOnlyTok := db.APIToken{ID: 4, AllowAppDelete: true}
+	appDelOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, appDelOnlyTok)
+	appDelResp := srv.ProcessRPC(appDelOnlyCtx, user, req)
+	appDelList := appDelResp.Result.(ToolsListResult)
+	if len(appDelList.Tools) != 21 {
+		t.Errorf("expected 21 tools with app-delete-only perms, got %d", len(appDelList.Tools))
+	}
+	hasAppDelete := false
+	for _, tool := range appDelList.Tools {
+		if tool.Name == "container_exec" || tool.Name == "server_exec" || tool.Name == "env_reveal" {
+			t.Errorf("unpermitted tool %q appeared in app-delete-only list", tool.Name)
+		}
+		if tool.Name == "app_delete" {
+			hasAppDelete = true
+		}
+	}
+	if !hasAppDelete {
+		t.Errorf("expected app_delete to be present for AllowAppDelete token")
 	}
 }
 
@@ -378,7 +399,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	regUser, _ := store.GetUserByID(ctx, regularUserID)
 	_ = store.AddCollaborator(ctx, appID, regularUserID, "developer")
 
-	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", "mcp", nil, false, false, false)
+	rawSafeToken, safeToken, err := store.CreateAPIToken(ctx, regUser.ID, "Safe Token", "mcp", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -422,7 +443,7 @@ func TestMCP_EnvTools(t *testing.T) {
 	}
 
 	// 5. Test that even an ADMIN cannot env_reveal if their API token does not have AllowEnvReveal
-	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", "mcp", nil, false, false, false)
+	rawAdminSafeToken, adminSafeToken, err := store.CreateAPIToken(ctx, user.ID, "Admin Safe Token", "mcp", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -596,7 +617,7 @@ func TestMCP_ServerHTTPAndAuth(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	ctx := context.Background()
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "cli", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "cli", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -689,7 +710,7 @@ func TestMCP_ServerDisabledByDefault(t *testing.T) {
 	// Disable MCP explicitly
 	_ = store.SetSetting(ctx, "mcp_enabled", "0")
 
-	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "mcp", nil, false, false, false)
+	rawToken, _, err := store.CreateAPIToken(ctx, user.ID, "Test Token", "mcp", nil, false, false, false, false)
 	if err != nil {
 		t.Fatalf("CreateAPIToken failed: %v", err)
 	}
@@ -1984,14 +2005,41 @@ func TestMCP_AppDeleteConfirmation(t *testing.T) {
 
 	srv := NewServer(p)
 
-	// 1. Calling app_delete without confirm_name should fail
+	// Context with restricted token (AllowAppDelete: false)
+	noDelTok := db.APIToken{ID: 10, AllowAppDelete: false}
+	noDelCtx := context.WithValue(ctx, apiTokenContextKey{}, noDelTok)
+
+	// Context with allowed token (AllowAppDelete: true)
+	allowedTok := db.APIToken{ID: 11, AllowAppDelete: true}
+	allowedCtx := context.WithValue(ctx, apiTokenContextKey{}, allowedTok)
+
+	// 1. Calling app_delete with restricted token should fail with permission denied
+	correctConfirmParams, _ := json.Marshal(CallToolParams{
+		Name: "app_delete",
+		Arguments: map[string]interface{}{
+			"app_id":       appID,
+			"confirm_name": appName,
+		},
+	})
+	resPerm := srv.ProcessRPC(noDelCtx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      0,
+		Method:  "tools/call",
+		Params:  correctConfirmParams,
+	})
+	toolPermRes := resPerm.Result.(CallToolResult)
+	if !toolPermRes.IsError || !strings.Contains(toolPermRes.Content[0].Text, "permission denied") {
+		t.Errorf("expected permission denied without AllowAppDelete, got: %+v", toolPermRes)
+	}
+
+	// 2. Calling app_delete without confirm_name should fail
 	noConfirmParams, _ := json.Marshal(CallToolParams{
 		Name: "app_delete",
 		Arguments: map[string]interface{}{
 			"app_id": appID,
 		},
 	})
-	res1 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+	res1 := srv.ProcessRPC(allowedCtx, user, JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
@@ -2001,7 +2049,7 @@ func TestMCP_AppDeleteConfirmation(t *testing.T) {
 		t.Errorf("expected error when confirm_name is missing, got success")
 	}
 
-	// 2. Calling app_delete with incorrect confirm_name should fail
+	// 3. Calling app_delete with incorrect confirm_name should fail
 	wrongConfirmParams, _ := json.Marshal(CallToolParams{
 		Name: "app_delete",
 		Arguments: map[string]interface{}{
@@ -2009,7 +2057,7 @@ func TestMCP_AppDeleteConfirmation(t *testing.T) {
 			"confirm_name": "Wrong Name",
 		},
 	})
-	res2 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+	res2 := srv.ProcessRPC(allowedCtx, user, JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      2,
 		Method:  "tools/call",
@@ -2019,15 +2067,8 @@ func TestMCP_AppDeleteConfirmation(t *testing.T) {
 		t.Errorf("expected error when confirm_name does not match, got success")
 	}
 
-	// 3. Calling app_delete with exact confirm_name should succeed
-	correctConfirmParams, _ := json.Marshal(CallToolParams{
-		Name: "app_delete",
-		Arguments: map[string]interface{}{
-			"app_id":       appID,
-			"confirm_name": appName,
-		},
-	})
-	res3 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+	// 4. Calling app_delete with exact confirm_name and AllowAppDelete should succeed
+	res3 := srv.ProcessRPC(allowedCtx, user, JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      3,
 		Method:  "tools/call",

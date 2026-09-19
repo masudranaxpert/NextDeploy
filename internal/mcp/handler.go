@@ -319,6 +319,11 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 }
 
 func (h *Handler) handleAppDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	tok, _ := ctx.Value(apiTokenContextKey{}).(db.APIToken)
+	if !tok.AllowAppDelete {
+		return errorResult(errors.New("permission denied: app_delete is restricted. Enable 'Allow App Delete' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)"))
+	}
+
 	appID := getStringArg(args, "app_id")
 	app, err := h.p.DB.GetApp(ctx, appID)
 	if err != nil {

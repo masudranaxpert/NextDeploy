@@ -244,6 +244,7 @@ func main() {
 	app.Post("/mcp-docs/tokens/:id/toggle-reveal", mcpServer.ToggleAPITokenEnvRevealPost)
 	app.Post("/mcp-docs/tokens/:id/toggle-container-exec", mcpServer.ToggleAPITokenContainerExecPost)
 	app.Post("/mcp-docs/tokens/:id/toggle-exec", mcpServer.ToggleAPITokenServerExecPost)
+	app.Post("/mcp-docs/tokens/:id/toggle-app-delete", mcpServer.ToggleAPITokenAppDeletePost)
 	app.Post("/mcp-docs/toggle-status", mcpServer.ToggleMCPStatusPost)
 	app.Get("/cli-sessions", p.RequireAdminMiddleware, p.CLISessionsPage)
 	app.Post("/cli-sessions/tokens", p.RequireAdminMiddleware, p.CreateCLITokenPost)
@@ -251,6 +252,7 @@ func main() {
 	app.Post("/cli-sessions/tokens/:id/toggle-reveal", p.RequireAdminMiddleware, p.ToggleCLITokenEnvRevealPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-container-exec", p.RequireAdminMiddleware, p.ToggleCLITokenContainerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.RequireAdminMiddleware, p.ToggleCLITokenServerExecPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-app-delete", p.RequireAdminMiddleware, p.ToggleCLITokenAppDeletePost)
 	app.Get("/apps", p.AppsPage)
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.
