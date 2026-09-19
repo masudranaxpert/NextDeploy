@@ -327,6 +327,10 @@ func (h *Handler) handleAppDelete(ctx context.Context, u db.User, args map[strin
 	if u.Role != db.RoleAdmin && app.OwnerID != u.ID {
 		return errorResult(errors.New("permission denied: only app owner or admin can delete this app"))
 	}
+	confirmName := strings.TrimSpace(getStringArg(args, "confirm_name"))
+	if confirmName != app.Name && confirmName != app.ID {
+		return errorResult(errors.New("confirm_name must exactly match the app name"))
+	}
 	delCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	if err := h.p.DeleteAppResources(delCtx, appID); err != nil {

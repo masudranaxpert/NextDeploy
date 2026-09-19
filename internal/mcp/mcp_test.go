@@ -1969,5 +1969,80 @@ func TestMCP_TokenAndContextOptimizations(t *testing.T) {
 	}
 }
 
+func TestMCP_AppDeleteConfirmation(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "del-confirm-app"
+	appName := "Delete Confirmation App"
+	if err := store.CreateApp(ctx, appID, appName, user.ID); err != nil {
+		t.Fatalf("CreateApp failed: %v", err)
+	}
+	_ = os.MkdirAll(p.Store.Path(appID), 0750)
+
+	srv := NewServer(p)
+
+	// 1. Calling app_delete without confirm_name should fail
+	noConfirmParams, _ := json.Marshal(CallToolParams{
+		Name: "app_delete",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+		},
+	})
+	res1 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  noConfirmParams,
+	})
+	if res1.Result.(CallToolResult).IsError != true {
+		t.Errorf("expected error when confirm_name is missing, got success")
+	}
+
+	// 2. Calling app_delete with incorrect confirm_name should fail
+	wrongConfirmParams, _ := json.Marshal(CallToolParams{
+		Name: "app_delete",
+		Arguments: map[string]interface{}{
+			"app_id":       appID,
+			"confirm_name": "Wrong Name",
+		},
+	})
+	res2 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      2,
+		Method:  "tools/call",
+		Params:  wrongConfirmParams,
+	})
+	if res2.Result.(CallToolResult).IsError != true {
+		t.Errorf("expected error when confirm_name does not match, got success")
+	}
+
+	// 3. Calling app_delete with exact confirm_name should succeed
+	correctConfirmParams, _ := json.Marshal(CallToolParams{
+		Name: "app_delete",
+		Arguments: map[string]interface{}{
+			"app_id":       appID,
+			"confirm_name": appName,
+		},
+	})
+	res3 := srv.ProcessRPC(ctx, user, JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      3,
+		Method:  "tools/call",
+		Params:  correctConfirmParams,
+	})
+	if res3.Result.(CallToolResult).IsError == true {
+		t.Fatalf("expected success when confirm_name matches, got error: %v", res3.Result.(CallToolResult).Content[0].Text)
+	}
+
+	// Verify app is gone from DB
+	if _, err := store.GetApp(ctx, appID); err == nil {
+		t.Errorf("expected app to be deleted from DB, but still found")
+	}
+}
+
+
 
 

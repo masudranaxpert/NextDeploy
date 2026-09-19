@@ -301,7 +301,7 @@ func RunDelete(cl *client.Client, args []string) error {
 			"method": "tools/call",
 			"params": map[string]interface{}{
 				"name":      "app_delete",
-				"arguments": map[string]interface{}{"app_id": appID},
+				"arguments": map[string]interface{}{"app_id": appID, "confirm_name": appID},
 			},
 		})
 	}

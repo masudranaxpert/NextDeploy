@@ -45,13 +45,14 @@ func AllTools() []Tool {
 		{
 			Name: "app_delete",
 			Description: "Permanently delete an application and all its running Docker containers, images, volumes, and workspace files. " +
-				"Strictly restricted to the application owner or Admin role.",
+				"Strictly restricted to the application owner or Admin role. Requires confirm_name matching the app name to prevent accidental deletion.",
 			InputSchema: ToolInputSchema{
 				Type: "object",
 				Properties: map[string]ToolProperty{
-					"app_id": {Type: "string", Description: "The application ID to permanently delete"},
+					"app_id":       {Type: "string", Description: "The application ID to permanently delete"},
+					"confirm_name": {Type: "string", Description: "Safety confirmation: must exactly match the application name to confirm deletion"},
 				},
-				Required: []string{"app_id"},
+				Required: []string{"app_id", "confirm_name"},
 			},
 		},
 		{
