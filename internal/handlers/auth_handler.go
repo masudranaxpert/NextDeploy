@@ -246,6 +246,6 @@ func (p *Panel) createSessionAndRedirect(c *fiber.Ctx, userID int64, next string
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
-	c.Cookie(sessionCookieSet(token, expiresAt))
+	c.Cookie(sessionCookieSet(c, token, expiresAt))
 	return c.Redirect(next)
 }

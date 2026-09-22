@@ -78,12 +78,17 @@ func sessionCookieClear() *fiber.Cookie {
 	}
 }
 
-func sessionCookieSet(token string, expires time.Time) *fiber.Cookie {
+func sessionCookieSet(c *fiber.Ctx, token string, expires time.Time) *fiber.Cookie {
+	isSecure := false
+	if c != nil && (c.Protocol() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")) {
+		isSecure = true
+	}
 	return &fiber.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Expires:  expires,
 		HTTPOnly: true,
+		Secure:   isSecure,
 		SameSite: "Lax",
 		Path:     "/",
 	}

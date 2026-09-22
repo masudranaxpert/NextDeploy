@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -29,11 +31,37 @@ type termClientMsg struct {
 }
 
 // WSUpgrade is a reusable WebSocket upgrade guard for all WS routes.
+// It verifies the connection upgrade headers and validates Origin to prevent CSWSH.
 func (p *Panel) WSUpgrade(c *fiber.Ctx) error {
-	if fws.IsWebSocketUpgrade(c) {
-		return c.Next()
+	if !fws.IsWebSocketUpgrade(c) {
+		return fiber.ErrUpgradeRequired
 	}
-	return fiber.ErrUpgradeRequired
+	origin := strings.TrimSpace(c.Get("Origin"))
+	if origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Hostname() == "" {
+			return c.Status(fiber.StatusForbidden).SendString("forbidden: invalid origin")
+		}
+		originHost := u.Hostname()
+		reqHost := c.Hostname()
+		if h, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = h
+		}
+		isLocal := (originHost == "localhost" || originHost == "127.0.0.1") && (reqHost == "localhost" || reqHost == "127.0.0.1")
+		if !isLocal && !strings.EqualFold(originHost, reqHost) {
+			var panelDomain string
+			if p != nil && p.DB != nil {
+				panelDomain = strings.TrimSpace(p.DB.GetSetting(c.UserContext(), "panel_domain"))
+				if h, _, err := net.SplitHostPort(panelDomain); err == nil {
+					panelDomain = h
+				}
+			}
+			if panelDomain == "" || !strings.EqualFold(originHost, panelDomain) {
+				return c.Status(fiber.StatusForbidden).SendString("forbidden: cross-origin websocket")
+			}
+		}
+	}
+	return c.Next()
 }
 
 func parseDim(q string, def uint) uint {

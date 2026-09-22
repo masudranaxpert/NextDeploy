@@ -44,51 +44,6 @@ type gitlabPushPayload struct {
 	} `json:"project"`
 }
 
-func normalizeBranch(branch string) string {
-	branch = strings.TrimSpace(branch)
-	branch = strings.TrimPrefix(branch, "refs/heads/")
-	if branch == "" {
-		return "main"
-	}
-	return branch
-}
-
-func normalizeRepoURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if strings.HasPrefix(raw, "git@github.com:") {
-		raw = strings.TrimPrefix(raw, "git@github.com:")
-		raw = strings.TrimSuffix(raw, ".git")
-		return "https://github.com/" + raw + ".git"
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	u.User = nil
-	if u.Scheme == "" {
-		return raw
-	}
-	if !strings.HasSuffix(u.Path, ".git") {
-		u.Path += ".git"
-	}
-	return u.String()
-}
-
-func repoFullNameFromURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return ""
-	}
-	p := strings.Trim(strings.TrimSuffix(u.Path, ".git"), "/")
-	if p == "" {
-		return ""
-	}
-	return p
-}
-
 func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
@@ -100,7 +55,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	default:
 		authMode = "public"
 	}
-	repoURL := normalizeRepoURL(c.FormValue("repo_url"))
+	repoURL := utils.NormalizeRepoURL(c.FormValue("repo_url"))
 	if repoURL == "" {
 		return c.Status(400).SendString("repo url required")
 	}
@@ -113,8 +68,8 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 		AppID:        appID,
 		Provider:     providerName,
 		RepoURL:      repoURL,
-		RepoFullName: repoFullNameFromURL(repoURL),
-		Branch:       normalizeBranch(c.FormValue("branch")),
+		RepoFullName: utils.RepoFullNameFromURL(repoURL),
+		Branch:       utils.NormalizeBranch(c.FormValue("branch")),
 		AuthMode:     authMode,
 		AutoDeploy:   c.FormValue("auto_deploy") == "on",
 	}
@@ -192,7 +147,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 
 	// If the repository URL changed, drop the old checkout so the next sync clones the new remote.
 	if oldCfgErr == nil && strings.TrimSpace(old.RepoURL) != "" &&
-		normalizeRepoURL(old.RepoURL) != normalizeRepoURL(cfg.RepoURL) {
+		utils.NormalizeRepoURL(old.RepoURL) != utils.NormalizeRepoURL(cfg.RepoURL) {
 		_ = os.RemoveAll(p.AppCheckoutPath(appID))
 	}
 
@@ -632,7 +587,7 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		if cfg.RepoFullName != "" && payload.Repository.FullName != "" && !strings.EqualFold(cfg.RepoFullName, payload.Repository.FullName) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
-		if normalizeBranch(payload.Ref) != normalizeBranch(cfg.Branch) {
+		if utils.NormalizeBranch(payload.Ref) != utils.NormalizeBranch(cfg.Branch) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
 	} else {
@@ -650,7 +605,7 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 			!strings.EqualFold(cfg.RepoFullName, payload.Project.PathWithNamespace) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
-		if normalizeBranch(payload.Ref) != normalizeBranch(cfg.Branch) {
+		if utils.NormalizeBranch(payload.Ref) != utils.NormalizeBranch(cfg.Branch) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
 	}
