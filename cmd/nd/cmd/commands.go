@@ -77,7 +77,7 @@ func RunLogin(args []string) error {
 	// Validate token by listing apps
 	cfg := config.Config{ServerURL: serverURL, Token: token}
 	cfg.EnsureDeviceID()
-	c := client.New(cfg, cfg.DeviceID)
+	c := client.New(cfg, cfg.DeviceID, Version)
 	body, status, err := c.Do("GET", "/api/v1/apps", nil)
 	if err != nil {
 		return fmt.Errorf("could not reach server: %w", err)
@@ -105,7 +105,7 @@ func RunLogin(args []string) error {
 func RunLogout(_ []string) error {
 	cfg, err := config.Load()
 	if err == nil && cfg.ServerURL != "" && cfg.DeviceID != "" {
-		c := client.New(cfg, cfg.DeviceID)
+		c := client.New(cfg, cfg.DeviceID, Version)
 		c.Disconnect()
 	}
 	if err := config.Save(config.Config{}); err != nil {
@@ -1790,7 +1790,7 @@ func parseAndPrintExecResult(body []byte) error {
 func RunEnv(cl *client.Client, args []string) error {
 	jsonOut, args := extractJSONFlag(args)
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nd env list [app_id] [--json] | nd env set [app_id] KEY=VALUE ...")
+		return fmt.Errorf("usage: nd env list [app_id] [--json] | nd env get [app_id] [KEY] | nd env set [app_id] KEY=VALUE ...")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -1801,6 +1801,52 @@ func RunEnv(cl *client.Client, args []string) error {
 	}
 
 	switch sub {
+	case "get", "reveal":
+		revealArgs := map[string]interface{}{"app_id": appID}
+		if len(envArgs) > 0 {
+			revealArgs["keys"] = envArgs
+		}
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "env_reveal",
+				"arguments": revealArgs,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if status >= 400 {
+			return fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+		var resp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
+			if resp.Result.IsError {
+				return fmt.Errorf("%s", resp.Result.Content[0].Text)
+			}
+			var kvMap map[string]string
+			if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &kvMap); err == nil {
+				if jsonOut {
+					pretty, _ := json.MarshalIndent(kvMap, "", "  ")
+					fmt.Println(string(pretty))
+					return nil
+				}
+				for k, v := range kvMap {
+					fmt.Printf("%s=%s\n", k, v)
+				}
+				return nil
+			}
+			fmt.Println(resp.Result.Content[0].Text)
+			return nil
+		}
+		fmt.Println(string(body))
 	case "list":
 		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
 			"method": "tools/call",
@@ -1902,7 +1948,7 @@ func RunEnv(cl *client.Client, args []string) error {
 		fmt.Println("✓ Environment updated.")
 
 	default:
-		return fmt.Errorf("unknown env subcommand: %s (use list or set)", sub)
+		return fmt.Errorf("unknown env subcommand: %s (use list, get, or set)", sub)
 	}
 	return nil
 }

@@ -245,11 +245,15 @@ func PackTarGz(localDir string, files []string) (io.Reader, int64, error) {
 			if err != nil {
 				continue
 			}
+			mode := int64(0644)
+			if fi.Mode()&0111 != 0 {
+				mode = 0755
+			}
 			hdr := &tar.Header{
-				Name:    relPath,
-				Mode:    0644,
-				Size:    fi.Size(),
-				ModTime: fi.ModTime(),
+				Name:     relPath,
+				Mode:     mode,
+				Size:     fi.Size(),
+				ModTime:  fi.ModTime(),
 				Typeflag: tar.TypeReg,
 			}
 			if err := tw.WriteHeader(hdr); err != nil {

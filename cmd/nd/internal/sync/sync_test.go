@@ -1,7 +1,10 @@
 package sync
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -153,6 +156,56 @@ func TestLocalHashes_Cache(t *testing.T) {
 
 	if hashes1["app.txt"] != hashes2["app.txt"] {
 		t.Errorf("hash mismatch between cached runs: %q vs %q", hashes1["app.txt"], hashes2["app.txt"])
+	}
+}
+
+func TestPackTarGz_PreservesExecutableMode(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "nd-sync-pack-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	normalFile := filepath.Join(tempDir, "file.txt")
+	scriptFile := filepath.Join(tempDir, "run.sh")
+
+	if err := os.WriteFile(normalFile, []byte("hello"), 0644); err != nil {
+		t.Fatalf("WriteFile normal: %v", err)
+	}
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho hi"), 0755); err != nil {
+		t.Fatalf("WriteFile script: %v", err)
+	}
+
+	reader, _, err := PackTarGz(tempDir, []string{"file.txt", "run.sh"})
+	if err != nil {
+		t.Fatalf("PackTarGz: %v", err)
+	}
+
+	gzReader, err := gzip.NewReader(reader)
+	if err != nil {
+		t.Fatalf("gzip.NewReader: %v", err)
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+	modes := make(map[string]int64)
+
+	for {
+		hdr, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("tar.Next: %v", err)
+		}
+		modes[hdr.Name] = hdr.Mode
+	}
+
+	if modes["file.txt"] != 0644 {
+		t.Errorf("expected file.txt mode 0644, got %o", modes["file.txt"])
+	}
+	if modes["run.sh"] != 0755 {
+		t.Errorf("expected run.sh mode 0755, got %o", modes["run.sh"])
 	}
 }
 

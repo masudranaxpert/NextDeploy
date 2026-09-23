@@ -3,8 +3,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/signal"
@@ -103,7 +101,7 @@ func run() int {
 	if cfg.DeviceID != "" {
 		_ = config.Save(cfg)
 	}
-	cl := client.New(cfg, sessID)
+	cl := client.New(cfg, sessID, version)
 
 	// Register/refresh CLI session heartbeat for this device
 	hostname, _ := os.Hostname()
@@ -182,19 +180,6 @@ func run() int {
 		return 1
 	}
 	return 0
-}
-
-// processSessionID generates a random session ID stable for this process run.
-var _sessID string
-
-func processSessionID() string {
-	if _sessID != "" {
-		return _sessID
-	}
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	_sessID = hex.EncodeToString(b)
-	return _sessID
 }
 
 // heartbeatLoop sends a heartbeat every 2 minutes while the CLI is running.

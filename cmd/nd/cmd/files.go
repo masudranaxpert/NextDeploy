@@ -531,9 +531,9 @@ func RunFileEdit(cl *client.Client, rawArgs []string) error {
 	tmpFile.Close()
 
 	// Determine editor
-	editor := os.Getenv("EDITOR")
+	editor := strings.TrimSpace(os.Getenv("EDITOR"))
 	if editor == "" {
-		editor = os.Getenv("VISUAL")
+		editor = strings.TrimSpace(os.Getenv("VISUAL"))
 	}
 	if editor == "" {
 		if runtime.GOOS == "windows" {
@@ -552,6 +552,10 @@ func RunFileEdit(cl *client.Client, rawArgs []string) error {
 	}
 
 	parts := strings.Fields(editor)
+	if len(parts) == 0 {
+		editor = "vi"
+		parts = []string{"vi"}
+	}
 	edCmd := parts[0]
 	edArgs := append(parts[1:], tmpPath)
 

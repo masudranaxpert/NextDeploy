@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,18 +15,32 @@ import (
 
 // Client is an authenticated HTTP client for the NextDeploy API.
 type Client struct {
-	cfg    config.Config
-	http   *http.Client
-	sessID string // CLI session ID for heartbeats
+	cfg     config.Config
+	http    *http.Client
+	sessID  string // CLI session ID for heartbeats
+	version string
 }
 
 // New creates a Client from saved config.
-func New(cfg config.Config, sessID string) *Client {
-	return &Client{
-		cfg:    cfg,
-		http:   &http.Client{Timeout: 30 * time.Second},
-		sessID: sessID,
+func New(cfg config.Config, sessID string, version ...string) *Client {
+	ver := "1.2.1"
+	if len(version) > 0 && version[0] != "" {
+		ver = version[0]
 	}
+	return &Client{
+		cfg:     cfg,
+		http:    &http.Client{},
+		sessID:  sessID,
+		version: ver,
+	}
+}
+
+// userAgent returns the formatted CLI User-Agent header.
+func (c *Client) userAgent() string {
+	if c.version != "" {
+		return "nd/" + c.version
+	}
+	return "nd/1.2.1"
 }
 
 // Do executes an authenticated request and returns the response body.
@@ -35,6 +50,12 @@ func (c *Client) Do(method, path string, body any) ([]byte, int, error) {
 
 // DoWithTimeout executes an authenticated request with a custom timeout duration (0 uses default).
 func (c *Client) DoWithTimeout(method, path string, body any, timeout time.Duration) ([]byte, int, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -45,21 +66,15 @@ func (c *Client) DoWithTimeout(method, path string, body any, timeout time.Durat
 	}
 
 	url := strings.TrimRight(c.cfg.ServerURL, "/") + path
-	req, err := http.NewRequest(method, url, r)
+	req, err := http.NewRequestWithContext(ctx, method, url, r)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("X-NextDeploy-Client", "cli")
-	req.Header.Set("User-Agent", "nd/1.0.6")
+	req.Header.Set("User-Agent", c.userAgent())
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-	}
-
-	if timeout > 0 {
-		oldTimeout := c.http.Timeout
-		c.http.Timeout = timeout
-		defer func() { c.http.Timeout = oldTimeout }()
 	}
 
 	resp, err := c.http.Do(req)
@@ -74,19 +89,18 @@ func (c *Client) DoWithTimeout(method, path string, body any, timeout time.Durat
 
 // DoRaw executes an authenticated request with a raw reader body (for multipart uploads).
 func (c *Client) DoRaw(method, path string, contentType string, body io.Reader) ([]byte, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
 	url := strings.TrimRight(c.cfg.ServerURL, "/") + path
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("X-NextDeploy-Client", "cli")
-	req.Header.Set("User-Agent", "nd/1.0.6")
+	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("Content-Type", contentType)
-
-	// Increase timeout for uploads
-	c.http.Timeout = 10 * time.Minute
-	defer func() { c.http.Timeout = 30 * time.Second }()
 
 	resp, err := c.http.Do(req)
 	if err != nil {

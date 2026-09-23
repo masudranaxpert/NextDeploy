@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -120,7 +121,7 @@ func RunPull(cl *client.Client, rawArgs []string) error {
 		return fmt.Errorf("server error (%d): %s", status, client.JSONError(body))
 	}
 
-	gzReader, err := gzip.NewReader(strings.NewReader(string(body)))
+	gzReader, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("invalid gzip archive: %w", err)
 	}

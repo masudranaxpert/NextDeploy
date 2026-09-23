@@ -151,6 +151,9 @@ func RunUpdate(args []string) error {
 	dir := filepath.Dir(execPath)
 	tmpFile, err := os.CreateTemp(dir, "nd-update-*.tmp")
 	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("permission denied writing to %s — please run: sudo nd update", dir)
+		}
 		return fmt.Errorf("failed to create temporary update file: %w", err)
 	}
 	tmpName := tmpFile.Name()
@@ -184,6 +187,9 @@ func RunUpdate(args []string) error {
 		_ = os.Remove(oldPath)
 	} else {
 		if err := os.Rename(tmpName, execPath); err != nil {
+			if os.IsPermission(err) {
+				return fmt.Errorf("permission denied replacing %s — please run: sudo nd update", execPath)
+			}
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 	}
