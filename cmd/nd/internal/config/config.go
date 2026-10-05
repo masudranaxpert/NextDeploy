@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -179,7 +178,3 @@ func ClearProject(dir string) error {
 	return nil
 }
 
-// OSArch returns the current OS and architecture strings.
-func OSArch() (string, string) {
-	return runtime.GOOS, runtime.GOARCH
-}

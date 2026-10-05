@@ -22,15 +22,7 @@ var (
 	Yellow    = color.New(color.FgYellow).SprintFunc()
 	HiYellow  = color.New(color.FgHiYellow, color.Bold).SprintFunc()
 	Red       = color.New(color.FgRed).SprintFunc()
-	HiRed     = color.New(color.FgHiRed, color.Bold).SprintFunc()
-	Magenta   = color.New(color.FgMagenta).SprintFunc()
-	HiMagenta = color.New(color.FgHiMagenta, color.Bold).SprintFunc()
 )
-
-// DisableColor turns off all terminal colors and formatting.
-func DisableColor() {
-	color.NoColor = true
-}
 
 // Success prints a green checkmark followed by the message.
 func Success(format string, a ...interface{}) {
@@ -55,15 +47,6 @@ func Step(format string, a ...interface{}) {
 // KeyValue prints an aligned label and value.
 func KeyValue(label, value string) {
 	fmt.Printf("%-14s %s\n", Dim(label+":"), value)
-}
-
-// SectionHeader prints a styled block header.
-func SectionHeader(title string, badge string) {
-	if badge != "" {
-		fmt.Printf("\n%s %s\n", HiCyan(title), badge)
-	} else {
-		fmt.Printf("\n%s\n", HiCyan(title))
-	}
 }
 
 // StatePill formats container and app states with matching colored glyphs.

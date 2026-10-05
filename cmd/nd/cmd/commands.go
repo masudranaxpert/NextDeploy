@@ -1993,31 +1993,20 @@ func RunDomain(cl *client.Client, args []string) error {
 			if (a == "-a" || a == "--app") && i+1 < len(subArgs) {
 				appFlag = subArgs[i+1]
 				i++
-			} else if strings.HasPrefix(a, "--app=") {
-				appFlag = strings.TrimPrefix(a, "--app=")
-			} else if strings.HasPrefix(a, "-a=") {
-				appFlag = strings.TrimPrefix(a, "-a=")
+			} else if strings.HasPrefix(a, "--app=") || strings.HasPrefix(a, "-a=") {
+				appFlag = a[strings.Index(a, "=")+1:]
 			} else if (a == "-s" || a == "--service") && i+1 < len(subArgs) {
 				service = subArgs[i+1]
 				i++
-			} else if strings.HasPrefix(a, "--service=") {
-				service = strings.TrimPrefix(a, "--service=")
-			} else if strings.HasPrefix(a, "-s=") {
-				service = strings.TrimPrefix(a, "-s=")
+			} else if strings.HasPrefix(a, "--service=") || strings.HasPrefix(a, "-s=") {
+				service = a[strings.Index(a, "=")+1:]
 			} else if (a == "-p" || a == "--port") && i+1 < len(subArgs) {
-				p, err := strconv.Atoi(subArgs[i+1])
-				if err == nil && p > 0 && p <= 65535 {
-					port = p
-				}
 				i++
-			} else if strings.HasPrefix(a, "--port=") {
-				p, err := strconv.Atoi(strings.TrimPrefix(a, "--port="))
-				if err == nil && p > 0 && p <= 65535 {
+				if p, err := strconv.Atoi(subArgs[i]); err == nil && p > 0 && p <= 65535 {
 					port = p
 				}
-			} else if strings.HasPrefix(a, "-p=") {
-				p, err := strconv.Atoi(strings.TrimPrefix(a, "-p="))
-				if err == nil && p > 0 && p <= 65535 {
+			} else if strings.HasPrefix(a, "--port=") || strings.HasPrefix(a, "-p=") {
+				if p, err := strconv.Atoi(a[strings.Index(a, "=")+1:]); err == nil && p > 0 && p <= 65535 {
 					port = p
 				}
 			} else if a == "--no-https" || a == "--https=false" {
@@ -2124,10 +2113,8 @@ func RunDomain(cl *client.Client, args []string) error {
 			if (a == "-a" || a == "--app") && i+1 < len(subArgs) {
 				appFlag = subArgs[i+1]
 				i++
-			} else if strings.HasPrefix(a, "--app=") {
-				appFlag = strings.TrimPrefix(a, "--app=")
-			} else if strings.HasPrefix(a, "-a=") {
-				appFlag = strings.TrimPrefix(a, "-a=")
+			} else if strings.HasPrefix(a, "--app=") || strings.HasPrefix(a, "-a=") {
+				appFlag = a[strings.Index(a, "=")+1:]
 			} else if strings.HasPrefix(a, "-") {
 				return fmt.Errorf("unknown flag: %s", a)
 			} else {
