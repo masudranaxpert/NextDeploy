@@ -48,12 +48,11 @@ func apiClient() (*client.Client, error) {
 		ver := strings.TrimSpace(os.Getenv("DOCKER_API_VERSION"))
 		opts := []client.Opt{
 			client.FromEnv,
-			client.WithAPIVersionNegotiation(),
 		}
 		if ver != "" {
 			opts = append(opts, client.WithVersion(ver))
 		} else {
-			opts = append(opts, client.WithVersion("1.54"))
+			opts = append(opts, client.WithAPIVersionNegotiation())
 		}
 		apiClientInst, apiClientErr = client.NewClientWithOpts(opts...)
 	})

@@ -1879,7 +1879,13 @@ func TestMCP_TokenAndContextOptimizations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartComposeJob failed: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	for i := 0; i < 50; i++ {
+		job, ok := p.GetDeployJob(jobID)
+		if ok && !job.Running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// summary_only: true (default)
 	statusSummaryParams, _ := json.Marshal(CallToolParams{

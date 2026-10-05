@@ -25,7 +25,6 @@ services:
             - caddy
         environment:
             DATA_DIR: /data
-            DOCKER_API_VERSION: "1.54"
             LISTEN_ADDR: :8080
             PANEL_PERF_LOG: "false"
             WORKSPACES_ROOT: /data/workspaces
