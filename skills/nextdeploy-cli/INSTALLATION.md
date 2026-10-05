@@ -6,10 +6,17 @@ NextDeploy distributes standalone, zero-dependency Go binaries for Linux, macOS,
 
 ## 1. Quick One-Liner Install
 
-### Linux / macOS
+### macOS (Terminal)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh
 ```
+*Auto-detects Apple Silicon (`darwin/arm64`) and Intel (`darwin/amd64`).*
+
+### Linux (bash / zsh)
+```bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh
+```
+*Supports `linux/amd64` and `linux/arm64`.*
 
 ### Windows (PowerShell)
 ```powershell

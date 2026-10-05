@@ -9,15 +9,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
@@ -78,6 +81,12 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleAppCreate(ctx, u, params.Arguments)
 	case "app_delete":
 		return h.handleAppDelete(ctx, u, params.Arguments)
+	case "domain_list":
+		return h.handleDomainList(ctx, u, params.Arguments)
+	case "domain_add":
+		return h.handleDomainAdd(ctx, u, params.Arguments)
+	case "domain_delete":
+		return h.handleDomainDelete(ctx, u, params.Arguments)
 	case "workspace_manifest":
 		return h.handleWorkspaceManifest(ctx, u, params.Arguments)
 	case "workspace_apply":
@@ -357,6 +366,250 @@ func (h *Handler) handleAppDelete(ctx context.Context, u db.User, args map[strin
 	return jsonResult(map[string]interface{}{
 		"ok":      true,
 		"message": fmt.Sprintf("Application %q (%s) permanently deleted", app.Name, appID),
+	})
+}
+
+// sanitizeDomain strips protocol/path/port, cleans quotes, and validates domain characters according to RFC 1035/1123.
+func sanitizeDomain(raw string) (string, error) {
+	d := strings.TrimSpace(raw)
+	if strings.Contains(d, "://") {
+		if u, err := url.Parse(d); err == nil && u.Host != "" {
+			d = u.Host
+		} else {
+			parts := strings.Split(d, "://")
+			d = parts[len(parts)-1]
+		}
+	}
+	if idx := strings.IndexAny(d, "/\\?#:"); idx != -1 {
+		d = d[:idx]
+	}
+	d = strings.TrimSpace(strings.ToLower(caddy.CleanQuotedValue(d)))
+	d = strings.TrimSuffix(d, ".")
+	if d == "" {
+		return "", errors.New("domain name cannot be empty")
+	}
+	if len(d) > 253 {
+		return "", errors.New("domain name too long (maximum 253 characters)")
+	}
+	for _, r := range d {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.') {
+			return "", fmt.Errorf("invalid character %q in domain: only alphanumeric characters, hyphens, and periods are allowed", r)
+		}
+	}
+	labels := strings.Split(d, ".")
+	for _, l := range labels {
+		if l == "" {
+			return "", errors.New("domain contains consecutive or trailing periods")
+		}
+		if len(l) > 63 {
+			return "", errors.New("domain label exceeds 63 characters")
+		}
+		if strings.HasPrefix(l, "-") || strings.HasSuffix(l, "-") {
+			return "", errors.New("domain label cannot start or end with a hyphen")
+		}
+	}
+	return d, nil
+}
+
+func (h *Handler) handleDomainList(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleViewer)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	domains, err := h.p.DB.ListAppDomains(ctx, app.ID)
+	if err != nil {
+		return errorResult(fmt.Errorf("failed to list domains: %w", err))
+	}
+
+	type domainItem struct {
+		ID          int64  `json:"id"`
+		AppID       string `json:"app_id"`
+		Domain      string `json:"domain"`
+		Service     string `json:"service"`
+		Port        int    `json:"port"`
+		EnableHTTPS bool   `json:"enable_https"`
+		EnableWWW   bool   `json:"enable_www"`
+		CreatedAt   string `json:"created_at"`
+	}
+
+	out := make([]domainItem, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, domainItem{
+			ID:          d.ID,
+			AppID:       d.AppID,
+			Domain:      d.Domain,
+			Service:     d.Service,
+			Port:        d.Port,
+			EnableHTTPS: d.EnableHTTPS,
+			EnableWWW:   d.EnableWWW,
+			CreatedAt:   d.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return jsonResult(out)
+}
+
+func (h *Handler) handleDomainAdd(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	rawDomain := getStringArg(args, "domain")
+	domain, err := sanitizeDomain(rawDomain)
+	if err != nil {
+		return errorResult(fmt.Errorf("invalid domain %q: %w", rawDomain, err))
+	}
+
+	service := strings.TrimSpace(getStringArg(args, "service"))
+	if service == "" {
+		svcs := h.p.LoadComposeServices(ctx, app.ID)
+		if len(svcs) > 0 {
+			service = svcs[0]
+		} else {
+			service = "web"
+		}
+	}
+	service = caddy.CleanQuotedValue(service)
+
+	port := getIntArg(args, "port", 80)
+	if port <= 0 || port > 65535 {
+		port = 80
+	}
+
+	enableHTTPS := true
+	if v, ok := args["enable_https"]; ok {
+		if b, ok := v.(bool); ok {
+			enableHTTPS = b
+		}
+	}
+
+	enableWWW := false
+	if v, ok := args["enable_www"]; ok {
+		if b, ok := v.(bool); ok {
+			enableWWW = b
+		}
+	}
+
+	existing, _ := h.p.DB.ListAppDomains(ctx, app.ID)
+	for _, ex := range existing {
+		if strings.EqualFold(ex.Domain, domain) {
+			return errorResult(fmt.Errorf("domain %q is already configured for application %s (ID %d)", domain, app.ID, ex.ID))
+		}
+	}
+
+	d := db.AppDomain{
+		AppID:          app.ID,
+		Domain:         domain,
+		Service:        service,
+		Port:           port,
+		EnableHTTPS:    enableHTTPS,
+		EnableWWW:      enableWWW,
+		RouteRulesJSON: "[]",
+	}
+
+	domainID, err := h.p.DB.CreateAppDomain(ctx, d)
+	if err != nil {
+		return errorResult(fmt.Errorf("failed to save domain: %w", err))
+	}
+
+	if err := h.p.SyncAndApplyBackground(ctx, app.ID); err != nil {
+		_ = err
+	}
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "domain_add",
+			TargetType: "app",
+			TargetID:   app.ID,
+			Details:    fmt.Sprintf("Added domain %s (%s:%d) via MCP", domain, service, port),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	return jsonResult(map[string]interface{}{
+		"ok":           true,
+		"message":      fmt.Sprintf("Domain %s mapped to service %s:%d (HTTPS: %t, WWW: %t)", domain, service, port, enableHTTPS, enableWWW),
+		"domain_id":    domainID,
+		"app_id":       app.ID,
+		"domain":       domain,
+		"service":      service,
+		"port":         port,
+		"enable_https": enableHTTPS,
+		"enable_www":   enableWWW,
+	})
+}
+
+func (h *Handler) handleDomainDelete(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	target := strings.TrimSpace(getStringArg(args, "domain"))
+	if target == "" {
+		return errorResult(errors.New("domain name or domain_id is required"))
+	}
+
+	domains, err := h.p.DB.ListAppDomains(ctx, app.ID)
+	if err != nil {
+		return errorResult(fmt.Errorf("failed to list domains: %w", err))
+	}
+
+	var found *db.AppDomain
+	targetID, idErr := strconv.ParseInt(target, 10, 64)
+	cleanTarget, _ := sanitizeDomain(target)
+	for i := range domains {
+		d := &domains[i]
+		if idErr == nil && d.ID == targetID {
+			found = d
+			break
+		}
+		if strings.EqualFold(d.Domain, target) || (cleanTarget != "" && strings.EqualFold(d.Domain, cleanTarget)) {
+			found = d
+			break
+		}
+	}
+
+	if found == nil {
+		return errorResult(fmt.Errorf("domain %q not found on application %s", target, app.ID))
+	}
+
+	if err := h.p.DB.DeleteAppDomain(ctx, found.ID); err != nil {
+		return errorResult(fmt.Errorf("failed to delete domain: %w", err))
+	}
+
+	if err := h.p.SyncAndApplyBackground(ctx, app.ID); err != nil {
+		_ = err
+	}
+
+	go func() {
+		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+			UserID:     u.ID,
+			Username:   u.Username,
+			Action:     "domain_delete",
+			TargetType: "app",
+			TargetID:   app.ID,
+			Details:    fmt.Sprintf("Deleted domain %s (ID %d) via MCP", found.Domain, found.ID),
+			CreatedAt:  time.Now(),
+		})
+	}()
+
+	return jsonResult(map[string]interface{}{
+		"ok":        true,
+		"message":   fmt.Sprintf("Domain %s (ID %d) successfully deleted", found.Domain, found.ID),
+		"domain_id": found.ID,
+		"domain":    found.Domain,
+		"app_id":    app.ID,
 	})
 }
 

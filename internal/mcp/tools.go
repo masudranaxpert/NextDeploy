@@ -56,6 +56,49 @@ func AllTools() []Tool {
 			},
 		},
 		{
+			Name: "domain_list",
+			Description: "List all configured custom domains and routing rules for an application. " +
+				"Returns domain name, target compose service, internal port, HTTPS/TLS status, and WWW redirect setting.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name: "domain_add",
+			Description: "Map a new custom domain or subdomain to an application service. " +
+				"Validates domain syntax, saves configuration, and immediately updates Caddy reverse proxy routing. " +
+				"Defaults: service to primary compose service, port to 80, enable_https to true.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":       {Type: "string", Description: "The application ID"},
+					"domain":       {Type: "string", Description: "Domain or subdomain to add (e.g. 'api.example.com' or 'myapp.com')"},
+					"service":      {Type: "string", Description: "Target Docker compose service name. If omitted, automatically defaults to the primary compose service."},
+					"port":         {Type: "integer", Description: "Internal container port to proxy traffic to (default 80)"},
+					"enable_https": {Type: "boolean", Description: "Automatically provision and manage SSL/TLS certificate via Caddy (default true)"},
+					"enable_www":   {Type: "boolean", Description: "Automatically route www subdomain to apex domain (default false)"},
+				},
+				Required: []string{"app_id", "domain"},
+			},
+		},
+		{
+			Name: "domain_delete",
+			Description: "Remove a custom domain mapping from an application and update Caddy reverse proxy routing. " +
+				"Accepts either the domain name (e.g. 'api.example.com') or the numeric domain ID.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"domain": {Type: "string", Description: "The domain name or numeric domain ID to delete"},
+				},
+				Required: []string{"app_id", "domain"},
+			},
+		},
+		{
 			Name: "workspace_manifest",
 			Description: "Inspect workspace files, sizes, timestamps, and SHA-256 hashes. " +
 				"Filters out node_modules, .git, and respects .gitignore. Use this FIRST to see project structure or detect changed files. " +

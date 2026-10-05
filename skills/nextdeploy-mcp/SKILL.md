@@ -87,7 +87,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **23 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
+The NextDeploy MCP server provides **27 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
 
 ### Area 1: Application Discovery & Lifecycle
 - **`app_list`**: Lists all applications the user can access.
@@ -157,6 +157,24 @@ All file paths are strictly sandboxed inside the app workspace.
   - *RBAC*: Strictly Admin role required.
   - Returns: `{"command": "...", "ok": true|false, "output": "..."}`
 
+### Area 7: Custom Domain Management & Ingress Routing
+- **`domain_list`**: Lists all configured custom domains and proxy route targets for an application.
+  - Arguments: `app_id` (string, required).
+  - Returns: Array of `{id, app_id, domain, service, port, enable_https, enable_www, created_at}`.
+- **`domain_add`**: Binds a custom domain or subdomain to an application service, automatically generating Caddy proxy routes and provisioning Let's Encrypt / ZeroSSL TLS certificates.
+  - Arguments:
+    - `app_id` (string, required)
+    - `domain` (string, required, e.g. `"api.example.com"`)
+    - `service` (string, optional, e.g. `"web"`; defaults to primary compose service)
+    - `port` (integer, optional, default 80)
+    - `enable_https` (boolean, optional, default true)
+    - `enable_www` (boolean, optional, default false)
+  - *Validation*: Sanitizes inputs and validates strict RFC 1035/1123 hostname rules.
+  - *RBAC*: Developer or Admin role required.
+- **`domain_delete`**: Deletes a custom domain mapping by hostname or numeric ID and automatically regenerates and applies the updated Caddy reverse proxy configuration.
+  - Arguments: `app_id` (string, required), `domain` (string, required, domain name or stringified ID).
+  - *RBAC*: Developer or Admin role required.
+
 ---
 
 ## 4. Standard Agent Workflow Recipes
@@ -192,6 +210,31 @@ All file paths are strictly sandboxed inside the app workspace.
 7. **Verify Container Health**:
    ```json
    { "tool": "container_logs", "arguments": { "app_id": "my-api", "tail": 30 } }
+   ```
+
+### Recipe B: Mapping a Custom Domain & Configuring Ingress
+
+1. **List Existing Mappings**:
+   ```json
+   { "tool": "domain_list", "arguments": { "app_id": "my-api" } }
+   ```
+2. **Add Custom Domain with TLS & WWW**:
+   ```json
+   {
+     "tool": "domain_add",
+     "arguments": {
+       "app_id": "my-api",
+       "domain": "api.example.com",
+       "service": "web",
+       "port": 80,
+       "enable_https": true,
+       "enable_www": true
+     }
+   }
+   ```
+3. **Verify Routing Configuration**:
+   ```json
+   { "tool": "app_get", "arguments": { "app_id": "my-api" } }
    ```
 
 ---

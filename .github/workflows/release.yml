@@ -261,7 +261,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           OUT="nd-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
-          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "${OUT}" .
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X nd/cmd.Version=${VERSION}" -o "${OUT}" .
           echo "Built ${OUT}"
 
       - name: Upload nd binary to Release
@@ -273,7 +273,64 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 2. Lightweight CI check on every push/PR to main (no image push)
+  # 3. Build NextDeploy server binaries (Linux & macOS) and attach to GitHub Release
+  # ─────────────────────────────────────────────────────────────────────────────
+  nextdeploy-release:
+    name: Build NextDeploy binaries
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Build CSS
+        run: npm run build:css
+
+      - name: Build NextDeploy binaries
+        run: |
+          VERSION="${{ github.ref_name }}"
+          PLATFORMS=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+          )
+          for PLATFORM in "${PLATFORMS[@]}"; do
+            GOOS="${PLATFORM%/*}"
+            GOARCH="${PLATFORM#*/}"
+            OUT="nextdeploy-${GOOS}-${GOARCH}"
+            echo "Building ${OUT}..."
+            CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "${OUT}" .
+          done
+
+      - name: Upload NextDeploy binaries to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: nextdeploy-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. Lightweight CI check on every push/PR to main (no image push)
   # ─────────────────────────────────────────────────────────────────────────────
   ci:
     name: Build check (CI)
@@ -304,8 +361,22 @@ jobs:
       - name: Go mod tidy
         run: go mod tidy
 
-      - name: Go build
+      - name: Go build (panel Linux)
         run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
 
-      - name: Go vet
+      - name: Go build (panel macOS / darwin)
+        run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+      - name: Go vet (panel)
         run: go vet ./...
+
+      - name: Go test (panel)
+        run: go test ./...
+
+      - name: Go build & test (nd CLI)
+        working-directory: cmd/nd
+        run: |
+          go vet ./...
+          go test ./...
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .

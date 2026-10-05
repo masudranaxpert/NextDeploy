@@ -188,3 +188,26 @@ func TestExtractWorkspaceArchive(t *testing.T) {
 		t.Errorf("escaping symlink must not be created")
 	}
 }
+
+func TestRunDomain_Validation(t *testing.T) {
+	// Call without args or linked project
+	if err := RunDomain(nil, nil); err == nil {
+		t.Errorf("expected error with no arguments and unlinked directory")
+	}
+
+	// Unknown subcommand
+	if err := RunDomain(nil, []string{"foo-bar-action"}); err == nil {
+		t.Errorf("expected error for unknown subcommand")
+	}
+
+	// Add without domain
+	if err := RunDomain(nil, []string{"add"}); err == nil {
+		t.Errorf("expected error for domain add without domain")
+	}
+
+	// Delete without target
+	if err := RunDomain(nil, []string{"delete"}); err == nil {
+		t.Errorf("expected error for domain delete without target")
+	}
+}
+

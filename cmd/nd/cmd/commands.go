@@ -1953,6 +1953,342 @@ func RunEnv(cl *client.Client, args []string) error {
 	return nil
 }
 
+// RunDomain handles custom domain management:
+//   nd domain list [app_id] [--json]
+//   nd domain add [app_id] <domain> [-s service] [-p port] [--no-https] [--www]
+//   nd domain delete [app_id] <domain|id>
+func RunDomain(cl *client.Client, args []string) error {
+	jsonOut, cleanArgs := extractJSONFlag(args)
+	if len(cleanArgs) == 0 {
+		appID, _, err := resolveAppID(nil)
+		if err == nil && appID != "" {
+			return runDomainList(cl, appID, jsonOut)
+		}
+		return fmt.Errorf("usage: nd domain list [app_id] [--json] | nd domain add [app_id] <domain> [flags] | nd domain rm [app_id] <domain|id>")
+	}
+
+	sub := strings.ToLower(cleanArgs[0])
+	subArgs := cleanArgs[1:]
+
+	switch sub {
+	case "list", "ls":
+		appID, _, err := resolveAppID(subArgs)
+		if err != nil {
+			return err
+		}
+		return runDomainList(cl, appID, jsonOut)
+
+	case "add", "new", "create":
+		var (
+			appFlag     string
+			service     string
+			port        = 80
+			enableHTTPS = true
+			enableWWW   = false
+			posArgs     []string
+		)
+
+		for i := 0; i < len(subArgs); i++ {
+			a := subArgs[i]
+			if (a == "-a" || a == "--app") && i+1 < len(subArgs) {
+				appFlag = subArgs[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--app=") {
+				appFlag = strings.TrimPrefix(a, "--app=")
+			} else if strings.HasPrefix(a, "-a=") {
+				appFlag = strings.TrimPrefix(a, "-a=")
+			} else if (a == "-s" || a == "--service") && i+1 < len(subArgs) {
+				service = subArgs[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--service=") {
+				service = strings.TrimPrefix(a, "--service=")
+			} else if strings.HasPrefix(a, "-s=") {
+				service = strings.TrimPrefix(a, "-s=")
+			} else if (a == "-p" || a == "--port") && i+1 < len(subArgs) {
+				p, err := strconv.Atoi(subArgs[i+1])
+				if err == nil && p > 0 && p <= 65535 {
+					port = p
+				}
+				i++
+			} else if strings.HasPrefix(a, "--port=") {
+				p, err := strconv.Atoi(strings.TrimPrefix(a, "--port="))
+				if err == nil && p > 0 && p <= 65535 {
+					port = p
+				}
+			} else if strings.HasPrefix(a, "-p=") {
+				p, err := strconv.Atoi(strings.TrimPrefix(a, "-p="))
+				if err == nil && p > 0 && p <= 65535 {
+					port = p
+				}
+			} else if a == "--no-https" || a == "--https=false" {
+				enableHTTPS = false
+			} else if a == "--https" || a == "--https=true" {
+				enableHTTPS = true
+			} else if a == "--www" || a == "--www=true" {
+				enableWWW = true
+			} else if a == "--no-www" || a == "--www=false" {
+				enableWWW = false
+			} else if strings.HasPrefix(a, "-") {
+				return fmt.Errorf("unknown flag: %s", a)
+			} else {
+				posArgs = append(posArgs, a)
+			}
+		}
+
+		var appID, domain string
+		if appFlag != "" {
+			appID = appFlag
+			if len(posArgs) < 1 {
+				return fmt.Errorf("domain required: nd domain add -a %s <domain>", appID)
+			}
+			domain = posArgs[0]
+		} else {
+			if len(posArgs) >= 2 {
+				appID = posArgs[0]
+				domain = posArgs[1]
+			} else if len(posArgs) == 1 {
+				linked, _, err := resolveAppID(nil)
+				if err == nil && linked != "" {
+					appID = linked
+					domain = posArgs[0]
+				} else {
+					return fmt.Errorf("app_id required: nd domain add <app_id> <domain> (or link directory with 'nd link <app_id>')")
+				}
+			} else {
+				return fmt.Errorf("domain required: nd domain add [app_id] <domain> [--service <svc>] [--port <port>]")
+			}
+		}
+
+		payload := map[string]interface{}{
+			"app_id":       appID,
+			"domain":       domain,
+			"port":         port,
+			"enable_https": enableHTTPS,
+			"enable_www":   enableWWW,
+		}
+		if service != "" {
+			payload["service"] = service
+		}
+
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name":      "domain_add",
+				"arguments": payload,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if status >= 400 {
+			return fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+
+		var resp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+			return fmt.Errorf("invalid response from server")
+		}
+		if resp.Result.IsError {
+			return fmt.Errorf("%s", resp.Result.Content[0].Text)
+		}
+
+		if jsonOut {
+			fmt.Println(resp.Result.Content[0].Text)
+			return nil
+		}
+
+		var res struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &res) == nil && res.Message != "" {
+			ui.Success("%s", res.Message)
+		} else {
+			ui.Success("Domain %s added to %s.", ui.Cyan(domain), ui.Cyan(appID))
+		}
+		return nil
+
+	case "delete", "del", "rm", "remove":
+		var (
+			appFlag string
+			posArgs []string
+		)
+		for i := 0; i < len(subArgs); i++ {
+			a := subArgs[i]
+			if (a == "-a" || a == "--app") && i+1 < len(subArgs) {
+				appFlag = subArgs[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--app=") {
+				appFlag = strings.TrimPrefix(a, "--app=")
+			} else if strings.HasPrefix(a, "-a=") {
+				appFlag = strings.TrimPrefix(a, "-a=")
+			} else if strings.HasPrefix(a, "-") {
+				return fmt.Errorf("unknown flag: %s", a)
+			} else {
+				posArgs = append(posArgs, a)
+			}
+		}
+
+		var appID, target string
+		if appFlag != "" {
+			appID = appFlag
+			if len(posArgs) < 1 {
+				return fmt.Errorf("domain or domain_id required: nd domain rm -a %s <domain|id>", appID)
+			}
+			target = posArgs[0]
+		} else {
+			if len(posArgs) >= 2 {
+				appID = posArgs[0]
+				target = posArgs[1]
+			} else if len(posArgs) == 1 {
+				linked, _, err := resolveAppID(nil)
+				if err == nil && linked != "" {
+					appID = linked
+					target = posArgs[0]
+				} else {
+					return fmt.Errorf("app_id required: nd domain rm <app_id> <domain|id> (or link directory with 'nd link <app_id>')")
+				}
+			} else {
+				return fmt.Errorf("domain or domain_id required: nd domain rm [app_id] <domain|id>")
+			}
+		}
+
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name": "domain_delete",
+				"arguments": map[string]interface{}{
+					"app_id": appID,
+					"domain": target,
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if status >= 400 {
+			return fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+
+		var resp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+			return fmt.Errorf("invalid response from server")
+		}
+		if resp.Result.IsError {
+			return fmt.Errorf("%s", resp.Result.Content[0].Text)
+		}
+
+		if jsonOut {
+			fmt.Println(resp.Result.Content[0].Text)
+			return nil
+		}
+
+		var res struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &res) == nil && res.Message != "" {
+			ui.Success("%s", res.Message)
+		} else {
+			ui.Success("Domain %s removed from %s.", ui.Cyan(target), ui.Cyan(appID))
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown domain subcommand: %s (use list, add, or rm)", sub)
+	}
+}
+
+func runDomainList(cl *client.Client, appID string, jsonOut bool) error {
+	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "domain_list",
+			"arguments": map[string]interface{}{"app_id": appID},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
+		return fmt.Errorf("invalid response from server")
+	}
+	if resp.Result.IsError {
+		return fmt.Errorf("%s", resp.Result.Content[0].Text)
+	}
+
+	if jsonOut {
+		var raw interface{}
+		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &raw) == nil {
+			pretty, _ := json.MarshalIndent(raw, "", "  ")
+			fmt.Println(string(pretty))
+			return nil
+		}
+		fmt.Println(resp.Result.Content[0].Text)
+		return nil
+	}
+
+	type domainItem struct {
+		ID          int64  `json:"id"`
+		AppID       string `json:"app_id"`
+		Domain      string `json:"domain"`
+		Service     string `json:"service"`
+		Port        int    `json:"port"`
+		EnableHTTPS bool   `json:"enable_https"`
+		EnableWWW   bool   `json:"enable_www"`
+		CreatedAt   string `json:"created_at"`
+	}
+
+	var items []domainItem
+	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &items); err != nil {
+		fmt.Println(resp.Result.Content[0].Text)
+		return nil
+	}
+
+	fmt.Printf("=== %s Domains (%d)\n", appID, len(items))
+	if len(items) == 0 {
+		fmt.Println("  (no custom domains configured)")
+		return nil
+	}
+
+	for _, d := range items {
+		httpsStatus := "https: on"
+		if !d.EnableHTTPS {
+			httpsStatus = "https: off"
+		}
+		wwwStatus := ""
+		if d.EnableWWW {
+			wwwStatus = ", www: on"
+		}
+		fmt.Printf("  • %s -> %s:%d (%s%s) [ID: %d]\n", ui.Cyan(d.Domain), d.Service, d.Port, httpsStatus, wwwStatus, d.ID)
+	}
+	return nil
+}
+
 // RunStop stops an app or a specific service container.
 // Usage: nd stop [app_id] [service] [-s <service>]
 func RunStop(cl *client.Client, args []string) error {
@@ -2107,6 +2443,11 @@ App Management:
   nd unlink                          Remove link from current directory
   nd info [app_id] [--json]          Show app details, domains, health, and status (alias: nd status)
   nd open [app_id]                   Open app domain or panel URL in browser
+
+Domain Management:
+  nd domain list [app_id] [--json]   List custom domains mapped to an application (alias: nd domains)
+  nd domain add [app_id] <domain>    Add and route custom domain (supports --service, --port, --www)
+  nd domain rm [app_id] <domain|id>  Remove custom domain mapping (alias: nd domain delete)
 
 Process & Container Inspection:
   nd ps [app_id] [--json]            Show containers, services, state, status, and images

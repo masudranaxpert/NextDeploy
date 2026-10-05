@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 24 {
-		t.Errorf("expected 24 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 27 {
+		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -113,7 +113,8 @@ func TestMCP_ToolsList(t *testing.T) {
 		toolSet[tool.Name] = true
 	}
 	expectedTools := []string{
-		"app_list", "app_get", "app_create", "app_delete", "workspace_manifest", "file_read", "file_write", "file_delete",
+		"app_list", "app_get", "app_create", "app_delete", "domain_list", "domain_add", "domain_delete",
+		"workspace_manifest", "file_read", "file_write", "file_delete",
 		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "compose_get",
 		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail",
 		"container_exec", "server_exec", "git_pull",
@@ -153,11 +154,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (20 tools).
+	// No-permission token hides restricted tools (23 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 20 {
-		t.Errorf("expected 20 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 23 {
+		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" || tool.Name == "app_delete" {
@@ -165,13 +166,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec, env_reveal, or app_delete (21 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec, env_reveal, or app_delete (24 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 21 {
-		t.Errorf("expected 21 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 24 {
+		t.Errorf("expected 24 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -186,13 +187,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec, env_reveal, or app_delete (21 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec, env_reveal, or app_delete (24 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 21 {
-		t.Errorf("expected 21 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 24 {
+		t.Errorf("expected 24 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -207,13 +208,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected server_exec to be present for AllowServerExec token")
 	}
 
-	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (21 tools).
+	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (24 tools).
 	appDelOnlyTok := db.APIToken{ID: 4, AllowAppDelete: true}
 	appDelOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, appDelOnlyTok)
 	appDelResp := srv.ProcessRPC(appDelOnlyCtx, user, req)
 	appDelList := appDelResp.Result.(ToolsListResult)
-	if len(appDelList.Tools) != 21 {
-		t.Errorf("expected 21 tools with app-delete-only perms, got %d", len(appDelList.Tools))
+	if len(appDelList.Tools) != 24 {
+		t.Errorf("expected 24 tools with app-delete-only perms, got %d", len(appDelList.Tools))
 	}
 	hasAppDelete := false
 	for _, tool := range appDelList.Tools {
@@ -2081,6 +2082,95 @@ func TestMCP_AppDeleteConfirmation(t *testing.T) {
 	// Verify app is gone from DB
 	if _, err := store.GetApp(ctx, appID); err == nil {
 		t.Errorf("expected app to be deleted from DB, but still found")
+	}
+}
+
+func TestMCP_DomainOperations(t *testing.T) {
+	p, store, tmpDir, user := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	srv := NewServer(p)
+	ctx := context.Background()
+	appID := "dom-test-app"
+	if err := store.CreateApp(ctx, appID, "domain-test", user.ID); err != nil {
+		t.Fatalf("failed creating test app: %v", err)
+	}
+
+	// 1. Initial domain_list should be empty
+	listParams, _ := json.Marshal(CallToolParams{
+		Name:      "domain_list",
+		Arguments: map[string]interface{}{"app_id": appID},
+	})
+	res1 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: listParams})
+	res1Obj := res1.Result.(CallToolResult)
+	if res1Obj.IsError {
+		t.Fatalf("domain_list failed: %s", res1Obj.Content[0].Text)
+	}
+	if res1Obj.Content[0].Text != "[]" {
+		t.Errorf("expected empty array, got %s", res1Obj.Content[0].Text)
+	}
+
+	// 2. Add domain: api.example.com
+	addParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id":       appID,
+			"domain":       "https://API.Example.COM:8080/",
+			"service":      "web",
+			"port":         8080,
+			"enable_https": true,
+			"enable_www":   false,
+		},
+	})
+	res2 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: addParams})
+	res2Obj := res2.Result.(CallToolResult)
+	if res2Obj.IsError {
+		t.Fatalf("domain_add failed: %s", res2Obj.Content[0].Text)
+	}
+	var addData map[string]interface{}
+	if err := json.Unmarshal([]byte(res2Obj.Content[0].Text), &addData); err != nil {
+		t.Fatalf("failed to parse domain_add result: %v", err)
+	}
+	if addData["domain"] != "api.example.com" {
+		t.Errorf("expected normalized domain 'api.example.com', got %v", addData["domain"])
+	}
+
+	// 3. Duplicate domain_add should fail
+	resDup := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 3, Method: "tools/call", Params: addParams})
+	if !resDup.Result.(CallToolResult).IsError {
+		t.Errorf("expected duplicate domain_add to fail, but succeeded")
+	}
+
+	// 4. domain_list should now have 1 domain
+	res4 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 4, Method: "tools/call", Params: listParams})
+	res4Obj := res4.Result.(CallToolResult)
+	var listData []map[string]interface{}
+	if err := json.Unmarshal([]byte(res4Obj.Content[0].Text), &listData); err != nil {
+		t.Fatalf("failed to parse domain_list: %v", err)
+	}
+	if len(listData) != 1 || listData[0]["domain"] != "api.example.com" {
+		t.Errorf("unexpected domain_list: %+v", listData)
+	}
+
+	// 5. Delete domain by name
+	delParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_delete",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"domain": "api.example.com",
+		},
+	})
+	res5 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 5, Method: "tools/call", Params: delParams})
+	res5Obj := res5.Result.(CallToolResult)
+	if res5Obj.IsError {
+		t.Fatalf("domain_delete failed: %s", res5Obj.Content[0].Text)
+	}
+
+	// 6. domain_list should now be empty again
+	res6 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 6, Method: "tools/call", Params: listParams})
+	if res6.Result.(CallToolResult).Content[0].Text != "[]" {
+		t.Errorf("expected empty array after delete, got %s", res6.Result.(CallToolResult).Content[0].Text)
 	}
 }
 

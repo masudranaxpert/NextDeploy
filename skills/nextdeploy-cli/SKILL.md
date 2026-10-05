@@ -63,6 +63,9 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **create** | `nd create <name>` | Provision a new application on the server and link locally |
 | **delete** | `nd delete [app_id]` | Delete an application from the server |
 | **open** | `nd open [app_id]` | Open app domain or panel URL in default browser |
+| **domain list** | `nd domain list [app_id] [--json]` | List custom domains mapped to an application (alias: `nd domains`) |
+| **domain add** | `nd domain add [app_id] <domain> [--service svc] [--port p] [--no-https] [--www]` | Add and route custom domain to app (supports custom service/port, Caddy auto-TLS, and optional www subdomain) |
+| **domain rm** | `nd domain rm [app_id] <domain\|id>` | Remove custom domain mapping and reload Caddy reverse proxy (alias: `nd domain delete`) |
 | **images** | `nd images` | List Docker images present on the host VPS |
 | **env list**| `nd env list [app_id]` | List configured environment variable keys |
 | **env set** | `nd env set [app_id] K=V...` | Add or update environment variables |
@@ -251,4 +254,53 @@ nd file rm -r build/
 nd file rm -f junk.txt
 nd folder rm -f tmp/
 ```
+
+---
+
+## 10. Custom Domain Management (`nd domain`)
+
+Manage external domains, subdomains, SSL certificates, and Caddy reverse proxy routing:
+
+### 10.1 Listing Domains
+```bash
+# List all domains configured for the linked app
+nd domain list
+nd domains
+
+# List domains for a specific application
+nd domain list my-api
+nd domain list -a my-api --json
+```
+
+### 10.2 Adding a Custom Domain
+```bash
+# Map domain to the default web service on port 80 (Caddy auto-provisions TLS)
+nd domain add app.example.com
+
+# Target a specific app ID explicitly
+nd domain add my-api api.example.com
+
+# Route domain to a specific compose service and internal port
+nd domain add api.example.com --service backend --port 8080
+
+# Include 'www' subdomain alias automatically
+nd domain add example.com --www
+
+# Disable automatic HTTPS (plain HTTP only)
+nd domain add internal.local --no-https
+```
+
+### 10.3 Removing a Domain
+```bash
+# Remove domain mapping by domain name (automatically reloads Caddy)
+nd domain rm app.example.com
+nd domain delete api.example.com
+
+# Remove by numeric domain ID
+nd domain rm 42
+
+# Target specific app when unlinked
+nd domain rm -a my-api api.example.com
+```
+
 

@@ -161,6 +161,8 @@ func run() int {
 		err = cmd.RunServerExec(cl, rest)
 	case "env":
 		err = cmd.RunEnv(cl, rest)
+	case "domain", "domains":
+		err = cmd.RunDomain(cl, rest)
 	case "files", "file", "ls":
 		err = cmd.RunFiles(cl, rest)
 	case "cat":
