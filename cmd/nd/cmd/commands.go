@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +19,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.2.2"
+var Version = "1.2.3"
 
 // posixQuote escapes a single shell argument safely.
 func posixQuote(arg string) string {
@@ -47,20 +49,45 @@ func posixJoin(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-// RunLogin handles: nd login <server_url>
-// Prompts for API token (or accepts as argument), validates, saves to ~/.nd/config.json
+// RunLogin handles: nd login <server_url> [token] [--name <alias>]
+// Prompts for API token (or accepts as argument/flag), validates, saves to ~/.nd/config.json
 func RunLogin(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: nd login <server_url> [token]")
-	}
-	serverURL := strings.TrimRight(args[0], "/")
+	var (
+		serverURL   string
+		token       string
+		accountName string
+		cleanArgs   []string
+	)
 
-	var token string
-	if len(args) >= 2 {
-		token = strings.TrimSpace(args[1])
-		if token == "--token" && len(args) >= 3 {
-			token = strings.TrimSpace(args[2])
+	// Extract flags like --name / -n and --token / -t
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if (a == "--name" || a == "-n") && i+1 < len(args) {
+			accountName = strings.TrimSpace(args[i+1])
+			i++
+		} else if strings.HasPrefix(a, "--name=") {
+			accountName = strings.TrimSpace(strings.TrimPrefix(a, "--name="))
+		} else if strings.HasPrefix(a, "-n=") {
+			accountName = strings.TrimSpace(strings.TrimPrefix(a, "-n="))
+		} else if (a == "--token" || a == "-t") && i+1 < len(args) {
+			token = strings.TrimSpace(args[i+1])
+			i++
+		} else if strings.HasPrefix(a, "--token=") {
+			token = strings.TrimSpace(strings.TrimPrefix(a, "--token="))
+		} else {
+			cleanArgs = append(cleanArgs, a)
 		}
+	}
+
+	if len(cleanArgs) >= 1 {
+		serverURL = strings.TrimRight(cleanArgs[0], "/")
+	}
+	if serverURL == "" {
+		return fmt.Errorf("usage: nd login <server_url> [token] [--name <alias>]")
+	}
+
+	if token == "" && len(cleanArgs) >= 2 {
+		token = strings.TrimSpace(cleanArgs[1])
 	}
 
 	if token == "" {
@@ -74,20 +101,63 @@ func RunLogin(args []string) error {
 		return fmt.Errorf("token cannot be empty")
 	}
 
-	// Validate token by listing apps
-	cfg := config.Config{ServerURL: serverURL, Token: token}
-	cfg.EnsureDeviceID()
-	c := client.New(cfg, cfg.DeviceID, Version)
-	body, status, err := c.Do("GET", "/api/v1/apps", nil)
-	if err != nil {
-		return fmt.Errorf("could not reach server: %w", err)
+	// Validate token by querying server whoami or apps
+	cfg, _ := config.Load()
+	tempCfg := config.Config{ServerURL: serverURL, Token: token}
+	tempCfg.EnsureDeviceID()
+	c := client.New(tempCfg, tempCfg.DeviceID, Version)
+
+	var whoamiData struct {
+		Username string `json:"username"`
+		Role     string `json:"role"`
 	}
-	if status == 401 {
+	wBody, wStatus, wErr := c.Do("GET", "/api/v1/cli/whoami", nil)
+	if wErr != nil {
+		return fmt.Errorf("could not reach server: %w", wErr)
+	}
+	if wStatus == 401 {
 		return fmt.Errorf("invalid token: authentication failed")
 	}
-	if status >= 400 {
-		return fmt.Errorf("server error %d: %s", status, client.JSONError(body))
+	if wStatus < 400 {
+		_ = json.Unmarshal(wBody, &whoamiData)
+	} else {
+		// Fallback for older servers
+		body, status, err := c.Do("GET", "/api/v1/apps", nil)
+		if err != nil {
+			return fmt.Errorf("could not reach server: %w", err)
+		}
+		if status == 401 {
+			return fmt.Errorf("invalid token: authentication failed")
+		}
+		if status >= 400 {
+			return fmt.Errorf("server error %d: %s", status, client.JSONError(body))
+		}
 	}
+
+	// Auto-generate account name if not explicitly provided
+	if accountName == "" {
+		parsedHost := serverURL
+		if u, err := url.Parse(serverURL); err == nil && u.Host != "" {
+			parsedHost = u.Host
+		} else {
+			parsedHost = strings.TrimPrefix(parsedHost, "https://")
+			parsedHost = strings.TrimPrefix(parsedHost, "http://")
+		}
+		if whoamiData.Username != "" {
+			accountName = fmt.Sprintf("%s@%s", whoamiData.Username, parsedHost)
+		} else {
+			accountName = parsedHost
+		}
+	}
+
+	_, alreadyExists := cfg.Accounts[accountName]
+
+	cfg.SetAccount(accountName, config.AccountConfig{
+		ServerURL: serverURL,
+		Token:     token,
+		DeviceID:  cfg.EnsureDeviceID(),
+		Username:  whoamiData.Username,
+	}, true)
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("could not save config: %w", err)
@@ -97,22 +167,260 @@ func RunLogin(args []string) error {
 	hostname, _ := os.Hostname()
 	_ = c.HeartbeatSync(hostname, runtime.GOOS, runtime.GOARCH, Version)
 
-	ui.Success("Logged in to %s", ui.Cyan(serverURL))
+	if alreadyExists {
+		ui.Success("Updated credentials for account %s (%s)", ui.Bold(accountName), ui.Cyan(serverURL))
+	} else {
+		ui.Success("Logged in as %s (%s)", ui.Bold(accountName), ui.Cyan(serverURL))
+	}
 	return nil
 }
 
-// RunLogout clears the saved config and unregisters the device session.
-func RunLogout(_ []string) error {
+// RunLogout clears saved credentials. Supports:
+// nd logout                 (logs out active account)
+// nd logout <account_name>  (logs out specific account)
+// nd logout --all           (clears all accounts)
+func RunLogout(args []string) error {
+	allFlag := false
+	var targetAccount string
+	for _, a := range args {
+		if a == "--all" || a == "-a" {
+			allFlag = true
+		} else if !strings.HasPrefix(a, "-") && targetAccount == "" {
+			targetAccount = strings.TrimSpace(a)
+		}
+	}
+
 	cfg, err := config.Load()
-	if err == nil && cfg.ServerURL != "" && cfg.DeviceID != "" {
+	if err != nil {
+		return err
+	}
+
+	if allFlag {
+		if cfg.ServerURL != "" && cfg.DeviceID != "" {
+			c := client.New(cfg, cfg.DeviceID, Version)
+			c.Disconnect()
+		}
+		if err := config.Save(config.Config{}); err != nil {
+			return err
+		}
+		ui.Success("Logged out of all accounts.")
+		return nil
+	}
+
+	if targetAccount == "" {
+		targetAccount = cfg.CurrentAccount
+	}
+	if targetAccount == "" {
+		ui.Warn("Not logged in.")
+		return nil
+	}
+
+	// If logging out the active account, attempt graceful session disconnect
+	if targetAccount == cfg.CurrentAccount && cfg.ServerURL != "" && cfg.DeviceID != "" {
 		c := client.New(cfg, cfg.DeviceID, Version)
 		c.Disconnect()
 	}
-	if err := config.Save(config.Config{}); err != nil {
+
+	newActive, err := cfg.DeleteAccount(targetAccount)
+	if err != nil {
 		return err
 	}
-	ui.Success("Logged out successfully.")
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+
+	if newActive != "" {
+		ui.Success("Logged out of account %s. Switched active account to %s.", ui.Bold(targetAccount), ui.Cyan(newActive))
+	} else {
+		ui.Success("Logged out of account %s. No remaining accounts.", ui.Bold(targetAccount))
+	}
 	return nil
+}
+
+// RunAccount manages multiple NextDeploy accounts (list, switch, rename, delete, current).
+func RunAccount(args []string) error {
+	jsonOut, args := extractJSONFlag(args)
+	subcmd := "list"
+	if len(args) > 0 {
+		subcmd = args[0]
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	switch subcmd {
+	case "list":
+		if jsonOut {
+			type accountInfo struct {
+				Name      string `json:"name"`
+				Active    bool   `json:"active"`
+				ServerURL string `json:"server_url"`
+				Username  string `json:"username,omitempty"`
+				DeviceID  string `json:"device_id,omitempty"`
+			}
+			var list []accountInfo
+			var names []string
+			for n := range cfg.Accounts {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				acc := cfg.Accounts[n]
+				list = append(list, accountInfo{
+					Name:      n,
+					Active:    n == cfg.CurrentAccount,
+					ServerURL: acc.ServerURL,
+					Username:  acc.Username,
+					DeviceID:  acc.DeviceID,
+				})
+			}
+			if list == nil {
+				list = []accountInfo{}
+			}
+			pretty, _ := json.MarshalIndent(list, "", "  ")
+			fmt.Println(string(pretty))
+			return nil
+		}
+
+		if len(cfg.Accounts) == 0 {
+			fmt.Println(ui.Dim("No saved accounts found. Log in with: nd login <server_url>"))
+			return nil
+		}
+
+		headers := []string{"Active", "Name", "User", "Server URL", "Device ID"}
+		var rows [][]string
+		var names []string
+		for n := range cfg.Accounts {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+
+		for _, n := range names {
+			acc := cfg.Accounts[n]
+			activeMarker := " "
+			nameDisplay := n
+			if n == cfg.CurrentAccount {
+				activeMarker = ui.Green("✓")
+				nameDisplay = ui.Bold(n)
+			}
+			userDisplay := acc.Username
+			if userDisplay == "" {
+				userDisplay = ui.Dim("-")
+			}
+			deviceDisplay := acc.DeviceID
+			if len(deviceDisplay) > 16 {
+				deviceDisplay = deviceDisplay[:14] + ".."
+			}
+			rows = append(rows, []string{
+				activeMarker,
+				nameDisplay,
+				userDisplay,
+				ui.Cyan(acc.ServerURL),
+				ui.Dim(deviceDisplay),
+			})
+		}
+		ui.PrintTable(os.Stdout, headers, rows)
+		return nil
+
+	case "switch", "use":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: nd account switch <name>")
+		}
+		target := strings.TrimSpace(args[1])
+		if err := cfg.SwitchAccount(target); err != nil {
+			return err
+		}
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		ui.Success("Switched to account %s (%s)", ui.Bold(target), ui.Cyan(cfg.ServerURL))
+		return nil
+
+	case "rename":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: nd account rename <old_name> <new_name>")
+		}
+		oldName := strings.TrimSpace(args[1])
+		newName := strings.TrimSpace(args[2])
+		if err := cfg.RenameAccount(oldName, newName); err != nil {
+			return err
+		}
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		ui.Success("Renamed account %s to %s", ui.Bold(oldName), ui.Bold(newName))
+		return nil
+
+	case "delete", "remove", "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: nd account delete <name> [-f]")
+		}
+		target := strings.TrimSpace(args[1])
+		force := false
+		for _, a := range args[2:] {
+			if a == "-f" || a == "--force" || a == "-y" {
+				force = true
+			}
+		}
+		if !force {
+			fmt.Printf("Delete account %q? (y/N): ", target)
+			var confirm string
+			_, _ = fmt.Scanln(&confirm)
+			confirm = strings.ToLower(strings.TrimSpace(confirm))
+			if confirm != "y" && confirm != "yes" {
+				return fmt.Errorf("account deletion cancelled")
+			}
+		}
+		newActive, err := cfg.DeleteAccount(target)
+		if err != nil {
+			return err
+		}
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		if newActive != "" {
+			ui.Success("Deleted account %s. Switched active account to %s.", ui.Bold(target), ui.Cyan(newActive))
+		} else {
+			ui.Success("Deleted account %s. No remaining accounts.", ui.Bold(target))
+		}
+		return nil
+
+	case "current":
+		if jsonOut {
+			curName, curAcc, ok := cfg.ActiveAccount()
+			if !ok {
+				fmt.Println("{}")
+				return nil
+			}
+			pretty, _ := json.MarshalIndent(map[string]interface{}{
+				"name":       curName,
+				"server_url": curAcc.ServerURL,
+				"username":   curAcc.Username,
+				"device_id":  curAcc.DeviceID,
+			}, "", "  ")
+			fmt.Println(string(pretty))
+			return nil
+		}
+		curName, curAcc, ok := cfg.ActiveAccount()
+		if !ok {
+			fmt.Println(ui.Dim("No active account. Log in with: nd login <server_url>"))
+			return nil
+		}
+		ui.KeyValue("Account", ui.Bold(curName))
+		ui.KeyValue("Server URL", ui.Cyan(curAcc.ServerURL))
+		if curAcc.Username != "" {
+			ui.KeyValue("User", curAcc.Username)
+		}
+		if curAcc.DeviceID != "" {
+			ui.KeyValue("Device ID", ui.Dim(curAcc.DeviceID))
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown account subcommand %q. Available: list, switch, rename, delete, current", subcmd)
+	}
 }
 
 // RunApps prints all accessible apps, or dispatches subcommands.
@@ -454,6 +762,9 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 			out["status"] = "error"
 			out["error"] = client.JSONError(wBody)
 		}
+		if cfg.CurrentAccount != "" {
+			out["account"] = cfg.CurrentAccount
+		}
 		if whoamiData.Username != "" {
 			out["username"] = whoamiData.Username
 			out["role"] = whoamiData.Role
@@ -478,6 +789,9 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		return nil
 	}
 
+	if cfg.CurrentAccount != "" {
+		ui.KeyValue("Account", fmt.Sprintf("%s %s", ui.Bold(cfg.CurrentAccount), ui.Green("(active)")))
+	}
 	ui.KeyValue("Server URL", ui.Cyan(cfg.ServerURL))
 	if whoamiData.Username != "" {
 		ui.KeyValue("User", fmt.Sprintf("%s (%s)", ui.Bold(whoamiData.Username), whoamiData.Role))
@@ -2417,10 +2731,15 @@ func RunRestart(cl *client.Client, args []string) error {
 func PrintHelp() {
 	fmt.Fprintf(os.Stderr, `nd — NextDeploy CLI (PaaS Management)
 
-Authentication & Session:
-  nd login <server_url> [token]      Authenticate with an API token
-  nd logout                          Remove saved credentials and disconnect session
-  nd whoami [--json]                 Show authenticated server, user, and session status
+Authentication & Accounts:
+  nd login <server_url> [token] [--name alias] Authenticate with an API token (auto-saves account alias)
+  nd logout [name] [--all]           Log out of active or specified account (--all clears all)
+  nd whoami [--json]                 Show active account, server, user, and session status
+  nd account list [--json]           List saved accounts and active status (alias: nd account)
+  nd account switch <name>           Switch active account (alias: nd account use)
+  nd account rename <old> <new>      Rename an account alias
+  nd account delete <name> [-f]      Remove an account (alias: nd account rm)
+  nd account current [--json]        Show currently active account details
 
 App Management:
   nd apps [--json]                   List all applications
@@ -2474,6 +2793,7 @@ Other:
   nd help                            Print this help
 
 Flags:
+  -A, --account <name>               Target specific saved account (overrides active account)
   -a, --app <app_id>                 Target application ID (overrides linked directory)
   -j, --json                         Output structured JSON (compatible with CI/CD and AI agents)
   -s, --service <service>            Target compose service for exec / logs / stop / restart
@@ -2485,6 +2805,7 @@ Flags:
   --server                           Execute on host VPS instead of container
 
 Environment variables:
+  ND_ACCOUNT                         Active account name fallback/override
   ND_SERVER_URL                      Panel URL fallback (e.g. in CI/CD)
   ND_TOKEN                           API token fallback
 `)

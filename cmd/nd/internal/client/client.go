@@ -23,7 +23,7 @@ type Client struct {
 
 // New creates a Client from saved config.
 func New(cfg config.Config, sessID string, version ...string) *Client {
-	ver := "1.2.2"
+	ver := "1.2.3"
 	if len(version) > 0 && version[0] != "" {
 		ver = version[0]
 	}
@@ -40,7 +40,7 @@ func (c *Client) userAgent() string {
 	if c.version != "" {
 		return "nd/" + c.version
 	}
-	return "nd/1.2.2"
+	return "nd/1.2.3"
 }
 
 // Do executes an authenticated request and returns the response body.

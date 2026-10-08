@@ -30,7 +30,7 @@ _nd_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="login logout whoami apps create delete link unlink info status open ps containers images push pull diff deploy redeploy stop restart down logs exec run server-exec env domain domains files file cat edit folder ls version help completion"
+    commands="login logout whoami account accounts apps create delete link unlink info status open ps containers images push pull diff deploy redeploy stop restart down logs exec run server-exec env domain domains files file cat edit folder ls version help completion"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
@@ -40,6 +40,10 @@ _nd_completions() {
     case "${prev}" in
         -a|--app)
             # Cannot dynamically complete without server, complete nothing
+            return 0
+            ;;
+        account|accounts)
+            COMPREPLY=( $(compgen -W "list switch use rename delete remove rm current" -- ${cur}) )
             return 0
             ;;
         env)
@@ -79,6 +83,8 @@ _nd() {
         'login:Authenticate with an API token'
         'logout:Remove credentials and disconnect'
         'whoami:Show current user, server, and session status'
+        'account:Manage multiple saved accounts'
+        'accounts:Manage multiple saved accounts'
         'apps:List applications'
         'create:Create and link a new application'
         'delete:Delete an application'
@@ -122,7 +128,7 @@ _nd "$@"
 const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandName nd -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     $commands = @(
-        'login', 'logout', 'whoami', 'apps', 'create', 'delete',
+        'login', 'logout', 'whoami', 'account', 'accounts', 'apps', 'create', 'delete',
         'link', 'unlink', 'info', 'status', 'open', 'ps',
         'containers', 'images', 'push', 'pull', 'diff', 'deploy', 'redeploy', 'stop', 'restart', 'down',
         'logs', 'exec', 'run', 'server-exec', 'env', 'domain', 'domains', 'files', 'file', 'cat', 'edit', 'folder', 'ls', 'version', 'help', 'completion'

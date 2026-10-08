@@ -30,8 +30,9 @@ func run() int {
 		return 0
 	}
 
-	// Extract global flags like -a / --app before command dispatch
+	// Extract global flags like -a / --app and -A / --account before command dispatch
 	var globalApp string
+	var globalAccount string
 	var args []string
 	for i := 0; i < len(rawArgs); i++ {
 		a := rawArgs[i]
@@ -42,9 +43,20 @@ func run() int {
 			globalApp = strings.TrimPrefix(a, "--app=")
 		} else if strings.HasPrefix(a, "-a=") {
 			globalApp = strings.TrimPrefix(a, "-a=")
+		} else if (a == "-A" || a == "--account") && i+1 < len(rawArgs) {
+			globalAccount = rawArgs[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--account=") {
+			globalAccount = strings.TrimPrefix(a, "--account=")
+		} else if strings.HasPrefix(a, "-A=") {
+			globalAccount = strings.TrimPrefix(a, "-A=")
 		} else {
 			args = append(args, a)
 		}
+	}
+
+	if globalAccount != "" {
+		_ = os.Setenv("ND_ACCOUNT", globalAccount)
 	}
 
 	if len(args) == 0 {
@@ -58,8 +70,14 @@ func run() int {
 		rest = append(rest, "--app", globalApp)
 	}
 
-	// Commands that don't need auth
+	// Commands that don't need auth or handle config locally
 	switch command {
+	case "account", "accounts":
+		if err := cmd.RunAccount(rest); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "login":
 		if err := cmd.RunLogin(rest); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

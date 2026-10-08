@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-cli
 description: Operational reference and automation instructions for AI coding assistants using the NextDeploy CLI (nd) to manage application lifecycles, incremental code syncs (nd push), deployments, logs, containers, and environment variables.
-version: 1.2.2
+version: 1.2.3
 ---
 
 # NextDeploy CLI (`nd`) Skill
@@ -10,19 +10,39 @@ This skill teaches AI coding assistants (Claude Code, Cursor, Windsurf, Antigrav
 
 ---
 
-## 1. Authentication & Environment
+## 1. Authentication & Multi-Account Management
 
 In agent and headless environments, configure connection credentials directly via environment variables:
 
 ```bash
 export ND_SERVER_URL="https://panel.yourdomain.com"
 export ND_TOKEN="nd_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# Optionally target a specific saved account profile:
+export ND_ACCOUNT="production"
 ```
 
-Or interactively log in:
+Or log in with multi-account profile support:
 ```bash
+# Log in with automatic account naming (username@host)
 nd login https://panel.yourdomain.com
-nd whoami
+
+# Log in with a custom account alias
+nd login https://panel.yourdomain.com --name prod
+
+# Manage saved accounts
+nd account list                     # List all saved accounts and active status
+nd account switch staging           # Switch active account
+nd account rename staging stage-v2  # Rename an account alias
+nd account delete old-acc           # Delete an account (auto-switches if active)
+nd account current                  # Show active account profile
+nd whoami                           # View active user, server, and permissions
+nd logout [name] [--all]            # Logout active or specified account (--all clears all)
+```
+
+Run commands against a specific account without switching active context:
+```bash
+nd apps --account staging
+nd status -A prod
 ```
 
 ---
@@ -76,8 +96,13 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **file rm** | `nd file rm <path> [-r] [-f]` | Delete remote file or folder (alias: `nd rm`) |
 | **folder rm**| `nd folder rm <path> [-f]` | Delete remote folder and all contents (alias: `nd folder delete`) |
 | **server-exec** | `nd server-exec <cmd...>` | Execute command on host VPS (requires `allow_server_exec`) |
-| **whoami** | `nd whoami` | Inspect active session, server URL, device ID, and linked app |
-| **logout** | `nd logout` | Invalidate device session and clear local credentials |
+| **whoami** | `nd whoami` | Inspect active account, server URL, device ID, and permissions |
+| **account list** | `nd account list [--json]` | List all saved accounts and active profile (alias: `nd account`) |
+| **account switch** | `nd account switch <name>` | Switch active account (alias: `nd account use`) |
+| **account rename** | `nd account rename <old> <new>` | Rename account alias |
+| **account delete** | `nd account delete <name> [-f]` | Delete an account (alias: `nd account rm`) |
+| **account current** | `nd account current` | Display active account profile |
+| **logout** | `nd logout [name] [--all]` | Log out of active or specified account (`--all` clears all) |
 
 ---
 
