@@ -211,3 +211,63 @@ func TestRunDomain_Validation(t *testing.T) {
 	}
 }
 
+func TestResolveHostIP(t *testing.T) {
+	// 1. Direct IP with port
+	ip1 := resolveHostIP("http://166.88.142.88:8080")
+	if ip1 != "166.88.142.88" {
+		t.Errorf("expected 166.88.142.88, got %q", ip1)
+	}
+
+	// 2. Localhost IPv4
+	ip2 := resolveHostIP("http://127.0.0.1:3000")
+	if ip2 != "127.0.0.1" {
+		t.Errorf("expected 127.0.0.1, got %q", ip2)
+	}
+
+	// 3. Empty or invalid URL
+	if ip := resolveHostIP(""); ip != "" {
+		t.Errorf("expected empty string for empty URL, got %q", ip)
+	}
+}
+
+func TestExtractHostPorts(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []int
+	}{
+		{
+			input: "0.0.0.0:3000->3000/tcp, :::3000->3000/tcp",
+			want:  []int{3000},
+		},
+		{
+			input: "0.0.0.0:8080->80/tcp, 0.0.0.0:8443->443/tcp",
+			want:  []int{8080, 8443},
+		},
+		{
+			input: "80/tcp, 443/tcp",
+			want:  nil,
+		},
+		{
+			input: "",
+			want:  nil,
+		},
+		{
+			input: "127.0.0.1:5432->5432/tcp",
+			want:  []int{5432},
+		},
+	}
+
+	for _, tc := range tests {
+		got := extractHostPorts(tc.input)
+		if len(got) != len(tc.want) {
+			t.Errorf("extractHostPorts(%q) len = %d, want %d (got: %v)", tc.input, len(got), len(tc.want), got)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("extractHostPorts(%q)[%d] = %d, want %d", tc.input, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+

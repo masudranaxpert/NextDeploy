@@ -35,6 +35,16 @@ func New(cfg config.Config, sessID string, version ...string) *Client {
 	}
 }
 
+// ServerURL returns the configured server endpoint URL.
+func (c *Client) ServerURL() string {
+	return c.cfg.ServerURL
+}
+
+// Config returns the active client configuration.
+func (c *Client) Config() config.Config {
+	return c.cfg
+}
+
 // userAgent returns the formatted CLI User-Agent header.
 func (c *Client) userAgent() string {
 	if c.version != "" {

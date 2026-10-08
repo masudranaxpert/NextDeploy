@@ -71,8 +71,8 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild; alias: `nd redeploy`) |
 | **logs** | `nd logs [app_id] [-s service] [-n lines] [-f]` | Tail container runtime stdout/stderr (default: 50 lines; supports `-s` service filter) |
 | **logs (deploy)** | `nd logs [app_id] --deploy [-f]` | Stream build & deployment output in real time |
-| **status** | `nd status [app_id]` | Application health, uptime, exposed ports, and configuration |
-| **info** | `nd info [app_id]` | Comprehensive app inspect view (domains, container state, health) |
+| **status** | `nd status [app_id]` | Application health, uptime, VPS IP, direct access port URLs, and configuration |
+| **info** | `nd info [app_id]` | Comprehensive app inspect view (VPS IP, domains, direct access URLs, container state, health) |
 | **ps** | `nd ps [app_id]` | List containers and microservices with state, image, and exposed port mappings |
 | **containers** | `nd containers [app_id] [-a]` | List containers for an app, or VPS host containers if omitted |
 | **stop** | `nd stop [app_id] [service]` | Stop container stack, or stop a specific service container |

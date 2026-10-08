@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,6 +22,61 @@ import (
 
 // Version can be overwritten at build time or by main.
 var Version = "1.2.3"
+
+// resolveHostIP returns the IPv4 address of the server host.
+func resolveHostIP(serverURL string) string {
+	if serverURL == "" {
+		return ""
+	}
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	if host == "" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	var r net.Resolver
+	ips, err := r.LookupIP(ctx, "ip4", host)
+	if err != nil || len(ips) == 0 {
+		return ""
+	}
+	return ips[0].String()
+}
+
+// extractHostPorts extracts published host port numbers from a Docker port mapping string.
+// Example: "0.0.0.0:3000->3000/tcp, :::3000->3000/tcp" -> [3000]
+func extractHostPorts(portsStr string) []int {
+	var ports []int
+	seen := make(map[int]bool)
+	parts := strings.Split(portsStr, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		idx := strings.Index(part, "->")
+		if idx == -1 {
+			continue
+		}
+		hostPart := part[:idx]
+		colonIdx := strings.LastIndex(hostPart, ":")
+		portStr := hostPart
+		if colonIdx != -1 {
+			portStr = hostPart[colonIdx+1:]
+		}
+		portStr = strings.TrimSpace(portStr)
+		if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+			if !seen[p] {
+				seen[p] = true
+				ports = append(ports, p)
+			}
+		}
+	}
+	return ports
+}
 
 // posixQuote escapes a single shell argument safely.
 func posixQuote(arg string) string {
@@ -394,12 +451,16 @@ func RunAccount(args []string) error {
 				fmt.Println("{}")
 				return nil
 			}
-			pretty, _ := json.MarshalIndent(map[string]interface{}{
+			outMap := map[string]interface{}{
 				"name":       curName,
 				"server_url": curAcc.ServerURL,
 				"username":   curAcc.Username,
 				"device_id":  curAcc.DeviceID,
-			}, "", "  ")
+			}
+			if vpsIP := resolveHostIP(curAcc.ServerURL); vpsIP != "" {
+				outMap["vps_ip"] = vpsIP
+			}
+			pretty, _ := json.MarshalIndent(outMap, "", "  ")
 			fmt.Println(string(pretty))
 			return nil
 		}
@@ -410,6 +471,9 @@ func RunAccount(args []string) error {
 		}
 		ui.KeyValue("Account", ui.Bold(curName))
 		ui.KeyValue("Server URL", ui.Cyan(curAcc.ServerURL))
+		if vpsIP := resolveHostIP(curAcc.ServerURL); vpsIP != "" {
+			ui.KeyValue("VPS IP", ui.Bold(vpsIP))
+		}
 		if curAcc.Username != "" {
 			ui.KeyValue("User", curAcc.Username)
 		}
@@ -762,6 +826,9 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 			out["status"] = "error"
 			out["error"] = client.JSONError(wBody)
 		}
+		if vpsIP := resolveHostIP(cfg.ServerURL); vpsIP != "" {
+			out["vps_ip"] = vpsIP
+		}
 		if cfg.CurrentAccount != "" {
 			out["account"] = cfg.CurrentAccount
 		}
@@ -793,6 +860,9 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		ui.KeyValue("Account", fmt.Sprintf("%s %s", ui.Bold(cfg.CurrentAccount), ui.Green("(active)")))
 	}
 	ui.KeyValue("Server URL", ui.Cyan(cfg.ServerURL))
+	if vpsIP := resolveHostIP(cfg.ServerURL); vpsIP != "" {
+		ui.KeyValue("VPS IP", ui.Bold(vpsIP))
+	}
 	if whoamiData.Username != "" {
 		ui.KeyValue("User", fmt.Sprintf("%s (%s)", ui.Bold(whoamiData.Username), whoamiData.Role))
 	}
@@ -893,6 +963,7 @@ func RunStatus(cl *client.Client, args []string) error {
 		State   string `json:"State"`
 		Status  string `json:"Status"`
 		Image   string `json:"Image"`
+		Ports   string `json:"Ports,omitempty"`
 	}
 	type httpCheck struct {
 		Domain     string `json:"domain"`
@@ -927,9 +998,14 @@ func RunStatus(cl *client.Client, args []string) error {
 		created = t.Format("Jan 02, 2006 15:04")
 	}
 
+	vpsIP := resolveHostIP(cl.ServerURL())
+
 	fmt.Printf("\n=== %s (%s)\n", ui.HiCyan(data.App.Name), ui.Dim(data.App.ID))
 	ui.KeyValue("Status", ui.StatePill(data.App.Status))
 	ui.KeyValue("Created", created)
+	if vpsIP != "" {
+		ui.KeyValue("VPS IP", ui.Bold(vpsIP))
+	}
 
 	// Domains
 	if len(data.Domains) > 0 {
@@ -943,17 +1019,41 @@ func RunStatus(cl *client.Client, args []string) error {
 		}
 	} else {
 		ui.KeyValue("Domains", ui.Dim("(none configured)"))
+		if vpsIP != "" {
+			fmt.Printf("  %s %s %s\n", ui.Dim("└─ Point your DNS A-record to"), ui.Bold(vpsIP), ui.Dim("then run: nd domain add <app> <domain>"))
+		}
+	}
+
+	// Direct Access URLs if containers have published host ports
+	var directURLs []string
+	if vpsIP != "" {
+		for _, p := range data.PS {
+			for _, port := range extractHostPorts(p.Ports) {
+				directURLs = append(directURLs, fmt.Sprintf("http://%s:%d %s", vpsIP, port, ui.Dim(fmt.Sprintf("(service: %s)", p.Service))))
+			}
+		}
+	}
+	if len(directURLs) > 0 {
+		fmt.Printf("\n%s\n", ui.Bold("Direct Access:"))
+		for _, u := range directURLs {
+			fmt.Printf("  • %s\n", ui.Cyan(u))
+		}
 	}
 
 	// Containers
 	fmt.Printf("\n%s (%d):\n", ui.Bold("Containers"), len(data.PS))
 	if len(data.PS) > 0 {
-		headers := []string{"Service", "Container", "State", "Status"}
+		headers := []string{"Service", "Container", "Ports", "State", "Status"}
 		var rows [][]string
 		for _, p := range data.PS {
+			portsDisplay := p.Ports
+			if portsDisplay == "" {
+				portsDisplay = ui.Dim("-")
+			}
 			rows = append(rows, []string{
 				ui.Bold(p.Service),
 				p.Name,
+				portsDisplay,
 				ui.StatePill(p.State),
 				p.Status,
 			})
@@ -1417,6 +1517,24 @@ func RunOpen(cl *client.Client, args []string) error {
 				scheme = "https"
 			}
 			targetURL = fmt.Sprintf("%s://%s", scheme, d.Domain)
+		}
+	}
+
+	// If no domain mapped, attempt direct port access on the VPS host
+	if targetURL == "" && len(resp.Result.Content) > 0 {
+		var psData struct {
+			PS []struct {
+				Ports string `json:"Ports"`
+			} `json:"ps"`
+		}
+		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &psData)
+		if vpsIP := resolveHostIP(cl.ServerURL()); vpsIP != "" {
+			for _, p := range psData.PS {
+				if ports := extractHostPorts(p.Ports); len(ports) > 0 {
+					targetURL = fmt.Sprintf("http://%s:%d", vpsIP, ports[0])
+					break
+				}
+			}
 		}
 	}
 
@@ -2414,6 +2532,9 @@ func RunDomain(cl *client.Client, args []string) error {
 			ui.Success("%s", res.Message)
 		} else {
 			ui.Success("Domain %s added to %s.", ui.Cyan(domain), ui.Cyan(appID))
+		}
+		if vpsIP := resolveHostIP(cl.ServerURL()); vpsIP != "" {
+			fmt.Printf("  %s %s\n", ui.Dim("DNS check: Ensure your domain's A-record points to"), ui.Bold(vpsIP))
 		}
 		return nil
 
