@@ -97,13 +97,31 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **file rm** | `nd file rm <path> [-r] [-f]` | Delete remote file or folder (alias: `nd rm`) |
 | **folder rm**| `nd folder rm <path> [-f]` | Delete remote folder and all contents (alias: `nd folder delete`) |
 | **server-exec** | `nd server-exec <cmd...>` | Execute command on host VPS (requires `allow_server_exec`) |
-| **whoami** | `nd whoami` | Inspect active account, server URL, device ID, and permissions |
+| **whoami** | `nd whoami [--json]` | Inspect active account, server URL, device ID, and permissions |
 | **account list** | `nd account list [--json]` | List all saved accounts and active profile (alias: `nd account`) |
 | **account switch** | `nd account switch <name>` | Switch active account (alias: `nd account use`) |
 | **account rename** | `nd account rename <old> <new>` | Rename account alias |
 | **account delete** | `nd account delete <name> [-f]` | Delete an account (alias: `nd account rm`) |
-| **account current** | `nd account current` | Display active account profile |
+| **account current** | `nd account current [--json]` | Display active account profile |
 | **logout** | `nd logout [name] [--all]` | Log out of active or specified account (`--all` clears all) |
+| **update** | `nd update` | Self-update `nd` CLI binary to the latest GitHub release |
+| **version** | `nd version` | Print `nd` CLI version, OS, and architecture |
+| **completion** | `nd completion [bash\|zsh\|ps1]` | Generate shell autocompletion script |
+
+### Global Flags
+
+| Flag | Purpose |
+| :--- | :--- |
+| `-j, --json` | Output structured JSON (supported on `apps`, `ps`, `info`, `domains`, `env`, `files`, `whoami`, `account`) |
+| `-A, --account <name>` | Target specific saved account profile (overrides active account) |
+| `-a, --app <app_id>` | Target application ID (overrides linked workspace) |
+| `-s, --service <svc>` | Target specific Compose service (for `exec`, `logs`, `stop`, `restart`) |
+| `-c, --container <name>` | Target specific container name (for `exec`) |
+| `-w, --workdir <dir>` | Working directory inside container (for `exec`) |
+| `-t, --timeout <secs>` | Execution timeout in seconds (default: 300s, max: 3600s) |
+| `-i, --stdin` | Forward stdin into container process |
+| `--recreate` | Force recreate containers on `nd restart` (does not rebuild image; use `nd deploy` for that) |
+| `--server` | Execute command directly on host VPS instead of container |
 
 ---
 
@@ -363,3 +381,62 @@ Notes:
 - The same switch is on the panel's app Overview tab ("Turn off Git sync" / "Turn on Git sync"). It is different from "Switch source", which deletes the repository configuration.
 - `nd deploy` waits up to 2 minutes. If the build is longer it now exits with an error that says the deployment is still running; follow it with `nd logs --deploy -f`.
 - `nd exec` reads standard input whenever it is a pipe. In scripts or agents without input, add `< /dev/null`.
+
+---
+
+## 12. Recommended AI Agent Workflow
+
+When an AI coding assistant (Antigravity, Claude Code, Cursor, Windsurf) is deploying or modifying an application via `nd`, execute tasks in this structured sequence:
+
+### Step 1: Verify Connection & Project Link
+```bash
+# Confirm active connection and linked application
+nd whoami --json
+
+# If not linked to the workspace, link once:
+nd link <app_id>
+```
+
+### Step 2: Check Git Sync State
+Before attempting file uploads or local edits, check if Git sync is controlling deploys:
+```bash
+nd git status
+# If Git sync is ON and you are pushing local changes directly:
+nd git off
+```
+
+### Step 3: Inspect Differences Before Syncing
+Always run `nd diff` to preview what files will be changed or uploaded:
+```bash
+nd diff
+```
+
+### Step 4: Differential Sync & Deploy
+Push modified files and trigger container deployment:
+```bash
+# Push modified files and deploy in a single step
+nd push --deploy
+
+# Or push with server-side cleanup of deleted files
+nd push --deploy --prune -y
+```
+
+### Step 5: Follow Deployment Build Logs
+Never assume deploy completed silently — monitor the live build:
+```bash
+nd logs --deploy -f
+```
+
+### Step 6: Verify Service Health & Endpoints
+```bash
+# Check container status and URLs
+nd status
+nd ps --json
+```
+
+### Step 7: Post-Deploy Tasks (Migrations, Seed, Tests)
+```bash
+# Execute within container using target service
+nd exec -s web python manage.py migrate
+nd exec -s web npm run build
+```
