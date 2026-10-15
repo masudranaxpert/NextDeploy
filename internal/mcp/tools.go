@@ -404,5 +404,22 @@ func AllTools() []Tool {
 				Required: []string{"app_id"},
 			},
 		},
+		{
+			Name: "git_sync",
+			Description: "Show, turn off or turn on Git as an app's deploy source without deleting the repository configuration. " +
+				"action=status (default) reports the source mode. action=off makes the workspace (nd push, file edits) the deploy source: " +
+				"no git pull on deploy, webhooks ignored; checkout files missing from the workspace are copied over once and newer workspace files always win. " +
+				"action=on resumes pulling from the repository (the next deploy or webhook pulls); refused while the Git checkout has uncommitted edits unless force:true. " +
+				"Use this before nd push / workspace_apply on an app that is connected to Git, otherwise deploy builds the Git version instead of the pushed files.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"action": {Type: "string", Description: "status (default), off or on"},
+					"force":  {Type: "boolean", Description: "Only for action=on: proceed even if the Git checkout has uncommitted edits that the next pull will discard."},
+				},
+				Required: []string{"app_id"},
+			},
+		},
 	}
 }

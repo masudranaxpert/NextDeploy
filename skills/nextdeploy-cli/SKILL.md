@@ -66,6 +66,7 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | Command | Syntax | Purpose |
 | :--- | :--- | :--- |
 | **push** | `nd push [app_id] [path] [--deploy] [--prune] [-y]` | Differential sync (SHA256 delta) of workspace files or push single file (pass `--deploy` to auto-deploy) |
+| **git** | `nd git [status\|off\|on] [app_id] [--force]` | Choose Git or the workspace files as the deploy source without deleting repo settings. **Run `nd git off` before `nd push` on a Git-connected app** |
 | **pull** | `nd pull [app_id] [target_dir]` | Download remote workspace files to local directory (safeguards local `.env` and `.nd/`) |
 | **diff** | `nd diff [app_id] [path]` | Compare local workspace or file hashes against remote workspace before syncing |
 | **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild; alias: `nd redeploy`) |
@@ -76,7 +77,7 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **ps** | `nd ps [app_id]` | List containers and microservices with state, image, and exposed port mappings |
 | **containers** | `nd containers [app_id] [-a]` | List containers for an app, or VPS host containers if omitted |
 | **stop** | `nd stop [app_id] [service]` | Stop container stack, or stop a specific service container |
-| **restart** | `nd restart [app_id] [service] [--recreate]` | Restart container stack or service container (pass `--recreate` to force rebuild containers) |
+| **restart** | `nd restart [app_id] [service] [--recreate]` | Restart container stack or service container (pass `--recreate` to force-recreate containers; it does not rebuild images, use `nd deploy` for that) |
 | **down** | `nd down [app_id]` | Stop and remove application container stack |
 | **exec** | `nd exec [flags] [app_id] <cmd...>` | Execute command inside container with safe quoting, stdin piping (`-i`), and custom timeout (`-t`) |
 | **apps** | `nd apps` | List all provisioned applications on the connected server |
@@ -120,14 +121,16 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
      nd push src/app.js --deploy
      ```
 3. **Local Scan & Ignore**:
-   - Recursively scans directory while ignoring build artifacts (`.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`, `vendor`, `.next`, and hidden folders except `.env`), plus local `.gitignore` / `.ndignore` rules.
+   - Recursively scans directory while ignoring build artifacts (`.git`, `.nd`, `.claude`, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`, `vendor`, `.next`), plus local `.gitignore` / `.ndignore` rules. Files named `.env` or `.env.*` are never uploaded; use `nd env set` or `nd file write .env --from <file>`.
 4. **Remote Manifest**:
    - Fetches cached SHA256 snapshot via `GET /api/v1/apps/<app_id>/manifest?hash=true` (<50ms remote scan latency).
 5. **Delta Computation**:
    - Computes exact diff using short-SHA hashes:
      - **Upload**: New or locally modified files.
      - **Delete**: Files removed locally that still exist remotely (when `--prune` is passed).
-6. **Streaming In-Memory Archive**:
+6. **Git-connected apps are blocked**:
+   - If the app deploys from a Git repository, `nd push` stops with a hint instead of uploading, because the files would land in the workspace while deploys build the repository version. Run `nd git off` first (see section 11).
+7. **Streaming In-Memory Archive**:
    - Compresses delta into an in-memory `.tar.gz`, uploads to `POST /api/v1/apps/<app_id>/workspace/archive`, validates safe paths (anti-traversal), and extracts directly into app workspace.
 
 ---
@@ -205,16 +208,23 @@ nd exec --timeout 1800 ./long-backup.sh
 
 ---
 
-## 8. Container Rebuilds & Force Recreate (`nd restart`)
+## 8. Container Restarts & Force Recreate (`nd restart`)
+
+The first positional argument is always the **app id**; pass a service with `-s`, or after the app id when unlinked.
 
 ```bash
-# Standard service restart
-nd restart web
+# Restart one service of the linked app
+nd restart -s web
 
-# Force recreate containers (docker compose up -d --force-recreate)
+# Same, naming the app explicitly
+nd restart my-app web
+
+# Recreate containers (docker compose up -d --force-recreate). This does NOT rebuild images; use `nd deploy` for code changes.
 nd restart --recreate
-nd restart web --recreate
+nd restart -s web --recreate
 ```
+
+Unknown apps or services now fail with an error instead of printing a success line.
 
 ---
 
@@ -328,4 +338,28 @@ nd domain rm 42
 nd domain rm -a my-api api.example.com
 ```
 
+---
 
+## 11. Git-connected Apps (`nd git`)
+
+An app can deploy from a connected Git repository or from its workspace files (`nd push`, `nd file write`). Only one is the source at a time.
+
+- **Git sync ON**: `nd deploy`, the panel Deploy button and webhook pushes pull the repository branch first. Files sent with `nd push` are **not** deployed, so `nd push` is refused.
+- **Git sync OFF**: the workspace is the source. `nd push`, `nd file write` and `nd deploy` all use the same files. Webhook pushes are ignored. The repository settings (URL, token, branch, webhook secret) are kept.
+
+```bash
+nd git                    # show the current source for the linked app
+nd git off                # deploy from the workspace; push/edit/deploy now agree
+nd push --deploy          # normal CLI flow
+nd git on                 # go back to deploying from the repository
+nd git on --force         # also when the Git checkout has uncommitted edits (the next pull discards them)
+```
+
+What `nd git off` does with existing files: files that exist only in the Git checkout (or are newer there) are copied into the workspace once; a workspace file that is newer than the checkout copy is never overwritten, nothing is deleted. `.git` and `.env` are skipped.
+
+What `nd git on` does: only flips the source. The next deploy or webhook push pulls from the repository; files in the workspace stay on disk but are no longer deployed.
+
+Notes:
+- The same switch is on the panel's app Overview tab ("Turn off Git sync" / "Turn on Git sync"). It is different from "Switch source", which deletes the repository configuration.
+- `nd deploy` waits up to 2 minutes. If the build is longer it now exits with an error that says the deployment is still running; follow it with `nd logs --deploy -f`.
+- `nd exec` reads standard input whenever it is a pipe. In scripts or agents without input, add `< /dev/null`.

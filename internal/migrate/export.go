@@ -143,7 +143,7 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 					RepoURL: gitCfg.RepoURL, RepoFullName: gitCfg.RepoFullName, Branch: gitCfg.Branch,
 					AuthMode: gitCfg.AuthMode, Token: gitCfg.Token, AppGitID: gitCfg.AppGitID,
 					InstallationID: gitCfg.InstallationID, PrivateKeyPEM: gitCfg.PrivateKeyPEM,
-					WebhookSecret: gitCfg.WebhookSecret, AutoDeploy: gitCfg.AutoDeploy, LastDeployRef: gitCfg.LastDeployRef,
+					WebhookSecret: gitCfg.WebhookSecret, AutoDeploy: gitCfg.AutoDeploy, SyncPaused: gitCfg.SyncPaused, LastDeployRef: gitCfg.LastDeployRef,
 				})
 			}
 			return nil

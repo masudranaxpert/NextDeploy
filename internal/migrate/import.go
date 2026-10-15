@@ -162,7 +162,7 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 				RepoURL: g.RepoURL, RepoFullName: g.RepoFullName, Branch: g.Branch,
 				AuthMode: g.AuthMode, Token: g.Token, AppGitID: g.AppGitID,
 				InstallationID: g.InstallationID, PrivateKeyPEM: g.PrivateKeyPEM,
-				WebhookSecret: g.WebhookSecret, AutoDeploy: g.AutoDeploy, LastDeployRef: g.LastDeployRef,
+				WebhookSecret: g.WebhookSecret, AutoDeploy: g.AutoDeploy, SyncPaused: g.SyncPaused, LastDeployRef: g.LastDeployRef,
 				CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 			})
 		}

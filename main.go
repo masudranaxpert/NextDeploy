@@ -354,6 +354,7 @@ func main() {
 
 	// App source type switching
 	app.Post("/apps/:id/switch-source", p.AppSwitchSource)
+	app.Post("/apps/:id/git-sync", p.AppGitSyncToggle)
 	app.Get("/apps/:id/git/providers/:pid/repos", p.AppGitProviderRepos)
 	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
 

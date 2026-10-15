@@ -112,6 +112,7 @@ type GitSnapshot struct {
 	PrivateKeyPEM  string `json:"private_key_pem,omitempty"`
 	WebhookSecret  string `json:"webhook_secret,omitempty"`
 	AutoDeploy     bool   `json:"auto_deploy"`
+	SyncPaused     bool   `json:"sync_paused,omitempty"`
 	LastDeployRef  string `json:"last_deploy_ref,omitempty"`
 }
 

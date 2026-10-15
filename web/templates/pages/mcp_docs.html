@@ -615,9 +615,9 @@
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {{range .Tools}}
       <div x-show="activeCategory === 'all' || 
-                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'app_create' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get' || '{{.Name}}' === 'git_pull')) ||
+                  (activeCategory === 'app' && ('{{.Name}}' === 'app_list' || '{{.Name}}' === 'app_get' || '{{.Name}}' === 'app_create' || '{{.Name}}' === 'env_list' || '{{.Name}}' === 'env_reveal' || '{{.Name}}' === 'env_set' || '{{.Name}}' === 'compose_get' || '{{.Name}}' === 'git_pull' || '{{.Name}}' === 'git_sync')) ||
                   (activeCategory === 'file' && ('{{.Name}}' === 'workspace_manifest' || '{{.Name}}' === 'file_read' || '{{.Name}}' === 'file_write' || '{{.Name}}' === 'file_delete' || '{{.Name}}' === 'file_patch' || '{{.Name}}' === 'file_search' || '{{.Name}}' === 'workspace_apply')) ||
-                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'git_pull')) ||
+                  (activeCategory === 'deploy' && ('{{.Name}}' === 'deploy' || '{{.Name}}' === 'restart' || '{{.Name}}' === 'stop' || '{{.Name}}' === 'deploy_status' || '{{.Name}}' === 'git_pull' || '{{.Name}}' === 'git_sync')) ||
                   (activeCategory === 'terminal' && ('{{.Name}}' === 'container_exec' || '{{.Name}}' === 'server_exec')) ||
                   (activeCategory === 'logs' && ('{{.Name}}' === 'container_logs' || '{{.Name}}' === 'deploy_log_tail'))"
         class="rounded-xl border border-border/60 bg-muted/10 p-3.5 space-y-2.5 transition-all hover:border-border hover:bg-muted/20">

@@ -157,6 +157,8 @@ func run() int {
 		err = cmd.RunLink(cl, rest)
 	case "unlink":
 		err = cmd.RunUnlink(cl, rest)
+	case "git":
+		err = cmd.RunGit(cl, rest)
 	case "push":
 		err = cmd.RunPush(cl, rest)
 	case "pull":

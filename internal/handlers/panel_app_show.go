@@ -197,6 +197,10 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		tr.StepDur("git_data", mark)
 	}
 
+	var gitSyncErr string
+	if tab == "overview" {
+		gitSyncErr = utils.ReadFlashError(c)
+	}
 	appWebhookURL := ""
 	if hasGitCfg && tab == "deployment" {
 		appWebhookURL = p.appWebhookURL(c, id)
@@ -312,6 +316,10 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"GitDeployShort":         gitDeployShort,
 		"GitDeploySubject":       gitDeploySubject,
 		"GitDeployURL":           gitDeployURL,
+		"GitSyncPaused":          hasGitCfg && gitCfg.SyncPaused,
+		"GitSyncOff":             appShowFlash == "gitSyncOff",
+		"GitSyncOn":              appShowFlash == "gitSyncOn",
+		"GitSyncError":           gitSyncErr,
 		"SourceSwitched":         appShowFlash == "sourceSwitched" || c.Query("sourceSwitched") == "1",
 		"SourceSwitchClearError": appShowFlash == "switchError_clear" || c.Query("switchError") == "clear",
 		"BackupDestinations":     backupDestinations,

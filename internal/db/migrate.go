@@ -192,6 +192,13 @@ CREATE TABLE IF NOT EXISTS github_provider_details (
 		}
 	}
 
+	// sync_paused keeps the repo config but stops the app from using Git as its source (CLI/files deploy instead).
+	if _, err := s.db.Exec(`ALTER TABLE app_git_configs ADD COLUMN sync_paused INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+
 	if _, err := s.db.Exec(`ALTER TABLE apps ADD COLUMN source_type TEXT NOT NULL DEFAULT 'files'`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err

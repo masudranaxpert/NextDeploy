@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 27 {
-		t.Errorf("expected 27 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 28 {
+		t.Errorf("expected 28 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -117,7 +117,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"workspace_manifest", "file_read", "file_write", "file_delete",
 		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "compose_get",
 		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail",
-		"container_exec", "server_exec", "git_pull",
+		"container_exec", "server_exec", "git_pull", "git_sync",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -157,8 +157,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	// No-permission token hides restricted tools (23 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 23 {
-		t.Errorf("expected 23 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 24 {
+		t.Errorf("expected 24 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" || tool.Name == "app_delete" {
@@ -171,8 +171,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 24 {
-		t.Errorf("expected 24 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 25 {
+		t.Errorf("expected 25 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -192,8 +192,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 24 {
-		t.Errorf("expected 24 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 25 {
+		t.Errorf("expected 25 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -208,13 +208,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected server_exec to be present for AllowServerExec token")
 	}
 
-	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (24 tools).
+	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (25 tools).
 	appDelOnlyTok := db.APIToken{ID: 4, AllowAppDelete: true}
 	appDelOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, appDelOnlyTok)
 	appDelResp := srv.ProcessRPC(appDelOnlyCtx, user, req)
 	appDelList := appDelResp.Result.(ToolsListResult)
-	if len(appDelList.Tools) != 24 {
-		t.Errorf("expected 24 tools with app-delete-only perms, got %d", len(appDelList.Tools))
+	if len(appDelList.Tools) != 25 {
+		t.Errorf("expected 25 tools with app-delete-only perms, got %d", len(appDelList.Tools))
 	}
 	hasAppDelete := false
 	for _, tool := range appDelList.Tools {

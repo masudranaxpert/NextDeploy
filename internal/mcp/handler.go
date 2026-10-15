@@ -127,6 +127,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleServerExec(ctx, u, params.Arguments)
 	case "git_pull":
 		return h.handleGitPull(ctx, u, params.Arguments)
+	case "git_sync":
+		return h.handleGitSync(ctx, u, params.Arguments)
 
 	// Backward compatibility aliases for merged tools
 	case "redeploy":
@@ -1897,6 +1899,50 @@ func (h *Handler) handleServerExec(ctx context.Context, u db.User, args map[stri
 	})
 }
 
+func (h *Handler) handleGitSync(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	action := strings.ToLower(strings.TrimSpace(getStringArg(args, "action")))
+	if action == "" {
+		action = "status"
+	}
+	role := db.CollabRoleDeveloper
+	if action == "status" {
+		role = db.CollabRoleViewer
+	}
+	app, err := h.hasAppAccess(ctx, u, appID, role)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	switch action {
+	case "status":
+		return jsonResult(h.p.GitSyncStatus(ctx, appID))
+	case "on", "off":
+		res, err := h.p.SetGitSync(ctx, appID, action == "on", getBoolArg(args, "force"))
+		if err != nil {
+			return errorResult(err)
+		}
+		if res.Changed {
+			go func() {
+				auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = h.p.DB.CreateAuditLog(auditCtx, db.AuditLog{
+					UserID:     u.ID,
+					Username:   u.Username,
+					Action:     "mcp_git_sync_" + action,
+					TargetType: "app",
+					TargetID:   appID,
+					Details:    fmt.Sprintf("Git sync turned %s for app %s. %s", action, app.Name, strings.Join(res.Notes, " ")),
+					CreatedAt:  time.Now(),
+				})
+			}()
+		}
+		return jsonResult(res)
+	default:
+		return errorResult(fmt.Errorf("unknown action %q: use status, on or off", action))
+	}
+}
+
 func (h *Handler) handleGitPull(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	appID := getStringArg(args, "app_id")
 	branch := strings.TrimSpace(getStringArg(args, "branch"))
@@ -1909,6 +1955,9 @@ func (h *Handler) handleGitPull(ctx context.Context, u db.User, args map[string]
 	cfg, err := h.p.DB.GetAppGitConfig(ctx, appID)
 	if err != nil || strings.TrimSpace(cfg.RepoURL) == "" {
 		return errorResult(errors.New("no git repository configured for this app. Connect a git repo in the panel first"))
+	}
+	if cfg.SyncPaused {
+		return errorResult(handlers.ErrGitSyncPaused)
 	}
 
 	repoDir := h.p.AppCheckoutPath(appID)

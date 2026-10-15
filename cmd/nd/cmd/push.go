@@ -115,6 +115,10 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		return fmt.Errorf("file or directory not found: %s", target)
 	}
 
+	if err := guardGitSourceForPush(cl, appID); err != nil {
+		return err
+	}
+
 	// Single file push mode
 	if !targetFi.IsDir() {
 		cwd, _ := os.Getwd()

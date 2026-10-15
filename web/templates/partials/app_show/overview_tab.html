@@ -4,6 +4,22 @@
       Could not clear uploaded files when switching to Git. Fix disk permissions or free space, then try again.
     </div>
     {{end}}
+    {{if .GitSyncError}}
+    <div class="flex items-center gap-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+      <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+      {{.GitSyncError}}
+    </div>
+    {{end}}
+    {{if .GitSyncOff}}
+    <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+      Git sync is off. Deploys now use the workspace files (nd push, file edits). Run a deploy to apply.
+    </div>
+    {{end}}
+    {{if .GitSyncOn}}
+    <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+      Git sync is on. The next deploy or push to the repository pulls from Git again.
+    </div>
+    {{end}}
     {{if .SourceSwitched}}
     <div class="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
       <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -35,6 +51,14 @@
             {{else}}
             <p class="text-xs leading-relaxed text-muted-foreground">Git is the active source. Open the <a href="/apps/{{.ID}}?tab=git" class="font-medium text-primary underline underline-offset-2 hover:text-primary/90">Git</a> tab to connect a repository.</p>
             {{end}}
+            {{if .HasGitConfig}}
+            <form method="post" action="/apps/{{.ID}}/git-sync" class="pt-1"
+                  onsubmit="return confirm('Turn Git sync off?\n\nDeploys will use the workspace files (nd push / file edits) instead of pulling from the repository, and webhook pushes will be ignored. The repository settings are kept and you can turn Git sync on again at any time.');">
+              <input type="hidden" name="enabled" value="0">
+              <button type="submit" class="btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-xs">Turn off Git sync</button>
+              <span class="ml-2 text-[11px] text-muted-foreground">Use this before <code class="font-mono">nd push</code>.</span>
+            </form>
+            {{end}}
           </div>
           {{else}}
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/40 ring-1 ring-border/60">
@@ -48,7 +72,23 @@
                 Active
               </span>
             </div>
+            {{if and .HasGitConfig .GitSyncPaused}}
+            <p class="text-xs leading-relaxed text-amber-300">Git sync is <strong>off</strong>. Deploys use the workspace files; webhook pushes are ignored. The repository settings are kept.</p>
+            <div class="rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5">
+              <p class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Repository (paused)</p>
+              <p class="mt-1 break-all font-mono text-xs leading-relaxed text-foreground/90">{{.GitConfig.RepoURL}}</p>
+            </div>
+            <form method="post" action="/apps/{{.ID}}/git-sync" class="pt-1"
+                  onsubmit="return confirm('Turn Git sync on?\n\nThe next deploy or push to the repository pulls from Git again. Files in the workspace stay on disk but are no longer deployed.');">
+              <input type="hidden" name="enabled" value="1">
+              <button type="submit" class="btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-xs">Turn on Git sync</button>
+              <label class="ml-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <input type="checkbox" name="force" value="1" class="h-3.5 w-3.5"> discard uncommitted edits in the Git checkout
+              </label>
+            </form>
+            {{else}}
             <p class="text-xs leading-relaxed text-muted-foreground">Upload a ZIP or files to deploy. Switch to Git for commits and webhooks.</p>
+            {{end}}
           </div>
           {{end}}
         </div>

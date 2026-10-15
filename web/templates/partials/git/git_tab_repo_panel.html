@@ -37,7 +37,13 @@
               <p class="mt-0.5 text-xs text-muted-foreground">{{if .HasGitConfig}}Connected Git source for this app.{{else}}Bind this app to a global provider, then deploy from GitHub or GitLab.{{end}}</p>
             </div>
           </div>
-          {{if .HasGitConfig}}
+          {{if and .HasGitConfig .GitSyncPaused}}
+          <form method="post" action="/apps/{{.ID}}/git-sync" class="w-full shrink-0 sm:w-auto"
+                onsubmit="return confirm('Turn Git sync on? The next deploy or push to the repository pulls from Git again.');">
+            <input type="hidden" name="enabled" value="1">
+            <button type="submit" class="btn-secondary inline-flex h-9 w-full items-center justify-center gap-1.5 px-3 text-xs sm:w-auto">Turn on Git sync</button>
+          </form>
+          {{else if .HasGitConfig}}
           <form method="post" action="/apps/{{.ID}}/git/sync" class="w-full shrink-0 sm:w-auto">
             <button type="submit" class="btn-secondary inline-flex h-9 w-full items-center justify-center gap-1.5 px-3 text-xs sm:w-auto">
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
@@ -47,6 +53,11 @@
           {{end}}
         </div>
 
+        {{if and .HasGitConfig .GitSyncPaused}}
+        <div class="border-b border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 sm:px-5">
+          Git sync is <strong>off</strong>: deploys use the workspace files and webhook pushes are ignored. Settings below can still be edited; they apply when you turn Git sync on.
+        </div>
+        {{end}}
         {{if and .HasGitConfig .GitConfig.RepoURL}}
         <div class="border-b border-border/60 bg-muted/10 px-4 py-4 sm:px-5">
           <div class="grid gap-3 sm:grid-cols-2">

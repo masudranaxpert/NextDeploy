@@ -322,7 +322,7 @@ func (p *Panel) composeWorkspaceRootFromHint(appID, repoURLHint string) string {
 // (non-git store path, or git clone root when a repo URL is configured).
 func (p *Panel) ComposeWorkspaceRoot(ctx context.Context, appID string) string {
 	var hint string
-	if cfg, err := p.DB.GetAppGitConfig(ctx, appID); err == nil {
+	if cfg, err := p.DB.GetAppGitConfig(ctx, appID); err == nil && !cfg.SyncPaused {
 		hint = cfg.RepoURL
 	}
 	return p.composeWorkspaceRootFromHint(appID, hint)
@@ -346,8 +346,9 @@ func (p *Panel) appSourcePath(ctx context.Context, appID string) string {
 
 // IsGitApp returns true when the app uses git integration (source_type git or a stored git config row).
 func (p *Panel) IsGitApp(ctx context.Context, appID string) bool {
-	if _, err := p.DB.GetAppGitConfig(ctx, appID); err == nil {
-		return true
+	if cfg, err := p.DB.GetAppGitConfig(ctx, appID); err == nil {
+		// A paused config stays stored but the workspace is the deploy source.
+		return !cfg.SyncPaused
 	}
 	return p.DB.GetAppSourceType(ctx, appID) == "git"
 }
@@ -360,7 +361,7 @@ func (p *Panel) isGitApp(ctx context.Context, appID string) bool {
 func (p *Panel) AppGitMetadata(ctx context.Context, appID string) (isGit bool, cfg db.AppGitConfig, hasCfg bool) {
 	cfg, err := p.DB.GetAppGitConfig(ctx, appID)
 	if err == nil {
-		return true, cfg, true
+		return !cfg.SyncPaused, cfg, true
 	}
 	if p.DB.GetAppSourceType(ctx, appID) == "git" {
 		return true, db.AppGitConfig{}, false

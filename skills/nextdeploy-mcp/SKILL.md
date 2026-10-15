@@ -127,6 +127,8 @@ All file paths are strictly sandboxed inside the app workspace.
   - Arguments: `app_id` (string, required).
 - **`deploy`**: Deploys stack (`docker compose up -d`). Returns `job_id` immediately, or pass `wait_seconds` for synchronous waiting. Pass `rebuild: true` for full container rebuild with image pull. Pass `summary_only: false` if full raw build logs are needed on success. Automatically skips git pull if workspace has local edits.
   - Arguments: `app_id` (string, required), `rebuild` (boolean, optional), `wait_seconds` (integer, optional), `summary_only` (boolean, default true), `git_pull` (boolean, optional).
+- **`git_sync`**: Shows, turns off or turns on Git as the app's deploy source without deleting the repository configuration. `action: "status"` (default) reports `active` / `paused`; `"off"` makes the workspace the source (no git pull on deploy, webhooks ignored, checkout-only files are copied into the workspace once, newer workspace files win); `"on"` resumes pulling and is refused while the Git checkout has uncommitted edits unless `force: true`. Use `off` before `workspace_apply` / bulk uploads on a Git-connected app.
+  - Arguments: `app_id` (string, required), `action` ("status" | "off" | "on"), `force` (boolean, only for "on").
 - **`restart`**: Restarts either a specific service container or the entire stack.
   - Arguments: `app_id` (string, required), `service` (string, optional).
 - **`stop`**: Shuts down the stack (`docker compose down`), or stops a specific service container.

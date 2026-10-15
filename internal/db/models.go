@@ -86,6 +86,7 @@ type AppGitConfig struct {
 	PrivateKeyPEM  string
 	WebhookSecret  string
 	AutoDeploy     bool
+	SyncPaused     bool // keeps the repo config but makes the workspace the deploy source
 	LastDeployRef  string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time

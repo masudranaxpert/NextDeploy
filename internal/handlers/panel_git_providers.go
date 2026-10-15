@@ -144,6 +144,10 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 		_ = p.DB.DeleteAppGitConfig(c.UserContext(), id)
 	}
 	if newSource == "git" {
+		// Re-selecting Git as the source also turns a paused Git sync back on.
+		if cfg, cerr := p.DB.GetAppGitConfig(c.UserContext(), id); cerr == nil && cfg.SyncPaused {
+			_ = p.DB.SetAppGitSyncPaused(c.UserContext(), id, false)
+		}
 		if err := p.Store.ClearUploadedProjectForGitSource(id); err != nil {
 			utils.SetFlash(c, "switchError_clear")
 			return c.Redirect("/apps/" + id + "?tab=overview")

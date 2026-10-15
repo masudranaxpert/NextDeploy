@@ -38,6 +38,7 @@ var DefaultIgnore = map[string]bool{
 	"node_modules": true,
 	".git":         true,
 	".nd":          true,
+	".claude":      true,
 	".next":        true,
 	"dist":         true,
 	"build":        true,

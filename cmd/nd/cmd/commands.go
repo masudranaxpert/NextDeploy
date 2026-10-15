@@ -1664,6 +1664,13 @@ func RunDeploy(cl *client.Client, args []string) error {
 		return fmt.Errorf("deployment failed after %.0fs (Job ID: %s)", data.DurationS, data.JobID)
 	}
 
+	if deployStatus == "timeout" {
+		if data.OutputTail != "" {
+			fmt.Println(data.OutputTail)
+		}
+		return fmt.Errorf("deployment is still running after the wait window (Job ID: %s); it was not confirmed. Follow it with: nd logs --deploy -f", data.JobID)
+	}
+
 	ui.Success("Deployment succeeded in %.0fs (Job ID: %s)", data.DurationS, ui.Cyan(data.JobID))
 	return nil
 }
@@ -2834,6 +2841,21 @@ func RunRestart(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
+	var restartResp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(body, &restartResp) == nil && restartResp.Result.IsError {
+		msg := "restart failed"
+		if len(restartResp.Result.Content) > 0 {
+			msg = strings.TrimSpace(restartResp.Result.Content[0].Text)
+		}
+		return fmt.Errorf("%s", msg)
+	}
 
 	actionStr := "restarted"
 	if recreate {
@@ -2866,6 +2888,7 @@ App Management:
   nd apps [--json]                   List all applications
   nd create <name>                   Create and link a new application
   nd delete [app_id] [-f]            Delete an application (requires confirmation unless -f)
+  nd git [status|off|on] [app_id]   Choose Git or workspace files as the deploy source (keeps repo settings)
   nd link <app_id>                   Link current directory to an app (.nd/project.json)
   nd unlink                          Remove link from current directory
   nd info [app_id] [--json]          Show app details, domains, health, and status (alias: nd status)

@@ -123,6 +123,11 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	if oldCfgErr == nil && old.SyncPaused {
+		// Git sync is off: keep the edited credentials/branch, but do not clone/pull or switch the source.
+		utils.SetFlash(c, "saved")
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+	}
 	// First-time Git setup: remove file-upload workspace so the clone is the single source of truth.
 	if oldCfgErr != nil {
 		if err := p.Store.ClearUploadedProjectForGitSource(appID); err != nil {
@@ -188,6 +193,9 @@ func (p *Panel) SyncGitAppSource(ctx context.Context, appID string) (string, err
 	cfg, err := p.DB.GetAppGitConfig(ctx, appID)
 	if err != nil {
 		return "", err
+	}
+	if cfg.SyncPaused {
+		return "", ErrGitSyncPaused
 	}
 	if err := p.ensureGitWorkspace(appID); err != nil {
 		return "", err
@@ -512,6 +520,10 @@ func (p *Panel) GitSync(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
 	defer cancel()
 	if _, err := p.SyncGitAppSource(ctx, appID); err != nil {
+		if errors.Is(err, ErrGitSyncPaused) {
+			utils.SetFlashError(c, err.Error())
+			return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
+		}
 		return c.Status(500).SendString(err.Error())
 	}
 	p.InvalidateAfterAppWorkspaceChange(appID)
@@ -564,6 +576,10 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	cfg, err := p.DB.GetAppGitConfig(c.UserContext(), appID)
 	if err != nil {
 		return c.SendStatus(fiber.StatusNotFound)
+	}
+	if cfg.SyncPaused {
+		// Git sync is off: the workspace is the deploy source, so a push to the remote must not redeploy.
+		return c.SendStatus(fiber.StatusAccepted)
 	}
 	body := c.Body()
 	githubOK := verifyGitHubSignature(cfg.WebhookSecret, body, c.Get("X-Hub-Signature-256"))
