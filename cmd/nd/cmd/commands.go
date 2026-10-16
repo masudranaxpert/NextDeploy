@@ -21,7 +21,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "1.3.0"
+var Version = "1.3.1"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -1560,25 +1560,34 @@ func openBrowser(url string) error {
 	return c.Start()
 }
 
-// RunDeploy triggers a redeploy for an app.
-func RunDeploy(cl *client.Client, args []string) error {
-	jsonOut, args := extractJSONFlag(args)
-	rebuild := false
-	var cleanArgs []string
+func parseDeployFlags(args []string) (rebuild bool, force bool, cleanArgs []string) {
 	for _, a := range args {
 		if a == "--rebuild" || a == "-r" {
 			rebuild = true
+		} else if a == "--force" || a == "-f" {
+			force = true
 		} else {
 			cleanArgs = append(cleanArgs, a)
 		}
 	}
+	return rebuild, force, cleanArgs
+}
+
+// RunDeploy triggers a redeploy for an app.
+func RunDeploy(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
+	rebuild, force, cleanArgs := parseDeployFlags(args)
 
 	appID, _, err := resolveAppID(cleanArgs)
 	if err != nil {
 		return err
 	}
 	if !jsonOut {
-		if rebuild {
+		if rebuild && force {
+			ui.Step("Rebuilding & force-deploying %s (pulling latest from Git)...", ui.Cyan(appID))
+		} else if force {
+			ui.Step("Force-deploying %s (pulling latest from Git)...", ui.Cyan(appID))
+		} else if rebuild {
 			ui.Step("Rebuilding & deploying %s...", ui.Cyan(appID))
 		} else {
 			ui.Step("Deploying %s...", ui.Cyan(appID))
@@ -1588,6 +1597,9 @@ func RunDeploy(cl *client.Client, args []string) error {
 	deployArgs := map[string]interface{}{"app_id": appID, "wait_seconds": 120}
 	if rebuild {
 		deployArgs["rebuild"] = true
+	}
+	if force {
+		deployArgs["git_pull"] = true
 	}
 
 	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
@@ -1615,14 +1627,15 @@ func RunDeploy(cl *client.Client, args []string) error {
 	_ = json.Unmarshal(body, &resp)
 
 	var data struct {
-		JobID      string  `json:"job_id"`
-		AppID      string  `json:"app_id"`
-		Action     string  `json:"action"`
-		OK         bool    `json:"ok"`
-		Status     string  `json:"status"`
-		DurationS  float64 `json:"duration_s"`
-		OutputTail string  `json:"output_tail"`
-		Message    string  `json:"message"`
+		JobID          string  `json:"job_id"`
+		AppID          string  `json:"app_id"`
+		Action         string  `json:"action"`
+		OK             bool    `json:"ok"`
+		Status         string  `json:"status"`
+		DurationS      float64 `json:"duration_s"`
+		OutputTail     string  `json:"output_tail"`
+		Message        string  `json:"message"`
+		GitSyncWarning string  `json:"git_sync_warning"`
 	}
 	if len(resp.Result.Content) > 0 {
 		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &data)
@@ -1646,6 +1659,9 @@ func RunDeploy(cl *client.Client, args []string) error {
 		if data.Message != "" {
 			out["message"] = data.Message
 		}
+		if data.GitSyncWarning != "" {
+			out["git_sync_warning"] = data.GitSyncWarning
+		}
 		if deployStatus == "failed" && data.OutputTail != "" {
 			out["error_tail"] = data.OutputTail
 		}
@@ -1655,6 +1671,10 @@ func RunDeploy(cl *client.Client, args []string) error {
 			return fmt.Errorf("deployment failed")
 		}
 		return nil
+	}
+
+	if data.GitSyncWarning != "" {
+		ui.Warn("%s", data.GitSyncWarning)
 	}
 
 	if deployStatus == "failed" {
@@ -2908,7 +2928,7 @@ Deployments & Lifecycle:
   nd push [app_id] [path] [--deploy] [--prune] [-y] Sync local files or single file (--deploy to auto-deploy, --prune removes server-only files)
   nd pull [app_id] [target_dir]      Download remote workspace files to local directory (preserves local .env)
   nd diff [app_id] [path]            Compare local files against remote workspace before sync
-  nd deploy [app_id] [--rebuild]     Deploy application (--rebuild to pull & build image; alias: nd redeploy)
+  nd deploy [app_id] [--rebuild] [-f/--force] Deploy application (--rebuild to rebuild image, -f/--force to pull Git; alias: nd redeploy)
   nd stop [app_id] [service]         Stop application stack or a specific service container
   nd restart [app_id] [service] [--recreate] Restart application stack or container (--recreate forces container rebuild)
   nd down [app_id]                   Stop and remove application containers

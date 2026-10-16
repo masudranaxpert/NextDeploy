@@ -271,3 +271,26 @@ func TestExtractHostPorts(t *testing.T) {
 	}
 }
 
+func TestParseDeployFlags(t *testing.T) {
+	tests := []struct {
+		args        []string
+		wantRebuild bool
+		wantForce   bool
+		wantArgs    []string
+	}{
+		{[]string{"myapp"}, false, false, []string{"myapp"}},
+		{[]string{"myapp", "--rebuild"}, true, false, []string{"myapp"}},
+		{[]string{"myapp", "-r"}, true, false, []string{"myapp"}},
+		{[]string{"myapp", "--force"}, false, true, []string{"myapp"}},
+		{[]string{"myapp", "-f"}, false, true, []string{"myapp"}},
+		{[]string{"myapp", "-r", "-f"}, true, true, []string{"myapp"}},
+		{[]string{"--force", "--rebuild", "myapp"}, true, true, []string{"myapp"}},
+	}
+	for _, tc := range tests {
+		rebuild, force, clean := parseDeployFlags(tc.args)
+		if rebuild != tc.wantRebuild || force != tc.wantForce || len(clean) != len(tc.wantArgs) {
+			t.Errorf("parseDeployFlags(%v) = (%v, %v, %v), want (%v, %v, %v)", tc.args, rebuild, force, clean, tc.wantRebuild, tc.wantForce, tc.wantArgs)
+		}
+	}
+}
+

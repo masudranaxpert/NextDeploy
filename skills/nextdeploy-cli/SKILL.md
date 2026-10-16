@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-cli
 description: Operational reference and automation instructions for AI coding assistants using the NextDeploy CLI (nd) to manage application lifecycles, incremental code syncs (nd push), deployments, logs, containers, and environment variables.
-version: 1.3.0
+version: 1.3.1
 ---
 
 # NextDeploy CLI (`nd`) Skill
@@ -69,7 +69,7 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **git** | `nd git [status\|off\|on] [app_id] [--force]` | Choose Git or the workspace files as the deploy source without deleting repo settings. **Run `nd git off` before `nd push` on a Git-connected app** |
 | **pull** | `nd pull [app_id] [target_dir]` | Download remote workspace files to local directory (safeguards local `.env` and `.nd/`) |
 | **diff** | `nd diff [app_id] [path]` | Compare local workspace or file hashes against remote workspace before syncing |
-| **deploy** | `nd deploy [app_id] [--rebuild]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild; alias: `nd redeploy`) |
+| **deploy** | `nd deploy [app_id] [--rebuild] [-f/--force]` | Trigger remote container deployment (pass `-r`/`--rebuild` for full rebuild, `-f`/`--force` to force Git pull; alias: `nd redeploy`) |
 | **logs** | `nd logs [app_id] [-s service] [-n lines] [-f]` | Tail container runtime stdout/stderr (default: 50 lines; supports `-s` service filter) |
 | **logs (deploy)** | `nd logs [app_id] --deploy [-f]` | Stream build & deployment output in real time |
 | **status** | `nd status [app_id]` | Application health, uptime, VPS IP, direct access port URLs, and configuration |

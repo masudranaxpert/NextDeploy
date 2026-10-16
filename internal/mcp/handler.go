@@ -1349,30 +1349,34 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 	// Default (omitted/false): perform a dirty-check first; skip sync if workspace has local
 	// changes so that file_write → deploy workflows are never silently destructive.
 	var gitSyncWarning string
+	var gitSyncOut string
 	forceGitPull := getBoolArg(args, "git_pull")
 	if h.p.IsGitApp(ctx, appID) && (action == "Deploy" || action == "Redeploy (pull + up)") {
 		repoDir := h.p.AppCheckoutPath(appID)
 		if forceGitPull {
 			// Caller explicitly requested a git pull — proceed even if workspace is dirty.
 			syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
-			_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
+			out, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
 			syncCancel()
 			if syncErr != nil {
 				return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
 			}
+			gitSyncOut = out
 			h.p.InvalidateAfterAppWorkspaceChange(appID)
 		} else if gitx.IsDirty(ctx, repoDir) {
 			// Workspace has local edits — protect them by skipping the destructive pull.
 			gitSyncWarning = "Git pull skipped: workspace has local changes (dirty). Deploying from current files. " +
-				"Pass git_pull:true to force-sync from remote (WARNING: discards all local workspace edits)."
+				"Use 'nd deploy --force' (or git_pull:true) to force-pull from remote (WARNING: discards all local workspace edits)."
+			gitSyncOut = gitSyncWarning
 		} else {
 			// Clean workspace — safe to pull.
 			syncCtx, syncCancel := context.WithTimeout(ctx, 15*time.Minute)
-			_, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
+			out, syncErr := h.p.SyncGitAppSource(syncCtx, appID)
 			syncCancel()
 			if syncErr != nil {
 				return errorResult(fmt.Errorf("git sync failed before deploy: %w", syncErr))
 			}
+			gitSyncOut = out
 			h.p.InvalidateAfterAppWorkspaceChange(appID)
 		}
 	}
@@ -1390,7 +1394,7 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		stopCancel()
 	}
 
-	jobID, err := h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(ctx, app, appID), action, fn, "")
+	jobID, err := h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(ctx, app, appID), action, fn, gitSyncOut)
 	if err != nil {
 		return errorResult(fmt.Errorf("failed to start %s job: %w", action, err))
 	}
@@ -1410,7 +1414,7 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		}
 		mu.Unlock()
 		unlocked = true
-		return h.waitForDeployJob(ctx, jobID, appID, action, waitSec, summaryOnly)
+		return h.waitForDeployJob(ctx, jobID, appID, action, waitSec, summaryOnly, gitSyncWarning)
 	}
 
 	out := map[string]interface{}{
@@ -2020,7 +2024,7 @@ func (h *Handler) handleDeployAndWait(ctx context.Context, u db.User, args map[s
 	return h.handleDeploy(ctx, u, args, "Deploy", dockerx.ComposeUp)
 }
 
-func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action string, timeoutSec int, summaryOnly bool) (CallToolResult, error) {
+func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action string, timeoutSec int, summaryOnly bool, gitSyncWarning string) (CallToolResult, error) {
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	pollInterval := 1500 * time.Millisecond
 
@@ -2038,7 +2042,7 @@ func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action str
 
 		if !job.Running {
 			if summaryOnly && job.OK {
-				return jsonResult(map[string]interface{}{
+				res := map[string]interface{}{
 					"job_id":     job.JobID,
 					"app_id":     job.AppID,
 					"action":     job.Action,
@@ -2046,14 +2050,18 @@ func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action str
 					"running":    false,
 					"duration_s": time.Since(job.CreatedAt).Round(time.Second).Seconds(),
 					"message":    "Deployment succeeded",
-				})
+				}
+				if gitSyncWarning != "" {
+					res["git_sync_warning"] = gitSyncWarning
+				}
+				return jsonResult(res)
 			}
 			tailLines := 60
 			if summaryOnly && !job.OK {
 				tailLines = 40
 			}
 			output := truncateLogLines(job.Output, tailLines)
-			return jsonResult(map[string]interface{}{
+			res := map[string]interface{}{
 				"job_id":      job.JobID,
 				"app_id":      job.AppID,
 				"action":      job.Action,
@@ -2061,12 +2069,16 @@ func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action str
 				"running":     false,
 				"duration_s":  time.Since(job.CreatedAt).Round(time.Second).Seconds(),
 				"output_tail": output,
-			})
+			}
+			if gitSyncWarning != "" {
+				res["git_sync_warning"] = gitSyncWarning
+			}
+			return jsonResult(res)
 		}
 
 		if time.Now().After(deadline) {
 			output := truncateLogLines(job.Output, 40)
-			return jsonResult(map[string]interface{}{
+			res := map[string]interface{}{
 				"job_id":      job.JobID,
 				"app_id":      job.AppID,
 				"action":      job.Action,
@@ -2074,7 +2086,11 @@ func (h *Handler) waitForDeployJob(ctx context.Context, jobID, appID, action str
 				"running":     true,
 				"message":     fmt.Sprintf("Deployment still running after %d seconds. Continue checking with deploy_status.", timeoutSec),
 				"output_tail": output,
-			})
+			}
+			if gitSyncWarning != "" {
+				res["git_sync_warning"] = gitSyncWarning
+			}
+			return jsonResult(res)
 		}
 
 		time.Sleep(pollInterval)
