@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/vjeantet/grok"
 )
 
 // LogLevel represents a severity tier for CSS class assignment.
@@ -66,6 +68,16 @@ var (
 
 	// tsPattern matches Docker/nginx/common timestamp prefixes.
 	tsPattern = regexp.MustCompile(`^(\[\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2}(?: [+\-]\d{4})?\]|\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[^\]]*)?\]|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:\d{2})?)\s*`)
+
+	grokParser = func() *grok.Grok {
+		g, err := grok.NewWithConfig(&grok.Config{NamedCapturesOnly: true})
+		if err != nil {
+			return nil
+		}
+		_ = g.AddPattern("APP_LOG_LEVEL", `(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE)`)
+		_ = g.AddPattern("APP_LOG_TAGS", `^(?:%{APP_LOG_LEVEL:lead_level}\s+)?\[%{APP_LOG_LEVEL:tag_level}\]`)
+		return g
+	}()
 )
 
 // ansiToHTML converts ANSI SGR escape sequences to HTML <span> elements with CSS classes.
@@ -256,10 +268,43 @@ func levelBadge(l LogLevel) string {
 	}
 }
 
+// parseLogLevelTag normalizes a level string to LogLevel.
+func parseLogLevelTag(tag string) LogLevel {
+	switch strings.ToUpper(strings.TrimSpace(tag)) {
+	case "FATAL", "PANIC", "CRITICAL":
+		return LvFatal
+	case "ERROR", "ERR":
+		return LvError
+	case "WARN", "WARNING":
+		return LvWarn
+	case "OK", "SUCCESS":
+		return LvSuccess
+	case "INFO", "INFORMATION", "INF":
+		return LvInfo
+	case "DEBUG", "DBG", "TRACE":
+		return LvDebug
+	default:
+		return LvDefault
+	}
+}
+
 // classify returns the LogLevel for a single log line by checking
 // multiple patterns in order of specificity.
 func classify(line string) LogLevel {
-	low := strings.ToLower(line)
+	trimmed := strings.TrimSpace(line)
+
+	// Grok-based level extraction for structured & semi-structured logs
+	if grokParser != nil {
+		if values, err := grokParser.Parse("%{APP_LOG_TAGS}", trimmed); err == nil && len(values) > 0 {
+			// If an inner tag like [INFO] exists, it represents the authoritative log level
+			if tagLvl := parseLogLevelTag(values["tag_level"]); tagLvl != LvDefault {
+				return tagLvl
+			}
+			if leadLvl := parseLogLevelTag(values["lead_level"]); leadLvl != LvDefault {
+				return leadLvl
+			}
+		}
+	}
 
 	// HTTP status code detection — parse the actual integer to avoid false positives
 	// like "version 4", "port 4000", etc.
@@ -278,19 +323,8 @@ func classify(line string) LogLevel {
 
 	// Bracketed level prefix
 	if m := bracketLevel.FindStringSubmatch(line); m != nil {
-		switch strings.ToUpper(m[1]) {
-		case "FATAL", "PANIC":
-			return LvFatal
-		case "ERROR", "ERR":
-			return LvError
-		case "WARN", "WARNING":
-			return LvWarn
-		case "OK", "SUCCESS":
-			return LvSuccess
-		case "INFO", "INFORMATION", "INF":
-			return LvInfo
-		case "DEBUG", "DBG":
-			return LvDebug
+		if lvl := parseLogLevelTag(m[1]); lvl != LvDefault {
+			return lvl
 		}
 	}
 
@@ -314,6 +348,8 @@ func classify(line string) LogLevel {
 			}
 		}
 	}
+
+	low := strings.ToLower(line)
 
 	// Keyword matching
 	if strings.Contains(low, "fatal") || strings.Contains(low, "panic") {

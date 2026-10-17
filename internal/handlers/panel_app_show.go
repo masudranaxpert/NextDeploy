@@ -198,6 +198,7 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 	}
 
 	var gitSyncErr string
+	gitSyncSt := p.GitSyncStatus(reqCtx, id)
 	if tab == "overview" {
 		gitSyncErr = utils.ReadFlashError(c)
 	}
@@ -320,6 +321,8 @@ func (p *Panel) AppShow(c *fiber.Ctx) error {
 		"GitSyncOff":             appShowFlash == "gitSyncOff",
 		"GitSyncOn":              appShowFlash == "gitSyncOn",
 		"GitSyncError":           gitSyncErr,
+		"GitCheckoutDirty":       gitSyncSt.CheckoutDirty,
+		"GitSyncStatus":          gitSyncSt,
 		"SourceSwitched":         appShowFlash == "sourceSwitched" || c.Query("sourceSwitched") == "1",
 		"SourceSwitchClearError": appShowFlash == "switchError_clear" || c.Query("switchError") == "clear",
 		"BackupDestinations":     backupDestinations,

@@ -52,3 +52,42 @@ func TestFlushDockerLogAccum(t *testing.T) {
 		t.Fatalf("got %q", out)
 	}
 }
+
+func TestClassify_GrokLogLevel(t *testing.T) {
+	tests := []struct {
+		line string
+		want LogLevel
+	}{
+		{
+			line: "WARN [INFO] 21:02:54 upload.utils.web_scrape: [Scrape] Extracted 68,460 → 8,660 chars",
+			want: LvInfo,
+		},
+		{
+			line: "ERROR [INFO] 21:02:59 upload.utils.web_scrape: [Scrape] Extracted 68,027 → 8,511 chars",
+			want: LvInfo,
+		},
+		{
+			line: "INFO [INFO] 21:02:49 llm.services: Generating LLM completion.",
+			want: LvInfo,
+		},
+		{
+			line: "DBG [DEBUG] 21:02:51 llm.services: [GLM] Usage: 1250+28=1278 tokens",
+			want: LvDebug,
+		},
+		{
+			line: "ERROR [ERROR] 21:02:59 DB connection failed",
+			want: LvError,
+		},
+		{
+			line: "WARN [WARN] 21:02:59 Fallback initiated",
+			want: LvWarn,
+		},
+	}
+
+	for _, tc := range tests {
+		got := classify(tc.line)
+		if got != tc.want {
+			t.Errorf("classify(%q) = %v, want %v", tc.line, got, tc.want)
+		}
+	}
+}

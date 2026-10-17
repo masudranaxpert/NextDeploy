@@ -152,8 +152,17 @@
         }
 
         function classifyLogLevel(line) {
-          var raw = String(line || '');
-          var low = raw.toLowerCase();
+          var raw = String(line || '').trim();
+          var tagMatch = raw.match(/^(?:[A-Z]+\s+)?\[(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE)\]/i);
+          if (tagMatch) {
+            var tag = tagMatch[1].toLowerCase();
+            if (tag === 'fatal' || tag === 'panic' || tag === 'critical') return 'fatal';
+            if (tag === 'error' || tag === 'err') return 'error';
+            if (tag === 'warn' || tag === 'warning') return 'warn';
+            if (tag === 'ok' || tag === 'success') return 'success';
+            if (tag === 'info' || tag === 'information' || tag === 'inf') return 'info';
+            if (tag === 'debug' || tag === 'dbg' || tag === 'trace') return 'debug';
+          }
           var m = raw.match(/\b([1-5]\d{2})\b/);
           if (m) {
             var code = parseInt(m[1], 10);
