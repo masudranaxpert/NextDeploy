@@ -120,6 +120,8 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | `-w, --workdir <dir>` | Working directory inside container (for `exec`) |
 | `-t, --timeout <secs>` | Execution timeout in seconds (default: 300s, max: 3600s) |
 | `-i, --stdin` | Forward stdin into container process |
+| `-f, --force` | Force Git pull on `nd deploy` (discards local edits); force Git sync ON on `nd git on` |
+| `-r, --rebuild` | Force Docker image pull and rebuild on `nd deploy` |
 | `--recreate` | Force recreate containers on `nd restart` (does not rebuild image; use `nd deploy` for that) |
 | `--server` | Execute command directly on host VPS instead of container |
 
@@ -380,6 +382,7 @@ What `nd git on` does: only flips the source. The next deploy or webhook push pu
 Notes:
 - The same switch is on the panel's app Overview tab ("Turn off Git sync" / "Turn on Git sync"). It is different from "Switch source", which deletes the repository configuration.
 - `nd deploy` waits up to 2 minutes. If the build is longer it now exits with an error that says the deployment is still running; follow it with `nd logs --deploy -f`.
+- **Dirty workspace protection & force pull**: When Git sync is ON, `nd deploy` automatically checks if the workspace has uncommitted edits. If edits exist, it skips `git pull` to prevent overwriting your local work and prints a warning. To discard local changes and pull fresh code from Git, run `nd deploy --force` (or `-f`).
 - `nd exec` reads standard input whenever it is a pipe. In scripts or agents without input, add `< /dev/null`.
 
 ---
