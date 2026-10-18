@@ -82,6 +82,42 @@ func TestClassify_GrokLogLevel(t *testing.T) {
 			line: "WARN [WARN] 21:02:59 Fallback initiated",
 			want: LvWarn,
 		},
+		// Dokploy-style tests: timestamp first with [INFO] / [WARNING]
+		{
+			line: "2026-10-18 13:56:49 [WARNING] upload.tasks: no site_content_id on task pk=9470",
+			want: LvWarn,
+		},
+		{
+			line: "2026-10-18 13:56:52 [INFO] upload.service: created movie title=\"Pinoy Sexy Classics\"",
+			want: LvInfo,
+		},
+		// Non-error key/values should not trigger error
+		{
+			line: "NOTICE [Job sync-1m] Finished in 326ms, failed: false, skipped: false, error: none",
+			want: LvInfo,
+		},
+		{
+			line: "request done, error: null",
+			want: LvInfo,
+		},
+		{
+			line: "checks passed, failures=0",
+			want: LvInfo,
+		},
+		// Structured JSON logs
+		{
+			line: `{"level":"error","message":"DB connection lost"}`,
+			want: LvError,
+		},
+		{
+			line: `{"level":"info","message":"server listening on port 8080"}`,
+			want: LvInfo,
+		},
+		// Real errors with keywords
+		{
+			line: "connection failed: no such host",
+			want: LvError,
+		},
 	}
 
 	for _, tc := range tests {

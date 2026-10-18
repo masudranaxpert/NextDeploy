@@ -153,7 +153,8 @@
 
         function classifyLogLevel(line) {
           var raw = String(line || '').trim();
-          var tagMatch = raw.match(/^(?:[A-Z]+\s+)?\[(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE)\]/i);
+          // 1. Explicit bracket tag anywhere in message: [INFO], [ERROR], [WARNING], etc.
+          var tagMatch = raw.match(/(?:^|\s)\[(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE)\]/i);
           if (tagMatch) {
             var tag = tagMatch[1].toLowerCase();
             if (tag === 'fatal' || tag === 'panic' || tag === 'critical') return 'fatal';
@@ -163,6 +164,28 @@
             if (tag === 'info' || tag === 'information' || tag === 'inf') return 'info';
             if (tag === 'debug' || tag === 'dbg' || tag === 'trace') return 'debug';
           }
+
+          // 2. JSON structured level ("level":"error" or "severity":"WARN")
+          var jsonMatch = raw.match(/"(?:level|severity|log\.level|loglevel)"\s*:\s*"([a-z]+)"/i);
+          if (jsonMatch) {
+            var jl = jsonMatch[1].toLowerCase();
+            if (jl === 'fatal' || jl === 'panic' || jl === 'critical' || jl === 'error' || jl === 'err') return 'error';
+            if (jl === 'warn' || jl === 'warning') return 'warn';
+            if (jl === 'info' || jl === 'notice') return 'info';
+            if (jl === 'debug' || jl === 'trace') return 'debug';
+          }
+
+          // 3. logfmt format (level=error, severity=info)
+          var logfmtMatch = raw.match(/(?:^|\s)(?:level|severity)=([a-z]+)\b/i);
+          if (logfmtMatch) {
+            var ll = logfmtMatch[1].toLowerCase();
+            if (ll === 'fatal' || ll === 'panic' || ll === 'critical' || ll === 'error' || ll === 'err') return 'error';
+            if (ll === 'warn' || ll === 'warning') return 'warn';
+            if (ll === 'info' || ll === 'notice') return 'info';
+            if (ll === 'debug' || ll === 'trace') return 'debug';
+          }
+
+          // 4. HTTP status code detection
           var m = raw.match(/\b([1-5]\d{2})\b/);
           if (m) {
             var code = parseInt(m[1], 10);
@@ -170,12 +193,61 @@
             if (code >= 400) return 'warn';
             if (code >= 200 && code < 400) return 'success';
           }
-          if (/\b(fatal|panic)\b/i.test(raw)) return 'fatal';
-          if (/\b(error|err|exception|traceback|failed|failure)\b/i.test(raw)) return 'error';
-          if (/\b(warn|warning)\b/i.test(raw)) return 'warn';
-          if (/\b(debug|trace|verbose)\b/i.test(raw)) return 'debug';
-          if (/\b(info|notice)\b/i.test(raw)) return 'info';
-          if (/\b(ok|success|ready|started|listening)\b/i.test(raw)) return 'success';
+
+          var low = raw.toLowerCase();
+
+          // 5. Dokploy Info-first check (avoids false-error substring traps)
+          if (
+            /(?:^|\s)(?:info|inf|information):?\s/i.test(low) ||
+            /\[(?:info|information)\]/i.test(low) ||
+            /\b(?:status|state|current|progress)\b:?\s/i.test(low) ||
+            /\b(?:processing|executing|performing)\b/i.test(low)
+          ) {
+            return 'info';
+          }
+
+          // 6. Dokploy non-error key/value suppression: e.g. "error: none", "failed: false", "failures=0"
+          var errorScope = low
+            .replace(/\b(?:error|err|errors|failed|failure|failures)\s*[:=]\s*(?:none|null|nil|false|0|no|-|""|'')(?:[,;.)\]]|\s|$)/gi, '');
+
+          // 7. Error check on cleaned scope
+          if (
+            /(?:^|\s)(?:error|err):?\s/i.test(errorScope) ||
+            /\b(?:exception|failed|failure|crash|critical|fatal|broken|dead)\b/i.test(errorScope) ||
+            /(?:stack\s?trace):\s*$/i.test(errorScope) ||
+            /^\s*at\s+[\w.]+\s*\(?.+:\d+:\d+\)?/.test(errorScope) ||
+            /\b(?:uncaught|unhandled)\s+(?:exception|error)\b/i.test(errorScope) ||
+            /error:\s.*(?:in|at)\s+.*:\d+/i.test(errorScope) ||
+            /\b(?:errno|code):\s*(?:\d+|[A-Z_]+)\b/i.test(errorScope) ||
+            /\[(?:error|err|fatal)\]/i.test(errorScope)
+          ) {
+            return 'error';
+          }
+
+          // 8. Warning check
+          if (
+            /(?:^|\s)(?:warning|warn):?\s/i.test(low) ||
+            /\[(?:warn(?:ing)?|attention)\]/i.test(low) ||
+            /\b(?:deprecated|obsolete)\b/i.test(low) ||
+            /\b(?:caution|attention|notice):\s/i.test(low) ||
+            /⚠|⚠️/.test(low)
+          ) {
+            return 'warn';
+          }
+
+          // 9. Success check
+          if (
+            /(?:successfully|completed)\s+(?:initialized|started|completed|created|done|deployed)/i.test(low) ||
+            /\[(?:success|ok|done)\]/i.test(low) ||
+            /(?:listening|running)\s+(?:on|at)\s+(?:port\s+)?\d+/i.test(low) ||
+            /(?:connected|established|ready)\s+(?:to|for|on)/i.test(low) ||
+            /✓|√|✅|\[ok\]|done!/i.test(low) ||
+            /\b(?:success(?:ful)?|completed|ready|active)\b/i.test(low)
+          ) {
+            return 'success';
+          }
+
+          if (low.indexOf('debug') !== -1) return 'debug';
           return 'default';
         }
 

@@ -75,9 +75,20 @@ var (
 			return nil
 		}
 		_ = g.AddPattern("APP_LOG_LEVEL", `(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE)`)
-		_ = g.AddPattern("APP_LOG_TAGS", `^(?:%{APP_LOG_LEVEL:lead_level}\s+)?\[%{APP_LOG_LEVEL:tag_level}\]`)
+		_ = g.AddPattern("APP_LOG_TAGS", `(?:^|\s+)(?:%{APP_LOG_LEVEL:lead_level}\s+)?\[%{APP_LOG_LEVEL:tag_level}\]`)
 		return g
 	}()
+
+	// Dokploy-aligned regexes for explicit structured logs & false-error suppression
+	reJSONLevelStr   = regexp.MustCompile(`(?i)"(?:level|severity|log\.level|loglevel)"\s*:\s*"([a-z]+)"`)
+	reJSONLevelNum   = regexp.MustCompile(`"level"\s*:\s*(\d{1,2})\b`)
+	reLogfmtLevel    = regexp.MustCompile(`(?i)(?:^|\s)(?:level|severity)=([a-z]+)\b`)
+	reExplicitTag    = regexp.MustCompile(`(?i)(?:^|\s)\[(FATAL|PANIC|CRITICAL|ERROR|ERR|WARN|WARNING|SUCCESS|OK|INFO|INFORMATION|INF|DEBUG|DBG|TRACE|NOTICE)\]`)
+	reNonErrorPairs  = regexp.MustCompile(`(?i)\b(?:error|err|errors|failed|failure|failures)\s*[:=]\s*(?:none|null|nil|false|0|no|-|""|'')(?:[,;.)\]]|$)`)
+	reErrorKeyword   = regexp.MustCompile(`(?i)(?:(?:^|\s)(?:error|err):?\s|\b(?:exception|failed|failure|crash|critical|fatal|broken|dead)\b|stack\s?trace:\s*$|^\s*at\s+[\w.]+\s*\(?.+:\d+:\d+\)?|\b(?:uncaught|unhandled)\s+(?:exception|error)\b|error:\s.*(?:in|at)\s+.*:\d+|\b(?:errno|code):\s*(?:\d+|[A-Z_]+)\b|\[(?:error|err|fatal)\])`)
+	reWarnKeyword    = regexp.MustCompile(`(?i)(?:(?:^|\s)(?:warning|warn):?\s|\[(?:warn(?:ing)?|attention)\]|\b(?:deprecated|obsolete)\b|\b(?:caution|attention|notice):\s|⚠|⚠️)`)
+	reSuccessKeyword = regexp.MustCompile(`(?i)(?:(?:successfully|completed)\s+(?:initialized|started|completed|created|done|deployed)|\[(?:success|ok|done)\]|(?:listening|running)\s+(?:on|at)\s+(?:port\s+)?\d+|(?:connected|established|ready)\s+(?:to|for|on)|✓|√|✅|\[ok\]|done!|\b(?:success(?:ful)?|completed|ready)\b|\b(?:started|starting|active)\b)`)
+	reInfoKeyword    = regexp.MustCompile(`(?i)(?:(?:^|\s)(?:info|inf|information|notice):?\s|\[(?:info|information|notice)\]|\b(?:status|state|current|progress)\b:?\s|\b(?:processing|executing|performing|passed|done)\b)`)
 )
 
 // ansiToHTML converts ANSI SGR escape sequences to HTML <span> elements with CSS classes.
@@ -289,14 +300,13 @@ func parseLogLevelTag(tag string) LogLevel {
 }
 
 // classify returns the LogLevel for a single log line by checking
-// multiple patterns in order of specificity.
+// multiple patterns in order of specificity (following Dokploy's explicit-first algorithm).
 func classify(line string) LogLevel {
 	trimmed := strings.TrimSpace(line)
 
-	// Grok-based level extraction for structured & semi-structured logs
+	// 1. Grok-based level extraction for structured & semi-structured logs
 	if grokParser != nil {
 		if values, err := grokParser.Parse("%{APP_LOG_TAGS}", trimmed); err == nil && len(values) > 0 {
-			// If an inner tag like [INFO] exists, it represents the authoritative log level
 			if tagLvl := parseLogLevelTag(values["tag_level"]); tagLvl != LvDefault {
 				return tagLvl
 			}
@@ -306,8 +316,42 @@ func classify(line string) LogLevel {
 		}
 	}
 
-	// HTTP status code detection — parse the actual integer to avoid false positives
-	// like "version 4", "port 4000", etc.
+	// 2. Explicit structured logger tags (anywhere in message, e.g. [INFO], [ERROR], [WARNING])
+	if m := reExplicitTag.FindStringSubmatch(trimmed); m != nil {
+		if lvl := parseLogLevelTag(m[1]); lvl != LvDefault {
+			return lvl
+		}
+	}
+
+	// 3. JSON structured level ("level":"error" or "severity":"WARN")
+	if m := reJSONLevelStr.FindStringSubmatch(trimmed); m != nil {
+		if lvl := parseLogLevelTag(m[1]); lvl != LvDefault {
+			return lvl
+		}
+	}
+	if m := reJSONLevelNum.FindStringSubmatch(trimmed); m != nil {
+		if num, err := strconv.Atoi(m[1]); err == nil {
+			switch {
+			case num >= 50:
+				return LvError
+			case num >= 40:
+				return LvWarn
+			case num >= 30:
+				return LvInfo
+			case num >= 10:
+				return LvDebug
+			}
+		}
+	}
+
+	// 4. logfmt format (level=error, severity=info)
+	if m := reLogfmtLevel.FindStringSubmatch(trimmed); m != nil {
+		if lvl := parseLogLevelTag(m[1]); lvl != LvDefault {
+			return lvl
+		}
+	}
+
+	// 5. HTTP status code detection (e.g. "GET /path 200" or {"statusCode": 500})
 	if m := httpStatusCode.FindStringSubmatch(line); m != nil {
 		if code, err := strconv.Atoi(m[1]); err == nil {
 			switch {
@@ -321,72 +365,34 @@ func classify(line string) LogLevel {
 		}
 	}
 
-	// Bracketed level prefix
-	if m := bracketLevel.FindStringSubmatch(line); m != nil {
-		if lvl := parseLogLevelTag(m[1]); lvl != LvDefault {
-			return lvl
-		}
-	}
+	// 6. Dokploy-style non-error key/value suppression:
+	// Remove false positives like "error: none", "failed: false", "failures=0"
+	errorScope := reNonErrorPairs.ReplaceAllString(trimmed, "")
 
-	// Numeric single-digit level tags that uvicorn emits:
-	// 0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR, 4=CRITICAL,
-	// 5=WARNING, 6=INFO (gunicorn), 7=DEBUG, 8=INFO (uvicorn), 9=NOTICE
-	if len(line) >= 3 && line[0] == '[' {
-		end := strings.IndexByte(line[1:], ']')
-		if end > 0 {
-			switch line[1 : end+1] {
-			case "0", "1":
-				return LvDebug
-			case "2":
-				return LvInfo
-			case "3":
-				return LvWarn
-			case "4", "5", "7":
-				return LvError
-			case "6", "8", "9":
-				return LvInfo
-			}
-		}
-	}
-
-	low := strings.ToLower(line)
-
-	// Keyword matching
-	if strings.Contains(low, "fatal") || strings.Contains(low, "panic") {
-		return LvFatal
-	}
-	// Shell/OCI failures often start with "exec "; require a following space-boundary
-	// so substrings inside words (e.g. "executing") are not matched.
-	if strings.HasPrefix(low, "exec ") ||
-		strings.Contains(low, " exec ") ||
-		strings.Contains(low, "no such file or directory") ||
-		strings.Contains(low, "error") ||
-		strings.Contains(low, "err:") ||
-		strings.Contains(low, " failed") ||
-		strings.Contains(low, "exception") ||
-		strings.Contains(low, "traceback") ||
-		strings.Contains(low, "denied") ||
-		strings.Contains(low, "econnrefused") ||
-		strings.Contains(low, "errno ") {
+	// 7. Error check on cleaned scope
+	if reErrorKeyword.MatchString(errorScope) {
 		return LvError
 	}
-	if strings.Contains(low, "warn") || strings.Contains(low, "deprecated") {
+
+	// 8. Warning check
+	if reWarnKeyword.MatchString(trimmed) {
 		return LvWarn
 	}
-	if strings.Contains(low, " listening ") ||
-		strings.Contains(low, "listening on") ||
-		strings.Contains(low, "started server") ||
-		strings.Contains(low, " ready ") ||
-		strings.Contains(low, "booting worker") ||
-		strings.Contains(low, "application startup complete") ||
-		strings.Contains(low, "spawned") {
-		return LvSuccess
-	}
-	if strings.Contains(low, "debug") {
-		return LvDebug
-	}
-	if strings.Contains(low, "info") || strings.Contains(low, "notice") {
+
+	// 9. Info check
+	if reInfoKeyword.MatchString(trimmed) {
 		return LvInfo
 	}
-	return LvDefault
+
+	// 10. Success check
+	if reSuccessKeyword.MatchString(trimmed) {
+		return LvSuccess
+	}
+
+	// 11. Debug fallback
+	if strings.Contains(strings.ToLower(trimmed), "debug") {
+		return LvDebug
+	}
+
+	return LvInfo
 }
