@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"embed"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,10 +21,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/template/html/v2"
 )
 
-//go:embed web/templates web/static
+//go:embed all:web/dist
 var webRoot embed.FS
 
 func main() {
@@ -59,102 +55,64 @@ func main() {
 		log.Fatal(err)
 	}
 
-	templatesFS, err := fs.Sub(webRoot, "web/templates")
+	distFS, err := fs.Sub(webRoot, "web/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
-	staticFS, err := fs.Sub(webRoot, "web/static")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	engine := html.NewFileSystem(http.FS(templatesFS), ".html")
-	engine.Reload(strings.EqualFold(os.Getenv("PANEL_DEV"), "true"))
-	engine.AddFunc("urlquery", func(s string) string {
-		return url.QueryEscape(s)
-	})
-	engine.AddFunc("bytesize", func(n int64) string {
-		return workspace.FormatByteSize(n)
-	})
-	engine.AddFunc("composeFriendly", handlers.FriendlyComposeMsg)
-	engine.AddFunc("dict", func(values ...interface{}) (map[string]interface{}, error) {
-		if len(values)%2 != 0 {
-			return nil, fmt.Errorf("dict requires even number of arguments")
-		}
-		m := make(map[string]interface{}, len(values)/2)
-		for i := 0; i < len(values); i += 2 {
-			key, ok := values[i].(string)
-			if !ok {
-				return nil, fmt.Errorf("dict keys must be strings")
-			}
-			m[key] = values[i+1]
-		}
-		return m, nil
-	})
-	engine.AddFunc("jsq", func(s string) string {
-		b, _ := json.Marshal(s)
-		return string(b)
-	})
-	engine.AddFunc("b64enc", func(s string) string {
-		return base64.StdEncoding.EncodeToString([]byte(s))
-	})
-	engine.AddFunc("initials", func(s string) string {
-		if len(s) == 0 {
-			return "?"
-		}
-		if len(s) >= 2 {
-			return strings.ToUpper(s[:2])
-		}
-		return strings.ToUpper(s[:1])
-	})
-	engine.AddFunc("lower", strings.ToLower)
-	engine.AddFunc("sub", func(a, b int) int { return a - b })
+	spaIndex, _ := fs.ReadFile(distFS, "index.html")
 
 	app := fiber.New(fiber.Config{
-		AppName:      "NextDeploy",
-		ServerHeader: "NextDeploy",
-		Views:        engine,
+		AppName:                      "NextDeploy",
+		ServerHeader:                 "NextDeploy",
 		BodyLimit:                    2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
 		StreamRequestBody:            true,
 		DisablePreParseMultipartForm: true,
 	})
 
-	app.Use(perflog.Middleware())
-	app.Use(compress.New())
-	app.Use(logger.New(logger.Config{
-		Format:      "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
-	}))
-
-	app.Use("/static", func(c *fiber.Ctx) error {
-		if strings.HasPrefix(c.Path(), "/static/vendor/") {
-			c.Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else if strings.HasPrefix(c.Path(), "/static/") {
-			c.Set("Cache-Control", "public, max-age=3600")
-		}
-		return c.Next()
-	})
-	app.Use("/static", filesystem.New(filesystem.Config{
-		Root:   http.FS(staticFS),
-		Browse: false,
-	}))
-
 	p := &handlers.Panel{
 		DB:             database,
 		Store:          workspace.NewStore(root),
 		WorkspacesRoot: root,
+		SPAIndexHTML:   spaIndex,
 	}
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
-	
+
+	app.Use(perflog.Middleware())
+	app.Use(p.SecurityHeadersMiddleware)
+	app.Use(compress.New())
+	app.Use(logger.New(logger.Config{
+		Format: "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
+	}))
+
+	// Serve Vite hashed static assets from embedded web/dist
+	if assetsFS, err := fs.Sub(distFS, "assets"); err == nil {
+		app.Use("/assets", func(c *fiber.Ctx) error {
+			c.Set("Cache-Control", "public, max-age=31536000, immutable")
+			return c.Next()
+		})
+		app.Use("/assets", filesystem.New(filesystem.Config{
+			Root:   http.FS(assetsFS),
+			Browse: false,
+		}))
+	}
+	app.Get("/nextdeploy.ico", func(c *fiber.Ctx) error {
+		if ico, err := fs.ReadFile(distFS, "nextdeploy.ico"); err == nil {
+			c.Set("Content-Type", "image/x-icon")
+			c.Set("Cache-Control", "public, max-age=86400")
+			return c.Send(ico)
+		}
+		return c.SendStatus(fiber.StatusNotFound)
+	})
+
 	if err := p.SyncRootStackComposeOnStart(); err != nil {
 		log.Printf("nextdeploy root compose sync skipped: %v", err)
 	}
 	p.StartBackgroundJobs()
 	go p.ReapplyUserCgroupLimitsOnStart()
-
 	go p.StartBackupWorker()
 
-	// Auth routes (no middleware)
+	// Auth routes (no session middleware)
 	app.Get("/setup", p.SetupPage)
 	app.Post("/setup", p.SetupPost)
 	app.Get("/login", p.LoginPage)
@@ -188,7 +146,12 @@ func main() {
 	app.Get("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliSessionsList)
 	app.Get("/api/v1/cli/whoami", p.APIAuthMiddleware, p.APICliWhoami)
 
+	// Session authentication middleware for panel routes
 	app.Use(p.AuthMiddleware)
+
+	// Unified SPA bootstrap JSON endpoint
+	app.Get("/api/panel/bootstrap", p.SPABootstrap)
+
 	app.Use("/apps/:id", p.AppAccessMiddleware)
 	app.Use("/monitor", p.RequireAdminMiddleware)
 	app.Use("/partials/monitor", p.RequireAdminMiddleware)
@@ -197,23 +160,32 @@ func main() {
 	app.Use("/caddy", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
 
+	spaPage := func(legacy fiber.Handler) fiber.Handler {
+		return func(c *fiber.Ctx) error {
+			if handlers.WantsJSON(c) && legacy != nil {
+				return legacy(c)
+			}
+			return p.ServeSPA(c)
+		}
+	}
+
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
 	})
-	app.Get("/overview", p.Overview)
-	app.Get("/monitor", p.MonitorPage)
+	app.Get("/overview", spaPage(nil))
+	app.Get("/monitor", spaPage(nil))
 	app.Get("/partials/monitor", p.MonitorPartial)
 	app.Use("/monitor/ws", p.WSUpgrade)
 	app.Get("/monitor/ws", fws.New(p.MonitorWebSocket))
-	app.Get("/terminal", p.VPSTerminalPage)
+	app.Get("/terminal", spaPage(nil))
 	app.Use("/terminal/ws", p.WSUpgrade)
 	app.Get("/terminal/ws", fws.New(p.VPSTerminalWebSocket))
-	app.Get("/nextdeploy", p.NextDeployPage)
+	app.Get("/nextdeploy", spaPage(nil))
 	app.Get("/nextdeploy/apply-status", p.NextDeployApplyStatus)
-	app.Get("/containers", p.Containers)
-	app.Get("/images", p.ImagesPage)
-	app.Get("/volumes", p.VolumesPage)
-	app.Get("/volumes/browse", p.VolumeBrowse)
+	app.Get("/containers", spaPage(nil))
+	app.Get("/images", spaPage(nil))
+	app.Get("/volumes", spaPage(nil))
+	app.Get("/volumes/browse", spaPage(nil))
 	app.Get("/volumes/download", p.VolumeDownload)
 	app.Get("/volumes/restore/status", p.RequireAdminMiddleware, p.VolumeRestoreStatus)
 	app.Post("/volumes/restore", p.RequireAdminMiddleware, p.VolumeRestore)
@@ -227,15 +199,15 @@ func main() {
 	app.Post("/settings/cleanup/run", p.RequireAdminMiddleware, p.ManualCleanupRun)
 	app.Post("/settings/tmp/clean", p.RequireAdminMiddleware, p.TempCleanupRun)
 	app.Get("/settings/tmp/info", p.RequireAdminMiddleware, p.TempCleanupInfo)
-	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, p.AuditLogsPage)
-	app.Get("/migrate", p.MigratePage)
+	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, spaPage(nil))
+	app.Get("/migrate", spaPage(nil))
 	app.Post("/migrate/export", p.MigrateExportStart)
 	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
 	app.Post("/migrate/exports/:id/delete", p.MigrateExportDelete)
 	app.Get("/migrate/estimate", p.MigrateEstimate)
-	app.Get("/settings", p.RequireAdminMiddleware, p.SettingsPage)
+	app.Get("/settings", p.RequireAdminMiddleware, spaPage(nil))
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
-	app.Get("/registries", p.RegistriesPage)
+	app.Get("/registries", spaPage(nil))
 	app.Post("/registries", p.AddRegistry)
 	app.Post("/registries/:id/delete", p.DeleteRegistry)
 	app.Get("/mcp-docs", mcpServer.MCPDocsPage)
@@ -253,7 +225,7 @@ func main() {
 	app.Post("/cli-sessions/tokens/:id/toggle-container-exec", p.RequireAdminMiddleware, p.ToggleCLITokenContainerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.RequireAdminMiddleware, p.ToggleCLITokenServerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-app-delete", p.RequireAdminMiddleware, p.ToggleCLITokenAppDeletePost)
-	app.Get("/apps", p.AppsPage)
+	app.Get("/apps", spaPage(nil))
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.
 	app.Get("/apps/:id/upload-zip", func(c *fiber.Ctx) error {
@@ -305,7 +277,7 @@ func main() {
 		return c.Redirect("/apps", fiber.StatusFound)
 	})
 	// Register after all /apps/:id/... subpaths so :id is not swallowed by a shorter route.
-	app.Get("/apps/:id", p.AppShow)
+	app.Get("/apps/:id", spaPage(nil))
 	app.Post("/apps/:id/upload-zip", p.UploadZip)
 	app.Post("/apps/:id/upload", p.UploadFile)
 	app.Post("/apps/:id/compose/up", p.ComposeUp)
@@ -333,7 +305,7 @@ func main() {
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
 	// Caddy global management
-	app.Get("/caddy", p.CaddyPage)
+	app.Get("/caddy", spaPage(nil))
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
@@ -341,7 +313,7 @@ func main() {
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 
 	// Git providers (GitHub App + GitLab OAuth only — no manual token POST)
-	app.Get("/git", p.GitProvidersPage)
+	app.Get("/git", spaPage(nil))
 	app.Post("/git/github/start", p.GitHubAppManifestStart)
 	app.Get("/git/github/callback", p.GitHubAppManifestCallback)
 	app.Get("/git/github/setup", p.GitHubAppSetup)
@@ -359,9 +331,9 @@ func main() {
 	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
 
 	// User management
-	app.Get("/users", p.UsersPage)
+	app.Get("/users", spaPage(nil))
 	app.Post("/users", p.UserCreate)
-	app.Get("/users/:id/edit", p.UserEditPage)
+	app.Get("/users/:id/edit", spaPage(nil))
 	app.Post("/users/:id/delete", p.UserDelete)
 	app.Post("/users/:id/password", p.UserChangePassword)
 	app.Post("/users/:id/role", p.UserChangeRole)
@@ -369,7 +341,7 @@ func main() {
 	app.Post("/users/:id/limits", p.UserChangeLimits)
 
 	// Backup destinations
-	app.Get("/backup", p.BackupPage)
+	app.Get("/backup", spaPage(nil))
 	app.Get("/backup/destinations", p.BackupDestinationsList)
 	app.Post("/backup/destinations", p.BackupDestinationCreate)
 	app.Post("/backup/destinations/:id/delete", p.BackupDestinationDelete)

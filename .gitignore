@@ -1,52 +1,14 @@
-# Binaries
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-/panel
-
-
-# Go build cache
-/vendor/
-
-# Data / runtime
-/data/
-*.db
-*.sqlite
-*.sqlite3
-
-.cursor/
-.kiro/
-scripts/
-
-
-# Node / npm
 node_modules/
-# Note: package-lock.json is tracked so CI can use `npm ci`
-
-# Tailwind output (rebuild with npm run build:css)
-web/static/css/app.css
-
-# IDE / Editor
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+/build/
+/dist/
+!web/dist/
+coverage/
 .DS_Store
-Thumbs.db
-
-# Docker
-*.zip
-
-# Cursor
-.cursor/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Impeccable local artifacts
-.impeccable/
+*.log
+.env*
+!.env.example
+.aistudio/
+public/assets/aistudio/
+web/dist/assets/aistudio/
+panel
+nd

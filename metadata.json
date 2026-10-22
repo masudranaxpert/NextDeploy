@@ -1,0 +1,6 @@
+{
+  "name": "NextDeploy Control Plane",
+  "description": "Self-hosted Docker Compose deployment platform with automatic Caddy HTTPS, Git auto-deploy, live container telemetry, S3 backups, VPS migration, nd CLI, and native MCP Server.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

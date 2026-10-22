@@ -362,20 +362,22 @@ func (s *Server) MCPDocsPage(c *fiber.Ctx) error {
 		scheme = "http"
 	}
 	baseURL := fmt.Sprintf("%s://%s", scheme, c.Hostname())
+	newTok, newTokName := handlers.ReadOneTimeTokenCookie(c)
 
-	return c.Render("pages/mcp_docs", handlers.WithUser(c, fiber.Map{
-		"Nav":          "mcp",
-		"Title":        "MCP Server & AI Integration",
-		"Host":         c.Hostname(),
-		"BaseURL":      baseURL,
-		"Protocol":     protocol,
-		"MCPEnabled":   s.IsEnabled(ctx),
-		"Tokens":       tokens,
-		"Tools":        AllTools(),
-		"NewToken":     c.Query("new_token"),
-		"NewTokenName": c.Query("token_name"),
-		"Flash":        utils.ReadFlash(c),
-	}), "layouts/shell")
+	if handlers.WantsJSON(c) {
+		return c.JSON(fiber.Map{
+			"ok":             true,
+			"host":           c.Hostname(),
+			"base_url":       baseURL,
+			"protocol":       protocol,
+			"mcp_enabled":    s.IsEnabled(ctx),
+			"tokens":         tokens,
+			"tools":          AllTools(),
+			"new_token":      newTok,
+			"new_token_name": newTokName,
+		})
+	}
+	return s.p.ServeSPA(c)
 }
 
 // CreateAPITokenPost handles generating a new API token for the current user.
@@ -399,8 +401,11 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 	if kind != "cli" && kind != "mcp" {
 		kind = "mcp"
 	}
-	rawToken, _, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
+	rawToken, id, err := s.p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
 	if err != nil {
+		if handlers.WantsJSON(c) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlash(c, "Failed to create API token: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
@@ -419,7 +424,11 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 		auditMsg += " (app_delete allowed)"
 	}
 	s.p.RecordAuditLog(c, "create_api_token", "api_token", name, auditMsg)
-	return c.Redirect(fmt.Sprintf("/mcp-docs?new_token=%s&token_name=%s", rawToken, name))
+	if handlers.WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "id": id, "token": rawToken, "name": name, "kind": kind})
+	}
+	handlers.SetOneTimeTokenCookie(c, rawToken, name)
+	return c.Redirect("/mcp-docs")
 }
 
 // ToggleAPITokenEnvRevealPost toggles the env_reveal permission for an existing API token.

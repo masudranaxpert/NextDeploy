@@ -63,6 +63,7 @@ type Panel struct {
 	DB               *db.Store
 	Store            *workspace.Store
 	WorkspacesRoot   string
+	SPAIndexHTML     []byte
 	deployMu         sync.Mutex
 	deployRuns       map[string]*DeployRun
 	deployJobs       map[string]*DeployJobRecord

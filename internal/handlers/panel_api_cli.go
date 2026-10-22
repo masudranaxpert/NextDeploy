@@ -219,9 +219,27 @@ func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
 // APICliSessionDelete removes a CLI session on logout/exit.
 // DELETE /api/v1/cli/sessions/:id
 func (p *Panel) APICliSessionDelete(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
 	sessionID := strings.TrimSpace(c.Params("id"))
 	if sessionID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "session id required"})
+	}
+	// Verify session ownership for non-admin users
+	if u.Role != db.RoleAdmin {
+		sessions, _ := p.DB.ListCLISessions()
+		owned := false
+		for _, s := range sessions {
+			if s.ID == sessionID && s.UserID == u.ID {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+		}
 	}
 	_ = p.DB.DeleteCLISession(sessionID)
 	return c.JSON(fiber.Map{"ok": true})
@@ -265,16 +283,19 @@ func (p *Panel) CLISessionsPage(c *fiber.Ctx) error {
 		proto = "https"
 	}
 	baseURL := fmt.Sprintf("%s://%s", proto, c.Hostname())
+	newTok, newTokName := ReadOneTimeTokenCookie(c)
 
-	return c.Render("pages/cli_sessions", withUser(c, fiber.Map{
-		"Nav":          "cli-sessions",
-		"Title":        "CLI Sessions",
-		"Sessions":     sessions,
-		"Tokens":       tokens,
-		"NewToken":     c.Query("new_token"),
-		"NewTokenName": c.Query("token_name"),
-		"BaseURL":      baseURL,
-	}), "layouts/shell")
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{
+			"ok":             true,
+			"sessions":       sessions,
+			"tokens":         tokens,
+			"new_token":      newTok,
+			"new_token_name": newTokName,
+			"base_url":       baseURL,
+		})
+	}
+	return p.ServeSPA(c)
 }
 
 // CreateCLITokenPost generates a new API token for CLI usage directly from /cli-sessions.
@@ -301,13 +322,20 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 		kind = "cli"
 	}
 
-	rawToken, _, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
+	rawToken, id, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		return c.Redirect("/cli-sessions?error=" + url.QueryEscape(err.Error()))
 	}
 
 	p.RecordAuditLog(c, "create_cli_token", "api_token", name, "Created API token from CLI Sessions page")
-	return c.Redirect(fmt.Sprintf("/cli-sessions?new_token=%s&token_name=%s", rawToken, url.QueryEscape(name)))
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "id": id, "token": rawToken, "name": name, "kind": kind})
+	}
+	SetOneTimeTokenCookie(c, rawToken, name)
+	return c.Redirect("/cli-sessions")
 }
 
 // ToggleCLITokenEnvRevealPost toggles env_reveal permission for an API token.

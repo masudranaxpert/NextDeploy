@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"panel/internal/handlers/utils"
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/crypto/bcrypt"
@@ -63,10 +63,12 @@ func validateRedirectPath(next string) string {
 func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	path := c.Path()
 
-	// Always allow static assets, MCP API endpoints, API routes, and auth routes
+	// Always allow static assets, SPA bundle assets, MCP API endpoints, API v1 routes, and auth routes
 	if strings.HasPrefix(path, "/static/") ||
+		strings.HasPrefix(path, "/assets/") ||
+		path == "/nextdeploy.ico" ||
 		path == "/mcp" || strings.HasPrefix(path, "/mcp/") ||
-		strings.HasPrefix(path, "/api/") ||
+		strings.HasPrefix(path, "/api/v1/") ||
 		path == "/login" || path == "/setup" {
 		return c.Next()
 	}
@@ -78,25 +80,40 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		return c.Status(500).SendString("db error: " + err.Error())
 	}
 	if needsSetup {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "needs_setup": true, "redirect": "/setup"})
+		}
 		return c.Redirect("/setup")
 	}
 
 	// Validate session cookie
 	token := c.Cookies(sessionCookie)
 	if token == "" {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized", "redirect": "/login"})
+		}
 		return c.Redirect("/login?next=" + c.Path())
 	}
 	userID, expiresAt, err := p.DB.GetSession(ctx, token)
 	if err != nil || time.Now().After(expiresAt) {
 		c.Cookie(sessionCookieClear())
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "session expired", "redirect": "/login"})
+		}
 		return c.Redirect("/login?next=" + c.Path())
 	}
 	user, err := p.DB.GetUserByID(ctx, userID)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "user not found", "redirect": "/login"})
+		}
 		return c.Redirect("/login")
 	}
 	if user.Status == db.UserStatusSuspended {
 		c.Cookie(sessionCookieClear())
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "Your account has been suspended."})
+		}
 		return c.Status(fiber.StatusForbidden).SendString("Your account has been suspended.")
 	}
 	c.Locals(contextUserKey, user)
@@ -116,22 +133,25 @@ func CurrentUser(c *fiber.Ctx) (db.User, bool) {
 func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok || u.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin role required"})
+		}
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	return c.Next()
 }
 
-// SetupPage renders the first-time setup page.
+// SetupPage renders the first-time setup page or SPA shell.
 func (p *Panel) SetupPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	count, _ := p.DB.UserCount(ctx)
 	if count > 0 {
 		return c.Redirect("/login")
 	}
-	return c.Render("pages/setup", fiber.Map{
-		"Title": "Setup",
-		"Error": utils.ReadFlashError(c),
-	}, "layouts/auth")
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "needs_setup": true, "error": utils.ReadFlashError(c)})
+	}
+	return p.ServeSPA(c)
 }
 
 // SetupPost handles first-time admin account creation.
@@ -139,34 +159,67 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	count, _ := p.DB.UserCount(ctx)
 	if count > 0 {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Setup already completed"})
+		}
 		return c.Redirect("/login")
 	}
 
-	username := strings.TrimSpace(c.FormValue("username"))
-	password := c.FormValue("password")
-	confirm := c.FormValue("confirm")
+	var req struct {
+		Username string `json:"username" form:"username"`
+		Password string `json:"password" form:"password"`
+		Confirm  string `json:"confirm" form:"confirm"`
+	}
+	_ = c.BodyParser(&req)
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		username = strings.TrimSpace(c.FormValue("username"))
+	}
+	password := req.Password
+	if password == "" {
+		password = c.FormValue("password")
+	}
+	confirm := req.Confirm
+	if confirm == "" {
+		confirm = c.FormValue("confirm")
+	}
 
 	if username == "" || len(username) < 3 {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Username must be at least 3 characters"})
+		}
 		utils.SetFlashError(c, "Username must be at least 3 characters")
 		return c.Redirect("/setup")
 	}
 	if len(password) < 8 {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Password must be at least 8 characters"})
+		}
 		utils.SetFlashError(c, "Password must be at least 8 characters")
 		return c.Redirect("/setup")
 	}
 	if password != confirm {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Passwords do not match"})
+		}
 		utils.SetFlashError(c, "Passwords do not match")
 		return c.Redirect("/setup")
 	}
 
 	hash, err := hashPassword(password)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": "Internal error"})
+		}
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/setup")
 	}
 
 	userID, err := p.DB.CreateUser(ctx, username, hash, db.RoleAdmin)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"ok": false, "error": "Username already taken"})
+		}
 		utils.SetFlashError(c, "Username already taken")
 		return c.Redirect("/setup")
 	}
@@ -176,30 +229,52 @@ func (p *Panel) SetupPost(c *fiber.Ctx) error {
 	return p.createSessionAndRedirect(c, userID, "/overview")
 }
 
-// LoginPage renders the login form.
+// LoginPage renders the login form or SPA shell.
 func (p *Panel) LoginPage(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	count, _ := p.DB.UserCount(ctx)
 	if count == 0 {
 		return c.Redirect("/setup")
 	}
-	// ?next= is navigation state (not a flash message), keep in URL.
-	return c.Render("pages/login", fiber.Map{
-		"Title": "Login",
-		"Error": utils.ReadFlashError(c),
-		"Next":  c.Query("next"),
-	}, "layouts/auth")
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{
+			"ok":    true,
+			"error": utils.ReadFlashError(c),
+			"next":  c.Query("next"),
+		})
+	}
+	return p.ServeSPA(c)
 }
 
 func (p *Panel) LoginPost(c *fiber.Ctx) error {
 	ctx := c.UserContext()
-	username := strings.TrimSpace(c.FormValue("username"))
-	password := c.FormValue("password")
-	next := validateRedirectPath(c.FormValue("next"))
+	var req struct {
+		Username string `json:"username" form:"username"`
+		Password string `json:"password" form:"password"`
+		Next     string `json:"next" form:"next"`
+	}
+	_ = c.BodyParser(&req)
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		username = strings.TrimSpace(c.FormValue("username"))
+	}
+	password := req.Password
+	if password == "" {
+		password = c.FormValue("password")
+	}
+	nextRaw := req.Next
+	if nextRaw == "" {
+		nextRaw = c.FormValue("next")
+	}
+	next := validateRedirectPath(nextRaw)
+	clientIP := c.IP()
 
-	if allowed, wait := p.checkLoginAllowed(username); !allowed {
+	if allowed, wait := p.checkLoginAllowed(username, clientIP); !allowed {
 		if wait > 2*time.Second {
 			time.Sleep(2 * time.Second)
+		}
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"ok": false, "error": "Too many failed attempts. Try again in about 30 seconds."})
 		}
 		utils.SetFlashError(c, "Too many failed attempts. Try again in about 30 seconds.")
 		return c.Status(fiber.StatusTooManyRequests).Redirect("/login")
@@ -207,8 +282,11 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 
 	user, err := p.DB.GetUserByUsername(ctx, username)
 	if err != nil || !checkPassword(user.PasswordHash, password) {
-		p.recordLoginFailure(username)
+		p.recordLoginFailure(username, clientIP)
 		p.RecordAuditLog(c, "login_failed", "user", username, "Failed login attempt")
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "Invalid username or password"})
+		}
 		utils.SetFlashError(c, "Invalid username or password")
 		if next != "" && next != "/" {
 			return c.Redirect("/login?next=" + url.QueryEscape(next))
@@ -216,7 +294,7 @@ func (p *Panel) LoginPost(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 
-	p.clearLoginFailures(username)
+	p.clearLoginFailures(username, clientIP)
 	c.Locals(contextUserKey, user)
 	p.RecordAuditLog(c, "login_success", "user", user.Username, "Successfully logged in")
 	return p.createSessionAndRedirect(c, user.ID, next)
@@ -232,20 +310,32 @@ func (p *Panel) Logout(c *fiber.Ctx) error {
 		_ = p.DB.DeleteSession(c.UserContext(), token)
 	}
 	c.Cookie(sessionCookieClear())
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "redirect": "/login"})
+	}
 	return c.Redirect("/login")
 }
 
 func (p *Panel) createSessionAndRedirect(c *fiber.Ctx, userID int64, next string) error {
 	token, err := randomToken()
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": "Internal error"})
+		}
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
 	expiresAt := time.Now().Add(sessionTTL)
 	if err := p.DB.CreateSession(c.UserContext(), token, userID, expiresAt); err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": "Internal error"})
+		}
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/login")
 	}
 	c.Cookie(sessionCookieSet(c, token, expiresAt))
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "redirect": next})
+	}
 	return c.Redirect(next)
 }
