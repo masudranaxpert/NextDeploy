@@ -118,131 +118,133 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[34%] px-4 py-2.5 font-medium">Container / Project</th>
-              <th className="w-[28%] px-4 py-2.5 font-medium">Image & Port</th>
-              <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
-              <th className="w-[13%] px-4 py-2.5 font-medium text-right">Usage</th>
-              <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {filtered.map((c) => {
-              const hasAppPrefix = c.name.startsWith(c.appName);
-              const suffix = hasAppPrefix ? c.name.slice(c.appName.length) : `-${c.service}`;
-              const imgInfo = formatCompactImage(c.image);
-              const shortPort = formatCompactPort(c.ports);
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[34%] px-4 py-2.5 font-medium">Container / Project</th>
+                <th className="w-[28%] px-4 py-2.5 font-medium">Image & Port</th>
+                <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                <th className="w-[13%] px-4 py-2.5 font-medium text-right">Usage</th>
+                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {filtered.map((c) => {
+                const hasAppPrefix = c.name.startsWith(c.appName);
+                const suffix = hasAppPrefix ? c.name.slice(c.appName.length) : `-${c.service}`;
+                const imgInfo = formatCompactImage(c.image);
+                const shortPort = formatCompactPort(c.ports);
 
-              return (
-                <tr
-                  key={c.id}
-                  onClick={() => setInspectedContainer(c)}
-                  className="hover:bg-white/[0.03] transition-colors cursor-pointer"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                        <Box className="h-3.5 w-3.5 text-orange-400" />
+                return (
+                  <tr
+                    key={c.id}
+                    onClick={() => setInspectedContainer(c)}
+                    className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+                          <Box className="h-3.5 w-3.5 text-orange-400" />
+                        </div>
+                        <div className="min-w-0 truncate font-mono text-xs">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenAppTab(c.appId);
+                            }}
+                            className="font-semibold text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
+                            title={`Open ${c.appName}`}
+                          >
+                            {c.appName}
+                          </button>
+                          <span className="font-semibold text-zinc-100">{suffix}</span>
+                        </div>
                       </div>
-                      <div className="min-w-0 truncate font-mono text-xs">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenAppTab(c.appId);
-                          }}
-                          className="font-semibold text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
-                          title={`Open ${c.appName}`}
-                        >
-                          {c.appName}
-                        </button>
-                        <span className="font-semibold text-zinc-100">{suffix}</span>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 min-w-0" title={c.image}>
+                        <span className="truncate font-mono text-xs text-zinc-200">
+                          {imgInfo.shortName}
+                          <span className="text-orange-400">:{imgInfo.tagPart}</span>
+                        </span>
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                          <Network className="h-2.5 w-2.5 text-emerald-400" />
+                          {shortPort}
+                        </span>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 min-w-0" title={c.image}>
-                      <span className="truncate font-mono text-xs text-zinc-200">
-                        {imgInfo.shortName}
-                        <span className="text-orange-400">:{imgInfo.tagPart}</span>
-                      </span>
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
-                        <Network className="h-2.5 w-2.5 text-emerald-400" />
-                        {shortPort}
-                      </span>
-                    </div>
-                  </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={c.state} />
+                        <span className="font-mono text-[11px] text-zinc-500 truncate">
+                          {c.uptime.replace('Up ', '')}
+                        </span>
+                      </div>
+                    </td>
 
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={c.state} />
-                      <span className="font-mono text-[11px] text-zinc-500 truncate">
-                        {c.uptime.replace('Up ', '')}
-                      </span>
-                    </div>
-                  </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-[11px]">
+                      <span className="text-zinc-200">{c.cpuPct}%</span>
+                      <span className="mx-1 text-zinc-600">·</span>
+                      <span className="text-zinc-400">{c.memUsedMB}M</span>
+                    </td>
 
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[11px]">
-                    <span className="text-zinc-200">{c.cpuPct}%</span>
-                    <span className="mx-1 text-zinc-600">·</span>
-                    <span className="text-zinc-400">{c.memUsedMB}M</span>
-                  </td>
-
-                  <td className="px-3 py-3 text-right">
-                    <ActionMenu
-                      items={[
-                        {
-                          label: 'Inspect Container',
-                          icon: <Info className="h-3.5 w-3.5" />,
-                          onClick: () => setInspectedContainer(c),
-                        },
-                        {
-                          label: 'Open Project',
-                          icon: <ExternalLink className="h-3.5 w-3.5" />,
-                          onClick: () => onOpenAppTab(c.appId),
-                        },
-                        {
-                          label: 'Copy Container ID',
-                          icon: <Copy className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(c.id);
-                            toast.success(`Copied ID: ${c.id}`);
+                    <td className="px-3 py-3 text-right">
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Inspect Container',
+                            icon: <Info className="h-3.5 w-3.5" />,
+                            onClick: () => setInspectedContainer(c),
                           },
-                        },
-                        {
-                          label: 'Copy Image Tag',
-                          icon: <FileCode2 className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(c.image);
-                            toast.success(`Copied ${c.image}`);
+                          {
+                            label: 'Open Project',
+                            icon: <ExternalLink className="h-3.5 w-3.5" />,
+                            onClick: () => onOpenAppTab(c.appId),
                           },
-                        },
-                        {
-                          label: c.state === 'running' ? 'Stop Container' : 'Start Container',
-                          icon:
-                            c.state === 'running' ? (
-                              <Square className="h-3.5 w-3.5" />
-                            ) : (
-                              <Play className="h-3.5 w-3.5" />
-                            ),
-                          onClick: () => toggleContainerState(c.appId, c.id),
-                        },
-                        {
-                          label: 'Restart Container',
-                          icon: <RotateCw className="h-3.5 w-3.5" />,
-                          onClick: () => toast.success(`Restarted ${c.name}`),
-                        },
-                      ]}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          {
+                            label: 'Copy Container ID',
+                            icon: <Copy className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(c.id);
+                              toast.success(`Copied ID: ${c.id}`);
+                            },
+                          },
+                          {
+                            label: 'Copy Image Tag',
+                            icon: <FileCode2 className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(c.image);
+                              toast.success(`Copied ${c.image}`);
+                            },
+                          },
+                          {
+                            label: c.state === 'running' ? 'Stop Container' : 'Start Container',
+                            icon:
+                              c.state === 'running' ? (
+                                <Square className="h-3.5 w-3.5" />
+                              ) : (
+                                <Play className="h-3.5 w-3.5" />
+                              ),
+                            onClick: () => toggleContainerState(c.appId, c.id),
+                          },
+                          {
+                            label: 'Restart Container',
+                            icon: <RotateCw className="h-3.5 w-3.5" />,
+                            onClick: () => toast.success(`Restarted ${c.name}`),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ShadcnDialog

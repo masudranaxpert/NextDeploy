@@ -710,7 +710,52 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 	if p.DB.GetSetting(ctx, settingCleanupLastRun) == "" {
 		_ = p.DB.SetSetting(ctx, settingCleanupLastRun, time.Now().UTC().Format(time.RFC3339))
 	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{
+			"ok":                          true,
+			"cleanup_enabled":             enabled,
+			"cleanup_interval":            interval,
+			"cleanup_include_build_cache": includeBuildCache,
+		})
+	}
 	return c.Redirect("/settings")
+}
+
+// AuditLogsPageOrJSON returns paginated audit logs as JSON when requested via AJAX/SPA, or serves the SPA HTML.
+func (p *Panel) AuditLogsPageOrJSON(c *fiber.Ctx) error {
+	if !WantsJSON(c) && c.Query("format") != "json" {
+		return p.ServeSPA(c)
+	}
+	ctx := c.UserContext()
+	page := c.QueryInt("page", 1)
+	if page < 1 {
+		page = 1
+	}
+	perPage := c.QueryInt("per_page", 20)
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 200 {
+		perPage = 200
+	}
+	offset := (page - 1) * perPage
+	logs, err := p.DB.ListAuditLogs(ctx, perPage, offset)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	total, _ := p.DB.CountAuditLogs(ctx)
+	totalPages := (total + perPage - 1) / perPage
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	return c.JSON(fiber.Map{
+		"ok":          true,
+		"logs":        logs,
+		"total":       total,
+		"page":        page,
+		"per_page":    perPage,
+		"total_pages": totalPages,
+	})
 }
 
 func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
@@ -719,7 +764,7 @@ func (p *Panel) SaveNextDeployPanelConfig(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	ctx := c.UserContext()
-	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
+	wantsJSON := WantsJSON(c) || c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
 
 	jsonErr := func(msg string) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": msg})
@@ -773,7 +818,7 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	ctx := c.UserContext()
-	wantsJSON := c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
+	wantsJSON := WantsJSON(c) || c.Get("Accept") == "application/json" || c.Get("X-Requested-With") == "XMLHttpRequest"
 
 	jsonErr := func(msg string) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": msg})
@@ -866,6 +911,9 @@ func (p *Panel) ManualCleanupRun(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	go p.runScheduledCleanupForce()
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "started": true})
+	}
 	utils.SetFlash(c, "cleanup_started")
 	return c.Redirect("/settings")
 }
@@ -1014,6 +1062,9 @@ func (p *Panel) AddRegistry(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "Unauthorized"})
+		}
 		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
 	}
 
@@ -1023,12 +1074,18 @@ func (p *Panel) AddRegistry(c *fiber.Ctx) error {
 	password := c.FormValue("password")
 
 	if name == "" || serverAddress == "" || username == "" || password == "" {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "All fields are required."})
+		}
 		utils.SetFlash(c, "Error: All fields are required.")
 		return c.Redirect("/registries")
 	}
 
 	encPassword, err := sandbox.Encrypt(password)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlash(c, "Error encrypting password: "+err.Error())
 		return c.Redirect("/registries")
 	}
@@ -1045,13 +1102,19 @@ func (p *Panel) AddRegistry(c *fiber.Ctx) error {
 		reg.UserID = &u.ID
 	}
 
-	_, err = p.DB.AddPrivateRegistry(ctx, reg)
+	regID, err := p.DB.AddPrivateRegistry(ctx, reg)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlash(c, "Error adding registry: "+err.Error())
 		return c.Redirect("/registries")
 	}
 
 	p.RecordAuditLog(c, "add_private_registry", "registry", name, fmt.Sprintf("Added registry %s (Global: %v)", name, isGlobal))
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "id": regID, "is_global": isGlobal})
+	}
 	utils.SetFlash(c, "Registry added successfully.")
 	return c.Redirect("/registries")
 }
@@ -1060,31 +1123,49 @@ func (p *Panel) DeleteRegistry(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	u, ok := c.Locals("auth_user").(db.User)
 	if !ok {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "Unauthorized"})
+		}
 		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
 	}
 
 	id, err := c.ParamsInt("id")
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Invalid ID"})
+		}
 		return c.Status(fiber.StatusBadRequest).SendString("Invalid ID")
 	}
 
 	reg, err := p.DB.GetPrivateRegistry(ctx, int64(id))
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "Registry not found."})
+		}
 		utils.SetFlash(c, "Registry not found.")
 		return c.Redirect("/registries")
 	}
 
 	if u.Role != db.RoleAdmin && (reg.UserID == nil || *reg.UserID != u.ID) {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "Forbidden"})
+		}
 		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
 	}
 
 	err = p.DB.DeletePrivateRegistry(ctx, int64(id))
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlash(c, "Error deleting registry: "+err.Error())
 		return c.Redirect("/registries")
 	}
 
 	p.RecordAuditLog(c, "delete_private_registry", "registry", reg.Name, fmt.Sprintf("Deleted registry %s", reg.Name))
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
+	}
 	utils.SetFlash(c, "Registry deleted successfully.")
 	return c.Redirect("/registries")
 }

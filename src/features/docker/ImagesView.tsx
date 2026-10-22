@@ -134,115 +134,117 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[42%] px-4 py-2.5 font-medium">Image & Tag</th>
-              <th className="w-[26%] px-4 py-2.5 font-medium">Status & Usage</th>
-              <th className="w-[14%] px-4 py-2.5 font-medium">Created</th>
-              <th className="w-[12%] px-4 py-2.5 font-medium text-right">Size</th>
-              <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {filteredImages.map((img) => {
-              const useCount = img.inUseBy.length;
-              const segments = img.repository.split('/');
-              const shortRepo = segments[segments.length - 1];
-              const hostPrefix = segments.length > 1 ? segments.slice(0, -1).join('/') : 'docker.io';
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[42%] px-4 py-2.5 font-medium">Image & Tag</th>
+                <th className="w-[26%] px-4 py-2.5 font-medium">Status & Usage</th>
+                <th className="w-[14%] px-4 py-2.5 font-medium">Created</th>
+                <th className="w-[12%] px-4 py-2.5 font-medium text-right">Size</th>
+                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {filteredImages.map((img) => {
+                const useCount = img.inUseBy.length;
+                const segments = img.repository.split('/');
+                const shortRepo = segments[segments.length - 1];
+                const hostPrefix = segments.length > 1 ? segments.slice(0, -1).join('/') : 'docker.io';
 
-              return (
-                <tr
-                  key={img.id}
-                  onClick={() => setInspectedImage(img)}
-                  className="hover:bg-white/[0.03] transition-colors cursor-pointer"
-                >
-                  <td className="px-4 py-3">
-                    <div
-                      className="flex items-center gap-2.5 min-w-0"
-                      title={`${img.repository}:${img.tag}`}
-                    >
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                        <Layers className="h-3.5 w-3.5 text-orange-400" />
+                return (
+                  <tr
+                    key={img.id}
+                    onClick={() => setInspectedImage(img)}
+                    className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3">
+                      <div
+                        className="flex items-center gap-2.5 min-w-0"
+                        title={`${img.repository}:${img.tag}`}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+                          <Layers className="h-3.5 w-3.5 text-orange-400" />
+                        </div>
+                        <div className="min-w-0 truncate font-mono">
+                          <span className="text-zinc-500 text-[11px]">{hostPrefix}/</span>
+                          <span className="font-semibold text-zinc-100">{shortRepo}</span>
+                          <span className="text-orange-400">:{img.tag}</span>
+                        </div>
                       </div>
-                      <div className="min-w-0 truncate font-mono">
-                        <span className="text-zinc-500 text-[11px]">{hostPrefix}/</span>
-                        <span className="font-semibold text-zinc-100">{shortRepo}</span>
-                        <span className="text-orange-400">:{img.tag}</span>
-                      </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td className="px-4 py-3">
-                    <div
-                      className="flex items-center gap-2"
-                      title={
-                        useCount > 0
-                          ? `Used by: ${img.inUseBy.join(', ')}`
-                          : 'Not used by any container'
-                      }
-                    >
-                      <StatusBadge
-                        status={useCount > 0 ? 'in-use' : 'unused'}
-                        label={useCount > 0 ? 'In use' : 'Unused'}
-                      />
-                      <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-zinc-300">
-                        <Box className="h-3 w-3 text-orange-400" />
-                        {useCount} {useCount === 1 ? 'container' : 'containers'}
+                    <td className="px-4 py-3">
+                      <div
+                        className="flex items-center gap-2"
+                        title={
+                          useCount > 0
+                            ? `Used by: ${img.inUseBy.join(', ')}`
+                            : 'Not used by any container'
+                        }
+                      >
+                        <StatusBadge
+                          status={useCount > 0 ? 'in-use' : 'unused'}
+                          label={useCount > 0 ? 'In use' : 'Unused'}
+                        />
+                        <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-zinc-300">
+                          <Box className="h-3 w-3 text-orange-400" />
+                          {useCount} {useCount === 1 ? 'container' : 'containers'}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3 text-zinc-400">
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                        <Clock className="h-3 w-3 text-zinc-500" />
+                        {img.created}
                       </span>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td className="px-4 py-3 text-zinc-400">
-                    <span className="inline-flex items-center gap-1 font-mono text-[11px]">
-                      <Clock className="h-3 w-3 text-zinc-500" />
-                      {img.created}
-                    </span>
-                  </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
+                      {img.sizeMB.toFixed(1)} MB
+                    </td>
 
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                    {img.sizeMB.toFixed(1)} MB
-                  </td>
-
-                  <td className="px-3 py-3 text-right">
-                    <ActionMenu
-                      items={[
-                        {
-                          label: 'Inspect Layers',
-                          icon: <Info className="h-3.5 w-3.5" />,
-                          onClick: () => setInspectedImage(img),
-                        },
-                        {
-                          label: 'Copy Image ID',
-                          icon: <Copy className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(img.id);
-                            toast.success(`Copied Image ID: ${img.id}`);
+                    <td className="px-3 py-3 text-right">
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Inspect Layers',
+                            icon: <Info className="h-3.5 w-3.5" />,
+                            onClick: () => setInspectedImage(img),
                           },
-                        },
-                        {
-                          label: 'Copy Image Tag',
-                          icon: <FileCode2 className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(`${img.repository}:${img.tag}`);
-                            toast.success(`Copied ${img.repository}:${img.tag}`);
+                          {
+                            label: 'Copy Image ID',
+                            icon: <Copy className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(img.id);
+                              toast.success(`Copied Image ID: ${img.id}`);
+                            },
                           },
-                        },
-                        {
-                          label: 'Delete Image',
-                          icon: <Trash2 className="h-3.5 w-3.5" />,
-                          variant: 'danger',
-                          disabled: useCount > 0,
-                          onClick: () => onDeleteImage(img.id),
-                        },
-                      ]}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          {
+                            label: 'Copy Image Tag',
+                            icon: <FileCode2 className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(`${img.repository}:${img.tag}`);
+                              toast.success(`Copied ${img.repository}:${img.tag}`);
+                            },
+                          },
+                          {
+                            label: 'Delete Image',
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            variant: 'danger',
+                            disabled: useCount > 0,
+                            onClick: () => onDeleteImage(img.id),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ShadcnDialog

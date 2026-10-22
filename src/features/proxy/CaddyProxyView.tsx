@@ -10,24 +10,36 @@ import {
   Lock,
   Terminal,
   Play,
+  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
-import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
+import { ActionMenu, ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../components/ui/Primitives';
 import { CodeEditorBox } from '../../components/ui/CodeEditorBox';
 import { backendApi } from '../../lib/backendApi';
 
 export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
+  // Matches POST /nextdeploy/panel (panel_domain, panel_enable_https, panel_enable_www)
   const [panelDomain, setPanelDomain] = useState('panel.nextdeploy.sh');
-  const [panelPort, setPanelPort] = useState('3000');
+  const [panelEnableHttps, setPanelEnableHttps] = useState(true);
+  const [panelEnableWww, setPanelEnableWww] = useState(false);
+
+  // Matches POST /caddy/config (admin_api, email, caddy_image)
+  const [caddyAdminApi, setCaddyAdminApi] = useState('http://127.0.0.1:2019');
   const [acmeEmail, setAcmeEmail] = useState('masud132213@gmail.com');
+  const [caddyImage, setCaddyImage] = useState('caddy:2-alpine');
+
+  // Matches POST /nextdeploy/shared-volumes (caddy_shared_mount_prefix, caddy_shared_volumes)
+  const [sharedMountPrefix, setSharedMountPrefix] = useState('/var/www/apps');
+  const [sharedVolInput, setSharedVolInput] = useState(
+    'billing-api_static:/var/www/apps/billing-api/static\nstorefront_media:/var/www/apps/storefront/media'
+  );
+
   const [panelModalOpen, setPanelModalOpen] = useState(false);
+  const [caddySettingsModalOpen, setCaddySettingsModalOpen] = useState(false);
   const [addRouteModalOpen, setAddRouteModalOpen] = useState(false);
   const [caddyfileModalOpen, setCaddyfileModalOpen] = useState(false);
   const [sharedVolModalOpen, setSharedVolModalOpen] = useState(false);
-  const [sharedVolInput, setSharedVolInput] = useState(
-    '/var/lib/docker/volumes/static_data/_data:/srv/static:ro\n/var/lib/docker/volumes/media_data/_data:/srv/media:ro'
-  );
   const [caddyLogsModalOpen, setCaddyLogsModalOpen] = useState(false);
   const [caddyLogsText, setCaddyLogsText] = useState('');
 
@@ -44,7 +56,7 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
 
   const [routes, setRoutes] = useState(initialRoutes);
   const [caddyfileContent, setCaddyfileContent] = useState(
-    `{\n  email ${acmeEmail}\n  admin 127.0.0.1:2019\n}\n\n${panelDomain} {\n  encode zstd gzip\n  reverse_proxy 127.0.0.1:${panelPort}\n}\n`
+    `{\n  email ${acmeEmail}\n  admin 127.0.0.1:2019\n}\n\n${panelDomain} {\n  encode zstd gzip\n  reverse_proxy 127.0.0.1:8787\n}\n`
   );
 
   const handleAddRoute = (e: React.FormEvent) => {
@@ -72,7 +84,7 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
     ]);
     setNewDomain('');
     setAddRouteModalOpen(false);
-    toast.success(`Added HTTPS route for ${clean}`);
+    toast.success(`Added Caddy HTTPS route for ${clean}`);
   };
 
   return (
@@ -82,10 +94,17 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
             <Globe className="h-4 w-4 text-orange-400" />
           </div>
-          <h1 className="text-base font-semibold tracking-tight text-zinc-100">
-            Reverse Proxy & TLS
-          </h1>
-          <StatusBadge status="active" label="Caddy 2.8 Online" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold tracking-tight text-zinc-100">
+                Caddy Reverse Proxy & TLS
+              </h1>
+              <StatusBadge status="active" label="Caddy 2 Online" />
+            </div>
+            <p className="text-[11px] text-zinc-400">
+              Automatic HTTPS (Let&apos;s Encrypt TLS 1.3), zero-downtime route reloads &amp; static volume mounts
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -96,6 +115,14 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
           >
             <Lock className="h-3.5 w-3.5 text-emerald-400" />
             Panel Domain
+          </button>
+          <button
+            type="button"
+            onClick={() => setCaddySettingsModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+          >
+            <Settings2 className="h-3.5 w-3.5 text-amber-400" />
+            Daemon Settings
           </button>
           <button
             type="button"
@@ -122,7 +149,7 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
                   const res = await backendApi.caddyLogs();
                   setCaddyLogsText(
                     res.logs ||
-                      `{"level":"info","ts":1747240800,"msg":"using provided configuration","config_file":"/etc/caddy/Caddyfile"}\n{"level":"info","ts":1747240801,"logger":"tls","msg":"storage cleaning happened recently; skipping for now"}\n{"level":"info","ts":1747240802,"logger":"http.auto_https","msg":"server is listening only on the HTTPS port but has no TLS connection policies"}`
+                      `{"level":"info","ts":1747240800,"msg":"using provided configuration","config_file":"/etc/caddy/Caddyfile"}\n{"level":"info","ts":1747240801,"logger":"tls","msg":"storage cleaning happened recently; skipping for now"}\n{"level":"info","ts":1747240802,"logger":"http.auto_https","msg":"enabling automatic HTTP->HTTPS redirects"}`
                   );
                   setCaddyLogsModalOpen(true);
                 },
@@ -157,101 +184,105 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[34%] px-4 py-2.5 font-medium">Domain</th>
-              <th className="w-[28%] px-4 py-2.5 font-medium">Upstream Target</th>
-              <th className="w-[22%] px-4 py-2.5 font-medium">TLS Certificate</th>
-              <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {routes.map((r) => (
-              <tr key={r.id} className="hover:bg-white/[0.03]">
-                <td className="px-4 py-3 font-mono font-semibold text-zinc-100 truncate">
-                  https://{r.domain}
-                </td>
-                <td className="px-4 py-3 font-mono text-orange-400 truncate">{r.upstream}</td>
-                <td className="px-4 py-3">
-                  <StatusBadge status={r.tlsStatus} label="Let's Encrypt TLS 1.3" />
-                </td>
-                <td className="px-3 py-3 text-right">
-                  <ActionMenu
-                    items={[
-                      {
-                        label: 'Open URL',
-                        icon: <ExternalLink className="h-3.5 w-3.5" />,
-                        onClick: () => window.open(`https://${r.domain}`, '_blank'),
-                      },
-                      {
-                        label: 'Delete Route',
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        variant: 'danger',
-                        onClick: () => {
-                          setRoutes((prev) => prev.filter((item) => item.id !== r.id));
-                          toast.success(`Removed ${r.domain}`);
-                        },
-                      },
-                    ]}
-                  />
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[34%] px-4 py-2.5 font-medium">Domain</th>
+                <th className="w-[30%] px-4 py-2.5 font-medium">Upstream Target</th>
+                <th className="w-[24%] px-4 py-2.5 font-medium">TLS Certificate</th>
+                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {routes.map((r) => (
+                <tr key={r.id} className="hover:bg-white/[0.03]">
+                  <td className="px-4 py-3 font-mono font-semibold text-zinc-100 truncate">
+                    https://{r.domain}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-orange-400 truncate">{r.upstream}</td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={r.tlsStatus} label="Let's Encrypt TLS 1.3" />
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <ActionMenu
+                      items={[
+                        {
+                          label: 'Copy HTTPS URL',
+                          icon: <ExternalLink className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            void navigator.clipboard?.writeText(`https://${r.domain}`);
+                            toast.success(`Copied https://${r.domain}`);
+                          },
+                        },
+                        {
+                          label: 'Delete Route',
+                          icon: <Trash2 className="h-3.5 w-3.5" />,
+                          variant: 'danger',
+                          onClick: () => {
+                            setRoutes((prev) => prev.filter((item) => item.id !== r.id));
+                            toast.success(`Removed ${r.domain}`);
+                          },
+                        },
+                      ]}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* Control Plane Domain Modal (POST /nextdeploy/panel) */}
       <ShadcnDialog
         open={panelModalOpen}
         onClose={() => setPanelModalOpen(false)}
-        title="Control Plane Domain & ACME"
-        icon={<Lock className="h-4 w-4" />}
+        title="NextDeploy Panel Domain & HTTPS"
+        icon={<Lock className="h-4 w-4 text-emerald-400" />}
       >
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void backendApi.savePanelConfig(panelDomain, Number(panelPort) || 3000);
+            void backendApi.savePanelConfig(panelDomain, panelEnableHttps, panelEnableWww);
             setPanelModalOpen(false);
-            toast.success(`Updated panel domain to https://${panelDomain}`);
+            toast.success(`Saved NextDeploy panel domain (${panelDomain})`);
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Panel Domain
-              </label>
-              <input
-                type="text"
-                value={panelDomain}
-                onChange={(e) => setPanelDomain(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Panel Port
-              </label>
-              <input
-                type="number"
-                value={panelPort}
-                onChange={(e) => setPanelPort(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
-            </div>
-          </div>
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Let's Encrypt Email
+              Panel Domain (panel_domain)
             </label>
             <input
-              type="email"
-              value={acmeEmail}
-              onChange={(e) => setAcmeEmail(e.target.value)}
+              type="text"
+              value={panelDomain}
+              onChange={(e) => setPanelDomain(e.target.value)}
+              placeholder="panel.nextdeploy.sh"
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
             />
           </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
+            <div>
+              <div className="text-xs font-medium text-zinc-200">Automatic HTTPS (panel_enable_https)</div>
+              <div className="text-[11px] text-zinc-500">
+                Provision Let&apos;s Encrypt TLS certificate via Caddy
+              </div>
+            </div>
+            <ShadcnSwitch checked={panelEnableHttps} onChange={setPanelEnableHttps} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
+            <div>
+              <div className="text-xs font-medium text-zinc-200">Redirect www Subdomain (panel_enable_www)</div>
+              <div className="text-[11px] text-zinc-500">
+                Automatically redirect www.{panelDomain || 'domain'} to {panelDomain || 'domain'}
+              </div>
+            </div>
+            <ShadcnSwitch checked={panelEnableWww} onChange={setPanelEnableWww} />
+          </div>
+
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"
@@ -264,12 +295,80 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
               type="submit"
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
-              Save TLS Config
+              Save Panel Domain
             </button>
           </div>
         </form>
       </ShadcnDialog>
 
+      {/* Caddy Daemon Settings Modal (POST /caddy/config) */}
+      <ShadcnDialog
+        open={caddySettingsModalOpen}
+        onClose={() => setCaddySettingsModalOpen(false)}
+        title="Caddy Daemon & ACME Settings"
+        icon={<Settings2 className="h-4 w-4 text-amber-400" />}
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void backendApi.caddySaveSettings(caddyAdminApi, acmeEmail, caddyImage);
+            setCaddySettingsModalOpen(false);
+            toast.success('Saved Caddy daemon & ACME configuration');
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Caddy Admin API Endpoint (admin_api)
+            </label>
+            <input
+              type="text"
+              value={caddyAdminApi}
+              onChange={(e) => setCaddyAdminApi(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              ACME / Let&apos;s Encrypt Email (email)
+            </label>
+            <input
+              type="email"
+              value={acmeEmail}
+              onChange={(e) => setAcmeEmail(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Caddy Container Image (caddy_image)
+            </label>
+            <input
+              type="text"
+              value={caddyImage}
+              onChange={(e) => setCaddyImage(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+            />
+          </div>
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <button
+              type="button"
+              onClick={() => setCaddySettingsModalOpen(false)}
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            >
+              Save Daemon Settings
+            </button>
+          </div>
+        </form>
+      </ShadcnDialog>
+
+      {/* Shared Volumes Modal (POST /nextdeploy/shared-volumes) */}
       <ShadcnDialog
         open={sharedVolModalOpen}
         onClose={() => setSharedVolModalOpen(false)}
@@ -279,12 +378,24 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void backendApi.saveSharedVolumes(sharedVolInput);
+            void backendApi.saveSharedVolumes(sharedVolInput, sharedMountPrefix);
             setSharedVolModalOpen(false);
-            toast.success('Updated Caddy shared volume mounts');
+            toast.success('Updated Caddy shared volume mounts & recreated proxy container');
           }}
           className="space-y-4"
         >
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Container Mount Prefix (caddy_shared_mount_prefix)
+            </label>
+            <input
+              type="text"
+              value={sharedMountPrefix}
+              onChange={(e) => setSharedMountPrefix(e.target.value)}
+              placeholder="/var/www/apps"
+              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+            />
+          </div>
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
               Volume Mounts (One per line, host_or_vol:/container/path)

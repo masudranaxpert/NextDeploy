@@ -34,6 +34,9 @@ func countAdminUsers(ctx context.Context, dbStore *db.Store) (int, error) {
 func (p *Panel) UserCreate(c *fiber.Ctx) error {
 	user, _ := currentUser(c)
 	if user.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
@@ -42,10 +45,16 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 	role := c.FormValue("role")
 
 	if username == "" || len(username) < 3 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Username must be at least 3 characters"})
+		}
 		utils.SetFlashError(c, "Username must be at least 3 characters")
 		return c.Redirect("/users")
 	}
 	if len(password) < 8 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Password must be at least 8 characters"})
+		}
 		utils.SetFlashError(c, "Password must be at least 8 characters")
 		return c.Redirect("/users")
 	}
@@ -55,14 +64,24 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 
 	hash, err := hashPassword(password)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Internal error"})
+		}
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/users")
 	}
-	if _, err := p.DB.CreateUser(c.UserContext(), username, hash, role); err != nil {
+	createdUser, err := p.DB.CreateUser(c.UserContext(), username, hash, role)
+	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(409).JSON(fiber.Map{"ok": false, "error": "Username already taken"})
+		}
 		utils.SetFlashError(c, "Username already taken")
 		return c.Redirect("/users")
 	}
 	p.InvalidateAfterUserChange()
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "user": createdUser})
+	}
 	utils.SetFlash(c, "User created successfully")
 	return c.Redirect("/users")
 }
@@ -71,15 +90,24 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 func (p *Panel) UserDelete(c *fiber.Ctx) error {
 	current, _ := currentUser(c)
 	if current.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
 	idStr := c.Params("id")
 	var id int64
 	if _, err := parseID(idStr, &id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid id"})
+		}
 		return c.Status(400).SendString("invalid id")
 	}
 	if id == current.ID {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Cannot delete your own account"})
+		}
 		utils.SetFlashError(c, "Cannot delete your own account")
 		return c.Redirect("/users")
 	}
@@ -87,28 +115,46 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	adminCount, err := countAdminUsers(ctx, p.DB)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		return c.Status(500).SendString(err.Error())
 	}
 	target, err := p.DB.GetUserByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if WantsJSON(c) {
+				return c.Status(404).JSON(fiber.Map{"ok": false, "error": "User not found"})
+			}
 			utils.SetFlashError(c, "User not found")
 			return c.Redirect("/users")
+		}
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
 		return c.Status(500).SendString(err.Error())
 	}
 	if target.Role == db.RoleAdmin && adminCount <= 1 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Cannot delete the last admin"})
+		}
 		utils.SetFlashError(c, "Cannot delete the last admin")
 		return c.Redirect("/users")
 	}
 
 	if err := p.DB.DeleteUser(ctx, id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Delete failed"})
+		}
 		utils.SetFlashError(c, "Delete failed")
 		return c.Redirect("/users")
 	}
 	p.InvalidateAfterUserChange()
 	if count, err := p.DB.UserCount(ctx); err == nil && count == 0 {
 		p.ClearSetupComplete()
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "User deleted")
 	return c.Redirect("/users")
@@ -121,33 +167,54 @@ func (p *Panel) UserChangePassword(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	var id int64
 	if _, err := parseID(idStr, &id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid id"})
+		}
 		return c.Status(400).SendString("invalid id")
 	}
 
 	// Only admin can change others' passwords
 	if id != current.ID && current.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
 	password := c.FormValue("password")
 	confirm := c.FormValue("confirm")
 	if len(password) < 8 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Password must be at least 8 characters"})
+		}
 		utils.SetFlashError(c, "Password must be at least 8 characters")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 	if password != confirm {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Passwords do not match"})
+		}
 		utils.SetFlashError(c, "Passwords do not match")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	hash, err := hashPassword(password)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Internal error"})
+		}
 		utils.SetFlashError(c, "Internal error")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 	if err := p.DB.UpdateUserPassword(c.UserContext(), id, hash); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Update failed"})
+		}
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "Password updated")
 	return c.Redirect("/users/" + idStr + "/edit")
@@ -157,21 +224,33 @@ func (p *Panel) UserChangePassword(c *fiber.Ctx) error {
 func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 	current, _ := currentUser(c)
 	if current.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
 	idStr := c.Params("id")
 	var id int64
 	if _, err := parseID(idStr, &id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid id"})
+		}
 		return c.Status(400).SendString("invalid id")
 	}
 	if id == current.ID {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Cannot change your own role"})
+		}
 		utils.SetFlashError(c, "Cannot change your own role")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	role := c.FormValue("role")
 	if role != db.RoleAdmin && role != db.RoleUser {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Invalid role"})
+		}
 		utils.SetFlashError(c, "Invalid role")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
@@ -180,8 +259,14 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 	target, err := p.DB.GetUserByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if WantsJSON(c) {
+				return c.Status(404).JSON(fiber.Map{"ok": false, "error": "User not found"})
+			}
 			utils.SetFlashError(c, "User not found")
 			return c.Redirect("/users")
+		}
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
 		return c.Status(500).SendString(err.Error())
 	}
@@ -189,19 +274,31 @@ func (p *Panel) UserChangeRole(c *fiber.Ctx) error {
 	if role == db.RoleUser && target.Role == db.RoleAdmin {
 		adminCount, err := countAdminUsers(ctx, p.DB)
 		if err != nil {
+			if WantsJSON(c) {
+				return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+			}
 			return c.Status(500).SendString(err.Error())
 		}
 		if adminCount <= 1 {
+			if WantsJSON(c) {
+				return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Cannot demote the last admin"})
+			}
 			utils.SetFlashError(c, "Cannot demote the last admin")
 			return c.Redirect("/users/" + idStr + "/edit")
 		}
 	}
 
 	if err := p.DB.UpdateUserRole(ctx, id, role); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Update failed"})
+		}
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 	p.InvalidateAfterUserChange()
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "role": role})
+	}
 	utils.SetFlash(c, "Role updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }
@@ -218,26 +315,41 @@ func parseID(s string, out *int64) (int64, error) {
 func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 	current, _ := currentUser(c)
 	if current.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
 	idStr := c.Params("id")
 	var id int64
 	if _, err := parseID(idStr, &id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid id"})
+		}
 		return c.Status(400).SendString("invalid id")
 	}
 	if id == current.ID {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Cannot suspend your own account"})
+		}
 		utils.SetFlashError(c, "Cannot suspend your own account")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	status := strings.TrimSpace(c.FormValue("status"))
 	if status != db.UserStatusActive && status != db.UserStatusSuspended {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Invalid status"})
+		}
 		utils.SetFlashError(c, "Invalid status")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	if err := p.DB.UpdateUserStatus(c.UserContext(), id, status); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Update failed"})
+		}
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
@@ -259,6 +371,9 @@ func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 	}
 
 	p.InvalidateAfterUserChange()
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "status": status})
+	}
 	utils.SetFlash(c, "User status updated")
 	return c.Redirect("/users/" + idStr + "/edit")
 }
@@ -266,12 +381,18 @@ func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	current, _ := currentUser(c)
 	if current.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(403).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(403).SendString("forbidden")
 	}
 
 	idStr := c.Params("id")
 	var id int64
 	if _, err := parseID(idStr, &id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid id"})
+		}
 		return c.Status(400).SendString("invalid id")
 	}
 
@@ -282,21 +403,33 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 
 	target, terr := p.DB.GetUserByID(c.UserContext(), id)
 	if terr != nil {
+		if WantsJSON(c) {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "User not found"})
+		}
 		utils.SetFlashError(c, "User not found")
 		return c.Redirect("/users")
 	}
 	if target.Role == db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Admin accounts have unlimited resources"})
+		}
 		utils.SetFlashError(c, "Admin accounts have unlimited resources")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	if maxApps <= 0 || maxMemory <= 0 || maxCPUs <= 0 || maxStorage <= 0 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Invalid limits"})
+		}
 		utils.SetFlashError(c, "Invalid limits")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
 	allowFileServer := c.FormValue("allow_domain_file_server") == "on"
 	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs, maxStorage, allowFileServer); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Update failed"})
+		}
 		utils.SetFlashError(c, "Update failed")
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
@@ -305,6 +438,9 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	// containers are re-limited immediately (kernel applies it live).
 	if p.UserSliceSupported(c.UserContext()) {
 		if serr := p.EnsureUserSliceLimits(c.UserContext(), id, maxMemory, maxCPUs); serr != nil {
+			if WantsJSON(c) {
+				return c.JSON(fiber.Map{"ok": true, "warning": "Limits saved, but applying the cgroup limit failed: " + serr.Error()})
+			}
 			utils.SetFlash(c, "Limits saved, but applying the cgroup limit failed: "+serr.Error())
 			return c.Redirect("/users/" + idStr + "/edit")
 		}

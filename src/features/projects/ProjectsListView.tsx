@@ -308,55 +308,57 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
 
         {appsLayout === 'table' && (
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/80">
-            <table className="w-full table-fixed text-left text-xs">
-              <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[38%] px-4 py-2.5 font-medium">Project</th>
-                  <th className="w-[20%] px-4 py-2.5 font-medium">Status</th>
-                  <th className="w-[20%] px-4 py-2.5 font-medium">Containers</th>
-                  <th className="w-[16%] px-4 py-2.5 font-medium text-right">Usage</th>
-                  <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {filteredApps.map((app) => (
-                  <tr
-                    key={app.id}
-                    onClick={() => onSelectApp(app.id)}
-                    className="hover:bg-white/[0.03] cursor-pointer transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 font-display text-[11px] font-bold text-orange-400 uppercase">
-                          {app.name.slice(0, 2)}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-zinc-100">{app.name}</div>
-                          {app.primaryDomain && (
-                            <div className="truncate font-mono text-[10px] text-zinc-500">
-                              {app.primaryDomain}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={app.status} />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
-                      {app.services.filter((s) => s.state === 'running').length}/
-                      {app.services.length} online
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-300">
-                      {app.cpuPct}% · {app.memMB} MB
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <ActionMenu items={getAppActions(app)} />
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] table-fixed text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                    <th className="w-[38%] px-4 py-2.5 font-medium">Project</th>
+                    <th className="w-[20%] px-4 py-2.5 font-medium">Status</th>
+                    <th className="w-[20%] px-4 py-2.5 font-medium">Containers</th>
+                    <th className="w-[16%] px-4 py-2.5 font-medium text-right">Usage</th>
+                    <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05]">
+                  {filteredApps.map((app) => (
+                    <tr
+                      key={app.id}
+                      onClick={() => onSelectApp(app.id)}
+                      className="hover:bg-white/[0.03] cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 font-display text-[11px] font-bold text-orange-400 uppercase">
+                            {app.name.slice(0, 2)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-zinc-100">{app.name}</div>
+                            {app.primaryDomain && (
+                              <div className="truncate font-mono text-[10px] text-zinc-500">
+                                {app.primaryDomain}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={app.status} />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
+                        {app.services.filter((s) => s.state === 'running').length}/
+                        {app.services.length} online
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-300">
+                        {app.cpuPct}% · {app.memMB} MB
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <ActionMenu items={getAppActions(app)} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

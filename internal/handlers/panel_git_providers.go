@@ -14,22 +14,34 @@ import (
 func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	u, ok := CurrentUser(c)
 	if !ok {
+		if WantsJSON(c) {
+			return c.Status(401).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+		}
 		return c.Redirect("/login")
 	}
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Invalid ID"})
+		}
 		utils.SetFlashError(c, "Invalid ID")
 		return c.Redirect("/git")
 	}
 
 	existing, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "Provider not found"})
+		}
 		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
 	}
 
 	if u.Role != db.RoleAdmin && (existing.UserID == nil || *existing.UserID != u.ID) {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 
@@ -54,8 +66,14 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	}
 
 	if err := p.DB.UpdateGitProvider(c.UserContext(), id, name, provider, token, notes); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "saved")
 	return c.Redirect("/git")
@@ -65,25 +83,43 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 func (p *Panel) GitProviderDelete(c *fiber.Ctx) error {
 	u, ok := CurrentUser(c)
 	if !ok {
+		if WantsJSON(c) {
+			return c.Status(401).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+		}
 		return c.Redirect("/login")
 	}
 	idStr := c.Params("pid")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Invalid ID"})
+		}
 		utils.SetFlashError(c, "Invalid ID")
 		return c.Redirect("/git")
 	}
 	existing, err := p.DB.GetGitProvider(c.UserContext(), id)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "Provider not found"})
+		}
 		utils.SetFlashError(c, "Provider not found")
 		return c.Redirect("/git")
 	}
 	if u.Role != db.RoleAdmin && (existing.UserID == nil || *existing.UserID != u.ID) {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+		}
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	if err := p.DB.DeleteGitProvider(c.UserContext(), id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/git")
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "deleted")
 	return c.Redirect("/git")
@@ -98,6 +134,9 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 
 	newSource := strings.TrimSpace(c.FormValue("source_type"))
 	if newSource != "files" && newSource != "git" {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid source_type"})
+		}
 		return c.Redirect("/apps/" + id + "?tab=overview")
 	}
 
@@ -110,16 +149,25 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 			_ = p.DB.SetAppGitSyncPaused(c.UserContext(), id, false)
 		}
 		if err := p.Store.ClearUploadedProjectForGitSource(id); err != nil {
+			if WantsJSON(c) {
+				return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+			}
 			utils.SetFlash(c, "switchError_clear")
 			return c.Redirect("/apps/" + id + "?tab=overview")
 		}
 	}
 
 	if err := p.DB.SetAppSourceType(c.UserContext(), id, newSource); err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Failed to switch source type"})
+		}
 		utils.SetFlashError(c, "Failed to switch source type")
 		return c.Redirect("/apps/" + id + "?tab=overview")
 	}
 
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "source_type": newSource})
+	}
 	utils.SetFlash(c, "sourceSwitched")
 	if newSource == "git" {
 		return c.Redirect("/apps/" + id + "?tab=git")

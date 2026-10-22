@@ -298,7 +298,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 { name: 'caddy-proxy', ver: 'v2.8.4', meta: 'TLS 1.3 · HTTP/3', status: 'active' as const },
                 { name: 'nextdeployd', ver: 'v2.4.0', meta: '24 MB RAM', status: 'running' as const },
                 { name: 'mcp-server', ver: 'SSE/JSON-RPC', meta: '16 tools', status: 'active' as const },
-                { name: 'rclone-cron', ver: '0 */6 * * *', meta: 'R2 + S3', status: 'connected' as const },
+                { name: 'rclone-cron', ver: '0 */6 * * *', meta: 'R2 + GDrive', status: 'connected' as const },
               ].map((d) => (
                 <div
                   key={d.name}

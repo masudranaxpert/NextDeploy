@@ -254,82 +254,86 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
 
         {mcpTab === 'tools' ? (
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <table className="w-full table-fixed text-left text-xs">
-              <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[24%] px-4 py-2.5 font-medium">Tool</th>
-                  <th className="w-[40%] px-4 py-2.5 font-medium">Signature</th>
-                  <th className="w-[20%] px-4 py-2.5 font-medium">Category</th>
-                  <th className="w-[10%] px-4 py-2.5 font-medium">Enabled</th>
-                  <th className="w-16 px-3 py-2.5 font-medium text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {filteredTools.map((t) => {
-                  const enabled = !disabledTools[t.name];
-                  return (
-                    <tr key={t.name} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-3 font-mono font-semibold text-orange-400 truncate">
-                        {t.name}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-300 truncate">
-                        {t.signature}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 truncate">
-                        {t.category}
-                      </td>
-                      <td className="px-4 py-3">
-                        <ShadcnSwitch
-                          checked={enabled}
-                          onChange={() =>
-                            setDisabledTools((prev) => ({
-                              ...prev,
-                              [t.name]: !prev[t.name],
-                            }))
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setTestToolTarget(t)}
-                          className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-1 font-mono text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-                        >
-                          Test
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                    <th className="w-[24%] px-4 py-2.5 font-medium">Tool</th>
+                    <th className="w-[40%] px-4 py-2.5 font-medium">Signature</th>
+                    <th className="w-[20%] px-4 py-2.5 font-medium">Category</th>
+                    <th className="w-[10%] px-4 py-2.5 font-medium">Enabled</th>
+                    <th className="w-16 px-3 py-2.5 font-medium text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05]">
+                  {filteredTools.map((t) => {
+                    const enabled = !disabledTools[t.name];
+                    return (
+                      <tr key={t.name} className="hover:bg-white/[0.03]">
+                        <td className="px-4 py-3 font-mono font-semibold text-orange-400 truncate">
+                          {t.name}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-300 truncate">
+                          {t.signature}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 truncate">
+                          {t.category}
+                        </td>
+                        <td className="px-4 py-3">
+                          <ShadcnSwitch
+                            checked={enabled}
+                            onChange={() =>
+                              setDisabledTools((prev) => ({
+                                ...prev,
+                                [t.name]: !prev[t.name],
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setTestToolTarget(t)}
+                            className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-1 font-mono text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+                          >
+                            Test
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <table className="w-full table-fixed text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400 font-sans">
-                  <th className="w-[22%] px-4 py-2.5 font-medium">Client</th>
-                  <th className="w-[20%] px-4 py-2.5 font-medium">Tool</th>
-                  <th className="w-[34%] px-4 py-2.5 font-medium">Arguments</th>
-                  <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
-                  <th className="w-[10%] px-4 py-2.5 font-medium text-right">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {mcpRpcLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-white/[0.03]">
-                    <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
-                    <td className="px-4 py-3 text-orange-400">{log.tool}</td>
-                    <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
-                    <td className="px-4 py-3 text-emerald-400">
-                      {log.status} ({log.duration})
-                    </td>
-                    <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] table-fixed text-left text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400 font-sans">
+                    <th className="w-[22%] px-4 py-2.5 font-medium">Client</th>
+                    <th className="w-[20%] px-4 py-2.5 font-medium">Tool</th>
+                    <th className="w-[34%] px-4 py-2.5 font-medium">Arguments</th>
+                    <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
+                    <th className="w-[10%] px-4 py-2.5 font-medium text-right">Time</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05]">
+                  {mcpRpcLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-white/[0.03]">
+                      <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
+                      <td className="px-4 py-3 text-orange-400">{log.tool}</td>
+                      <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
+                      <td className="px-4 py-3 text-emerald-400">
+                        {log.status} ({log.duration})
+                      </td>
+                      <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -419,111 +423,113 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[26%] px-4 py-2.5 font-medium">Workstation & Token</th>
-              <th className="w-[20%] px-4 py-2.5 font-medium">Host & OS</th>
-              <th className="w-[30%] px-4 py-2.5 font-medium">Token Scopes (Click to Toggle)</th>
-              <th className="w-[14%] px-4 py-2.5 font-medium text-right">Active</th>
-              <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {cliSessions.map((s) => {
-              const p = tokenPerms[s.id] || {
-                allow_env_reveal: true,
-                allow_container_exec: true,
-                allow_server_exec: false,
-                allow_app_delete: false,
-              };
-              const toggleScope = (
-                permKey:
-                  | 'allow_env_reveal'
-                  | 'allow_container_exec'
-                  | 'allow_server_exec'
-                  | 'allow_app_delete',
-                label: string
-              ) => {
-                const nextVal = !p[permKey];
-                setTokenPerms((prev) => ({
-                  ...prev,
-                  [s.id]: { ...p, [permKey]: nextVal },
-                }));
-                void backendApi.toggleApiTokenPerm(s.id, permKey);
-                toast.success(`${nextVal ? 'Granted' : 'Revoked'} ${label} for ${s.tokenName}`);
-              };
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[26%] px-4 py-2.5 font-medium">Workstation & Token</th>
+                <th className="w-[20%] px-4 py-2.5 font-medium">Host & OS</th>
+                <th className="w-[30%] px-4 py-2.5 font-medium">Token Scopes (Click to Toggle)</th>
+                <th className="w-[14%] px-4 py-2.5 font-medium text-right">Active</th>
+                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {cliSessions.map((s) => {
+                const p = tokenPerms[s.id] || {
+                  allow_env_reveal: true,
+                  allow_container_exec: true,
+                  allow_server_exec: false,
+                  allow_app_delete: false,
+                };
+                const toggleScope = (
+                  permKey:
+                    | 'allow_env_reveal'
+                    | 'allow_container_exec'
+                    | 'allow_server_exec'
+                    | 'allow_app_delete',
+                  label: string
+                ) => {
+                  const nextVal = !p[permKey];
+                  setTokenPerms((prev) => ({
+                    ...prev,
+                    [s.id]: { ...p, [permKey]: nextVal },
+                  }));
+                  void backendApi.toggleApiTokenPerm(s.id, permKey);
+                  toast.success(`${nextVal ? 'Granted' : 'Revoked'} ${label} for ${s.tokenName}`);
+                };
 
-              return (
-                <tr key={s.id} className="hover:bg-white/[0.03]">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-zinc-100 truncate">{s.tokenName}</div>
-                    <div className="font-mono text-[11px] text-zinc-500">
-                      {s.prefix} · {s.ipAddress}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-zinc-300 truncate">
-                    <div>{s.deviceHost}</div>
-                    <div className="text-[10px] text-zinc-500">
-                      {s.osArch} · {s.cliVersion}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1 font-mono text-[10px]">
-                      {(
-                        [
-                          { key: 'allow_env_reveal', label: 'env:reveal' },
-                          { key: 'allow_container_exec', label: 'container:exec' },
-                          { key: 'allow_server_exec', label: 'host:exec' },
-                          { key: 'allow_app_delete', label: 'app:delete' },
-                        ] as const
-                      ).map((sc) => {
-                        const active = p[sc.key];
-                        return (
-                          <button
-                            key={sc.key}
-                            type="button"
-                            onClick={() => toggleScope(sc.key, sc.label)}
-                            className={`rounded border px-1.5 py-0.5 transition-colors cursor-pointer ${
-                              active
-                                ? 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300'
-                                : 'border-white/[0.07] bg-zinc-900 text-zinc-500 hover:text-zinc-300'
-                            }`}
-                          >
-                            {sc.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-zinc-400">{s.lastActiveAt}</td>
-                  <td className="px-3 py-3 text-right">
-                    <ActionMenu
-                      items={[
-                        {
-                          label: 'Copy Token Prefix',
-                          icon: <Copy className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(s.prefix);
-                            toast.success(`Copied ${s.prefix}`);
+                return (
+                  <tr key={s.id} className="hover:bg-white/[0.03]">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-zinc-100 truncate">{s.tokenName}</div>
+                      <div className="font-mono text-[11px] text-zinc-500">
+                        {s.prefix} · {s.ipAddress}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-zinc-300 truncate">
+                      <div>{s.deviceHost}</div>
+                      <div className="text-[10px] text-zinc-500">
+                        {s.osArch} · {s.cliVersion}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+                        {(
+                          [
+                            { key: 'allow_env_reveal', label: 'env:reveal' },
+                            { key: 'allow_container_exec', label: 'container:exec' },
+                            { key: 'allow_server_exec', label: 'host:exec' },
+                            { key: 'allow_app_delete', label: 'app:delete' },
+                          ] as const
+                        ).map((sc) => {
+                          const active = p[sc.key];
+                          return (
+                            <button
+                              key={sc.key}
+                              type="button"
+                              onClick={() => toggleScope(sc.key, sc.label)}
+                              className={`rounded border px-1.5 py-0.5 transition-colors cursor-pointer ${
+                                active
+                                  ? 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300'
+                                  : 'border-white/[0.07] bg-zinc-900 text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {sc.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-zinc-400">{s.lastActiveAt}</td>
+                    <td className="px-3 py-3 text-right">
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Copy Token Prefix',
+                            icon: <Copy className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(s.prefix);
+                              toast.success(`Copied ${s.prefix}`);
+                            },
                           },
-                        },
-                        {
-                          label: 'Revoke Session',
-                          icon: <Trash2 className="h-3.5 w-3.5" />,
-                          variant: 'danger',
-                          onClick: () => {
-                            if (onRevokeCliSession) onRevokeCliSession(s.id);
+                          {
+                            label: 'Revoke Session',
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            variant: 'danger',
+                            onClick: () => {
+                              if (onRevokeCliSession) onRevokeCliSession(s.id);
+                            },
                           },
-                        },
-                      ]}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ShadcnDialog

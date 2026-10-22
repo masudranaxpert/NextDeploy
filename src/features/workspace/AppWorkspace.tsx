@@ -96,7 +96,7 @@ interface ProjectBackupItem {
   name: string;
   type: 'Scheduled' | 'Pre-Deploy' | 'Manual';
   destination: string;
-  provider: 'Cloudflare R2' | 'Google Drive' | 'AWS S3';
+  provider: 'Cloudflare R2' | 'Google Drive';
   sizeMB: number;
   createdAt: string;
   commitSha: string;
@@ -5164,7 +5164,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             >
               <option>Cloudflare R2 Primary (EU-Central)</option>
               <option>Google Drive Team Vault</option>
-              <option>AWS S3 Archive (us-east-1)</option>
             </select>
           </div>
           <div className="space-y-2 rounded-lg border border-white/[0.07] bg-[#09090b] p-3">

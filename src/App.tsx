@@ -99,7 +99,8 @@ export default function App() {
 
   // Hydrate live Go Fiber backend state when running inside the embedded NextDeploy binary
   React.useEffect(() => {
-    void backendApi.bootstrap().then((data) => {
+    void backendApi.bootstrap().then((res) => {
+      const data = res.data;
       if (!data) return;
       if (Array.isArray(data.cli_sessions) && data.cli_sessions.length > 0) {
         setCliSessions(
@@ -296,7 +297,7 @@ export default function App() {
       items: [
         { id: 'git', label: 'Git Providers', icon: <FolderGit2 className="h-3.5 w-3.5" /> },
         { id: 'registries', label: 'Registries', icon: <HardDrive className="h-3.5 w-3.5" /> },
-        { id: 'backup', label: 'Backups & S3', icon: <Archive className="h-3.5 w-3.5" /> },
+        { id: 'backup', label: 'Backup', icon: <Archive className="h-3.5 w-3.5" /> },
       ],
     },
     {
@@ -319,7 +320,7 @@ export default function App() {
     {
       group: 'System',
       items: [
-        { id: 'proxy', label: 'Traefik / Caddy', icon: <Globe className="h-3.5 w-3.5" /> },
+        { id: 'proxy', label: 'Caddy Proxy', icon: <Globe className="h-3.5 w-3.5" /> },
         { id: 'migrate', label: 'Migration', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
         { id: 'users', label: 'Team & Quotas', icon: <Users className="h-3.5 w-3.5" /> },
         { id: 'audit-logs', label: 'Audit Trail', icon: <FileText className="h-3.5 w-3.5" /> },
@@ -475,7 +476,7 @@ export default function App() {
           <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_60%_50%_at_50%_-15%,rgba(249,115,22,0.07),transparent)]" />
 
           {/* Top Header Bar */}
-          <header className="sticky top-0 z-30 flex h-13 items-center justify-between gap-4 border-b border-white/[0.06] bg-[#0c0c0f]/85 px-6 backdrop-blur-xl">
+          <header className="sticky top-0 z-30 flex h-13 items-center justify-between gap-4 border-b border-white/[0.06] bg-[#0c0c0f]/85 px-4 sm:px-6 backdrop-blur-xl">
             <div className="flex items-center gap-2 text-xs font-medium text-zinc-400 min-w-0">
               <button
                 type="button"
@@ -531,13 +532,14 @@ export default function App() {
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer whitespace-nowrap"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Create Project
+                <span className="hidden sm:inline">Create Project</span>
+                <span className="sm:hidden">New</span>
               </button>
             </div>
           </header>
 
           {/* Main Viewport */}
-          <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+          <main className="relative mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-4 sm:py-6">
             {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
@@ -617,24 +619,13 @@ export default function App() {
               <CaddyProxyView apps={apps} />
             ) : activeNav === 'backup' ? (
               <BackupsView
+                apps={apps}
                 destinations={INITIAL_BACKUP_DESTINATIONS}
                 archives={backupArchives}
-                onTriggerBackup={() => {
-                  const nextArchive: BackupArchiveRecord = {
-                    id: `bk-${Date.now()}`,
-                    appSlug: 'commerce-core-api',
-                    destinationName: 'Cloudflare R2 Primary (EU-Central)',
-                    archiveName: `commerce-core-api_${new Date()
-                      .toISOString()
-                      .slice(0, 10)}.nd-backup.tar.gz`,
-                    sizeMB: 1424.0,
-                    createdAt: 'Just now',
-                    status: 'completed',
-                    includesVolumes: true,
-                    includesEnv: true,
-                  };
-                  setBackupArchives((prev) => [nextArchive, ...prev]);
-                  toast.success('Backup created');
+                onTriggerBackup={(created) => {
+                  if (created) {
+                    setBackupArchives((prev) => [created, ...prev]);
+                  }
                 }}
               />
             ) : activeNav === 'migrate' ? (
@@ -648,9 +639,13 @@ export default function App() {
                     selectedApps: slugs,
                     estimatedSizeMB: 4800,
                     actualSizeMB: 2110,
+                    workspaceBytes: 38 * 1024 * 1024,
+                    volumeBytes: 2072 * 1024 * 1024,
                     status: 'ready',
                     token: `ndm_live_${Math.random().toString(36).slice(2, 16)}`,
                     expiresIn: '3h',
+                    downloadUrl: `https://panel.nextdeploy.sh/migrate/download/ndm_live_${Math.random().toString(36).slice(2, 14)}`,
+                    migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "https://panel.nextdeploy.sh/migrate/download/ndm_live_bundle"`,
                     progressLog: [
                       `[18:25:01] Quiescing ${slugs.join(', ')}...`,
                       `[18:25:04] Compressed volumes...`,
@@ -659,6 +654,9 @@ export default function App() {
                   };
                   setMigrationBundles((prev) => [nextBundle, ...prev]);
                   toast.success(`Export ${nextBundle.id} ready`);
+                }}
+                onDeleteBundle={(id) => {
+                  setMigrationBundles((prev) => prev.filter((b) => b.id !== id));
                 }}
               />
             ) : activeNav === 'mcp' ? (

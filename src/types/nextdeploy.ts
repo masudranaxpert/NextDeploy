@@ -204,7 +204,7 @@ export interface RegistryCredential {
   registryUrl: string;
   username: string;
   tokenPreview: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'personal';
   connectedApps: number;
   imagesCount: number;
   status: 'connected' | 'error';
@@ -214,11 +214,17 @@ export interface RegistryCredential {
 export interface BackupDestination {
   id: string;
   name: string;
-  provider: 'Cloudflare R2' | 'AWS S3' | 'Google Drive' | 'Backblaze B2';
+  provider: 'Cloudflare R2' | 'Google Drive';
+  providerCode: 'r2' | 'gdrive';
   bucket: string;
   endpoint: string;
   region: string;
-  status: 'connected' | 'provisioning';
+  accountId?: string;
+  email?: string;
+  displayName?: string;
+  folderId?: string;
+  infoError?: string;
+  status: 'connected' | 'provisioning' | 'error';
   scheduleCron: string;
   retentionDays: number;
   usedGB: number;
@@ -226,26 +232,54 @@ export interface BackupDestination {
   lastBackupAt: string;
 }
 
+export interface BackupScheduleItem {
+  id: string;
+  appId: string;
+  appSlug: string;
+  destinationId: string;
+  destinationName: string;
+  provider: 'Cloudflare R2' | 'Google Drive';
+  type: 'full' | 'volume' | 'app';
+  volumeNames: string[];
+  cron: string;
+  retention: number;
+  pauseContainers: boolean;
+  enabled: boolean;
+  lastRunAt: string;
+  nextRunAt: string;
+}
+
 export interface BackupArchiveRecord {
   id: string;
+  appId?: string;
   appSlug: string;
   destinationName: string;
+  provider?: 'Cloudflare R2' | 'Google Drive';
   archiveName: string;
+  type?: 'full' | 'volume' | 'app';
+  volumeName?: string;
   sizeMB: number;
   createdAt: string;
   status: 'completed' | 'building' | 'failed';
   includesVolumes: boolean;
   includesEnv: boolean;
+  pauseContainers?: boolean;
+  remoteMissing?: boolean;
+  logOutput?: string;
 }
 
 export interface MigrationExportBundle {
   id: string;
   createdAt: string;
   selectedApps: string[];
+  workspaceBytes?: number;
+  volumeBytes?: number;
   estimatedSizeMB: number;
   actualSizeMB: number;
   status: 'ready' | 'running' | 'failed';
   token: string;
+  downloadUrl?: string;
+  migrateCmd?: string;
   expiresIn: string;
   progressLog: string[];
 }
@@ -275,13 +309,17 @@ export interface PanelUser {
   username: string;
   email: string;
   role: 'admin' | 'user';
+  status?: 'active' | 'suspended';
   appsCount: number;
   maxApps: number;
   cpuQuotaCores: number;
   memUsedGB: number;
   memQuotaGB: number;
+  maxMemoryMB?: number;
   diskUsedGB: number;
   diskQuotaGB: number;
+  maxStorageMB?: number;
+  allowDomainFileServer?: boolean;
   twoFactorEnabled: boolean;
   lastLoginAt: string;
 }
@@ -292,8 +330,11 @@ export interface AuditLogEntry {
   actor: string;
   actorRole: 'admin' | 'user' | 'mcp-agent' | 'nd-cli';
   action: string;
+  resourceType?: string;
   target: string;
+  details?: string;
   ip: string;
+  userAgent?: string;
   status: 'success' | 'blocked';
 }
 

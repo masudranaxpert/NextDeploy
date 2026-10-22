@@ -179,7 +179,8 @@ interface StatusBadgeProps {
     | 'completed'
     | 'in-use'
     | 'unused'
-    | 'expired';
+    | 'expired'
+    | 'suspended';
   label?: string;
   size?: 'sm' | 'md';
 }
@@ -284,6 +285,13 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label, size = 
       dot: 'bg-zinc-500',
       ring: 'ring-white/[0.08]',
       defaultLabel: 'Expired',
+    },
+    suspended: {
+      bg: 'bg-rose-500/10',
+      text: 'text-rose-400',
+      dot: 'bg-rose-400',
+      ring: 'ring-rose-500/25',
+      defaultLabel: 'Suspended',
     },
     failed: {
       bg: 'bg-rose-500/10',
@@ -634,8 +642,8 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
     { id: 'volumes', label: 'Volumes', icon: <HardDrive className="h-3.5 w-3.5" /> },
     { id: 'terminal', label: 'Host Terminal', icon: <Terminal className="h-3.5 w-3.5" /> },
     { id: 'git', label: 'Git Providers', icon: <FolderGit2 className="h-3.5 w-3.5" /> },
-    { id: 'proxy', label: 'Reverse Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
-    { id: 'backup', label: 'Backups & S3/R2', icon: <Archive className="h-3.5 w-3.5" /> },
+    { id: 'proxy', label: 'Caddy Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
+    { id: 'backup', label: 'Backup', icon: <Archive className="h-3.5 w-3.5" /> },
     { id: 'mcp', label: 'MCP Server', icon: <Sparkles className="h-3.5 w-3.5" /> },
     { id: 'settings', label: 'System Settings', icon: <Settings className="h-3.5 w-3.5" /> },
   ];

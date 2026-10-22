@@ -190,51 +190,53 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
 
       {viewMode === 'table' ? (
         <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-          <table className="w-full table-fixed text-left text-xs">
-            <thead>
-              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-[40%] px-4 py-2.5 font-medium">Volume</th>
-                <th className="w-[22%] px-4 py-2.5 font-medium">Project</th>
-                <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[10%] px-4 py-2.5 font-medium text-right">Files</th>
-                <th className="w-[10%] px-4 py-2.5 font-medium text-right">Size</th>
-                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
-              {filteredVolumes.map((v) => (
-                <tr
-                  key={v.name}
-                  onClick={() => setSelectedVolume(v)}
-                  className="hover:bg-white/[0.03] transition-colors cursor-pointer"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                        <HardDrive className="h-3.5 w-3.5 text-orange-400" />
-                      </div>
-                      <span className="truncate font-mono font-semibold text-zinc-100">
-                        {v.name}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-orange-400 truncate">{v.appSlug}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status="active" label="Mounted" />
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
-                    {v.filesCount}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                    {(v.sizeMB / 1024).toFixed(2)} GB
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <ActionMenu items={getVolumeActions(v)} />
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] table-fixed text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                  <th className="w-[40%] px-4 py-2.5 font-medium">Volume</th>
+                  <th className="w-[22%] px-4 py-2.5 font-medium">Project</th>
+                  <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
+                  <th className="w-[10%] px-4 py-2.5 font-medium text-right">Files</th>
+                  <th className="w-[10%] px-4 py-2.5 font-medium text-right">Size</th>
+                  <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {filteredVolumes.map((v) => (
+                  <tr
+                    key={v.name}
+                    onClick={() => setSelectedVolume(v)}
+                    className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+                          <HardDrive className="h-3.5 w-3.5 text-orange-400" />
+                        </div>
+                        <span className="truncate font-mono font-semibold text-zinc-100">
+                          {v.name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-orange-400 truncate">{v.appSlug}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status="active" label="Mounted" />
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
+                      {v.filesCount}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
+                      {(v.sizeMB / 1024).toFixed(2)} GB
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <ActionMenu items={getVolumeActions(v)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">

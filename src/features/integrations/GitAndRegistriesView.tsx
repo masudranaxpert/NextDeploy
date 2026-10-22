@@ -10,6 +10,8 @@ import {
   Github,
   Lock,
   Play,
+  Globe,
+  User,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -23,6 +25,7 @@ import {
   ShadcnSwitch,
   StatusBadge,
 } from '../../components/ui/Primitives';
+import { backendApi } from '../../lib/backendApi';
 
 const GitLabIcon: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -52,25 +55,37 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [repoProviderFilter, setRepoProviderFilter] = useState<'all' | 'GitHub' | 'GitLab'>('all');
   const [gitSubTab, setGitSubTab] = useState<'repos' | 'webhooks'>('repos');
 
+  // GitHub Modal State (matches POST /git/github/start & /git/:pid/update)
   const [githubModalOpen, setGithubModalOpen] = useState(false);
-  const [gitlabModalOpen, setGitlabModalOpen] = useState(false);
-
-  const [ghAccountInput, setGhAccountInput] = useState('');
   const [ghAuthMethod, setGhAuthMethod] = useState<'GitHub App' | 'Fine-Grained PAT'>('GitHub App');
+  const [ghAppName, setGhAppName] = useState('nextdeploy-prod-panel');
+  const [ghAccountInput, setGhAccountInput] = useState('masudranaxpert');
+  const [ghAppId, setGhAppId] = useState('1094821');
+  const [ghInstallationId, setGhInstallationId] = useState('54918204');
   const [ghTokenInput, setGhTokenInput] = useState('');
 
-  const [glAccountInput, setGlAccountInput] = useState('');
-  const [glInstanceUrl, setGlInstanceUrl] = useState('https://gitlab.com');
+  // GitLab Modal State (matches POST /git/gitlab/start & /git/:pid/update)
+  const [gitlabModalOpen, setGitlabModalOpen] = useState(false);
   const [glAuthMethod, setGlAuthMethod] = useState<'OAuth 2.0' | 'Deploy Token'>('OAuth 2.0');
-  const [glTokenInput, setGlTokenInput] = useState('');
+  const [glAccountInput, setGlAccountInput] = useState('nextdeploy-internal');
+  const [glInstanceUrl, setGlInstanceUrl] = useState('https://gitlab.com');
+  const [glClientId, setGlClientId] = useState('');
+  const [glClientSecret, setGlClientSecret] = useState('');
 
+  // Container Registries State (matches POST /settings/registries with is_global)
   const [registryModalOpen, setRegistryModalOpen] = useState(false);
+  const [regScopeFilter, setRegScopeFilter] = useState<'all' | 'global' | 'personal'>('all');
   const [regProvider, setRegProvider] = useState<RegistryCredential['provider']>('GHCR');
   const [regName, setRegName] = useState('GitHub Container Registry');
   const [regHost, setRegHost] = useState('ghcr.io');
   const [regUsername, setRegUsername] = useState('');
   const [regToken, setRegToken] = useState('');
-  const [regScope] = useState<'global' | 'project'>('global');
+  const [regScope, setRegScope] = useState<'global' | 'personal'>('global');
+
+  const gitlabRedirectUri =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/git/gitlab/callback`
+      : 'https://panel.nextdeploy.sh/git/gitlab/callback';
 
   const handleSelectRegPreset = (p: RegistryCredential['provider']) => {
     setRegProvider(p);
@@ -92,9 +107,12 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
     }
   };
 
-  const handleConnectGitHub = (e: React.FormEvent) => {
+  const handleConnectGitHub = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ghAccountInput.trim()) return;
+    if (ghAuthMethod === 'GitHub App') {
+      await backendApi.startGitHubApp(ghAppName.trim());
+    }
     const created: GitProviderConnection = {
       id: `git-gh-${Date.now()}`,
       provider: 'GitHub',
@@ -104,19 +122,21 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
       status: 'connected',
       reposAccessible: 16,
       webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/api/v1/webhooks/github',
+      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/github',
       lastSynced: 'Just now',
     };
     setProviders((prev) => [...prev, created]);
-    setGhAccountInput('');
     setGhTokenInput('');
     setGithubModalOpen(false);
-    toast.success(`Connected GitHub @${created.accountName}`);
+    toast.success(`Connected GitHub @${created.accountName} (${ghAuthMethod})`);
   };
 
-  const handleConnectGitLab = (e: React.FormEvent) => {
+  const handleConnectGitLab = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!glAccountInput.trim()) return;
+    if (glAuthMethod === 'OAuth 2.0' && glClientId.trim() && glClientSecret.trim()) {
+      await backendApi.startGitLabOAuth(glClientId.trim(), glClientSecret.trim());
+    }
     const created: GitProviderConnection = {
       id: `git-gl-${Date.now()}`,
       provider: 'GitLab',
@@ -126,18 +146,21 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
       status: 'connected',
       reposAccessible: 12,
       webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/api/v1/webhooks/gitlab',
+      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/gitlab',
       lastSynced: 'Just now',
     };
     setProviders((prev) => [...prev, created]);
-    setGlAccountInput('');
-    setGlTokenInput('');
+    setGlClientSecret('');
     setGitlabModalOpen(false);
     toast.success(`Connected GitLab @${created.accountName}`);
   };
 
   const filteredRepos = repos.filter(
     (r) => repoProviderFilter === 'all' || r.provider === repoProviderFilter
+  );
+
+  const filteredRegistries = registries.filter(
+    (r) => regScopeFilter === 'all' || r.scope === regScopeFilter
   );
 
   const webhookEvents = [
@@ -184,7 +207,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Git Providers</h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setGitlabModalOpen(true)}
@@ -245,9 +268,14 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   <ActionMenu
                     items={[
                       {
-                        label: 'Sync Repositories',
+                        label: isGitLab ? 'Sync Repositories' : 'Refresh GitHub Installation ID',
                         icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => toast.success(`Synced ${p.accountName}`),
+                        onClick: async () => {
+                          if (!isGitLab) {
+                            await backendApi.refreshGitHubInstall(p.id);
+                          }
+                          toast.success(`Synced installation & repositories for ${p.accountName}`);
+                        },
                       },
                       {
                         label: 'Copy Webhook URL',
@@ -262,6 +290,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                         icon: <Trash2 className="h-3.5 w-3.5" />,
                         variant: 'danger',
                         onClick: () => {
+                          void backendApi.deleteGitProvider(p.id);
                           setProviders((prev) => prev.filter((item) => item.id !== p.id));
                           toast.success(`Disconnected ${p.accountName}`);
                         },
@@ -329,125 +358,131 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
           {gitSubTab === 'repos' ? (
             <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-              <table className="w-full table-fixed text-left text-xs">
-                <thead>
-                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                    <th className="w-[38%] px-4 py-2.5 font-medium">Repository</th>
-                    <th className="w-[18%] px-4 py-2.5 font-medium">Branch & Commit</th>
-                    <th className="w-[20%] px-4 py-2.5 font-medium">Linked Project</th>
-                    <th className="w-[14%] px-4 py-2.5 font-medium">Auto-Deploy</th>
-                    <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.05]">
-                  {filteredRepos.map((repo) => (
-                    <tr key={repo.id} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {repo.provider === 'GitLab' ? (
-                            <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                          ) : (
-                            <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
-                          )}
-                          <span className="truncate font-mono font-semibold text-zinc-100">
-                            {repo.fullName}
-                          </span>
-                          {repo.private && (
-                            <Lock className="h-3 w-3 text-zinc-500 shrink-0" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-orange-400">
-                        {repo.defaultBranch}@{repo.lastCommitSha}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11px]">
-                        {repo.linkedAppSlug ? (
-                          <span className="text-emerald-400">{repo.linkedAppSlug}</span>
-                        ) : (
-                          <span className="text-zinc-500">Unlinked</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <ShadcnSwitch
-                          checked={repo.autoDeploy}
-                          onChange={(next) => {
-                            setRepos((prev) =>
-                              prev.map((item) =>
-                                item.id === repo.id ? { ...item, autoDeploy: next } : item
-                              )
-                            );
-                            toast.success(
-                              next
-                                ? `Enabled push webhook for ${repo.fullName}`
-                                : `Paused webhook for ${repo.fullName}`
-                            );
-                          }}
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ActionMenu
-                          items={[
-                            {
-                              label: 'Trigger Build Now',
-                              icon: <Play className="h-3.5 w-3.5" />,
-                              onClick: () => toast.success(`Building ${repo.fullName}...`),
-                            },
-                            {
-                              label: 'Sync Commits',
-                              icon: <RefreshCw className="h-3.5 w-3.5" />,
-                              onClick: () => toast.success(`Fetched latest HEAD for ${repo.fullName}`),
-                            },
-                          ]}
-                        />
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[660px] table-fixed text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                      <th className="w-[38%] px-4 py-2.5 font-medium">Repository</th>
+                      <th className="w-[18%] px-4 py-2.5 font-medium">Branch & Commit</th>
+                      <th className="w-[20%] px-4 py-2.5 font-medium">Linked Project</th>
+                      <th className="w-[14%] px-4 py-2.5 font-medium">Auto-Deploy</th>
+                      <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {filteredRepos.map((repo) => (
+                      <tr key={repo.id} className="hover:bg-white/[0.03]">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {repo.provider === 'GitLab' ? (
+                              <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                            ) : (
+                              <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
+                            )}
+                            <span className="truncate font-mono font-semibold text-zinc-100">
+                              {repo.fullName}
+                            </span>
+                            {repo.private && (
+                              <Lock className="h-3 w-3 text-zinc-500 shrink-0" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-orange-400">
+                          {repo.defaultBranch}@{repo.lastCommitSha}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px]">
+                          {repo.linkedAppSlug ? (
+                            <span className="text-emerald-400">{repo.linkedAppSlug}</span>
+                          ) : (
+                            <span className="text-zinc-500">Unlinked</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <ShadcnSwitch
+                            checked={repo.autoDeploy}
+                            onChange={(next) => {
+                              setRepos((prev) =>
+                                prev.map((item) =>
+                                  item.id === repo.id ? { ...item, autoDeploy: next } : item
+                                )
+                              );
+                              toast.success(
+                                next
+                                  ? `Enabled push webhook for ${repo.fullName}`
+                                  : `Paused webhook for ${repo.fullName}`
+                              );
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ActionMenu
+                            items={[
+                              {
+                                label: 'Trigger Build Now',
+                                icon: <Play className="h-3.5 w-3.5" />,
+                                onClick: () => toast.success(`Building ${repo.fullName}...`),
+                              },
+                              {
+                                label: 'Sync Commits',
+                                icon: <RefreshCw className="h-3.5 w-3.5" />,
+                                onClick: () =>
+                                  toast.success(`Fetched latest HEAD for ${repo.fullName}`),
+                              },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-              <table className="w-full table-fixed text-left text-xs">
-                <thead>
-                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                    <th className="w-[36%] px-4 py-2.5 font-medium">Repository</th>
-                    <th className="w-[28%] px-4 py-2.5 font-medium">Event & Commit</th>
-                    <th className="w-[18%] px-4 py-2.5 font-medium">Response</th>
-                    <th className="w-[18%] px-4 py-2.5 font-medium text-right">Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.05]">
-                  {webhookEvents.map((ev) => (
-                    <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {ev.provider === 'GitLab' ? (
-                            <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                          ) : (
-                            <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
-                          )}
-                          <span className="truncate text-zinc-100">{ev.repo}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300 truncate">
-                        {ev.event} · <span className="text-orange-400">{ev.sha}</span>
-                      </td>
-                      <td className="px-4 py-3 text-emerald-400">
-                        {ev.status} ({ev.latency})
-                      </td>
-                      <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[660px] table-fixed text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                      <th className="w-[36%] px-4 py-2.5 font-medium">Repository</th>
+                      <th className="w-[28%] px-4 py-2.5 font-medium">Event & Commit</th>
+                      <th className="w-[18%] px-4 py-2.5 font-medium">Response</th>
+                      <th className="w-[18%] px-4 py-2.5 font-medium text-right">Time</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {webhookEvents.map((ev) => (
+                      <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {ev.provider === 'GitLab' ? (
+                              <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                            ) : (
+                              <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
+                            )}
+                            <span className="truncate text-zinc-100">{ev.repo}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-300 truncate">
+                          {ev.event} · <span className="text-orange-400">{ev.sha}</span>
+                        </td>
+                        <td className="px-4 py-3 text-emerald-400">
+                          {ev.status} ({ev.latency})
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
 
+        {/* Connect GitHub Modal */}
         <ShadcnDialog
           open={githubModalOpen}
           onClose={() => setGithubModalOpen(false)}
-          title="Connect GitHub"
+          title="Connect GitHub (App Manifest or PAT)"
           icon={<Github className="h-4 w-4" />}
         >
           <form onSubmit={handleConnectGitHub} className="space-y-4">
@@ -467,20 +502,62 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 </button>
               ))}
             </div>
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                GitHub Account or Organization
-              </label>
-              <input
-                type="text"
-                required
-                value={ghAccountInput}
-                onChange={(e) => setGhAccountInput(e.target.value)}
-                placeholder="masudranaxpert"
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  GitHub Account or Organization
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={ghAccountInput}
+                  onChange={(e) => setGhAccountInput(e.target.value)}
+                  placeholder="masudranaxpert"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                />
+              </div>
+              {ghAuthMethod === 'GitHub App' && (
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    GitHub App Name (app_name)
+                  </label>
+                  <input
+                    type="text"
+                    value={ghAppName}
+                    onChange={(e) => setGhAppName(e.target.value)}
+                    placeholder="nextdeploy-prod"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+              )}
             </div>
-            {ghAuthMethod === 'Fine-Grained PAT' && (
+
+            {ghAuthMethod === 'GitHub App' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    App ID (Optional Override)
+                  </label>
+                  <input
+                    type="text"
+                    value={ghAppId}
+                    onChange={(e) => setGhAppId(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Installation ID
+                  </label>
+                  <input
+                    type="text"
+                    value={ghInstallationId}
+                    onChange={(e) => setGhInstallationId(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+              </div>
+            ) : (
               <div>
                 <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
                   Personal Access Token
@@ -495,6 +572,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 />
               </div>
             )}
+
             <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
               <button
                 type="button"
@@ -507,16 +585,17 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 type="submit"
                 className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
               >
-                Connect GitHub
+                {ghAuthMethod === 'GitHub App' ? 'Register GitHub App' : 'Connect GitHub'}
               </button>
             </div>
           </form>
         </ShadcnDialog>
 
+        {/* Connect GitLab Modal */}
         <ShadcnDialog
           open={gitlabModalOpen}
           onClose={() => setGitlabModalOpen(false)}
-          title="Connect GitLab"
+          title="Connect GitLab (OAuth 2.0)"
           icon={<GitLabIcon className="h-4 w-4 text-orange-400" />}
         >
           <form onSubmit={handleConnectGitLab} className="space-y-4">
@@ -536,7 +615,27 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+
+            {glAuthMethod === 'OAuth 2.0' && (
+              <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.05] p-2.5 font-mono text-[11px] text-zinc-300">
+                <div className="flex items-center justify-between text-[10px] text-orange-300 font-sans font-semibold mb-1">
+                  <span>GitLab OAuth Redirect URI (Scopes: api, read_user, read_repository)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(gitlabRedirectUri);
+                      toast.success('Copied GitLab Redirect URI');
+                    }}
+                    className="underline cursor-pointer"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div className="truncate">{gitlabRedirectUri}</div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
                   GitLab Instance URL
@@ -564,19 +663,52 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                {glAuthMethod === 'OAuth 2.0' ? 'Application Secret / Token' : 'GitLab Deploy Token'}
-              </label>
-              <input
-                type="password"
-                required
-                value={glTokenInput}
-                onChange={(e) => setGlTokenInput(e.target.value)}
-                placeholder="glpat-••••••••••••"
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
-            </div>
+
+            {glAuthMethod === 'OAuth 2.0' ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Application ID (client_id)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={glClientId}
+                    onChange={(e) => setGlClientId(e.target.value)}
+                    placeholder="8a91c04f..."
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Secret (client_secret)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={glClientSecret}
+                    onChange={(e) => setGlClientSecret(e.target.value)}
+                    placeholder="gloas-••••••••••••"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  GitLab Deploy Token
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={glClientSecret}
+                  onChange={(e) => setGlClientSecret(e.target.value)}
+                  placeholder="glpat-••••••••••••"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                />
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
               <button
                 type="button"
@@ -600,7 +732,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
             <HardDrive className="h-4 w-4 text-orange-400" />
@@ -610,93 +742,140 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               Container Registries
             </h1>
             <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-              {registries.length}
+              {filteredRegistries.length}
             </span>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setRegistryModalOpen(true)}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Registry
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Scope Filter (All / Global / Personal) */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+            {(
+              [
+                { id: 'all', label: 'All' },
+                { id: 'global', label: 'Global (Shared)' },
+                { id: 'personal', label: 'Personal' },
+              ] as const
+            ).map((sc) => (
+              <button
+                key={sc.id}
+                type="button"
+                onClick={() => setRegScopeFilter(sc.id)}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                  regScopeFilter === sc.id
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {sc.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setRegistryModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Registry
+          </button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[34%] px-4 py-2.5 font-medium">Registry & Host</th>
-              <th className="w-[22%] px-4 py-2.5 font-medium">Username & Token</th>
-              <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
-              <th className="w-[18%] px-4 py-2.5 font-medium text-right">Usage</th>
-              <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {registries.map((r) => (
-              <tr key={r.id} className="hover:bg-white/[0.03]">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-orange-400 shrink-0">
-                      {r.provider}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-zinc-100">{r.name}</div>
-                      <div className="truncate font-mono text-[11px] text-zinc-500">
-                        {r.registryUrl}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3 font-mono">
-                  <div className="truncate text-zinc-200">{r.username}</div>
-                  <div className="text-[10px] text-zinc-500">{r.tokenPreview}</div>
-                </td>
-                <td className="px-4 py-3">
-                  <StatusBadge status={r.status} label="Authenticated" />
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-[11px] text-zinc-300">
-                  {r.imagesCount} images · {r.connectedApps} apps
-                </td>
-                <td className="px-3 py-3 text-right">
-                  <ActionMenu
-                    items={[
-                      {
-                        label: 'Verify docker login',
-                        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-                        onClick: () =>
-                          toast.success(`Login succeeded against ${r.registryUrl}`),
-                      },
-                      {
-                        label: 'Copy Host URL',
-                        icon: <Copy className="h-3.5 w-3.5" />,
-                        onClick: () => {
-                          navigator.clipboard?.writeText(r.registryUrl);
-                          toast.success(`Copied ${r.registryUrl}`);
-                        },
-                      },
-                      {
-                        label: 'Remove Registry',
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        variant: 'danger',
-                        onClick: () => {
-                          if (onDeleteRegistry) onDeleteRegistry(r.id);
-                          toast.success(`Removed ${r.name}`);
-                        },
-                      },
-                    ]}
-                  />
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[30%] px-4 py-2.5 font-medium">Registry & Server</th>
+                <th className="w-[20%] px-4 py-2.5 font-medium">Username & Token</th>
+                <th className="w-[16%] px-4 py-2.5 font-medium">Scope</th>
+                <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
+                <th className="w-[14%] px-4 py-2.5 font-medium text-right">Usage</th>
+                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {filteredRegistries.map((r) => {
+                const isGlobal = r.scope === 'global';
+                return (
+                  <tr key={r.id} className="hover:bg-white/[0.03]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-orange-400 shrink-0">
+                          {r.provider}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-zinc-100">{r.name}</div>
+                          <div className="truncate font-mono text-[11px] text-zinc-500">
+                            {r.registryUrl}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      <div className="truncate text-zinc-200">{r.username}</div>
+                      <div className="text-[10px] text-zinc-500">{r.tokenPreview}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isGlobal ? (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-sky-300">
+                          <Globe className="h-3 w-3" />
+                          Global (All Users)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-violet-300">
+                          <User className="h-3 w-3" />
+                          Personal
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={r.status} label="Authenticated" />
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-[11px] text-zinc-300">
+                      {r.imagesCount} imgs · {r.connectedApps} apps
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Verify docker login',
+                            icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+                            onClick: () =>
+                              toast.success(`Login succeeded against ${r.registryUrl}`),
+                          },
+                          {
+                            label: 'Copy Server URL',
+                            icon: <Copy className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              navigator.clipboard?.writeText(r.registryUrl);
+                              toast.success(`Copied ${r.registryUrl}`);
+                            },
+                          },
+                          {
+                            label: 'Remove Registry',
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            variant: 'danger',
+                            onClick: () => {
+                              void backendApi.deleteRegistry(r.id);
+                              if (onDeleteRegistry) onDeleteRegistry(r.id);
+                              toast.success(`Removed ${r.name}`);
+                            },
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* Add Container Registry Modal (with Global vs Personal Scope Option!) */}
       <ShadcnDialog
         open={registryModalOpen}
         onClose={() => setRegistryModalOpen(false)}
@@ -704,14 +883,21 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         icon={<HardDrive className="h-4 w-4" />}
       >
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             if (!regUsername.trim()) return;
+            await backendApi.addRegistry({
+              name: regName.trim(),
+              server: regHost.trim(),
+              username: regUsername.trim(),
+              password: regToken.trim(),
+              is_global: regScope === 'global',
+            });
             onAddRegistry({
               id: `reg-${Date.now()}`,
               provider: regProvider,
-              name: regName,
-              registryUrl: regHost,
+              name: regName.trim(),
+              registryUrl: regHost.trim(),
               username: regUsername.trim(),
               tokenPreview: `${regToken.slice(0, 6) || 'pat_91'}••••`,
               scope: regScope,
@@ -723,13 +909,58 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             setRegUsername('');
             setRegToken('');
             setRegistryModalOpen(false);
-            toast.success(`Connected ${regHost}`);
+            toast.success(
+              `Added ${regScope === 'global' ? 'Global' : 'Personal'} registry ${regHost}`
+            );
           }}
           className="space-y-4"
         >
+          {/* Scope Selector: Global vs Personal (Matches Go backend is_global="on") */}
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Registry Provider
+              Credential Scope (is_global)
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRegScope('global')}
+                className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                  regScope === 'global'
+                    ? 'border-sky-500/50 bg-sky-500/10 text-zinc-100'
+                    : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-semibold">Global Registry</div>
+                  <div className="text-[10px] text-zinc-500">
+                    Shared across all panel users & projects (Admin)
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegScope('personal')}
+                className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                  regScope === 'personal'
+                    ? 'border-violet-500/50 bg-violet-500/10 text-zinc-100'
+                    : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <User className="h-4 w-4 text-violet-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-semibold">Personal Registry</div>
+                  <div className="text-[10px] text-zinc-500">
+                    Scoped only to your own account & projects
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Registry Provider Preset
             </label>
             <div className="grid grid-cols-5 gap-1.5">
               {(['GHCR', 'DockerHub', 'GitLab', 'AWS ECR', 'Custom'] as const).map((p) => (
@@ -749,9 +980,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Label</label>
+              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                Label (name)
+              </label>
               <input
                 type="text"
                 required
@@ -762,7 +995,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             </div>
             <div>
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Registry Host
+                Registry Server (server)
               </label>
               <input
                 type="text"
@@ -774,7 +1007,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
                 Username

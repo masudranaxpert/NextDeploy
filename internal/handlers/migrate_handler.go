@@ -64,30 +64,48 @@ func (p *Panel) MigrateExportStart(c *fiber.Ctx) error {
 	}
 	selected = parseAppIDList(strings.Join(selected, ","))
 	if len(selected) == 0 {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Select at least one app to export."})
+		}
 		utils.SetFlashError(c, "Select at least one app to export.")
 		return c.Redirect("/migrate")
 	}
 	apps, err := p.migrateAppsByIDs(ctx, selected)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect("/migrate")
 	}
 	est, _ := p.migrateEstimateApps(ctx, apps)
 	running, err := p.DB.HasRunningMigrateExport(ctx)
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Could not check export status."})
+		}
 		utils.SetFlashError(c, "Could not check export status.")
 		return c.Redirect("/migrate")
 	}
 	if running {
+		if WantsJSON(c) {
+			return c.Status(409).JSON(fiber.Map{"ok": false, "error": "An export is already running. Wait for it to finish or delete it first."})
+		}
 		utils.SetFlashError(c, "An export is already running. Wait for it to finish or delete it first.")
 		return c.Redirect("/migrate")
 	}
 	exportID, err := p.DB.CreateMigrateExport(ctx, selected, est.TotalBytes())
 	if err != nil {
+		if WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Could not start export."})
+		}
 		utils.SetFlashError(c, "Could not start export.")
 		return c.Redirect("/migrate")
 	}
 	go p.runMigrateExport(exportID, selected)
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "export_id": exportID, "estimated_bytes": est.TotalBytes(), "estimated_human": migrate.FormatBytes(est.TotalBytes())})
+	}
 	utils.SetFlash(c, "Export started. Track progress below.")
 	return c.Redirect("/migrate?export=" + strconv.FormatInt(exportID, 10))
 }
@@ -161,7 +179,7 @@ func (p *Panel) runMigrateExport(exportID int64, appIDs []string) {
 		WorkspaceRoot: func(appID string) string {
 			return p.ComposeWorkspaceRoot(context.Background(), appID)
 		},
-		VolumeNames: p.migrateVolumeNames,
+		VolumeNames:    p.migrateVolumeNames,
 		SourcePanelURL: p.migratePublicBase(nil),
 		AppendLog: func(id int64, msg string) {
 			_ = p.DB.AppendMigrateExportLog(context.Background(), id, msg)
@@ -211,7 +229,7 @@ func (p *Panel) MigrateExportDelete(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "delete failed"})
 	}
 	migrate.CleanOrphans(p.DB)
-	if c.Get("HX-Request") == "true" || c.Query("ajax") == "1" {
+	if WantsJSON(c) || c.Get("HX-Request") == "true" || c.Query("ajax") == "1" {
 		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "Export deleted.")

@@ -285,69 +285,71 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
           </div>
         </div>
 
-        <table className="w-full table-fixed text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-              <th className="w-[34%] px-4 py-2.5 font-medium">Project</th>
-              <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
-              <th className="w-[16%] px-4 py-2.5 font-medium text-right">CPU</th>
-              <th className="w-[16%] px-4 py-2.5 font-medium text-right">Memory</th>
-              <th className="w-[16%] px-4 py-2.5 font-medium text-right">Disk</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/[0.05]">
-            {sortedApps.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-500">
-                  No projects match &ldquo;{monitorSearch}&rdquo;
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] table-fixed text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
+                <th className="w-[34%] px-4 py-2.5 font-medium">Project</th>
+                <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">CPU</th>
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">Memory</th>
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">Disk</th>
               </tr>
-            ) : (
-              sortedApps.map((app) => {
-                const isPinned = pinnedApps.includes(app.slug);
-                return (
-                  <tr key={app.id} className="hover:bg-white/[0.03] transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => togglePin(app.slug)}
-                          className={`cursor-pointer ${
-                            isPinned ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-300'
-                          }`}
-                        >
-                          <Pin className="h-3.5 w-3.5" />
-                        </button>
-                        <div className="min-w-0">
-                          <span className="block truncate font-mono font-semibold text-zinc-100">
-                            {app.name}
-                          </span>
-                          {app.primaryDomain && (
-                            <span className="block truncate font-mono text-[10px] text-zinc-500">
-                              {app.primaryDomain}
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {sortedApps.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-500">
+                    No projects match &ldquo;{monitorSearch}&rdquo;
+                  </td>
+                </tr>
+              ) : (
+                sortedApps.map((app) => {
+                  const isPinned = pinnedApps.includes(app.slug);
+                  return (
+                    <tr key={app.id} className="hover:bg-white/[0.03] transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => togglePin(app.slug)}
+                            className={`cursor-pointer ${
+                              isPinned ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-300'
+                            }`}
+                          >
+                            <Pin className="h-3.5 w-3.5" />
+                          </button>
+                          <div className="min-w-0">
+                            <span className="block truncate font-mono font-semibold text-zinc-100">
+                              {app.name}
                             </span>
-                          )}
+                            {app.primaryDomain && (
+                              <span className="block truncate font-mono text-[10px] text-zinc-500">
+                                {app.primaryDomain}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={app.status} />
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {app.cpuPct}%
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {app.memMB} MB
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
-                      {(app.diskMB / 1024).toFixed(2)} GB
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={app.status} />
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
+                        {app.cpuPct}%
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
+                        {app.memMB} MB
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
+                        {(app.diskMB / 1024).toFixed(2)} GB
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

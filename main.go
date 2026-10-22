@@ -188,7 +188,7 @@ func main() {
 	app.Post("/settings/cleanup/run", p.RequireAdminMiddleware, p.ManualCleanupRun)
 	app.Post("/settings/tmp/clean", p.RequireAdminMiddleware, p.TempCleanupRun)
 	app.Get("/settings/tmp/info", p.RequireAdminMiddleware, p.TempCleanupInfo)
-	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, p.ServeSPA)
+	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, p.AuditLogsPageOrJSON)
 	app.Get("/migrate", p.ServeSPA)
 	app.Post("/migrate/export", p.MigrateExportStart)
 	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
