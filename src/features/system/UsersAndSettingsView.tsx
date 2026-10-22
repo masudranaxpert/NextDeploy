@@ -287,17 +287,18 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setAuditLoading(true);
     try {
       const res = await backendApi.auditLogsList(safeAuditPage, auditPerPage);
-      if (res.data && Array.isArray(res.data.logs) && res.data.logs.length > 0) {
-        const mapped: AuditLogEntry[] = res.data.logs.map((raw: Record<string, unknown>, idx: number) => ({
+      const rawLogs = res.data?.logs;
+      if (Array.isArray(rawLogs) && rawLogs.length > 0) {
+        const mapped: AuditLogEntry[] = rawLogs.map((raw, idx: number) => ({
           id: String(raw.id ?? `aud-${idx}`),
           action: String(raw.action ?? 'system.event'),
-          actor: String(raw.username ?? raw.actor ?? 'admin'),
+          actor: String(raw.username ?? 'admin'),
           actorRole: 'admin',
-          target: String(raw.resource ?? raw.target ?? 'system'),
+          target: String(raw.resource_id || raw.resource_type || 'system'),
           details: String(raw.details ?? ''),
-          ip: String(raw.ip_address ?? raw.ip ?? '127.0.0.1'),
+          ip: String(raw.ip_address ?? '127.0.0.1'),
           status: 'success',
-          timestamp: String(raw.created_at ?? raw.timestamp ?? new Date().toISOString()),
+          timestamp: String(raw.created_at ?? new Date().toISOString()),
         }));
         setAuditLogs(mapped);
       }
@@ -1014,9 +1015,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           type="button"
           onClick={() => {
             void backendApi.saveSettings({
-              cleanup_enabled: Boolean(cleanupEnabled),
+              cleanup_enabled: cleanupEnabled,
               cleanup_interval: cleanupInterval,
-              cleanup_include_build_cache: Boolean(cleanupIncludeBuildCache),
+              cleanup_include_build_cache: cleanupIncludeBuildCache,
             });
             toast.success(`Saved Docker cleanup schedule (${cleanupInterval})`);
           }}

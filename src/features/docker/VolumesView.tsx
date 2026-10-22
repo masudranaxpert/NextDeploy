@@ -25,10 +25,9 @@ import { backendApi } from '../../lib/backendApi';
 interface VolumesViewProps {
   volumes: DockerVolumeItem[];
   onCreateVolume?: (vol: DockerVolumeItem) => void;
-  onDeleteVolume?: (name: string) => void;
 }
 
-export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolume, onDeleteVolume }) => {
+export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolume }) => {
   const [selectedVolume, setSelectedVolume] = useState<DockerVolumeItem | null>(null);
   const [browsePath, setBrowsePath] = useState('');
   const [parentPath, setParentPath] = useState('');
@@ -190,19 +189,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
       label: 'Delete Volume',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: async () => {
-        if (!window.confirm(`Are you sure you want to remove volume "${v.name}"?`)) return;
-        if (onDeleteVolume) {
-          onDeleteVolume(v.name);
-        } else {
-          const res = await backendApi.globalVolumeRemove(v.name);
-          if (res.ok) {
-            toast.success(`Removed volume ${v.name}`);
-          } else {
-            toast.error(res.error || `Failed to remove volume ${v.name}`);
-          }
-        }
-      },
+      onClick: () => toast.error(`Volume ${v.name} is mounted by ${v.appSlug}`),
     },
   ];
 

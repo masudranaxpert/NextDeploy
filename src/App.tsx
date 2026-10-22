@@ -26,11 +26,8 @@ import { Toaster, toast } from 'sonner';
 import {
   AppStack,
   BackupArchiveRecord,
-  BackupDestination,
   CliSessionItem,
   DockerImageItem,
-  DockerVolumeItem,
-  GitProviderConnection,
   MigrationExportBundle,
   NavigationSection,
   RegistryCredential,
@@ -67,22 +64,17 @@ import { BackupsView } from './features/backups/BackupsView';
 import { MigrationView } from './features/migration/MigrationView';
 import { McpAndCliView } from './features/automation/McpAndCliView';
 import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
-import { AuthView } from './features/auth/AuthView';
 import { backendApi } from './lib/backendApi';
 
 export default function App() {
   const [activeNav, setActiveNav] = useState<NavigationSection>('overview');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'setup' | 'login' | null>(null);
 
   // Core State
   const [apps, setApps] = useState<AppStack[]>(INITIAL_APPS);
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>(INITIAL_TELEMETRY);
   const [images, setImages] = useState<DockerImageItem[]>(INITIAL_IMAGES);
-  const [volumes, setVolumes] = useState<DockerVolumeItem[]>(INITIAL_VOLUMES);
-  const [gitProviders, setGitProviders] = useState<GitProviderConnection[]>(INITIAL_GIT_PROVIDERS);
-  const [destinations, setDestinations] = useState<BackupDestination[]>(INITIAL_BACKUP_DESTINATIONS);
   const [registries, setRegistries] = useState<RegistryCredential[]>(INITIAL_REGISTRIES);
   const [backupArchives, setBackupArchives] =
     useState<BackupArchiveRecord[]>(INITIAL_BACKUP_ARCHIVES);
@@ -108,215 +100,8 @@ export default function App() {
   // Hydrate live Go Fiber backend state when running inside the embedded NextDeploy binary
   React.useEffect(() => {
     void backendApi.bootstrap().then((res) => {
-      if (res.status === 401 || !res.ok) {
-        if (res.data?.needs_setup || window.location.pathname === '/setup') {
-          setAuthMode('setup');
-        } else {
-          setAuthMode('login');
-        }
-        return;
-      }
-      setAuthMode(null);
       const data = res.data;
       if (!data) return;
-
-      if (Array.isArray(data.apps) && data.apps.length > 0) {
-        const mappedApps: AppStack[] = data.apps.map((raw) => {
-          const primaryDomain = raw.domains && raw.domains.length > 0 ? raw.domains[0].domain : undefined;
-          const servicesList = (raw.services || ['app']).map((svcName, sIdx) => ({
-            id: `c-${raw.id}-${sIdx}`,
-            name: `${raw.name}-${svcName}`,
-            service: svcName,
-            image: `${raw.name}:${svcName}`,
-            state: (raw.status === 'stopped' ? 'exited' : 'running') as 'running' | 'exited' | 'restarting',
-            uptime: raw.status === 'stopped' ? 'Exited (0)' : 'Up active',
-            cpuPct: raw.status === 'stopped' ? 0 : 2.5,
-            memUsedMB: raw.status === 'stopped' ? 0 : 128,
-            memLimitMB: 512,
-            ports: '3000/tcp',
-          }));
-          const mappedDeployments = (raw.deploy_logs || []).map((dl) => ({
-            id: String(dl.id),
-            branch: raw.git_config?.branch || raw.git_branch || 'main',
-            commitSha: raw.git_config?.last_commit_sha || 'main',
-            commitMessage: dl.action || 'Deploy stack',
-            trigger: (raw.source_type === 'git' ? 'git-webhook' : 'manual-compose') as
-              | 'git-webhook'
-              | 'nd-cli'
-              | 'mcp-agent'
-              | 'manual-compose',
-            status: dl.ok ? ('ready' as const) : ('failed' as const),
-            startedAt: dl.created_at || 'Recently',
-            durationSec: 14,
-            author: 'masud',
-            buildSteps: [
-              {
-                name: 'Deploy Stack',
-                status: dl.ok ? ('done' as const) : ('error' as const),
-                durationMs: 14000,
-              },
-            ],
-          }));
-          const mappedDomains = (raw.domains || []).map((dom) => ({
-            id: String(dom.id),
-            domain: dom.domain,
-            targetService: dom.service,
-            targetPort: dom.port,
-            tlsProvider: 'LetsEncrypt' as const,
-            tlsStatus: dom.enable_https ? ('active' as const) : ('provisioning' as const),
-            forceHttps: dom.enable_https ?? true,
-            gzip: true,
-            sslStatus: dom.enable_https ? ('active' as const) : ('inactive' as const),
-            primary: dom.domain === primaryDomain,
-            createdAt: 'Active',
-          }));
-          const mappedVolumes = (raw.volumes || []).map((vName) => ({
-            name: vName,
-            mountPath: `/data/${vName}`,
-            driver: 'local',
-            sizeMB: 32,
-          }));
-          const mappedCollabs = (raw.collaborators || []).map((c) => ({
-            userId: String(c.user_id),
-            username: `user_${c.user_id}`,
-            email: `user_${c.user_id}@nextdeploy.local`,
-            role: (c.role === 'developer' ? 'deployer' : c.role === 'viewer' ? 'viewer' : 'owner') as 'owner' | 'deployer' | 'viewer',
-            addedAt: c.created_at || 'Recently',
-          }));
-          const envVars = (raw.env_content || '')
-            .split('\n')
-            .filter((line) => line.trim() && !line.startsWith('#') && line.includes('='))
-            .map((line, idx) => {
-              const eqIdx = line.indexOf('=');
-              const key = line.slice(0, eqIdx).trim();
-              const lowerKey = key.toLowerCase();
-              return {
-                id: `env-${idx}`,
-                key,
-                value: line.slice(eqIdx + 1).trim(),
-                isSecret:
-                  lowerKey.includes('secret') ||
-                  lowerKey.includes('key') ||
-                  lowerKey.includes('pass') ||
-                  lowerKey.includes('token'),
-              };
-            });
-
-          return {
-            id: raw.id,
-            name: raw.name,
-            slug: raw.id,
-            description: `Production stack for ${raw.name}`,
-            sourceType: (raw.source_type === 'git' ? 'git' : raw.source_type === 'upload' ? 'zip' : 'compose') as 'git' | 'compose' | 'zip',
-            gitRepo: raw.git_config?.repo_url || raw.git_repo,
-            gitBranch: raw.git_config?.branch || raw.git_branch || 'main',
-            gitCommitSha: raw.git_config?.last_commit_sha || 'main',
-            gitCommitMessage: raw.git_config?.last_commit_msg || 'Production release',
-            webhookAutoDeploy: Boolean(raw.git_config?.auto_deploy),
-            gitSync: Boolean(raw.git_config?.git_sync),
-            status: (raw.status === 'stopped' ? 'stopped' : 'running') as 'running' | 'building' | 'stopped',
-            primaryDomain,
-            composeFilePath: 'docker-compose.yml',
-            owner: 'admin',
-            updatedAt: raw.updated_at || 'Recently',
-            cpuPct: 2.5,
-            memMB: 256,
-            diskMB: 512,
-            reqPerMin: 120,
-            services: servicesList,
-            domains: mappedDomains,
-            volumes: mappedVolumes,
-            deployments: mappedDeployments,
-            collaborators: mappedCollabs,
-            envVars:
-              envVars.length > 0
-                ? envVars
-                : [
-                    { id: 'env-1', key: 'PORT', value: '3000', isSecret: false },
-                    { id: 'env-2', key: 'NODE_ENV', value: 'production', isSecret: false },
-                  ],
-            logs: [],
-            files: [],
-          };
-        });
-        setApps(mappedApps);
-      }
-
-      if (Array.isArray(data.images) && data.images.length > 0) {
-        setImages(
-          data.images.map((img) => {
-            const tag = (img.repo_tags && img.repo_tags[0]) || img.id.slice(0, 12);
-            const parts = tag.split(':');
-            return {
-              id: img.id.slice(0, 12),
-              repository: parts[0] || 'app',
-              tag: parts[1] || 'latest',
-              sizeMB: Math.round((img.size || 0) / (1024 * 1024)),
-              created: img.created ? new Date(img.created * 1000).toISOString().split('T')[0] : 'Recently',
-              inUseBy: [],
-            };
-          })
-        );
-      }
-
-      if (Array.isArray(data.volumes) && data.volumes.length > 0) {
-        setVolumes(
-          data.volumes.map((vName) => ({
-            name: vName,
-            driver: 'local',
-            mountPoint: `/var/lib/docker/volumes/${vName}/_data`,
-            appSlug: vName.split('_')[0] || 'system',
-            sizeMB: 16.4,
-            createdAt: 'Active',
-            filesCount: 2,
-            sampleFiles: [],
-          }))
-        );
-      }
-
-      if (Array.isArray(data.git_providers) && data.git_providers.length > 0) {
-        setGitProviders(
-          data.git_providers.map((gp) => {
-            const isGitLab = (gp.provider || '').toLowerCase().includes('gitlab');
-            return {
-              id: String(gp.id),
-              provider: isGitLab ? ('GitLab' as const) : ('GitHub' as const),
-              authMethod: isGitLab ? ('OAuth 2.0' as const) : ('GitHub App' as const),
-              accountName: gp.name || 'Provider',
-              instanceUrl: isGitLab ? 'https://gitlab.com' : 'https://github.com',
-              status: 'connected' as const,
-              reposAccessible: 12,
-              webhookDeliveryRate: '99.8%',
-              webhookUrl: '/webhooks/github/provider',
-              lastSynced: 'Just now',
-            };
-          })
-        );
-      }
-
-      if (Array.isArray(data.backup_destinations) && data.backup_destinations.length > 0) {
-        setDestinations(
-          data.backup_destinations.map((bd) => {
-            const isGDrive = (bd.provider || '').toLowerCase() === 'gdrive';
-            return {
-              id: String(bd.id),
-              name: bd.name || (isGDrive ? 'Google Drive' : 'Cloudflare R2'),
-              provider: isGDrive ? ('Google Drive' as const) : ('Cloudflare R2' as const),
-              providerCode: isGDrive ? ('gdrive' as const) : ('r2' as const),
-              bucket: bd.bucket || '',
-              endpoint: '',
-              region: 'auto',
-              status: 'connected' as const,
-              scheduleCron: '0 2 * * *',
-              retentionDays: 14,
-              usedGB: 0,
-              quotaGB: 100,
-              lastBackupAt: 'Connected',
-            };
-          })
-        );
-      }
-
       if (Array.isArray(data.cli_sessions) && data.cli_sessions.length > 0) {
         setCliSessions(
           data.cli_sessions.map((s) => ({
@@ -333,48 +118,6 @@ export default function App() {
         );
       }
     });
-
-    // Real-time telemetry via /monitor/ws
-    let ws: WebSocket | null = null;
-    try {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${proto}//${window.location.host}/monitor/ws`);
-      ws.onmessage = (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
-            now.getMinutes()
-          ).padStart(2, '0')}`;
-          const cpuVal = typeof d.cpu_pct === 'number' ? Math.round(d.cpu_pct) : 22;
-          const memVal = typeof d.mem_pct === 'number' ? Math.round(d.mem_pct) : 48;
-          const diskVal = typeof d.disk_pct === 'number' ? Math.round(d.disk_pct) : 28;
-          const rxVal = typeof d.net_rx_mbps === 'number' ? Math.round(d.net_rx_mbps) : 34;
-          const txVal = typeof d.net_tx_mbps === 'number' ? Math.round(d.net_tx_mbps) : 26;
-
-          setTelemetry((prev) => [
-            ...prev.slice(1),
-            {
-              time: timeStr,
-              cpu: cpuVal,
-              memory: memVal,
-              diskIo: diskVal,
-              netInMbps: rxVal,
-              netOutMbps: txVal,
-              requests: 1800,
-            },
-          ]);
-        } catch {
-          // ignore parsing error
-        }
-      };
-    } catch {
-      // offline fallback
-    }
-
-    return () => {
-      if (ws) ws.close();
-    };
   }, []);
 
   const appendTelemetryTick = () => {
@@ -589,21 +332,6 @@ export default function App() {
   const currentNavLabel =
     navGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
 
-  if (authMode) {
-    return (
-      <>
-        <Toaster position="bottom-right" theme="dark" />
-        <AuthView
-          mode={authMode}
-          onSuccess={() => {
-            setAuthMode(null);
-            window.location.href = '/overview';
-          }}
-        />
-      </>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
       <Toaster position="bottom-right" theme="dark" />
@@ -617,7 +345,7 @@ export default function App() {
 
       {/* Dokploy / shadcn Inset Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-[#09090b] transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 xl:w-64 2xl:w-68 shrink-0 flex-col bg-[#09090b] transition-transform lg:static lg:translate-x-0 ${
           mobileMenuOpen ? 'translate-x-0 border-r border-white/[0.08]' : '-translate-x-full'
         }`}
       >
@@ -690,7 +418,7 @@ export default function App() {
                       setActiveNav(item.id);
                       setMobileMenuOpen(false);
                     }}
-                    className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                    className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 xl:py-2 text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                       isActive
                         ? 'bg-white/[0.07] text-zinc-100 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]'
                         : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
@@ -748,7 +476,7 @@ export default function App() {
           <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_60%_50%_at_50%_-15%,rgba(249,115,22,0.07),transparent)]" />
 
           {/* Top Header Bar */}
-          <header className="sticky top-0 z-30 flex h-13 items-center justify-between gap-4 border-b border-white/[0.06] bg-[#0c0c0f]/85 px-4 sm:px-6 backdrop-blur-xl">
+          <header className="sticky top-0 z-30 flex h-13 xl:h-14 items-center justify-between gap-4 border-b border-white/[0.06] bg-[#0c0c0f]/85 px-4 sm:px-6 lg:px-8 xl:px-10 backdrop-blur-xl">
             <div className="flex items-center gap-2 text-xs font-medium text-zinc-400 min-w-0">
               <button
                 type="button"
@@ -811,7 +539,7 @@ export default function App() {
           </header>
 
           {/* Main Viewport */}
-          <main className="relative mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-4 sm:py-6">
+          <main className="relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7">
             {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
@@ -855,37 +583,23 @@ export default function App() {
             ) : activeNav === 'images' ? (
               <ImagesView
                 images={images}
-                onDeleteImage={async (id) => {
-                  await backendApi.globalImageRemove(id);
+                onDeleteImage={(id) => {
                   setImages((prev) => prev.filter((i) => i.id !== id));
-                  toast.success(`Removed image ${id}`);
+                  toast.success(`Removed ${id}`);
                 }}
-                onPruneUnused={async () => {
-                  await backendApi.globalImagesPrune();
+                onPruneUnused={() => {
                   setImages((prev) => prev.filter((i) => i.inUseBy.length > 0));
-                  toast.success('Pruned unused images');
+                  toast.success('Deleted unused images');
                 }}
               />
             ) : activeNav === 'volumes' ? (
-              <VolumesView
-                volumes={volumes}
-                onCreateVolume={(vol) => setVolumes((prev) => [vol, ...prev])}
-                onDeleteVolume={async (name) => {
-                  const res = await backendApi.globalVolumeRemove(name);
-                  if (res.ok) {
-                    setVolumes((prev) => prev.filter((v) => v.name !== name));
-                    toast.success(`Removed volume ${name}`);
-                  } else {
-                    toast.error(res.error || `Failed to remove volume ${name}`);
-                  }
-                }}
-              />
+              <VolumesView volumes={INITIAL_VOLUMES} />
             ) : activeNav === 'terminal' ? (
               <VpsTerminalView />
             ) : activeNav === 'git' ? (
               <GitAndRegistriesView
                 mode="git"
-                gitProviders={gitProviders}
+                gitProviders={INITIAL_GIT_PROVIDERS}
                 syncedRepos={INITIAL_SYNCED_REPOS}
                 registries={registries}
                 onAddRegistry={(r) => setRegistries((prev) => [...prev, r])}
@@ -893,7 +607,7 @@ export default function App() {
             ) : activeNav === 'registries' ? (
               <GitAndRegistriesView
                 mode="registries"
-                gitProviders={gitProviders}
+                gitProviders={INITIAL_GIT_PROVIDERS}
                 syncedRepos={INITIAL_SYNCED_REPOS}
                 registries={registries}
                 onAddRegistry={(r) => setRegistries((prev) => [...prev, r])}
@@ -906,7 +620,7 @@ export default function App() {
             ) : activeNav === 'backup' ? (
               <BackupsView
                 apps={apps}
-                destinations={destinations}
+                destinations={INITIAL_BACKUP_DESTINATIONS}
                 archives={backupArchives}
                 onSelectApp={(id) => setSelectedAppId(id)}
                 onTriggerBackup={(created) => {

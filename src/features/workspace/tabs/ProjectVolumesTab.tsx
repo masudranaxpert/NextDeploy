@@ -197,18 +197,12 @@ export const ProjectVolumesTab: React.FC<ProjectVolumesTabProps> = ({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <HardDrive className="h-4 w-4 text-orange-400" />
-            <h2 className="text-sm font-semibold text-zinc-100">Persistent Docker Volumes</h2>
-            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400 tabular-nums">
-              {app.volumes.length}
-            </span>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            Inspect live volume files via ephemeral Alpine reader, download{' '}
-            <code className="font-mono">.tar.gz</code> snapshots, or upload &amp; extract archives.
-          </p>
+        <div className="flex items-center gap-2">
+          <HardDrive className="h-4 w-4 text-orange-400" />
+          <h2 className="text-sm font-semibold text-zinc-100">Persistent Docker Volumes</h2>
+          <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-zinc-400 tabular-nums">
+            {app.volumes.length}
+          </span>
         </div>
         <button
           type="button"

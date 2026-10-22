@@ -80,14 +80,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 xl:space-y-6">
       {/* Row 1: 4 Host Telemetry Cards */}
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+      <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Host Memory</p>
-              <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
+              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 15.4 <span className="text-xs font-normal text-zinc-500">/ 32 GB</span>
               </p>
             </div>
@@ -103,11 +103,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-medium text-zinc-400">NVMe Storage (/)</p>
-              <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
+              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 84.2 <span className="text-xs font-normal text-zinc-500">/ 320 GB</span>
               </p>
             </div>
@@ -123,11 +123,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-medium text-zinc-400">CPU Load (16 vCPU)</p>
-              <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
+              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {telemetry[telemetry.length - 1]?.cpu || 23}
                 <span className="text-xs font-normal text-zinc-500">%</span>
               </p>
@@ -144,11 +144,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Containers & TLS</p>
-              <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
+              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 7 <span className="text-xs font-normal text-zinc-500">running</span>
               </p>
             </div>
@@ -162,8 +162,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       </div>
 
       {/* Row 2: Telemetry Area Chart Card */}
-      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
           <div className="flex items-center gap-2">
             <h2 className="text-xs font-semibold text-zinc-200">Host Throughput</h2>
           </div>
@@ -197,7 +197,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             dataKey="requests"
             color="#f97316"
             unit=" req/m"
-            height={175}
+            height={210}
             label="Requests"
           />
         )}
@@ -209,7 +209,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             color="#10b981"
             secondaryColor="#38bdf8"
             unit="%"
-            height={175}
+            height={210}
             label="CPU"
             secondaryLabel="RAM"
           />
@@ -222,7 +222,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             color="#f97316"
             secondaryColor="#eab308"
             unit=" Mbps"
-            height={175}
+            height={210}
             label="Inbound"
             secondaryLabel="Outbound"
           />
@@ -230,7 +230,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       </div>
 
       {/* Row 3: Recent Deployments & System Daemons */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">

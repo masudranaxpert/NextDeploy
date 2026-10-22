@@ -135,49 +135,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     'all' | 'production' | 'preview' | 'rollback'
   >('all');
   const [buildLogsDeployment, setBuildLogsDeployment] = useState<DeploymentRecord | null>(null);
-  const [realDeployLog, setRealDeployLog] = useState<{
-    action?: string;
-    ok?: boolean;
-    output?: string;
-    created_label?: string;
-  } | null>(null);
-  const [loadingDeployLog, setLoadingDeployLog] = useState(false);
   const [previewDeploymentsEnabled, setPreviewDeploymentsEnabled] = useState(true);
-
-  // Containers Tab State
-  const [selectedContainerNames, setSelectedContainerNames] = useState<string[]>([]);
-  const [containerSearch, setContainerSearch] = useState('');
-  const [containerStateFilter, setContainerStateFilter] = useState<'all' | 'running' | 'exited'>('all');
-  const [terminalContainer, setTerminalContainer] = useState<string>('');
-  const [terminalShell, setTerminalShell] = useState<'/bin/sh' | '/bin/bash' | '/bin/ash'>('/bin/sh');
-  const [execTargetContainer, setExecTargetContainer] = useState<string | null>(null);
-  const [execCommand, setExecCommand] = useState('');
-  const [execOutput, setExecOutput] = useState<string | null>(null);
-  const [execRunning, setExecRunning] = useState(false);
-
-  useEffect(() => {
-    if (!buildLogsDeployment) {
-      setRealDeployLog(null);
-      return;
-    }
-    let cancelled = false;
-    setLoadingDeployLog(true);
-    backendApi
-      .deployLogGet(app.id, buildLogsDeployment.id)
-      .then((res) => {
-        if (cancelled) return;
-        setLoadingDeployLog(false);
-        if (res.ok && res.data) {
-          setRealDeployLog(res.data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadingDeployLog(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [buildLogsDeployment, app.id]);
 
   // Enhance deployments with Preview URLs & Environment metadata
   const enrichedDeployments = useMemo(() => {
@@ -544,7 +502,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [extractDestDir, setExtractDestDir] = useState('');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadFileName, setUploadFileName] = useState('assets-bundle.zip');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const selectedFile: ComposeFileNode =
     defaultRichFiles.find((f) => f.path === editingFilePath) || defaultRichFiles[0];
@@ -900,6 +857,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   // 7. Modern Logs Explorer State
   // =========================================================================
   const [logContainerFilter, setLogContainerFilter] = useState<string>('all');
+  const [terminalService, setTerminalService] = useState<string>(app.services[0]?.service || '');
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'debug'>(
     'all'
   );
@@ -908,53 +866,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [logLiveTail, setLogLiveTail] = useState(true);
   const [logShowTimestamps, setLogShowTimestamps] = useState(true);
   const [logWordWrap, setLogWordWrap] = useState(true);
-  const [streamedLogs, setStreamedLogs] = useState<LogEntry[]>([]);
-
-  useEffect(() => {
-    if (activeTab !== 'logs' || !logLiveTail) return;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const target =
-      logContainerFilter === 'all'
-        ? app.services[0]?.service || app.services[0]?.name || ''
-        : logContainerFilter;
-    if (!target) return;
-    const url = `${proto}//${window.location.host}/apps/${encodeURIComponent(app.id)}/ws/logs?container=${encodeURIComponent(target)}`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(url);
-      ws.onmessage = (ev) => {
-        const raw = typeof ev.data === 'string' ? ev.data : '';
-        if (!raw) return;
-        const lines = raw.split('\n').filter(Boolean);
-        const entries: LogEntry[] = lines.map((line, idx) => {
-          let lvl: 'info' | 'warn' | 'error' | 'debug' = 'info';
-          const lower = line.toLowerCase();
-          if (lower.includes('error') || lower.includes('err') || lower.includes('fail')) lvl = 'error';
-          else if (lower.includes('warn')) lvl = 'warn';
-          else if (lower.includes('debug')) lvl = 'debug';
-          return {
-            id: `stream-${Date.now()}-${idx}-${Math.random()}`,
-            timestamp: new Date().toISOString(),
-            container: target,
-            level: lvl,
-            message: line,
-          };
-        });
-        setStreamedLogs((prev) => [...entries, ...prev].slice(0, 300));
-      };
-    } catch {
-      // fallback to preview mode
-    }
-    return () => {
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, [activeTab, logLiveTail, app.id, logContainerFilter, app.services]);
 
   const syntheticLogs: LogEntry[] = useMemo(() => {
     const firstSvc = app.services[0]?.service || 'api';
@@ -1015,12 +926,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     return baseLogs;
   }, [app.logs, app.services]);
 
-  const combinedLogs = useMemo(() => {
-    return [...streamedLogs, ...syntheticLogs];
-  }, [streamedLogs, syntheticLogs]);
-
   const filteredLogs = useMemo(() => {
-    return combinedLogs.filter((l) => {
+    return syntheticLogs.filter((l) => {
       if (logContainerFilter !== 'all' && l.container !== logContainerFilter) return false;
       if (logLevelFilter !== 'all' && l.level !== logLevelFilter) return false;
       if (
@@ -1032,17 +939,17 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       }
       return true;
     });
-  }, [combinedLogs, logContainerFilter, logLevelFilter, logSearch]);
+  }, [syntheticLogs, logContainerFilter, logLevelFilter, logSearch]);
 
   const logCounts = useMemo(() => {
     return {
-      all: combinedLogs.length,
-      info: combinedLogs.filter((l) => l.level === 'info').length,
-      warn: combinedLogs.filter((l) => l.level === 'warn').length,
-      error: combinedLogs.filter((l) => l.level === 'error').length,
-      debug: combinedLogs.filter((l) => l.level === 'debug').length,
+      all: syntheticLogs.length,
+      info: syntheticLogs.filter((l) => l.level === 'info').length,
+      warn: syntheticLogs.filter((l) => l.level === 'warn').length,
+      error: syntheticLogs.filter((l) => l.level === 'error').length,
+      debug: syntheticLogs.filter((l) => l.level === 'debug').length,
     };
-  }, [combinedLogs]);
+  }, [syntheticLogs]);
 
   const appendSimulatedLog = () => {
     const svc = app.services[0]?.service || 'api';
@@ -1559,32 +1466,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       return;
     }
 
-    if (uploadFile) {
-      if (uploadFile.name.endsWith('.zip') && !currentDir) {
-        const res = await backendApi.uploadZip(app.id, uploadFile);
-        if (res.ok) {
-          toast.success(`Uploaded and extracted ${uploadFile.name}`);
-        } else if (!res.offlineFallback) {
-          toast.error(res.error || 'Zip upload failed');
-        }
-      } else {
-        const res = await backendApi.fileUpload(app.id, uploadFile, currentDir || '');
-        if (res.ok) {
-          toast.success(res.data?.message || `Uploaded ${uploadFile.name}`);
-        } else if (!res.offlineFallback) {
-          toast.error(res.error || 'File upload failed');
-        }
-      }
-    }
-
-    const clean = (uploadFile ? uploadFile.name : uploadFileName).trim().replace(/^\/+/, '');
+    const clean = uploadFileName.trim().replace(/^\/+/, '');
     if (!clean) return;
     const fullPath = currentDir ? `${currentDir}/${clean}` : clean;
     const uploaded: ComposeFileNode = {
       path: fullPath,
       name: clean.split('/').pop() || clean,
       type: 'file',
-      sizeBytes: uploadFile ? uploadFile.size : clean.endsWith('.zip') ? 24576 : 1024,
+      sizeBytes: clean.endsWith('.zip') ? 24576 : 1024,
       updatedAt: 'Just now',
       language: clean.endsWith('.json') ? 'json' : 'yaml',
       content: `# Uploaded file: ${clean}\n`,
@@ -1593,7 +1482,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       ...app,
       files: [...app.files, uploaded],
     });
-    setUploadFile(null);
     setUploadModalOpen(false);
     toast.success(`Uploaded ${fullPath}`);
   };
@@ -1655,11 +1543,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     }
   };
 
-  // Tabs — hide Git tab when project is a pure Manual Workspace Directory with no Git repository connected
-  const hasGitConnection = Boolean(app.gitRepo) || app.sourceType === 'git';
+  const hasGitConnection = Boolean(app.gitRepo && app.gitRepo.trim() !== '');
+  const isGitSyncActive = hasGitConnection && (app.gitSync ?? app.sourceType === 'git');
+
+  useEffect(() => {
+    if (!hasGitConnection && activeTab === 'git') {
+      setActiveTab('overview');
+    }
+  }, [hasGitConnection, activeTab]);
+
+  // Tabs
   const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
     { id: 'overview', label: 'General' },
-    { id: 'containers', label: 'Containers', count: app.services.length },
     { id: 'deployments', label: 'Deployments', count: app.deployments.length + 2 },
     { id: 'domains', label: 'Domains', count: app.domains.length },
     { id: 'env', label: 'Environment', count: app.envVars.length },
@@ -1870,36 +1765,36 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'overview' && (
         <div className="space-y-5">
-          {/* Deploy Source Bar (Git source vs Manual files + Pause/Resume Git Sync + Switch Source) */}
+          {/* Deploy Source Bar (Git Sync ON vs Git Sync OFF vs Pure Manual Workspace) */}
           <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-              {app.sourceType === 'git' ? (
+              {isGitSyncActive ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
                   <GitBranch className="h-3.5 w-3.5" />
-                  Git source
+                  Git Sync ON
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300">
                   <Folder className="h-3.5 w-3.5" />
-                  Manual files
+                  {hasGitConnection ? 'Manual Files (Git Sync OFF)' : 'Manual Workspace'}
                 </span>
               )}
 
-              {app.gitRepo && app.sourceType !== 'git' && (
+              {hasGitConnection && !isGitSyncActive && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-medium text-amber-300">
-                  Git sync paused · {app.gitBranch || 'main'}
+                  Git connected · {app.gitBranch || 'main'} (manual sync available)
                 </span>
               )}
 
-              <span className="font-mono text-xs text-zinc-400 truncate">
-                {app.sourceType === 'git'
+              <span className="font-mono text-xs text-zinc-400 break-all">
+                {isGitSyncActive
                   ? `${app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`} (${app.gitBranch || 'main'})`
-                  : `Workspace directory (/apps/${app.id}) · ${app.composeFilePath || 'docker-compose.yml'}`}
+                  : `Workspace directory (/data/apps/${app.slug}) · ${app.composeFilePath || 'docker-compose.yml'}`}
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {app.gitRepo && (
+              {hasGitConnection && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1907,20 +1802,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     setGitSyncModalOpen(true);
                   }}
                   className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium cursor-pointer ${
-                    app.sourceType === 'git'
+                    isGitSyncActive
                       ? 'border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
                       : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
                   }`}
                 >
-                  {app.sourceType === 'git' ? (
+                  {isGitSyncActive ? (
                     <>
                       <Pause className="h-3.5 w-3.5 text-amber-400" />
-                      Pause Git sync
+                      Git Sync OFF
                     </>
                   ) : (
                     <>
                       <Play className="h-3.5 w-3.5 text-emerald-400" />
-                      Resume Git sync
+                      Git Sync ON
                     </>
                   )}
                 </button>
@@ -1932,7 +1827,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
-                Switch source
+                {hasGitConnection ? 'Switch to Manual Mode' : 'Connect Git'}
               </button>
             </div>
           </div>
@@ -2022,7 +1917,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveTab('terminal')}
+                          onClick={() => {
+                            setTerminalService(svc.service);
+                            setActiveTab('terminal');
+                          }}
                           className="rounded-lg border border-white/[0.07] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
                         >
                           Shell
@@ -2096,58 +1994,111 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <div className="lg:col-span-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 flex flex-col justify-between gap-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-orange-400" />
+                  {hasGitConnection ? (
+                    <GitBranch className="h-4 w-4 text-orange-400" />
+                  ) : (
+                    <Folder className="h-4 w-4 text-orange-400" />
+                  )}
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
-                    Git Source & Environments
+                    {hasGitConnection ? 'Git Source & Environments' : 'Manual Workspace Directory'}
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setGitModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-                >
-                  <GitBranch className="h-3 w-3 text-orange-400" />
-                  Change Branch / Repo
-                </button>
+                {hasGitConnection ? (
+                  <button
+                    type="button"
+                    onClick={() => setGitModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <GitBranch className="h-3 w-3 text-orange-400" />
+                    Change Branch / Repo
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('files')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <FolderOpen className="h-3 w-3 text-orange-400" />
+                    Manage Files
+                  </button>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                    Repository
-                  </span>
-                  <div className="mt-1 truncate font-mono text-xs text-zinc-200">
-                    {app.gitRepo
-                      ? app.gitRepo.replace('https://github.com/', '')
-                      : 'Local Compose Stack'}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                    Active Branch ({detectedBranches.length} detected)
-                  </span>
-                  <div className="mt-1 truncate font-mono text-xs text-orange-400">
-                    {app.gitBranch || 'main'} · {app.composeFilePath}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
-                      Auto-Deploy
+              {hasGitConnection ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Repository
                     </span>
-                    <span className="mt-1 font-mono text-xs text-zinc-200 block">
-                      {app.webhookAutoDeploy ? 'On Git Push' : 'Manual'}
-                    </span>
+                    <div className="mt-1 truncate font-mono text-xs text-zinc-200">
+                      {app.gitRepo
+                        ? app.gitRepo.replace('https://github.com/', '')
+                        : 'Local Compose Stack'}
+                    </div>
                   </div>
-                  <ShadcnSwitch
-                    checked={Boolean(app.webhookAutoDeploy)}
-                    onChange={(next) => {
-                      onUpdateApp({ ...app, webhookAutoDeploy: next });
-                      toast.success(next ? 'Auto-deploy enabled' : 'Auto-deploy paused');
-                    }}
-                  />
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Active Branch ({detectedBranches.length} detected)
+                    </span>
+                    <div className="mt-1 truncate font-mono text-xs text-orange-400">
+                      {app.gitBranch || 'main'} · {app.composeFilePath}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
+                        Git Sync
+                      </span>
+                      <span className="mt-1 font-mono text-xs text-zinc-200 block">
+                        {isGitSyncActive ? 'ON (Auto-Pull)' : 'OFF (Manual)'}
+                      </span>
+                    </div>
+                    <ShadcnSwitch
+                      checked={isGitSyncActive}
+                      onChange={(next) => {
+                        void backendApi.setGitSync(app.id, next, false);
+                        onUpdateApp({
+                          ...app,
+                          sourceType: next ? 'git' : 'compose',
+                          gitSync: next,
+                        });
+                        toast.success(
+                          next
+                            ? 'Git Sync ON — deployments pull from repository'
+                            : 'Git Sync OFF — deployments use manual workspace files'
+                        );
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                  <div className="sm:col-span-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Deploy Mode
+                    </span>
+                    <div className="mt-1 font-medium text-xs text-orange-400 whitespace-nowrap">
+                      Manual Files Only
+                    </div>
+                  </div>
+                  <div className="sm:col-span-6 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Workspace Directory
+                    </span>
+                    <div className="mt-1 font-mono text-xs text-zinc-100 break-all">
+                      /data/apps/{app.slug}
+                    </div>
+                  </div>
+                  <div className="sm:col-span-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Compose Entry
+                    </span>
+                    <div className="mt-1 font-mono text-xs text-emerald-400 break-all">
+                      {app.composeFilePath || 'docker-compose.yml'}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Production & Preview URLs Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3 text-xs">
@@ -2419,316 +2370,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* TAB: CONTAINERS (Docker Compose Containers Management)                */}
-      {/* ===================================================================== */}
-      {activeTab === 'containers' && (
-        <div className="space-y-4">
-          {/* Top Bar */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-                {(
-                  [
-                    { id: 'all', label: 'All Services' },
-                    { id: 'running', label: 'Running' },
-                    { id: 'exited', label: 'Stopped / Exited' },
-                  ] as const
-                ).map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setContainerStateFilter(f.id)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                      containerStateFilter === f.id
-                        ? 'bg-zinc-800 text-zinc-100'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-
-              {selectedContainerNames.length > 0 && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (
-                      !window.confirm(
-                        `Remove ${selectedContainerNames.length} selected container(s)?`
-                      )
-                    )
-                      return;
-                    toast.info(`Removing ${selectedContainerNames.length} container(s)...`);
-                    const res = await backendApi.appContainersRemoveSelected(
-                      app.id,
-                      selectedContainerNames
-                    );
-                    if (res.ok) {
-                      toast.success(`Removed selected containers`);
-                      onUpdateApp({
-                        ...app,
-                        services: app.services.filter(
-                          (s) => !selectedContainerNames.includes(s.name)
-                        ),
-                      });
-                      setSelectedContainerNames([]);
-                    } else {
-                      toast.error(res.error || 'Failed to remove containers');
-                    }
-                  }}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Remove Selected ({selectedContainerNames.length})</span>
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                <input
-                  type="text"
-                  value={containerSearch}
-                  onChange={(e) => setContainerSearch(e.target.value)}
-                  placeholder="Search containers..."
-                  className="h-8 w-48 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-3 font-mono text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-left text-xs">
-                <thead>
-                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400 font-medium">
-                    <th className="w-10 px-3 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={
-                          app.services.length > 0 &&
-                          selectedContainerNames.length === app.services.length
-                        }
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedContainerNames(app.services.map((s) => s.name));
-                          } else {
-                            setSelectedContainerNames([]);
-                          }
-                        }}
-                        className="rounded border-zinc-700 bg-zinc-900 accent-orange-500 cursor-pointer"
-                      />
-                    </th>
-                    <th className="px-3 py-2.5">Container / Service</th>
-                    <th className="px-3 py-2.5">Status</th>
-                    <th className="px-3 py-2.5">Image</th>
-                    <th className="px-3 py-2.5">Ports</th>
-                    <th className="px-3 py-2.5">CPU & Memory</th>
-                    <th className="px-3 py-2.5">Uptime</th>
-                    <th className="w-12 px-3 py-2.5 text-right"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.05]">
-                  {app.services
-                    .filter((s) => {
-                      if (containerStateFilter === 'running' && s.state !== 'running') return false;
-                      if (containerStateFilter === 'exited' && s.state === 'running') return false;
-                      if (
-                        containerSearch &&
-                        !s.name.toLowerCase().includes(containerSearch.toLowerCase()) &&
-                        !s.service.toLowerCase().includes(containerSearch.toLowerCase()) &&
-                        !s.image.toLowerCase().includes(containerSearch.toLowerCase())
-                      ) {
-                        return false;
-                      }
-                      return true;
-                    })
-                    .map((s) => {
-                      const isSelected = selectedContainerNames.includes(s.name);
-                      const imgInfo = formatCompactImage(s.image);
-                      return (
-                        <tr
-                          key={s.id}
-                          className={`hover:bg-white/[0.02] transition-colors ${
-                            isSelected ? 'bg-orange-500/[0.04]' : ''
-                          }`}
-                        >
-                          <td className="px-3 py-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedContainerNames((prev) => [...prev, s.name]);
-                                } else {
-                                  setSelectedContainerNames((prev) =>
-                                    prev.filter((n) => n !== s.name)
-                                  );
-                                }
-                              }}
-                              className="rounded border-zinc-700 bg-zinc-900 accent-orange-500 cursor-pointer"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <div className="font-semibold text-zinc-100 font-mono">{s.name}</div>
-                            <div className="text-[11px] text-zinc-400">service: {s.service}</div>
-                          </td>
-                          <td className="px-3 py-3">
-                            <StatusBadge status={s.state} />
-                          </td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-zinc-300">
-                            <span className="truncate">{imgInfo.shortName}</span>
-                            <span className="text-orange-400">:{imgInfo.tagPart}</span>
-                          </td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-zinc-400">
-                            {formatCompactPort(s.ports)}
-                          </td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-zinc-300">
-                            <div>CPU: {s.cpuPct}%</div>
-                            <div className="text-zinc-500 text-[10px]">
-                              {s.memUsedMB} MB / {s.memLimitMB} MB
-                            </div>
-                          </td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-zinc-400">
-                            {s.uptime}
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            <ActionMenu
-                              items={[
-                                ...(s.state === 'running'
-                                  ? [
-                                      {
-                                        label: 'Stop Container',
-                                        icon: <Square className="h-3.5 w-3.5" />,
-                                        onClick: async () => {
-                                          const res = await backendApi.appContainerAction(
-                                            app.id,
-                                            s.name,
-                                            'stop'
-                                          );
-                                          if (res.ok) {
-                                            toast.success(`Stopped ${s.name}`);
-                                            onUpdateApp({
-                                              ...app,
-                                              services: app.services.map((item) =>
-                                                item.id === s.id
-                                                  ? { ...item, state: 'exited' as const }
-                                                  : item
-                                              ),
-                                            });
-                                          } else {
-                                            toast.error(res.error || 'Failed to stop container');
-                                          }
-                                        },
-                                      },
-                                    ]
-                                  : [
-                                      {
-                                        label: 'Start Container',
-                                        icon: <Play className="h-3.5 w-3.5" />,
-                                        onClick: async () => {
-                                          const res = await backendApi.appContainerAction(
-                                            app.id,
-                                            s.name,
-                                            'start'
-                                          );
-                                          if (res.ok) {
-                                            toast.success(`Started ${s.name}`);
-                                            onUpdateApp({
-                                              ...app,
-                                              services: app.services.map((item) =>
-                                                item.id === s.id
-                                                  ? { ...item, state: 'running' as const }
-                                                  : item
-                                              ),
-                                            });
-                                          } else {
-                                            toast.error(res.error || 'Failed to start container');
-                                          }
-                                        },
-                                      },
-                                    ]),
-                                {
-                                  label: 'Restart Container',
-                                  icon: <RotateCw className="h-3.5 w-3.5" />,
-                                  onClick: async () => {
-                                    const res = await backendApi.appContainerAction(
-                                      app.id,
-                                      s.name,
-                                      'restart'
-                                    );
-                                    if (res.ok) {
-                                      toast.success(`Restarted ${s.name}`);
-                                    } else {
-                                      toast.error(res.error || 'Failed to restart container');
-                                    }
-                                  },
-                                },
-                                {
-                                  label: 'View Logs',
-                                  icon: <FileText className="h-3.5 w-3.5" />,
-                                  onClick: () => {
-                                    setLogContainerFilter(s.service);
-                                    setActiveTab('logs');
-                                  },
-                                },
-                                {
-                                  label: 'Open Exec Terminal',
-                                  icon: <TerminalIcon className="h-3.5 w-3.5" />,
-                                  onClick: () => {
-                                    setTerminalContainer(s.name);
-                                    setActiveTab('terminal');
-                                  },
-                                },
-                                {
-                                  label: 'Run One-off Exec',
-                                  icon: <Play className="h-3.5 w-3.5 text-orange-400" />,
-                                  onClick: () => {
-                                    setExecTargetContainer(s.name);
-                                    setExecCommand('');
-                                    setExecOutput(null);
-                                  },
-                                },
-                                {
-                                  label: 'Remove Container',
-                                  icon: <Trash2 className="h-3.5 w-3.5" />,
-                                  variant: 'danger' as const,
-                                  onClick: async () => {
-                                    if (!window.confirm(`Force remove container "${s.name}"?`))
-                                      return;
-                                    const res = await backendApi.appContainerAction(
-                                      app.id,
-                                      s.name,
-                                      'remove'
-                                    );
-                                    if (res.ok) {
-                                      toast.success(`Removed ${s.name}`);
-                                      onUpdateApp({
-                                        ...app,
-                                        services: app.services.filter((item) => item.id !== s.id),
-                                      });
-                                    } else {
-                                      toast.error(res.error || 'Failed to remove container');
-                                    }
-                                  },
-                                },
-                              ]}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===================================================================== */}
       {/* TAB 2: DEPLOYMENTS (Dokploy / Vercel — Prod, Preview URLs, Rollback)  */}
       {/* ===================================================================== */}
       {activeTab === 'deployments' && (
@@ -2962,24 +2603,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                               onClick: () => {
                                 navigator.clipboard?.writeText(dep.commitSha);
                                 toast.success(`Copied SHA ${dep.commitSha.slice(0, 7)}`);
-                              },
-                            },
-                            {
-                              label: 'Delete Log',
-                              icon: <Trash2 className="h-3.5 w-3.5" />,
-                              variant: 'danger' as const,
-                              onClick: async () => {
-                                if (!window.confirm(`Delete deploy log #${dep.id}?`)) return;
-                                const res = await backendApi.deployLogDelete(app.id, dep.id);
-                                if (res.ok) {
-                                  toast.success(`Deleted deploy log #${dep.id}`);
-                                  onUpdateApp({
-                                    ...app,
-                                    deployments: app.deployments.filter((d) => d.id !== dep.id),
-                                  });
-                                } else {
-                                  toast.error(res.error || 'Failed to delete deploy log');
-                                }
                               },
                             },
                           ]}
@@ -3276,22 +2899,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <span>Extract</span>
               </button>
 
-              {/* Download ZIP Button */}
-              <a
-                href={backendApi.fileDownloadZipUrl(
-                  app.id,
-                  selectedEntries.length > 0
-                    ? selectedEntries.map((p) => p.replace(/^dir:/, ''))
-                    : undefined
-                )}
-                download={`${app.slug}-workspace.zip`}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-                title="Download workspace as .zip"
-              >
-                <Download className="h-3.5 w-3.5 text-orange-400" />
-                <span>Download ZIP</span>
-              </a>
-
               {/* Bulk Delete when items are checked */}
               {selectedEntries.length > 0 && (
                 <>
@@ -3299,10 +2906,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      void backendApi.fileDelete(
-                        app.id,
-                        selectedEntries.map((p) => p.replace(/^dir:/, ''))
-                      );
                       setDeletedFilePaths((prev) => [...prev, ...selectedEntries]);
                       toast.success(`Deleted ${selectedEntries.length} selected item(s)`);
                       setSelectedEntries([]);
@@ -4553,77 +4156,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* TAB 10: TERMINAL                                                      */}
       {/* ===================================================================== */}
       {activeTab === 'terminal' && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-2.5">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <TerminalIcon className="h-4 w-4 text-orange-400" />
-                <span className="text-xs font-semibold text-zinc-200">Container Shell</span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-zinc-500">Target:</span>
-                <select
-                  value={terminalContainer || app.services[0]?.name || ''}
-                  onChange={(e) => setTerminalContainer(e.target.value)}
-                  className="h-7 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 font-mono text-xs text-zinc-200 focus:outline-none"
-                >
-                  {app.services.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name} ({s.service})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 font-mono text-[11px]">
-                {(['/bin/sh', '/bin/bash', '/bin/ash'] as const).map((sh) => (
-                  <button
-                    key={sh}
-                    type="button"
-                    onClick={() => setTerminalShell(sh)}
-                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
-                      terminalShell === sh
-                        ? 'bg-orange-500/20 text-orange-300 font-semibold'
-                        : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                  >
-                    {sh}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const target = terminalContainer || app.services[0]?.name || '';
-                  if (target) {
-                    setExecTargetContainer(target);
-                    setExecCommand('');
-                    setExecOutput(null);
-                  }
-                }}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-              >
-                <Play className="h-3 w-3 text-orange-400" />
-                <span>One-off Exec</span>
-              </button>
-            </div>
-          </div>
-
-          <XTermConsole
-            key={`${terminalContainer || app.services[0]?.name}-${terminalShell}`}
-            hostLabel={`root@${terminalContainer || app.slug} (${terminalShell})`}
-            promptPrefix={`root@${terminalContainer || app.slug}:/app# `}
-            wsPath={`/apps/${encodeURIComponent(app.id)}/ws/terminal?container=${encodeURIComponent(
-              terminalContainer || app.services[0]?.name || ''
-            )}&shell=${encodeURIComponent(terminalShell)}`}
-            presets={['docker compose ps', 'env', 'ls -la', 'top -b -n 1 | head -n 12', 'clear']}
-            height={420}
-          />
-        </div>
+        <XTermConsole
+          hostLabel={`root@${app.slug}`}
+          promptPrefix={`root@${app.slug}:/app# `}
+          services={app.services}
+          appSlug={app.slug}
+          initialService={terminalService || app.services[0]?.service}
+          height={400}
+        />
       )}
 
       {/* ===================================================================== */}
@@ -4890,42 +4430,25 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </span>
             </div>
 
-            {loadingDeployLog ? (
-              <div className="flex items-center justify-center rounded-xl border border-white/[0.07] bg-[#070709] p-8 text-zinc-400">
-                <RotateCw className="h-4 w-4 animate-spin mr-2 text-orange-400" />
-                <span>Loading build logs from server...</span>
+            <div className="rounded-xl border border-white/[0.07] bg-[#070709] p-4 space-y-2 leading-relaxed">
+              <div className="text-zinc-500">
+                [1/4] $ git checkout {buildLogsDeployment.branch} ({buildLogsDeployment.commitSha})
               </div>
-            ) : realDeployLog?.output ? (
-              <div className="rounded-xl border border-white/[0.07] bg-[#070709] p-4 space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-zinc-400 pb-2 border-b border-white/[0.05]">
-                  <span>Action: <strong className="text-zinc-200">{realDeployLog.action || 'deploy'}</strong></span>
-                  <span>{realDeployLog.created_label}</span>
-                </div>
-                <pre className="max-h-[50vh] overflow-y-auto overflow-x-auto whitespace-pre-wrap font-mono text-xs text-zinc-300 leading-relaxed">
-                  {realDeployLog.output}
-                </pre>
+              <div className="text-emerald-400">
+                [2/4] ✓ Validated {app.composeFilePath} · injected {app.envVars.length} variables
               </div>
-            ) : (
-              <div className="rounded-xl border border-white/[0.07] bg-[#070709] p-4 space-y-2 leading-relaxed">
-                <div className="text-zinc-500">
-                  [1/4] $ git checkout {buildLogsDeployment.branch} ({buildLogsDeployment.commitSha})
-                </div>
-                <div className="text-emerald-400">
-                  [2/4] ✓ Validated {app.composeFilePath} · injected {app.envVars.length} variables
-                </div>
-                <div className="text-zinc-300">
-                  [3/4] $ docker compose -p {app.slug} up -d --build --remove-orphans
-                </div>
-                {app.services.map((s) => (
-                  <div key={s.id} className="text-emerald-400 pl-4">
-                    ✔ Container {s.name} Healthy ({formatCompactPort(s.ports)})
-                  </div>
-                ))}
-                <div className="text-orange-400">
-                  [4/4] ✓ Switched Caddy upstream route in {buildLogsDeployment.durationSec}s
-                </div>
+              <div className="text-zinc-300">
+                [3/4] $ docker compose -p {app.slug} up -d --build --remove-orphans
               </div>
-            )}
+              {app.services.map((s) => (
+                <div key={s.id} className="text-emerald-400 pl-4">
+                  ✔ Container {s.name} Healthy ({formatCompactPort(s.ports)})
+                </div>
+              ))}
+              <div className="text-orange-400">
+                [4/4] ✓ Switched Caddy upstream route in {buildLogsDeployment.durationSec}s
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2 pt-1">
               <button
@@ -6096,36 +5619,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
 
           {uploadMode === 'local' ? (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Choose File or ZIP Archive {currentDir ? `(into /${currentDir})` : '(into root)'}
-                </label>
-                <input
-                  type="file"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      setUploadFile(f);
-                      setUploadFileName(f.name);
-                    }
-                  }}
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-200 file:mr-3 file:rounded file:border-0 file:bg-zinc-800 file:px-2.5 file:py-1 file:font-mono file:text-xs file:text-zinc-200 hover:file:bg-zinc-700"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  File Name / Target Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={uploadFileName}
-                  onChange={(e) => setUploadFileName(e.target.value)}
-                  placeholder="release-assets.zip or .env.production"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-                />
-              </div>
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                File Name {currentDir ? `(into /${currentDir})` : '(into root)'}
+              </label>
+              <input
+                type="text"
+                required
+                value={uploadFileName}
+                onChange={(e) => setUploadFileName(e.target.value)}
+                placeholder="release-assets.zip or .env.production"
+                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+              />
             </div>
           ) : (
             <div>
@@ -6388,66 +5893,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </button>
           </div>
         </div>
-      </ShadcnDialog>
-
-      {/* 8. Run One-off Exec Command (POST /apps/:id/exec) */}
-      <ShadcnDialog
-        open={Boolean(execTargetContainer)}
-        onClose={() => setExecTargetContainer(null)}
-        title={`Run Command · ${execTargetContainer || ''}`}
-        icon={<TerminalIcon className="h-4 w-4 text-orange-400" />}
-        maxWidth="lg"
-      >
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!execTargetContainer || !execCommand.trim()) return;
-            setExecRunning(true);
-            setExecOutput(null);
-            const res = await backendApi.appExec(app.id, execTargetContainer, execCommand.trim());
-            setExecRunning(false);
-            if (res.ok && res.data) {
-              setExecOutput(res.data.output || '(no output)');
-            } else {
-              setExecOutput(res.error || 'Execution failed');
-            }
-          }}
-          className="space-y-3"
-        >
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Command to execute in container
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                required
-                value={execCommand}
-                onChange={(e) => setExecCommand(e.target.value)}
-                placeholder="e.g. ls -la, python --version, php artisan migrate"
-                className="flex-1 rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={execRunning}
-                className="rounded-lg bg-zinc-100 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer shrink-0"
-              >
-                {execRunning ? 'Running...' : 'Execute'}
-              </button>
-            </div>
-          </div>
-
-          {execOutput !== null && (
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                Execution Output
-              </label>
-              <pre className="max-h-60 overflow-auto rounded-lg border border-white/[0.08] bg-[#070709] p-3 font-mono text-xs text-zinc-200 whitespace-pre-wrap">
-                {execOutput}
-              </pre>
-            </div>
-          )}
-        </form>
       </ShadcnDialog>
     </div>
   );

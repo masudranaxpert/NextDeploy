@@ -2,8 +2,8 @@
 
 @layer base {
   :root {
-    --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 
@@ -18,10 +18,11 @@
   }
 
   body {
+    font-family: var(--font-sans);
     background-color: #09090b;
     color: #fafafa;
     overflow-x: hidden;
-    letter-spacing: -0.011em;
+    letter-spacing: -0.01em;
   }
 
   h1, h2, h3, .font-display {
@@ -32,6 +33,37 @@
   code, pre, kbd, .font-mono {
     font-family: var(--font-mono);
     font-feature-settings: "liga" 0, "calt" 0;
+  }
+
+  /* Keep small & laptop screens (< 1360px) at default 16px, and scale proportionally on large monitors */
+  @media (min-width: 1360px) {
+    html {
+      font-size: 16.75px;
+    }
+    .text-\[9px\] {
+      font-size: 10px !important;
+    }
+    .text-\[10px\] {
+      font-size: 11px !important;
+    }
+    .text-\[11px\] {
+      font-size: 12px !important;
+    }
+  }
+
+  @media (min-width: 1680px) {
+    html {
+      font-size: 17.75px;
+    }
+    .text-\[9px\] {
+      font-size: 10.5px !important;
+    }
+    .text-\[10px\] {
+      font-size: 11.5px !important;
+    }
+    .text-\[11px\] {
+      font-size: 12.75px !important;
+    }
   }
 }
 

@@ -753,7 +753,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             {(
               [
                 { id: 'all', label: 'All' },
-                { id: 'global', label: 'Global (Shared)' },
+                { id: 'global', label: 'Global' },
                 { id: 'personal', label: 'Personal' },
               ] as const
             ).map((sc) => (
@@ -785,14 +785,14 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+          <table className="w-full min-w-[680px] text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-[30%] px-4 py-2.5 font-medium">Registry & Server</th>
-                <th className="w-[20%] px-4 py-2.5 font-medium">Username & Token</th>
-                <th className="w-[16%] px-4 py-2.5 font-medium">Scope</th>
-                <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[14%] px-4 py-2.5 font-medium text-right">Usage</th>
+                <th className="px-4 py-2.5 font-medium">Registry & Server</th>
+                <th className="px-4 py-2.5 font-medium">Username & Token</th>
+                <th className="px-4 py-2.5 font-medium">Scope</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium text-right">Usage</th>
                 <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
               </tr>
             </thead>
@@ -803,38 +803,38 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   <tr key={r.id} className="hover:bg-white/[0.03]">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-orange-400 shrink-0">
+                        <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-orange-400 shrink-0">
                           {r.provider}
                         </span>
                         <div className="min-w-0">
-                          <div className="truncate font-semibold text-zinc-100">{r.name}</div>
-                          <div className="truncate font-mono text-[11px] text-zinc-500">
+                          <div className="font-semibold text-zinc-100">{r.name}</div>
+                          <div className="text-[11px] text-zinc-500">
                             {r.registryUrl}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-mono">
-                      <div className="truncate text-zinc-200">{r.username}</div>
-                      <div className="text-[10px] text-zinc-500">{r.tokenPreview}</div>
-                    </td>
                     <td className="px-4 py-3">
+                      <div className="font-medium text-zinc-200">{r.username}</div>
+                      <div className="font-mono text-[10px] text-zinc-500">{r.tokenPreview}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
                       {isGlobal ? (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-sky-300">
-                          <Globe className="h-3 w-3" />
-                          Global (All Users)
+                        <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300 whitespace-nowrap">
+                          <Globe className="h-3 w-3 shrink-0" />
+                          Global
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-violet-300">
-                          <User className="h-3 w-3" />
+                        <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300 whitespace-nowrap">
+                          <User className="h-3 w-3 shrink-0" />
                           Personal
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <StatusBadge status={r.status} label="Authenticated" />
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-[11px] text-zinc-300">
+                    <td className="px-4 py-3 text-right tabular-nums text-[11px] text-zinc-300 whitespace-nowrap">
                       {r.imagesCount} imgs · {r.connectedApps} apps
                     </td>
                     <td className="px-3 py-3 text-right">

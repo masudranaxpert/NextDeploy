@@ -111,7 +111,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   ];
 
   const handleRegenerateMcpToken = async () => {
-    const res = await backendApi.createApiToken('mcp-default');
+    const res = await backendApi.createApiToken({ name: 'mcp-default', kind: 'mcp' });
     const randHex =
       Math.random().toString(16).slice(2, 14) +
       Math.random().toString(16).slice(2, 14) +

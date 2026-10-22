@@ -10,13 +10,11 @@ import {
   Network,
   FileCode2,
   Info,
-  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, ContainerService } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatters';
-import { backendApi } from '../../lib/backendApi';
 
 interface ContainersViewProps {
   apps: AppStack[];
@@ -31,7 +29,6 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'running' | 'exited'>('all');
-  const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [inspectedContainer, setInspectedContainer] = useState<
     (ContainerService & { appId: string; appName: string; owner: string }) | null
   >(null);
@@ -75,30 +72,6 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     onUpdateApp({ ...targetApp, services: updatedServices });
   };
 
-  const handleRemoveSelected = async () => {
-    if (!selectedNames.length) return;
-    if (!window.confirm(`Force remove ${selectedNames.length} container(s)?\n\n${selectedNames.join(', ')}`)) return;
-    toast.info(`Removing ${selectedNames.length} containers...`);
-    const res = await backendApi.globalContainersRemoveSelected(selectedNames);
-    if (res.ok) {
-      toast.success(`Removed ${selectedNames.length} container(s)`);
-      setSelectedNames([]);
-    } else {
-      toast.error(res.error || 'Failed to remove containers');
-    }
-  };
-
-  const handlePruneStopped = async () => {
-    if (!window.confirm('Remove all stopped containers? Running containers are not affected.')) return;
-    toast.info('Pruning stopped containers...');
-    const res = await backendApi.globalContainersPrune();
-    if (res.ok) {
-      toast.success('Pruned stopped containers');
-    } else {
-      toast.error(res.error || 'Failed to prune containers');
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -115,24 +88,6 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {selectedNames.length > 0 && (
-            <button
-              type="button"
-              onClick={handleRemoveSelected}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/15 px-3 text-xs font-semibold text-rose-300 hover:bg-rose-500/25 cursor-pointer transition-colors"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remove Selected ({selectedNames.length})
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handlePruneStopped}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-zinc-400" />
-            Prune Stopped
-          </button>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
             <input
@@ -167,31 +122,15 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
           <table className="w-full min-w-[680px] table-fixed text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-10 px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all containers"
-                    checked={filtered.length > 0 && selectedNames.length === filtered.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedNames(filtered.map((c) => c.name));
-                      } else {
-                        setSelectedNames([]);
-                      }
-                    }}
-                    className="rounded border-zinc-700 bg-zinc-900 text-orange-500 focus:ring-orange-500/40"
-                  />
-                </th>
-                <th className="w-[32%] px-3 py-2.5 font-medium">Container / Project</th>
-                <th className="w-[26%] px-4 py-2.5 font-medium">Image & Port</th>
-                <th className="w-[16%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[12%] px-4 py-2.5 font-medium text-right">Usage</th>
+                <th className="w-[34%] px-4 py-2.5 font-medium">Container / Project</th>
+                <th className="w-[28%] px-4 py-2.5 font-medium">Image & Port</th>
+                <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                <th className="w-[13%] px-4 py-2.5 font-medium text-right">Usage</th>
                 <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {filtered.map((c) => {
-                const isSelected = selectedNames.includes(c.name);
                 const hasAppPrefix = c.name.startsWith(c.appName);
                 const suffix = hasAppPrefix ? c.name.slice(c.appName.length) : `-${c.service}`;
                 const imgInfo = formatCompactImage(c.image);
@@ -201,26 +140,9 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                   <tr
                     key={c.id}
                     onClick={() => setInspectedContainer(c)}
-                    className={`hover:bg-white/[0.03] transition-colors cursor-pointer ${
-                      isSelected ? 'bg-orange-500/[0.04]' : ''
-                    }`}
+                    className="hover:bg-white/[0.03] transition-colors cursor-pointer"
                   >
-                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select container ${c.name}`}
-                        checked={isSelected}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedNames((prev) => [...prev, c.name]);
-                          } else {
-                            setSelectedNames((prev) => prev.filter((n) => n !== c.name));
-                          }
-                        }}
-                        className="rounded border-zinc-700 bg-zinc-900 text-orange-500 focus:ring-orange-500/40"
-                      />
-                    </td>
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
                           <Box className="h-3.5 w-3.5 text-orange-400" />
@@ -270,7 +192,7 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                       <span className="text-zinc-400">{c.memUsedMB}M</span>
                     </td>
 
-                    <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-3 text-right">
                       <ActionMenu
                         items={[
                           {
@@ -312,21 +234,7 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                           {
                             label: 'Restart Container',
                             icon: <RotateCw className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              toast.info(`Restarting ${c.name}...`);
-                              await backendApi.globalContainerAction(c.name, 'restart');
-                              toast.success(`Restarted ${c.name}`);
-                            },
-                          },
-                          {
-                            label: 'Remove Container',
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            variant: 'danger',
-                            onClick: async () => {
-                              if (!window.confirm(`Force remove container "${c.name}"?`)) return;
-                              await backendApi.globalContainerAction(c.name, 'remove');
-                              toast.success(`Removed ${c.name}`);
-                            },
+                            onClick: () => toast.success(`Restarted ${c.name}`),
                           },
                         ]}
                       />

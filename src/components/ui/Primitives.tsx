@@ -511,8 +511,8 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
               color: '#fafafa',
               boxShadow: '0 12px 32px rgba(0,0,0,0.65)',
             }}
-            formatter={(val: any, name: any) => [
-              `${val}${unit}`,
+            formatter={(val, name) => [
+              `${val ?? 0}${unit}`,
               name === dataKey ? label || String(dataKey) : secondaryLabel || String(secondaryKey),
             ]}
           />

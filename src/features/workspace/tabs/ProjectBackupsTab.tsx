@@ -3,18 +3,15 @@ import {
   Plus,
   RotateCw,
   RotateCcw,
-  Cloud,
   Archive,
   Calendar,
   FileText,
   ExternalLink,
   Trash2,
-  HardDrive,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
-  ShieldCheck,
   AlertTriangle,
   Sliders,
   Play,
@@ -710,14 +707,14 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] table-fixed text-left text-xs">
+            <table className="w-full min-w-[720px] text-left text-xs">
               <thead>
                 <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
-                  <th className="w-[26%] px-4 py-2.5 font-medium">Connector</th>
-                  <th className="w-[22%] px-4 py-2.5 font-medium">Scope & Volumes</th>
-                  <th className="w-[22%] px-4 py-2.5 font-medium">Cron & Next Run</th>
-                  <th className="w-[14%] px-4 py-2.5 font-medium">Retention</th>
-                  <th className="w-[10%] px-4 py-2.5 font-medium">Enabled</th>
+                  <th className="px-4 py-2.5 font-medium">Storage Destination</th>
+                  <th className="px-4 py-2.5 font-medium">Backup Scope & Volumes</th>
+                  <th className="px-4 py-2.5 font-medium">Schedule & Next Run</th>
+                  <th className="px-4 py-2.5 font-medium">Retention Policy</th>
+                  <th className="px-4 py-2.5 font-medium">Active</th>
                   <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
                 </tr>
               </thead>
@@ -726,45 +723,66 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                   const volStr = Array.isArray(sc.volumeNames)
                     ? sc.volumeNames.join(', ')
                     : sc.volumeNames;
+                  const isGDrive =
+                    sc.destinationProvider === 'gdrive' ||
+                    sc.provider === 'Google Drive' ||
+                    sc.destinationName.toLowerCase().includes('google');
+                  const scopeLabel =
+                    sc.type === 'full'
+                      ? 'Full Stack'
+                      : sc.type === 'volume'
+                        ? 'Volumes Only'
+                        : 'App Files';
+
                   return (
-                    <tr key={sc.id} className="hover:bg-white/[0.02]">
-                      <td className="px-4 py-3 font-mono">
-                        <div className="font-semibold text-zinc-100 truncate">
-                          {sc.destinationName}
-                        </div>
-                        <div className="text-[10px] text-zinc-500">
-                          {sc.destinationProvider === 'gdrive' || sc.provider === 'Google Drive'
-                            ? 'Google Drive'
-                            : 'Cloudflare R2'}{' '}
-                          · last: {sc.lastRun || sc.lastRunAt || 'Never'}
+                    <tr key={sc.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-4 py-3.5 align-middle">
+                        <div className="font-semibold text-zinc-100">{sc.destinationName}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${
+                              isGDrive ? 'bg-emerald-400' : 'bg-orange-400'
+                            }`}
+                          />
+                          <span>{isGDrive ? 'Google Drive' : 'Cloudflare R2'}</span>
+                          <span className="text-zinc-600">·</span>
+                          <span className="text-zinc-500">
+                            Last: {sc.lastRun || sc.lastRunAt || 'Never'}
+                          </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono">
-                        <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase text-orange-400">
-                          {sc.type}
-                        </span>
-                        {volStr && (
-                          <div className="mt-1 truncate text-[10px] text-zinc-400">{volStr}</div>
-                        )}
+                      <td className="px-4 py-3.5 align-middle">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center rounded-md border border-orange-500/25 bg-orange-500/10 px-2 py-0.5 text-[11px] font-medium text-orange-300">
+                            {scopeLabel}
+                          </span>
+                          {volStr && (
+                            <span className="inline-flex items-center rounded-md border border-white/[0.07] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-300">
+                              {volStr}
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 font-mono tabular-nums">
-                        <span className="inline-flex items-center gap-1 rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-200">
+                      <td className="px-4 py-3.5 align-middle">
+                        <div className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.07] bg-zinc-900/90 px-2 py-0.5 font-mono text-[11px] text-zinc-200">
                           <Clock className="h-3 w-3 text-orange-400" />
                           {sc.cron}
-                        </span>
+                        </div>
                         {sc.nextRunAt && (
-                          <div className="mt-0.5 text-[10px] text-emerald-400">
+                          <div className="mt-1 text-[11px] font-medium text-emerald-400">
                             Next: {sc.nextRunAt}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono tabular-nums text-[11px] text-zinc-300">
-                        <div>Keep last {sc.retention}</div>
-                        <div className="text-[10px] text-zinc-500">
-                          {sc.pauseContainers ? 'Pause containers' : 'Hot snapshot'}
+                      <td className="px-4 py-3.5 align-middle">
+                        <div className="font-medium text-zinc-200 tabular-nums">
+                          Keep last {sc.retention} snapshots
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          {sc.pauseContainers ? 'Container pause enabled' : 'Live hot snapshot'}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3.5 align-middle">
                         <ShadcnSwitch
                           checked={sc.enabled}
                           onChange={(next) => {
@@ -778,7 +796,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                           }}
                         />
                       </td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3.5 text-right align-middle">
                         <ActionMenu
                           items={[
                             {
@@ -834,7 +852,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
           <button
             type="button"
             onClick={() => void fetchBackupsData(page, perPage)}
-            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
           >
             <RotateCw className="h-3 w-3 text-zinc-400" />
             Refresh
@@ -843,15 +861,16 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
 
         {/* Desktop Table View */}
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full table-fixed text-left text-xs">
+          <table className="w-full min-w-[780px] text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
-                <th className="w-[34%] px-4 py-2.5 font-medium">Archive & Remote Path</th>
-                <th className="w-[18%] px-4 py-2.5 font-medium">Scope / Volume</th>
-                <th className="w-[18%] px-4 py-2.5 font-medium">Connector</th>
-                <th className="w-[10%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[12%] px-4 py-2.5 font-medium text-right">Size</th>
-                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
+                <th className="px-4 py-2.5 font-medium">Snapshot Archive</th>
+                <th className="px-4 py-2.5 font-medium">Scope & Volumes</th>
+                <th className="px-4 py-2.5 font-medium">Storage Destination</th>
+                <th className="px-4 py-2.5 font-medium">Created</th>
+                <th className="px-4 py-2.5 font-medium text-right">Size</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
@@ -860,41 +879,64 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                   bk.destinationProvider === 'gdrive' ||
                   bk.provider === 'Google Drive' ||
                   bk.destinationName.toLowerCase().includes('google');
+                const rawScope = bk.backupType || bk.type || 'full';
+                const scopeLabel =
+                  rawScope === 'full'
+                    ? 'Full Stack'
+                    : rawScope === 'volume'
+                      ? 'Volume Snapshot'
+                      : 'App Files';
+
                 return (
-                  <tr key={bk.id} className="hover:bg-white/[0.02]">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="truncate font-mono font-semibold text-zinc-100">
+                  <tr key={bk.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-4 py-3.5 align-middle">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-zinc-100">
                           {bk.archiveName}
                         </span>
                         {bk.remoteMissing && (
-                          <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 font-mono text-[10px] text-rose-300 shrink-0">
+                          <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-300">
                             <AlertTriangle className="h-3 w-3" />
                             Missing on remote
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 font-mono text-[10px] text-zinc-500 truncate">
-                        {bk.createdAt} {bk.remotePath ? `· ${bk.remotePath}` : ''}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase text-orange-400">
-                        {bk.backupType || bk.type || 'full'}
-                      </span>
-                      {bk.volumeName && (
-                        <div className="mt-0.5 truncate text-[10px] text-zinc-400">
-                          {bk.volumeName}
+                      {bk.remotePath && (
+                        <div className="mt-0.5 text-[11px] text-zinc-500 break-all">
+                          Folder: <span className="text-zinc-400">{bk.remotePath.includes('/') ? bk.remotePath.slice(0, bk.remotePath.lastIndexOf('/')) : bk.remotePath}</span>
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px]">
-                      <div className="text-zinc-200 truncate">{bk.destinationName}</div>
-                      <div className="text-[10px] text-zinc-500">
-                        {isGDrive ? 'Google Drive' : 'Cloudflare R2'}
+                    <td className="px-4 py-3.5 align-middle">
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="inline-flex items-center rounded-md border border-orange-500/25 bg-orange-500/10 px-2 py-0.5 text-[11px] font-medium text-orange-300 whitespace-nowrap">
+                          {scopeLabel}
+                        </span>
+                        {bk.volumeName && (
+                          <span className="text-[11px] text-zinc-300 font-medium">
+                            {bk.volumeName}
+                          </span>
+                        )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5 align-middle">
+                      <div className="font-medium text-zinc-100">{bk.destinationName}</div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                        <span
+                          className={`inline-block h-1.5 w-1.5 rounded-full ${
+                            isGDrive ? 'bg-emerald-400' : 'bg-orange-400'
+                          }`}
+                        />
+                        <span>{isGDrive ? 'Google Drive' : 'Cloudflare R2'}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 align-middle whitespace-nowrap text-zinc-300 tabular-nums">
+                      {bk.createdAt}
+                    </td>
+                    <td className="px-4 py-3.5 text-right align-middle whitespace-nowrap font-medium tabular-nums text-zinc-200">
+                      {formatBytes(bk.sizeMB, bk.sizeBytes)}
+                    </td>
+                    <td className="px-4 py-3.5 align-middle whitespace-nowrap">
                       <StatusBadge
                         status={
                           bk.remoteMissing
@@ -906,67 +948,79 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                         label={bk.remoteMissing ? 'Missing' : bk.status}
                       />
                     </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {formatBytes(bk.sizeMB, bk.sizeBytes)}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <ActionMenu
-                        items={[
-                          ...(!bk.remoteMissing
-                            ? [
-                                {
-                                  label: 'Restore Backup',
-                                  icon: <RotateCcw className="h-3.5 w-3.5" />,
-                                  onClick: () => {
-                                    setRestoreJobState({ status: 'idle', log: '' });
-                                    setRestoreTarget(bk);
+                    <td className="px-4 py-3.5 text-right align-middle whitespace-nowrap">
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        {!bk.remoteMissing && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestoreJobState({ status: 'idle', log: '' });
+                              setRestoreTarget(bk);
+                            }}
+                            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white cursor-pointer"
+                          >
+                            <RotateCcw className="h-3 w-3 text-orange-400" />
+                            Restore
+                          </button>
+                        )}
+                        <ActionMenu
+                          items={[
+                            ...(!bk.remoteMissing
+                              ? [
+                                  {
+                                    label: 'Restore Backup',
+                                    icon: <RotateCcw className="h-3.5 w-3.5" />,
+                                    onClick: () => {
+                                      setRestoreJobState({ status: 'idle', log: '' });
+                                      setRestoreTarget(bk);
+                                    },
                                   },
-                                },
-                              ]
-                            : []),
-                          {
-                            label: 'View Rclone Log',
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              const res = await backendApi.backupLog(app.id, bk.id);
-                              setLogModalData({
-                                title: bk.archiveName,
-                                status: res.status || bk.status,
-                                errorMessage: res.error_message || bk.errorMessage,
-                                log:
-                                  res.log ||
-                                  `[rclone] Backup job #${bk.id} for ${app.slug}\n[tar] Created archive ${bk.archiveName}\n[rclone] Transferred to ${bk.destinationName}\n[ok] Completed at ${bk.createdAt}`,
-                              });
+                                ]
+                              : []),
+                            {
+                              label: 'View Rclone Log',
+                              icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: async () => {
+                                const res = await backendApi.backupLog(app.id, bk.id);
+                                setLogModalData({
+                                  title: bk.archiveName,
+                                  status: res.status || bk.status,
+                                  errorMessage: res.error_message || bk.errorMessage,
+                                  log:
+                                    res.log ||
+                                    `[rclone] Backup job #${bk.id} for ${app.slug}\n[tar] Created archive ${bk.archiveName}\n[rclone] Transferred to ${bk.destinationName}\n[ok] Completed at ${bk.createdAt}`,
+                                });
+                              },
                             },
-                          },
-                          ...(isGDrive && !bk.remoteMissing
-                            ? [
-                                {
-                                  label: 'Open in Google Drive',
-                                  icon: <ExternalLink className="h-3.5 w-3.5" />,
-                                  onClick: async () => {
-                                    const res = await backendApi.backupDriveLink(app.id, bk.id);
-                                    if (res.url) {
-                                      window.open(res.url, '_blank');
-                                    } else {
-                                      toast.error(res.error || 'Could not resolve Google Drive link');
-                                    }
+                            ...(isGDrive && !bk.remoteMissing
+                              ? [
+                                  {
+                                    label: 'Open in Google Drive',
+                                    icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                    onClick: async () => {
+                                      const res = await backendApi.backupDriveLink(app.id, bk.id);
+                                      if (res.url) {
+                                        window.open(res.url, '_blank');
+                                      } else {
+                                        toast.error(res.error || 'Could not resolve Google Drive link');
+                                      }
+                                    },
                                   },
-                                },
-                              ]
-                            : []),
-                          {
-                            label: 'Delete Backup',
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            variant: 'danger',
-                            onClick: () => {
-                              void backendApi.backupDelete(app.id, bk.id);
-                              setHistoryItems((prev) => prev.filter((item) => item.id !== bk.id));
-                              toast.success(`Deleted ${bk.archiveName}`);
+                                ]
+                              : []),
+                            {
+                              label: 'Delete Backup',
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              variant: 'danger',
+                              onClick: () => {
+                                void backendApi.backupDelete(app.id, bk.id);
+                                setHistoryItems((prev) => prev.filter((item) => item.id !== bk.id));
+                                toast.success(`Deleted ${bk.archiveName}`);
+                              },
                             },
-                          },
-                        ]}
-                      />
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1244,7 +1298,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
 
           <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
             <span className="text-xs text-zinc-200">
-              Pause containers during scheduled backup (pause_containers)
+              Pause containers during scheduled backup
             </span>
             <ShadcnSwitch checked={schedPauseContainers} onChange={setSchedPauseContainers} />
           </div>
