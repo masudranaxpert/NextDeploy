@@ -149,6 +149,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [containerSearch, setContainerSearch] = useState('');
   const [containerStateFilter, setContainerStateFilter] = useState<'all' | 'running' | 'exited'>('all');
   const [terminalContainer, setTerminalContainer] = useState<string>('');
+  const [terminalShell, setTerminalShell] = useState<'/bin/sh' | '/bin/bash' | '/bin/ash'>('/bin/sh');
   const [execTargetContainer, setExecTargetContainer] = useState<string | null>(null);
   const [execCommand, setExecCommand] = useState('');
   const [execOutput, setExecOutput] = useState<string | null>(null);
@@ -1070,6 +1071,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [newMemberRole, setNewMemberRole] = useState<'deployer' | 'viewer'>('deployer');
 
   const [limitsModalOpen, setLimitsModalOpen] = useState(false);
+  const [unlimitedResources, setUnlimitedResources] = useState(false);
   const [cpuQuota, setCpuQuota] = useState('2.0');
   const [memQuota, setMemQuota] = useState('2048');
 
@@ -1653,7 +1655,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     }
   };
 
-  // Tabs
+  // Tabs — hide Git tab when project is a pure Manual Workspace Directory with no Git repository connected
+  const hasGitConnection = Boolean(app.gitRepo) || app.sourceType === 'git';
   const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
     { id: 'overview', label: 'General' },
     { id: 'containers', label: 'Containers', count: app.services.length },
@@ -1661,7 +1664,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     { id: 'domains', label: 'Domains', count: app.domains.length },
     { id: 'env', label: 'Environment', count: app.envVars.length },
     { id: 'files', label: 'File Manager', count: defaultRichFiles.length },
-    { id: 'git', label: 'Git' },
+    ...(hasGitConnection ? [{ id: 'git' as AppWorkspaceTab, label: 'Git' }] : []),
     { id: 'volumes', label: 'Volumes', count: app.volumes.length },
     { id: 'backups', label: 'Backups', count: projectBackups.length },
     { id: 'logs', label: 'Logs' },
@@ -2197,14 +2200,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
                     <span className="text-[10px] text-zinc-500 block">Max CPU</span>
                     <div className="mt-0.5 flex items-baseline justify-between">
-                      <span className="text-zinc-100 font-semibold">{cpuQuota} vCPU</span>
+                      <span className="text-zinc-100 font-semibold">
+                        {unlimitedResources || cpuQuota === '0' ? 'Unlimited' : `${cpuQuota} vCPU`}
+                      </span>
                       <span className="text-[10px] text-emerald-400">{app.cpuPct}% used</span>
                     </div>
                   </div>
                   <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
                     <span className="text-[10px] text-zinc-500 block">Max Memory</span>
                     <div className="mt-0.5 flex items-baseline justify-between">
-                      <span className="text-zinc-100 font-semibold">{memQuota} MB</span>
+                      <span className="text-zinc-100 font-semibold">
+                        {unlimitedResources || memQuota === '0' ? 'Unlimited' : `${memQuota} MB`}
+                      </span>
                       <span className="text-[10px] text-sky-400">{app.memMB} MB</span>
                     </div>
                   </div>
@@ -2243,20 +2250,46 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             open={switchSourceModalOpen}
             onClose={() => setSwitchSourceModalOpen(false)}
             title={
-              app.sourceType === 'git'
-                ? 'Switch to Manual Workspace Files'
-                : 'Switch to Git Repository Source'
+              hasGitConnection
+                ? 'Switch to Pure Manual Workspace Directory'
+                : 'Connect Git Repository Source'
             }
             icon={<RefreshCw className="h-4 w-4 text-orange-400" />}
           >
             <div className="space-y-4">
-              {app.sourceType === 'git' ? (
+              {hasGitConnection ? (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 leading-relaxed">
-                  Switching to <strong>Manual files</strong> disconnects the Git repository config and uses the editable workspace directory for future deployments. (To keep the repo saved while editing files, use <strong>Pause Git sync</strong> instead.)
+                  Switching to <strong>Manual Workspace Files</strong> completely detaches Git from this project and hides the Git tab. (If you want to keep Git connected while editing files manually, use <strong>Pause Git sync</strong> instead.)
                 </div>
               ) : (
-                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-200 leading-relaxed">
-                  Switching to <strong>Git source</strong> clears uploaded workspace files (except panel <code className="font-mono">.env</code>) so your Git repository checkout is the single deploy source.
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-200 leading-relaxed">
+                    Connecting a <strong>Git repository</strong> enables the Git tab and sets the repository checkout as the deploy source.
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                      Git Repository URL
+                    </label>
+                    <input
+                      type="text"
+                      value={gitRepoInput}
+                      onChange={(e) => setGitRepoInput(e.target.value)}
+                      placeholder={`https://github.com/masudranaxpert/${app.slug}`}
+                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                      Branch
+                    </label>
+                    <input
+                      type="text"
+                      value={gitBranchInput}
+                      onChange={(e) => setGitBranchInput(e.target.value)}
+                      placeholder="main"
+                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -2271,29 +2304,41 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const targetSource = app.sourceType === 'git' ? 'files' : 'git';
+                    const targetSource = hasGitConnection ? 'files' : 'git';
                     const res = await backendApi.switchAppSource(app.id, targetSource);
                     if (!res.ok && !res.offlineFallback) {
                       toast.error(res.error || 'Failed to switch deploy source');
                       return;
                     }
-                    onUpdateApp({
-                      ...app,
-                      sourceType: targetSource === 'git' ? 'git' : 'compose',
-                      gitSync: targetSource === 'git',
-                    });
-                    setSwitchSourceModalOpen(false);
                     if (targetSource === 'git') {
+                      const nextRepo =
+                        gitRepoInput.trim() || `https://github.com/masudranaxpert/${app.slug}`;
+                      const nextBranch = gitBranchInput.trim() || 'main';
+                      onUpdateApp({
+                        ...app,
+                        gitRepo: nextRepo,
+                        gitBranch: nextBranch,
+                        sourceType: 'git',
+                        gitSync: true,
+                      });
+                      setSwitchSourceModalOpen(false);
                       setActiveTab('git');
-                      toast.success('Switched to Git source');
+                      toast.success('Connected Git repository source');
                     } else {
+                      onUpdateApp({
+                        ...app,
+                        gitRepo: '',
+                        sourceType: 'compose',
+                        gitSync: false,
+                      });
+                      setSwitchSourceModalOpen(false);
                       setActiveTab('files');
-                      toast.success('Switched to Manual workspace files');
+                      toast.success('Switched to pure Manual Workspace Directory (Git detached)');
                     }
                   }}
                   className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
                 >
-                  {app.sourceType === 'git' ? 'Switch to Manual Files' : 'Switch to Git Source'}
+                  {hasGitConnection ? 'Detach Git & Use Manual Files' : 'Connect Git Source'}
                 </button>
               </div>
             </div>
@@ -4034,7 +4079,19 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     onChange={handleSaveFileContent}
                     onSave={() => {
                       void backendApi.fileSave(app.id, selectedFile.path, selectedFile.content);
-                      toast.success(`Saved ${selectedFile.path}`);
+                      if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
+                        void backendApi.setGitSync(app.id, false, false);
+                        onUpdateApp({
+                          ...app,
+                          sourceType: 'compose',
+                          gitSync: false,
+                        });
+                        toast.success(
+                          `Saved ${selectedFile.path} · Git Sync automatically paused due to manual file edit`
+                        );
+                      } else {
+                        toast.success(`Saved ${selectedFile.path}`);
+                      }
                     }}
                     permissions={filePermissions[selectedFile.path] || '-rw-r--r-- (0644)'}
                     height={420}
@@ -4044,7 +4101,19 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         onClick={() => {
                           void backendApi.fileSave(app.id, selectedFile.path, selectedFile.content);
                           void backendApi.composeAction(app.id, 'restart');
-                          toast.success(`Saved ${selectedFile.path} & restarted compose services`);
+                          if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
+                            void backendApi.setGitSync(app.id, false, false);
+                            onUpdateApp({
+                              ...app,
+                              sourceType: 'compose',
+                              gitSync: false,
+                            });
+                            toast.success(
+                              `Saved ${selectedFile.path}, paused Git Sync & restarted compose services`
+                            );
+                          } else {
+                            toast.success(`Saved ${selectedFile.path} & restarted compose services`);
+                          }
                         }}
                         className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/25 cursor-pointer"
                       >
@@ -4485,34 +4554,74 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'terminal' && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 px-3.5 py-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-zinc-300">Target Container:</span>
-              <select
-                value={terminalContainer || app.services[0]?.name || ''}
-                onChange={(e) => setTerminalContainer(e.target.value)}
-                className="h-7 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 font-mono text-xs text-zinc-200 focus:outline-none"
-              >
-                {app.services.map((s) => (
-                  <option key={s.id} value={s.name}>
-                    {s.name} ({s.service})
-                  </option>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <TerminalIcon className="h-4 w-4 text-orange-400" />
+                <span className="text-xs font-semibold text-zinc-200">Container Shell</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-zinc-500">Target:</span>
+                <select
+                  value={terminalContainer || app.services[0]?.name || ''}
+                  onChange={(e) => setTerminalContainer(e.target.value)}
+                  className="h-7 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 font-mono text-xs text-zinc-200 focus:outline-none"
+                >
+                  {app.services.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name} ({s.service})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 font-mono text-[11px]">
+                {(['/bin/sh', '/bin/bash', '/bin/ash'] as const).map((sh) => (
+                  <button
+                    key={sh}
+                    type="button"
+                    onClick={() => setTerminalShell(sh)}
+                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
+                      terminalShell === sh
+                        ? 'bg-orange-500/20 text-orange-300 font-semibold'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {sh}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
-            <div className="font-mono text-[11px] text-zinc-400">
-              Interactive Docker TTY (/bin/sh auto-shell)
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = terminalContainer || app.services[0]?.name || '';
+                  if (target) {
+                    setExecTargetContainer(target);
+                    setExecCommand('');
+                    setExecOutput(null);
+                  }
+                }}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+              >
+                <Play className="h-3 w-3 text-orange-400" />
+                <span>One-off Exec</span>
+              </button>
             </div>
           </div>
+
           <XTermConsole
-            key={terminalContainer || app.services[0]?.name}
-            hostLabel={`root@${terminalContainer || app.slug}`}
+            key={`${terminalContainer || app.services[0]?.name}-${terminalShell}`}
+            hostLabel={`root@${terminalContainer || app.slug} (${terminalShell})`}
             promptPrefix={`root@${terminalContainer || app.slug}:/app# `}
             wsPath={`/apps/${encodeURIComponent(app.id)}/ws/terminal?container=${encodeURIComponent(
               terminalContainer || app.services[0]?.name || ''
-            )}`}
+            )}&shell=${encodeURIComponent(terminalShell)}`}
             presets={['docker compose ps', 'env', 'ls -la', 'top -b -n 1 | head -n 12', 'clear']}
-            height={390}
+            height={420}
           />
         </div>
       )}
@@ -6169,34 +6278,67 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           onSubmit={(e) => {
             e.preventDefault();
             setLimitsModalOpen(false);
-            toast.success(`Updated container limits (${cpuQuota} vCPU / ${memQuota} MB)`);
+            if (unlimitedResources || cpuQuota === '0' || memQuota === '0') {
+              toast.success('Removed container resource limits (Unlimited CPU & Memory)');
+            } else {
+              toast.success(`Updated container limits (${cpuQuota} vCPU / ${memQuota} MB)`);
+            }
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-[#09090b] px-3.5 py-2.5">
             <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Max CPU (vCPU)
-              </label>
-              <input
-                type="text"
-                value={cpuQuota}
-                onChange={(e) => setCpuQuota(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
+              <div className="text-xs font-semibold text-zinc-100">
+                No Resource Limit (Unlimited)
+              </div>
+              <div className="text-[11px] text-zinc-400">
+                Allow containers to use all available host CPU and memory
+              </div>
             </div>
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Max Memory (MB)
-              </label>
-              <input
-                type="text"
-                value={memQuota}
-                onChange={(e) => setMemQuota(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
-            </div>
+            <ShadcnSwitch
+              checked={unlimitedResources}
+              onChange={(next) => {
+                setUnlimitedResources(next);
+                if (next) {
+                  setCpuQuota('0');
+                  setMemQuota('0');
+                } else {
+                  if (cpuQuota === '0') setCpuQuota('2.0');
+                  if (memQuota === '0') setMemQuota('2048');
+                }
+              }}
+            />
           </div>
+
+          {!unlimitedResources && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  Max CPU (vCPU)
+                </label>
+                <input
+                  type="text"
+                  value={cpuQuota}
+                  onChange={(e) => setCpuQuota(e.target.value)}
+                  placeholder="2.0"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  Max Memory (MB)
+                </label>
+                <input
+                  type="text"
+                  value={memQuota}
+                  onChange={(e) => setMemQuota(e.target.value)}
+                  placeholder="2048"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"

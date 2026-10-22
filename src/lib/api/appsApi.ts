@@ -1,0 +1,332 @@
+import { BootstrapData, DomainFormPayload, requestJson, requestText, toFormBody } from './http';
+
+export const appsAndDockerApi = {
+  // Bootstrap & Auth
+  bootstrap: () => requestJson<BootstrapData>('/api/panel/bootstrap'),
+  setup: (username: string, password: string, confirm: string) =>
+    requestJson<{ ok: boolean; error?: string }>('/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, confirm }),
+    }),
+  login: (username: string, password: string, next = '/overview') =>
+    requestJson<{ ok: boolean; error?: string }>('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, next }),
+    }),
+  setupAdmin: (username: string, password: string, confirm: string) =>
+    requestJson('/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, confirm }),
+    }),
+  logout: () => requestJson('/logout', { method: 'POST' }),
+
+  // Apps & Compose Lifecycle
+  createApp: (
+    payload:
+      | string
+      | {
+          name: string;
+          description?: string;
+          sourceType?: string;
+          gitRepo?: string;
+          gitBranch?: string;
+          composeContent?: string;
+        }
+  ) => {
+    const name = typeof payload === 'string' ? payload : payload.name;
+    return requestJson('/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name }),
+    });
+  },
+  deleteApp: (appId: string, confirmName?: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ confirm_name: confirmName || appId }),
+    }),
+  composeAction: (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy') =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/compose/${action}`, { method: 'POST' }),
+  saveComposeFile: (appId: string, composeFile: string, content?: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/compose-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ compose_file: composeFile, compose_content: content }),
+    }),
+  composeView: async (appId: string) => {
+    const res = await requestText(`/apps/${encodeURIComponent(appId)}/compose-view`);
+    return { ...res, yaml: res.data };
+  },
+  clearDeployLogs: (appId: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/deploy-logs/clear`, { method: 'POST' }),
+  deployLogGet: (appId: string, logId: string | number) =>
+    requestJson<{
+      action: string;
+      ok: boolean;
+      output: string;
+      created_label: string;
+    }>(`/apps/${encodeURIComponent(appId)}/deploy-logs/${encodeURIComponent(String(logId))}`),
+  deployLogDelete: (appId: string, logId: string | number) =>
+    requestJson(
+      `/apps/${encodeURIComponent(appId)}/deploy-logs/${encodeURIComponent(String(logId))}/delete`,
+      { method: 'POST' }
+    ),
+  saveAppEnv: (appId: string, envContent: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/env`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ env: envContent }),
+    }),
+
+  // Workspace File Manager
+  filesTree: (appId: string, path = '') =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/tree?path=${encodeURIComponent(path)}`),
+  fileBlob: (appId: string, path: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/blob?path=${encodeURIComponent(path)}`),
+  fileSave: (appId: string, path: string, content: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/save?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }),
+  fileCreate: (appId: string, path: string, isDir = false) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/${isDir ? 'mkdir' : 'create'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }),
+  fileDelete: (appId: string, path: string | string[]) => {
+    const fd = new FormData();
+    const arr = Array.isArray(path) ? path : [path];
+    arr.forEach((p) => fd.append('paths', p));
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/delete?format=json`,
+      {
+        method: 'POST',
+        body: fd,
+      }
+    );
+  },
+  fileRename: (appId: string, oldPath: string, newPath: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ old_path: oldPath, new_path: newPath }),
+    }),
+  fileMove: (appId: string, paths: string[], dest: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, dest }),
+    }),
+  fileCopy: (appId: string, paths: string[], dest: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/copy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, dest }),
+    }),
+  fileZip: (appId: string, paths: string | string[], name = 'archive.zip', dest = '') =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/zip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paths: Array.isArray(paths) ? paths : [paths],
+        name,
+        dest,
+      }),
+    }),
+  fileUnzip: (appId: string, path: string, dest = '') =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/files/unzip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, dest }),
+    }),
+  fileUrlUpload: async (appId: string, url: string, dest = '') => {
+    const res = await requestJson<{ file?: string; bytes?: number }>(
+      `/apps/${encodeURIComponent(appId)}/files/url-upload`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, dest }),
+      }
+    );
+    return { ...res, file: res.data?.file, bytes: res.data?.bytes };
+  },
+  fileUpload: (appId: string, file: File, destDir = '') => {
+    const fd = new FormData();
+    fd.append('path', destDir);
+    fd.append('file', file);
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/upload`,
+      { method: 'POST', body: fd }
+    );
+  },
+  uploadZip: (appId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('archive', file);
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/upload-zip`,
+      { method: 'POST', body: fd }
+    );
+  },
+  fileDownloadZipUrl: (appId: string, paths?: string[]) => {
+    const q = paths && paths.length ? `?paths=${encodeURIComponent(paths.join(','))}` : '';
+    return `/apps/${encodeURIComponent(appId)}/files/download-zip${q}`;
+  },
+  fileMkdir: (appId: string, path: string) =>
+    requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/mkdir`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      }
+    ),
+
+  // Container & Image Lifecycle
+  appContainerAction: (
+    appId: string,
+    containerName: string,
+    action: 'start' | 'stop' | 'restart' | 'remove'
+  ) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/containers/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: containerName, container: containerName }),
+    }),
+  appExec: (appId: string, container: string, command: string) => {
+    const fd = new FormData();
+    fd.append('container', container);
+    fd.append('command', command);
+    return requestJson<{ ok: boolean; output: string }>(
+      `/apps/${encodeURIComponent(appId)}/exec`,
+      { method: 'POST', body: fd }
+    );
+  },
+  appContainersRemoveSelected: (appId: string, containerNames: string[]) => {
+    const body = new URLSearchParams();
+    for (const name of containerNames) {
+      body.append('name', name);
+      body.append('containers', name);
+    }
+    return requestJson(`/apps/${encodeURIComponent(appId)}/containers/remove-selected`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  },
+  globalContainerAction: (containerName: string, action: 'restart' | 'remove') =>
+    requestJson(`/containers/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: containerName }),
+    }),
+  globalContainersRemoveSelected: (containerNames: string[]) => {
+    const body = new URLSearchParams();
+    for (const name of containerNames) {
+      body.append('name', name);
+    }
+    return requestJson('/containers/remove-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  },
+  globalContainersPrune: () =>
+    requestJson<{ ok: boolean; message?: string }>('/containers/prune', { method: 'POST' }),
+  globalImageRemove: (idOrTag: string) =>
+    requestJson(`/images/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ id: idOrTag }),
+    }),
+  globalImagesPrune: () =>
+    requestJson<{ ok: boolean; message?: string }>('/images/prune', { method: 'POST' }),
+  globalVolumeRemove: (volumeName: string) =>
+    requestJson('/volumes/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: volumeName }),
+    }),
+
+  // Domains & DNS Check
+  domainCreate: (appId: string, payload: DomainFormPayload) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/domains`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({
+        domain: payload.domain,
+        service: payload.service,
+        port: payload.port,
+        enable_https: payload.enable_https !== false ? 'on' : '',
+        enable_www: payload.enable_www ? 'on' : '',
+        serve_static: payload.serve_static ? 'on' : '',
+        static_path: payload.static_path || '',
+        static_url_prefix: payload.static_url_prefix || '',
+        serve_media: payload.serve_media ? 'on' : '',
+        media_path: payload.media_path || '',
+        media_url_prefix: payload.media_url_prefix || '',
+      }),
+    }),
+  domainEdit: (appId: string, domainId: string | number, payload: DomainFormPayload) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({
+        domain: payload.domain,
+        service: payload.service,
+        port: payload.port,
+        enable_https: payload.enable_https !== false ? 'on' : '',
+        enable_www: payload.enable_www ? 'on' : '',
+        serve_static: payload.serve_static ? 'on' : '',
+        static_path: payload.static_path || '',
+        static_url_prefix: payload.static_url_prefix || '',
+        serve_media: payload.serve_media ? 'on' : '',
+        media_path: payload.media_path || '',
+        media_url_prefix: payload.media_url_prefix || '',
+      }),
+    }),
+  domainDelete: (appId: string, domainId: string | number) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/delete`, {
+      method: 'POST',
+    }),
+  domainDnsCheck: async (appId: string, domainId: string | number) => {
+    const res = await requestJson<{
+      ok: boolean;
+      domain: string;
+      ips: string[];
+      cloudflare: boolean;
+      internalTLS: boolean;
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/dns-check`);
+    return {
+      ...res,
+      domain: res.data?.domain,
+      ips: res.data?.ips,
+      cloudflare: res.data?.cloudflare,
+      internalTLS: res.data?.internalTLS,
+    };
+  },
+  domainLabels: async (appId: string, domainId: string | number) => {
+    const res = await requestJson<{
+      ok?: boolean;
+      domain?: string;
+      port?: number;
+      labels?: Record<string, string>;
+      yaml?: string;
+      snippet?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/labels`);
+    return {
+      ...res,
+      domain: res.data?.domain,
+      port: res.data?.port,
+      labels: res.data?.labels,
+      yaml: res.data?.yaml,
+      snippet: res.data?.yaml || res.data?.snippet,
+    };
+  },
+};

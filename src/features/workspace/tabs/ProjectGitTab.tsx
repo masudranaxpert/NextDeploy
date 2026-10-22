@@ -3,22 +3,15 @@ import {
   GitBranch,
   RefreshCw,
   Webhook,
-  FolderGit2,
-  FolderOpen,
-  FileText,
   Trash2,
-  Copy,
   CheckCircle2,
   AlertTriangle,
-  Lock,
-  Globe,
-  ChevronRight,
-  X,
+  Pause,
+  Play,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
 import { ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../../components/ui/Primitives';
-import { CodeEditorBox } from '../../../components/ui/CodeEditorBox';
 import { backendApi } from '../../../lib/backendApi';
 import { INITIAL_GIT_PROVIDERS, INITIAL_SYNCED_REPOS } from '../../../data/initialData';
 
@@ -36,10 +29,7 @@ interface RepoOption {
 }
 
 export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }) => {
-  const [sourceMode, setSourceMode] = useState<'git' | 'files'>(
-    app.sourceType === 'git' ? 'git' : 'files'
-  );
-  const [gitSyncEnabled, setGitSyncEnabled] = useState<boolean>(app.gitSync ?? true);
+  const [gitSyncEnabled, setGitSyncEnabled] = useState<boolean>(app.gitSync ?? (app.sourceType === 'git'));
   const [authMode, setAuthMode] = useState<'public' | 'github_app' | 'gitlab_token'>(
     app.gitAuthMode || 'github_app'
   );
@@ -56,6 +46,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   );
   const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
+
+  useEffect(() => {
+    setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
+  }, [app.gitSync, app.sourceType]);
 
   // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
   const [providerRepos, setProviderRepos] = useState<RepoOption[]>(
@@ -75,25 +69,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   ]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   // Force Copy Git Checkout Confirmation Modal (when pausing GitSync with existing workspace files)
   const [forceSyncModalOpen, setForceSyncModalOpen] = useState(false);
   const [forceSyncWarning, setForceSyncWarning] = useState('');
-
-  // Read-Only Git Checkout Tree & Blob Viewer (/apps/:id/git/tree & /apps/:id/git/blob)
-  const [gitTreePath, setGitTreePath] = useState('');
-  const [gitTreeEntries, setGitTreeEntries] = useState<
-    Array<{ name: string; path: string; is_dir: boolean; size: number }>
-  >([
-    { name: 'src', path: 'src', is_dir: true, size: 0 },
-    { name: 'docker-compose.yml', path: 'docker-compose.yml', is_dir: false, size: 642 },
-    { name: 'Dockerfile', path: 'Dockerfile', is_dir: false, size: 540 },
-    { name: 'package.json', path: 'package.json', is_dir: false, size: 462 },
-  ]);
-  const [viewingGitBlob, setViewingGitBlob] = useState<{
-    path: string;
-    content: string;
-  } | null>(null);
 
   const loadProviderRepos = async (pid: string) => {
     if (!pid) return;
@@ -115,60 +95,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     }
   };
 
-  const loadGitCheckoutTree = async (targetPath = '') => {
-    setGitTreePath(targetPath);
-    const res = await backendApi.gitTree(app.id, targetPath);
-    if (res.ok && Array.isArray(res.data?.entries)) {
-      setGitTreeEntries(res.data.entries);
-    } else if (targetPath === 'src') {
-      setGitTreeEntries([
-        { name: 'server.ts', path: 'src/server.ts', is_dir: false, size: 690 },
-        { name: 'db.ts', path: 'src/db.ts', is_dir: false, size: 480 },
-      ]);
-    } else if (targetPath === '') {
-      setGitTreeEntries([
-        { name: 'src', path: 'src', is_dir: true, size: 0 },
-        { name: 'docker-compose.yml', path: 'docker-compose.yml', is_dir: false, size: 642 },
-        { name: 'Dockerfile', path: 'Dockerfile', is_dir: false, size: 540 },
-        { name: 'package.json', path: 'package.json', is_dir: false, size: 462 },
-      ]);
-    }
-  };
-
-  const openGitBlob = async (filePath: string) => {
-    const res = await backendApi.gitBlob(app.id, filePath);
-    if (res.ok && typeof res.data?.content === 'string') {
-      setViewingGitBlob({ path: filePath, content: res.data.content });
-      return;
-    }
-    const matched = app.files.find((f) => f.path === filePath);
-    setViewingGitBlob({
-      path: filePath,
-      content:
-        matched?.content ||
-        `# Read-only Git Checkout (${branch})\n# File: ${filePath}\nversion: "3.9"\nservices:\n  app:\n    build: .\n`,
-    });
-  };
-
   useEffect(() => {
     if (authMode !== 'public' && selectedProviderId) {
       void loadProviderRepos(selectedProviderId);
     }
   }, [authMode, selectedProviderId]);
-
-  const handleSwitchSourceMode = async (next: 'git' | 'files') => {
-    setSourceMode(next);
-    await backendApi.switchAppSource(app.id, next);
-    onUpdateApp({
-      ...app,
-      sourceType: next === 'git' ? 'git' : 'compose',
-    });
-    toast.success(
-      next === 'git'
-        ? 'Switched project deployment source to Git Repository'
-        : 'Switched project deployment source to Workspace Files'
-    );
-  };
 
   const handleToggleGitSync = async (nextEnabled: boolean, force = false) => {
     const res = await backendApi.setGitSync(app.id, nextEnabled, force);
@@ -182,11 +113,30 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     }
     setGitSyncEnabled(nextEnabled);
     setForceSyncModalOpen(false);
-    onUpdateApp({ ...app, gitSync: nextEnabled });
+    onUpdateApp({
+      ...app,
+      sourceType: nextEnabled ? 'git' : 'compose',
+      gitSync: nextEnabled,
+    });
     toast.success(
       nextEnabled
-        ? 'Git Sync enabled — deployments track the Git repository checkout'
-        : 'Git Sync paused — copied Git checkout files into editable Workspace'
+        ? 'Git Sync ON — deployments automatically pull from Git'
+        : 'Git Sync OFF — deployments use Workspace Files (use Sync Now for manual Git pull)'
+    );
+  };
+
+  const handleManualSyncNow = async () => {
+    setIsSyncingNow(true);
+    const res = await backendApi.gitSyncNow(app.id, false);
+    setIsSyncingNow(false);
+    if (!res.ok && !res.offlineFallback) {
+      toast.error(res.error || 'Repository sync failed');
+      return;
+    }
+    toast.success(
+      gitSyncEnabled
+        ? `Pulled latest commits from ${branch}`
+        : `Manually synced ${branch} into File Manager workspace`
     );
   };
 
@@ -205,27 +155,27 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     }
     onUpdateApp({
       ...app,
-      sourceType: 'git',
+      sourceType: gitSyncEnabled ? 'git' : 'compose',
+      gitSync: gitSyncEnabled,
       gitAuthMode: authMode,
       gitProviderId: selectedProviderId,
       gitRepo: repoUrl.trim(),
       gitBranch: branch.trim() || 'main',
       webhookAutoDeploy: autoDeploy,
     });
-    setSourceMode('git');
     toast.success(`Saved Git configuration (${branch.trim() || 'main'})`);
   };
 
   const handleDisconnectGit = async () => {
     await backendApi.deleteAppGit(app.id);
-    setSourceMode('files');
     onUpdateApp({
       ...app,
       sourceType: 'compose',
+      gitSync: false,
       gitRepo: undefined,
       webhookAutoDeploy: false,
     });
-    toast.success('Disconnected Git repository and switched to Workspace Files');
+    toast.success('Disconnected Git repository — project is now in Pure Manual Files mode');
   };
 
   const webhookUrl =
@@ -235,7 +185,52 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   return (
     <div className="space-y-4">
-      {/* Row 1: Git Provider, Repository & Branch Configuration Form (POST /apps/:id/git) */}
+      {/* Row 1: Git Sync ON / OFF Control Bar + Manual Sync Now */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-zinc-200">Git Sync:</span>
+            <ShadcnSwitch
+              checked={gitSyncEnabled}
+              onChange={(next) => void handleToggleGitSync(next)}
+            />
+          </div>
+          {gitSyncEnabled ? (
+            <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-300">
+              Git Sync ON · Auto-pulls {branch} on deploy
+            </span>
+          ) : (
+            <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-amber-300">
+              Git Sync OFF · Manual File Edits Active (Pull manually with Sync Now)
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleManualSyncNow()}
+            disabled={isSyncingNow}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-orange-500/35 bg-orange-500/12 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isSyncingNow ? 'animate-spin' : ''}`} />
+            {isSyncingNow ? 'Syncing...' : 'Sync Now (Pull from Git)'}
+          </button>
+
+          {app.gitRepo && (
+            <button
+              type="button"
+              onClick={() => void handleDisconnectGit()}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Disconnect Git
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Row 2: Git Provider, Repository & Branch Configuration Form (POST /apps/:id/git) */}
       <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -244,38 +239,27 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               Git Repository &amp; Branch
             </h2>
             <StatusBadge
-              status={app.sourceType === 'git' ? 'active' : 'stopped'}
-              label={app.sourceType === 'git' ? 'Git Source' : 'Workspace Files'}
+              status={gitSyncEnabled ? 'active' : 'stopped'}
+              label={gitSyncEnabled ? 'Git Sync ON' : 'Git Sync OFF'}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={async () => {
-                const res = await backendApi.gitSyncNow(app.id, false);
-                if (!res.ok && !res.offlineFallback) {
-                  toast.error(res.error || 'Repository sync failed');
-                  return;
-                }
-                void loadGitCheckoutTree(gitTreePath);
-                toast.success(`Synced repository (${branch})`);
-              }}
-              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-            >
-              <RefreshCw className="h-3 w-3 text-orange-400" />
-              Sync Now
-            </button>
-            {app.gitRepo && (
-              <button
-                type="button"
-                onClick={() => void handleDisconnectGit()}
-                className="inline-flex h-7 items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
-              >
-                <Trash2 className="h-3 w-3" />
-                Disconnect
-              </button>
+          <button
+            type="button"
+            onClick={() => void handleToggleGitSync(!gitSyncEnabled)}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+          >
+            {gitSyncEnabled ? (
+              <>
+                <Pause className="h-3 w-3 text-amber-400" />
+                Turn Off Git Sync
+              </>
+            ) : (
+              <>
+                <Play className="h-3 w-3 text-emerald-400" />
+                Turn On Git Sync
+              </>
             )}
-          </div>
+          </button>
         </div>
 
         <form onSubmit={handleSaveGitConfig} className="space-y-4">
@@ -383,7 +367,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-3">
             <div className="md:col-span-2">
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Repository Clone URL (repo_url)
+                Repository Clone URL
               </label>
               <input
                 type="text"
@@ -473,10 +457,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
             <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
               <div>
                 <div className="text-xs font-medium text-zinc-200">
-                  Auto-Deploy on Push (auto_deploy)
+                  Auto-Deploy on Push
                 </div>
                 <div className="text-[11px] text-zinc-500">
-                  Automatically pull and redeploy when commits are pushed to {branch}
+                  Redeploy automatically when commits are pushed to {branch}
                 </div>
               </div>
               <ShadcnSwitch checked={autoDeploy} onChange={setAutoDeploy} />
@@ -493,105 +477,6 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
             </button>
           </div>
         </form>
-      </div>
-
-      {/* Row 3: Read-Only Git Checkout File Browser (/apps/:id/git/tree & /apps/:id/git/blob) */}
-      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#09090b]/50 px-4 py-3">
-          <div className="flex items-center gap-2 font-mono text-xs">
-            <FolderGit2 className="h-4 w-4 text-orange-400" />
-            <span className="font-semibold text-zinc-100">Git Checkout Tree</span>
-            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-orange-400">
-              {branch}
-            </span>
-            {gitTreePath && (
-              <>
-                <ChevronRight className="h-3.5 w-3.5 text-zinc-600" />
-                <span className="text-zinc-300">/{gitTreePath}</span>
-                <button
-                  type="button"
-                  onClick={() => void loadGitCheckoutTree('')}
-                  className="ml-1 rounded border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[10px] text-orange-400 hover:bg-zinc-800 cursor-pointer"
-                >
-                  .. Root
-                </button>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadGitCheckoutTree(gitTreePath)}
-            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
-          >
-            <RefreshCw className="h-3 w-3" />
-            Refresh Checkout
-          </button>
-        </div>
-
-        {viewingGitBlob ? (
-          <div className="p-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold text-zinc-200">
-                {viewingGitBlob.path} (Read-only Git Checkout)
-              </span>
-              <button
-                type="button"
-                onClick={() => setViewingGitBlob(null)}
-                className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
-              >
-                <X className="h-3.5 w-3.5" />
-                Close File
-              </button>
-            </div>
-            <CodeEditorBox
-              filename={viewingGitBlob.path}
-              value={viewingGitBlob.content}
-              onChange={() => {}}
-              readOnly
-              height={260}
-            />
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs font-mono">
-            <thead>
-              <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-500">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium text-right">Size</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
-              {gitTreeEntries.map((entry) => (
-                <tr
-                  key={entry.path}
-                  onClick={() => {
-                    if (entry.is_dir) {
-                      void loadGitCheckoutTree(entry.path);
-                    } else {
-                      void openGitBlob(entry.path);
-                    }
-                  }}
-                  className="hover:bg-white/[0.03] cursor-pointer"
-                >
-                  <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
-                    {entry.is_dir ? (
-                      <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                    ) : (
-                      <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                    )}
-                    <span>{entry.name}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-zinc-400">
-                    {entry.is_dir ? 'Directory' : 'File'}
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
-                    {entry.is_dir ? '—' : `${entry.size} B`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </div>
 
       {/* Force Pause Git Sync Confirmation Modal */}
@@ -616,7 +501,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               onClick={() => void handleToggleGitSync(false, true)}
               className="rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 cursor-pointer"
             >
-              Overwrite & Pause Git Sync
+              Overwrite &amp; Pause Git Sync
             </button>
           </div>
         </div>

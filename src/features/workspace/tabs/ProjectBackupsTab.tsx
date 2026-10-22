@@ -564,18 +564,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
     <div className="space-y-5">
       {/* SECTION 1: Manual Backup Runner Card (POST /apps/:id/backup/:destid) */}
       <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-              <Archive className="h-4 w-4 text-orange-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-100">Run Manual Backup</h2>
-              <p className="text-xs text-zinc-400">
-                Create an immediate Rclone backup archive for <span className="font-mono text-zinc-200">{app.slug}</span>.
-              </p>
-            </div>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+            <Archive className="h-4 w-4 text-orange-400" />
           </div>
+          <h2 className="text-sm font-semibold text-zinc-100">Run Manual Backup</h2>
         </div>
 
         <form onSubmit={handleRunManualBackup} className="space-y-4">
@@ -583,12 +576,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             {/* Storage Connector */}
             <div>
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Target Storage Connector
+                Storage Destination
               </label>
               <select
                 value={manualDestId}
                 onChange={(e) => setManualDestId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               >
                 {destinations.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -601,16 +594,16 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             {/* Backup Type */}
             <div>
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Backup Scope (type)
+                Backup Scope
               </label>
               <select
                 value={manualType}
                 onChange={(e) => setManualType(e.target.value as 'full' | 'volume' | 'app')}
-                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               >
                 <option value="full">Full Backup (App Files + All Volumes)</option>
                 <option value="volume">Docker Volume(s) Only</option>
-                <option value="app">App Files Only (Compose & .env)</option>
+                <option value="app">App Files Only (Compose &amp; .env)</option>
               </select>
             </div>
 
@@ -632,7 +625,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
           {manualType === 'volume' && (
             <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 space-y-2">
               <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                <span>Select Docker Volumes (volume_names)</span>
+                <span>Select Docker Volumes</span>
                 <button
                   type="button"
                   onClick={() =>
@@ -648,8 +641,8 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 </button>
               </div>
               {app.volumes.length === 0 ? (
-                <div className="font-mono text-xs text-zinc-500">
-                  No volumes mounted on this project. Use Full or App Files scope.
+                <div className="text-xs text-zinc-500">
+                  No volumes mounted on this project.
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">

@@ -316,6 +316,7 @@ export interface CliSessionItem {
   id: string;
   tokenName: string;
   prefix: string;
+  fullToken?: string;
   deviceHost: string;
   osArch: string;
   cliVersion: string;

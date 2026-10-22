@@ -77,14 +77,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const [r2AccessKeyId, setR2AccessKeyId] = useState('');
   const [r2SecretAccessKey, setR2SecretAccessKey] = useState('');
 
-  // Google Drive Auth Mode:
-  // 'rclone_token' -> Direct Rclone built-in OAuth (`rclone authorize "drive"`, no own Client ID/Secret needed)
-  // 'custom_oauth' -> Custom Google Cloud OAuth 2.0 Client ID & Secret
-  const [gdriveAuthMode, setGdriveAuthMode] = useState<'rclone_token' | 'custom_oauth'>(
-    'rclone_token'
-  );
-  const [rcloneTokenJson, setRcloneTokenJson] = useState('');
-  const [gdriveFolderId, setGdriveFolderId] = useState('');
+  // Google Drive OAuth 2.0 Client ID & Secret
   const [gdriveClientId, setGdriveClientId] = useState('');
   const [gdriveClientSecret, setGdriveClientSecret] = useState('');
   const [gdriveRedirectUrl, setGdriveRedirectUrl] = useState(
@@ -93,6 +86,16 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       : 'https://panel.nextdeploy.sh/backup/gdrive/callback'
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Project Backups Table Pagination (10 per page)
+  const [projectsPage, setProjectsPage] = useState(1);
+  const projectsPerPage = 10;
+  const totalProjectPages = Math.max(1, Math.ceil(apps.length / projectsPerPage));
+  const safeProjectsPage = Math.min(projectsPage, totalProjectPages);
+  const paginatedApps = apps.slice(
+    (safeProjectsPage - 1) * projectsPerPage,
+    safeProjectsPage * projectsPerPage
+  );
 
   const loadDestinations = async (silent = false) => {
     if (!silent) setIsRefreshing(true);
@@ -132,11 +135,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           endpoint: isGDrive
             ? 'https://www.googleapis.com/drive/v3'
             : `https://${accountId || 'account'}.r2.cloudflarestorage.com`,
-          region: isGDrive
-            ? cfg.auth_mode === 'custom_oauth'
-              ? 'Custom OAuth 2.0'
-              : 'Rclone Drive'
-            : 'auto',
+          region: isGDrive ? 'Google OAuth 2.0' : 'auto',
           accountId,
           folderId,
           email,
@@ -167,27 +166,10 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       setR2AccessKeyId('');
       setR2SecretAccessKey('');
     } else {
-      setGdriveAuthMode('rclone_token');
-      setRcloneTokenJson('');
-      setGdriveFolderId('');
       setGdriveClientId('');
       setGdriveClientSecret('');
     }
     setDestModalOpen(true);
-  };
-
-  const extractJsonBlock = (raw: string): string | null => {
-    const start = raw.indexOf('{');
-    const end = raw.lastIndexOf('}');
-    if (start === -1 || end <= start) return null;
-    const candidate = raw.slice(start, end + 1);
-    try {
-      const parsed = JSON.parse(candidate) as { access_token?: string };
-      if (!parsed.access_token) return null;
-      return JSON.stringify(parsed);
-    } catch {
-      return null;
-    }
   };
 
   const handleConnectDestination = async (e: React.FormEvent) => {
@@ -197,64 +179,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     if (destProvider === 'gdrive') {
       const cleanName = destName.trim() || 'Google Drive';
 
-      if (gdriveAuthMode === 'rclone_token') {
-        const cleanToken = extractJsonBlock(rcloneTokenJson);
-        if (!cleanToken) {
-          setIsSubmitting(false);
-          toast.error('Paste a valid Rclone token JSON containing "access_token"');
-          return;
-        }
-        const res = await backendApi.backupDestinationCreate({
-          provider: 'gdrive',
-          name: cleanName,
-          token: cleanToken,
-          folder_id: gdriveFolderId.trim(),
-          auth_mode: 'rclone_token',
-        });
-        setIsSubmitting(false);
-
-        if (!res.ok && !res.offlineFallback) {
-          toast.error(res.error || 'Failed to save Rclone Google Drive connector');
-          return;
-        }
-
-        const created: BackupDestination = {
-          id: String(res.data?.id ?? `dest-gdrive-${Date.now()}`),
-          provider: 'Google Drive',
-          providerCode: 'gdrive',
-          name: cleanName,
-          bucket: 'gdrive:/nextdeploy',
-          endpoint: 'https://www.googleapis.com/drive/v3',
-          region: 'Rclone Drive',
-          folderId: gdriveFolderId.trim() || 'root (/nextdeploy)',
-          email: 'Connected via Rclone Token',
-          displayName: cleanName,
-          createdAt: 'Just now',
-          status: 'connected',
-          scheduleCron: '0 3 * * *',
-          retentionDays: 30,
-          usedGB: 4.2,
-          quotaGB: 200,
-          lastBackupAt: 'Just now',
-        };
-        setDestinations((prev) => {
-          const exists = prev.some((item) => item.name.toLowerCase() === cleanName.toLowerCase());
-          if (exists) {
-            return prev.map((item) =>
-              item.name.toLowerCase() === cleanName.toLowerCase()
-                ? { ...item, ...created, id: item.id, infoError: undefined, status: 'connected' }
-                : item
-            );
-          }
-          return [...prev, created];
-        });
-        setDestModalOpen(false);
-        void loadDestinations(true);
-        toast.success(`Connected Google Drive "${cleanName}" via Rclone`);
-        return;
-      }
-
-      // Custom OAuth 2.0 flow (/backup/gdrive/auth-url -> /backup/gdrive/callback)
+      // Google OAuth 2.0 flow (/backup/gdrive/auth-url -> /backup/gdrive/callback)
       const authRes = await backendApi.backupGDriveAuthUrl(
         gdriveClientId.trim(),
         gdriveClientSecret.trim(),
@@ -289,7 +214,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         name: cleanName,
         bucket: 'gdrive:/nextdeploy',
         endpoint: 'https://www.googleapis.com/drive/v3',
-        region: 'Custom OAuth 2.0',
+        region: 'Google OAuth 2.0',
         folderId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs',
         email: 'masud132213@gmail.com',
         displayName: 'Masud Rana',
@@ -303,7 +228,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       };
       setDestinations((prev) => [...prev, created]);
       setDestModalOpen(false);
-      toast.success(`Connected Google Drive remote "${cleanName}"`);
+      toast.success(`Connected Google Drive "${cleanName}"`);
       return;
     }
 
@@ -501,14 +426,14 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                           </span>
                           <StatusBadge
                             status={d.infoError ? 'error' : d.status}
-                            label={isGDrive ? d.region || 'Rclone Drive' : 'Cloudflare R2'}
+                            label={isGDrive ? 'Google Drive' : 'Cloudflare R2'}
                           />
                         </div>
                         <div className="mt-0.5 font-mono text-[11px] text-zinc-400 truncate">
                           {isGDrive
                             ? d.email
                               ? `${d.displayName ? `${d.displayName} · ` : ''}${d.email}`
-                              : 'Rclone Google Drive Remote'
+                              : 'Google Drive OAuth 2.0'
                             : `Bucket: ${cleanBucketName}`}
                         </div>
                       </div>
@@ -544,22 +469,22 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                   </div>
 
                   {/* Connector Metadata Grid */}
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs">
                     {isGDrive ? (
                       <>
                         <div>
-                          <span className="text-[10px] uppercase text-zinc-500 block">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
                             Account
                           </span>
-                          <span className="text-zinc-200 truncate block mt-0.5">
-                            {d.email || 'Authorized via Rclone'}
+                          <span className="font-mono text-[11px] text-zinc-200 truncate block mt-0.5">
+                            {d.email || 'Authorized'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[10px] uppercase text-zinc-500 block">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
                             Drive Folder ID
                           </span>
-                          <span className="text-emerald-400 truncate block mt-0.5">
+                          <span className="font-mono text-[11px] text-emerald-400 truncate block mt-0.5">
                             {d.folderId || 'root (/nextdeploy)'}
                           </span>
                         </div>
@@ -567,18 +492,18 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     ) : (
                       <>
                         <div>
-                          <span className="text-[10px] uppercase text-zinc-500 block">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
                             Account ID
                           </span>
-                          <span className="text-zinc-200 truncate block mt-0.5">
+                          <span className="font-mono text-[11px] text-zinc-200 truncate block mt-0.5">
                             {d.accountId || 'Configured'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[10px] uppercase text-zinc-500 block">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
                             Bucket
                           </span>
-                          <span className="text-orange-400 truncate block mt-0.5">
+                          <span className="font-mono text-[11px] text-orange-400 truncate block mt-0.5">
                             {cleanBucketName}
                           </span>
                         </div>
@@ -586,7 +511,6 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     )}
                   </div>
 
-                  {/* Diagnostic Error Alert if Google Drive token / quota returned an error */}
                   {d.infoError && (
                     <div className="flex items-start justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
                       <div className="flex items-start gap-2 min-w-0">
@@ -610,9 +534,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                 <div className="space-y-2 border-t border-white/[0.05] pt-3">
                   {hasQuota ? (
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between font-mono text-[11px] tabular-nums">
+                      <div className="flex items-center justify-between text-[11px]">
                         <span className="text-zinc-400">Storage</span>
-                        <span className="text-zinc-200">
+                        <span className="font-mono tabular-nums text-zinc-200">
                           {d.usedGB} GB / {d.quotaGB} GB ({pct}%)
                         </span>
                       </div>
@@ -626,9 +550,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between font-mono text-[11px] text-zinc-400">
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
                       <span>Cloudflare R2 S3</span>
-                      <span className="text-zinc-300 tabular-nums">
+                      <span className="font-mono text-zinc-300 tabular-nums">
                         {d.usedGB > 0 ? `${d.usedGB} GB stored` : 'Active'}
                       </span>
                     </div>
@@ -666,7 +590,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         </div>
       )}
 
-      {/* Clean Project Backups Directory Table (replaces old inline pills) */}
+      {/* Project Backups Directory Table with Pagination (> 10 projects) */}
       {apps.length > 0 && onSelectApp && (
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/[0.07] bg-[#09090b]/50 px-4 py-3">
@@ -677,13 +601,13 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               </h2>
             </div>
             <span className="font-mono text-[11px] text-zinc-500">
-              {apps.length} projects
+              {apps.length} project{apps.length === 1 ? '' : 's'}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[540px] text-left text-xs">
               <thead>
-                <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-500">
+                <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-400">
                   <th className="px-4 py-2.5 font-medium">Project</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Volumes</th>
@@ -691,10 +615,10 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.05]">
-                {apps.map((app) => (
+                {paginatedApps.map((app) => (
                   <tr key={app.id} className="hover:bg-white/[0.02]">
                     <td className="px-4 py-2.5">
-                      <div className="font-mono font-semibold text-zinc-100">{app.name}</div>
+                      <div className="font-semibold text-zinc-100">{app.name}</div>
                       <div className="font-mono text-[11px] text-zinc-500">{app.id}</div>
                     </td>
                     <td className="px-4 py-2.5">
@@ -718,10 +642,51 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               </tbody>
             </table>
           </div>
+
+          {apps.length > projectsPerPage && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-[#09090b]/50 px-4 py-2.5 text-xs text-zinc-400">
+              <span className="font-mono text-[11px]">
+                Showing {(safeProjectsPage - 1) * projectsPerPage + 1}–
+                {Math.min(apps.length, safeProjectsPage * projectsPerPage)} of {apps.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={safeProjectsPage <= 1}
+                  onClick={() => setProjectsPage((p) => Math.max(1, p - 1))}
+                  className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
+                >
+                  Prev
+                </button>
+                {Array.from({ length: totalProjectPages }, (_, i) => i + 1).map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setProjectsPage(num)}
+                    className={`h-7 min-w-[28px] rounded-md px-2 font-mono text-xs cursor-pointer ${
+                      num === safeProjectsPage
+                        ? 'bg-orange-500 text-zinc-950 font-semibold'
+                        : 'border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {num}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={safeProjectsPage >= totalProjectPages}
+                  onClick={() => setProjectsPage((p) => Math.min(totalProjectPages, p + 1))}
+                  className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Connect Rclone Destination Modal (Direct Rclone Token or Custom OAuth / Cloudflare R2) */}
+      {/* Connect Destination Modal (Google Drive OAuth 2.0 / Cloudflare R2) */}
       <ShadcnDialog
         open={destModalOpen}
         onClose={() => setDestModalOpen(false)}
@@ -747,7 +712,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               <HardDrive className="h-4 w-4 text-emerald-400 shrink-0" />
               <div>
                 <div className="text-xs font-semibold">Google Drive</div>
-                <div className="text-[10px] text-zinc-500">Direct Rclone token or custom OAuth</div>
+                <div className="text-[10px] text-zinc-500">Google Cloud OAuth 2.0</div>
               </div>
             </button>
             <button
@@ -787,136 +752,54 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
           {destProvider === 'gdrive' ? (
             <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-3.5">
-              {/* Toggle between Direct Rclone Authorize (Default) vs Custom Google OAuth */}
-              <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-[#09090b] p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setGdriveAuthMode('rclone_token')}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                    gdriveAuthMode === 'rclone_token'
-                      ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Direct Rclone Token (Recommended)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGdriveAuthMode('custom_oauth')}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                    gdriveAuthMode === 'custom_oauth'
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Custom OAuth Client ID
-                </button>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                    Google OAuth Client ID
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={gdriveClientId}
+                    onChange={(e) => setGdriveClientId(e.target.value)}
+                    placeholder="123456789-abc.apps.googleusercontent.com"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                    Google OAuth Client Secret
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={gdriveClientSecret}
+                    onChange={(e) => setGdriveClientSecret(e.target.value)}
+                    placeholder="GOCSPX-..."
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
-              {gdriveAuthMode === 'rclone_token' ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
-                    <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-1.5">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-zinc-200">
-                        <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-                        1. Run on any machine with a browser:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard?.writeText('rclone authorize "drive"');
-                          toast.success('Copied: rclone authorize "drive"');
-                        }}
-                        className="inline-flex items-center gap-1 font-mono text-[11px] text-emerald-400 hover:underline cursor-pointer"
-                      >
-                        <Copy className="h-3 w-3" />
-                        Copy Command
-                      </button>
-                    </div>
-                    <code className="block rounded bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-emerald-300 select-all">
-                      rclone authorize &quot;drive&quot;
-                    </code>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                      2. Paste Token JSON from Rclone
-                    </label>
-                    <textarea
-                      required
-                      rows={3}
-                      value={rcloneTokenJson}
-                      onChange={(e) => setRcloneTokenJson(e.target.value)}
-                      placeholder='{"access_token":"ya29.a0...","token_type":"Bearer","refresh_token":"1//0...","expiry":"2026-..."}'
-                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] p-2.5 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                      Drive Root Folder ID (Optional — auto-creates /nextdeploy if empty)
-                    </label>
-                    <input
-                      type="text"
-                      value={gdriveFolderId}
-                      onChange={(e) => setGdriveFolderId(e.target.value)}
-                      placeholder="Optional Google Drive Folder ID"
-                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
+              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                  <span>Authorized Redirect URI</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(gdriveRedirectUrl);
+                      toast.success('Copied Google OAuth redirect URI');
+                    }}
+                    className="inline-flex items-center gap-1 text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy URI
+                  </button>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                        Google OAuth Client ID
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={gdriveClientId}
-                        onChange={(e) => setGdriveClientId(e.target.value)}
-                        placeholder="123456789-abc.apps.googleusercontent.com"
-                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                        Google OAuth Client Secret
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={gdriveClientSecret}
-                        onChange={(e) => setGdriveClientSecret(e.target.value)}
-                        placeholder="GOCSPX-..."
-                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
-                    <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
-                      <span>Authorized Redirect URI</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(gdriveRedirectUrl);
-                          toast.success('Copied Google OAuth redirect URI');
-                        }}
-                        className="inline-flex items-center gap-1 text-emerald-400 hover:underline cursor-pointer"
-                      >
-                        <Copy className="h-3 w-3" />
-                        Copy URI
-                      </button>
-                    </div>
-                    <div className="font-mono text-[11px] text-zinc-200 select-all break-all">
-                      {gdriveRedirectUrl}
-                    </div>
-                  </div>
+                <div className="font-mono text-[11px] text-zinc-200 select-all break-all">
+                  {gdriveRedirectUrl}
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/[0.03] p-3.5">
@@ -992,7 +875,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               disabled={isSubmitting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
             >
-              {destProvider === 'gdrive' && gdriveAuthMode === 'custom_oauth' ? (
+              {destProvider === 'gdrive' ? (
                 <>
                   <ExternalLink className="h-3.5 w-3.5" />
                   Authorize Google Drive

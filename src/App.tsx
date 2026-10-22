@@ -960,10 +960,16 @@ export default function App() {
                 cliSessions={cliSessions}
                 onGenerateCliToken={(label) => {
                   void backendApi.createCliToken(label);
+                  const fullHex =
+                    Math.random().toString(16).slice(2, 10) +
+                    Math.random().toString(16).slice(2, 14) +
+                    Math.random().toString(16).slice(2, 14);
+                  const fullToken = `nd_cli_${fullHex.slice(0, 32)}`;
                   const created: CliSessionItem = {
                     id: `cli-${Date.now()}`,
                     tokenName: label,
-                    prefix: `nd_cli_${Math.random().toString(16).slice(2, 6)}...`,
+                    prefix: `${fullToken.slice(0, 11)}...`,
+                    fullToken,
                     deviceHost: 'workstation',
                     osArch: 'darwin/arm64',
                     cliVersion: 'nd v1.8.4',
@@ -972,7 +978,8 @@ export default function App() {
                     ipAddress: '103.148.22.91',
                   };
                   setCliSessions((prev) => [created, ...prev]);
-                  toast.success(`Generated token for ${label}`);
+                  navigator.clipboard?.writeText(fullToken);
+                  toast.success(`Generated CLI token for ${label} (copied full token)`);
                 }}
                 onRevokeCliSession={(id) => {
                   void backendApi.deleteCliSession(id);

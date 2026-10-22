@@ -321,14 +321,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
               <Users className="h-4 w-4 text-orange-400" />
             </div>
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-zinc-100">
-                Team & Quotas
-              </h1>
-              <p className="text-[11px] text-zinc-400">
-                Multi-tenant RBAC, per-user resource quotas, and Linux systemd cgroup v2 slice isolation
-              </p>
-            </div>
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100">
+              Team & Quotas
+            </h1>
           </div>
 
           <button
@@ -821,12 +816,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
               <FileText className="h-4 w-4 text-orange-400" />
             </div>
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-zinc-100">Audit Trail</h1>
-              <p className="text-[11px] text-zinc-400">
-                Immutable security & operational event log recorded by the Go control plane
-              </p>
-            </div>
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100">Audit Trail</h1>
           </div>
 
           <button
@@ -1015,15 +1005,10 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
             <Settings className="h-4 w-4 text-orange-400" />
           </div>
-          <div>
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">
               System Settings
             </h1>
-            <p className="text-[11px] text-zinc-400">
-              Automated Docker prune scheduler, orphaned /tmp archive cleanup, and daemon paths
-            </p>
           </div>
-        </div>
 
         <button
           type="button"

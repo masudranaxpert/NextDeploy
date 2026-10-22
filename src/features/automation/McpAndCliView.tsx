@@ -10,6 +10,7 @@ import {
   FileCode2,
   Terminal,
   Play,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CliSessionItem, McpToolItem } from '../../types/nextdeploy';
@@ -44,10 +45,20 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   const [clientConfigOpen, setClientConfigOpen] = useState(false);
   const [testToolTarget, setTestToolTarget] = useState<McpToolItem | null>(null);
   const [revealMcpToken, setRevealMcpToken] = useState(false);
+  const [mcpToken, setMcpToken] = useState(
+    'nd_mcp_live_98f1a2c4e6b80192f4d8e1a3c5b79012'
+  );
+  const [mcpScopes, setMcpScopes] = useState({
+    allow_env_reveal: true,
+    allow_container_exec: true,
+    allow_server_exec: false,
+    allow_app_delete: false,
+  });
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [installCliOpen, setInstallCliOpen] = useState(false);
   const [tokenLabel, setTokenLabel] = useState('');
+  const [revealedCliTokens, setRevealedCliTokens] = useState<Record<string, boolean>>({});
   const [tokenPerms, setTokenPerms] = useState<
     Record<
       string,
@@ -99,12 +110,25 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     },
   ];
 
+  const handleRegenerateMcpToken = async () => {
+    const res = await backendApi.createApiToken('mcp-default');
+    const randHex =
+      Math.random().toString(16).slice(2, 14) +
+      Math.random().toString(16).slice(2, 14) +
+      Math.random().toString(16).slice(2, 10);
+    const nextToken = res.data?.token || `nd_mcp_live_${randHex.slice(0, 32)}`;
+    setMcpToken(nextToken);
+    setRevealMcpToken(true);
+    navigator.clipboard?.writeText(nextToken);
+    toast.success('Regenerated MCP token and copied full token to clipboard');
+  };
+
   if (mode === 'mcp') {
     const filteredTools = tools.filter(
       (t) => mcpCategory === 'all' || t.category === mcpCategory
     );
 
-    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "https://panel.nextdeploy.sh/mcp/sse",\n      "headers": {\n        "Authorization": "Bearer nd_mcp_live_98f1a2c4e6b80192"\n      }\n    }\n  }\n}`;
+    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "https://panel.nextdeploy.sh/mcp/sse",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
 
     return (
       <div className="space-y-4">
@@ -143,57 +167,107 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3">
-            <div className="min-w-0">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
-                SSE Endpoint
-              </span>
-              <span className="font-mono text-xs text-zinc-100 truncate block mt-0.5">
-                https://panel.nextdeploy.sh/mcp/sse
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText('https://panel.nextdeploy.sh/mcp/sse');
-                toast.success('Copied SSE endpoint');
-              }}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
-            >
-              Copy
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3">
-            <div className="min-w-0">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
-                MCP Bearer Key
-              </span>
-              <span className="font-mono text-xs text-orange-400 truncate block mt-0.5">
-                {revealMcpToken
-                  ? 'nd_mcp_live_98f1a2c4e6b80192'
-                  : 'nd_mcp_live_••••••••••••••••'}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setRevealMcpToken((p) => !p)}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-white cursor-pointer"
-              >
-                {revealMcpToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
+        {/* Dedicated Single Auto-Generated MCP Token & Endpoint Card */}
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-2.5">
+              <div className="min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
+                  SSE Endpoint
+                </span>
+                <span className="font-mono text-xs text-zinc-100 truncate block mt-0.5">
+                  https://panel.nextdeploy.sh/mcp/sse
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard?.writeText('nd_mcp_live_98f1a2c4e6b80192');
-                  toast.success('Copied MCP token');
+                  navigator.clipboard?.writeText('https://panel.nextdeploy.sh/mcp/sse');
+                  toast.success('Copied SSE endpoint');
                 }}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer shrink-0 ml-2"
               >
                 Copy
               </button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-2.5">
+              <div className="min-w-0 flex-1 pr-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
+                  MCP Bearer Token (Auto-Generated)
+                </span>
+                <span className="font-mono text-xs text-orange-400 truncate block mt-0.5">
+                  {revealMcpToken
+                    ? mcpToken
+                    : `${mcpToken.slice(0, 12)}••••••••••••••••••••`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRevealMcpToken((p) => !p)}
+                  title={revealMcpToken ? 'Hide token' : 'Reveal full token'}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  {revealMcpToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(mcpToken);
+                    toast.success('Copied full MCP token');
+                  }}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleRegenerateMcpToken()}
+                  title="Regenerate MCP Bearer Token"
+                  className="inline-flex items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300 hover:bg-orange-500/20 cursor-pointer"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Regenerate</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-2.5">
+            <span className="text-[11px] font-medium text-zinc-400">
+              MCP Token Scopes
+            </span>
+            <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
+              {(
+                [
+                  { key: 'allow_env_reveal', label: 'env:reveal' },
+                  { key: 'allow_container_exec', label: 'container:exec' },
+                  { key: 'allow_server_exec', label: 'host:exec' },
+                  { key: 'allow_app_delete', label: 'app:delete' },
+                ] as const
+              ).map((sc) => {
+                const active = mcpScopes[sc.key];
+                return (
+                  <button
+                    key={sc.key}
+                    type="button"
+                    onClick={() => {
+                      const nextVal = !mcpScopes[sc.key];
+                      setMcpScopes((prev) => ({ ...prev, [sc.key]: nextVal }));
+                      void backendApi.toggleApiTokenPerm('mcp-default', sc.key);
+                      toast.success(`${nextVal ? 'Enabled' : 'Disabled'} MCP scope ${sc.label}`);
+                    }}
+                    className={`rounded-md border px-2 py-0.5 transition-colors cursor-pointer ${
+                      active
+                        ? 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/[0.07] bg-zinc-900 text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {sc.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -417,7 +491,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
           >
             <Plus className="h-3.5 w-3.5" />
-            Generate Token
+            Generate CLI Token
           </button>
         </div>
       </div>
@@ -427,15 +501,18 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           <table className="w-full min-w-[680px] table-fixed text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-[26%] px-4 py-2.5 font-medium">Workstation & Token</th>
+                <th className="w-[30%] px-4 py-2.5 font-medium">Workstation & CLI Token</th>
                 <th className="w-[20%] px-4 py-2.5 font-medium">Host & OS</th>
-                <th className="w-[30%] px-4 py-2.5 font-medium">Token Scopes (Click to Toggle)</th>
-                <th className="w-[14%] px-4 py-2.5 font-medium text-right">Active</th>
+                <th className="w-[28%] px-4 py-2.5 font-medium">Token Scopes (Click to Toggle)</th>
+                <th className="w-[12%] px-4 py-2.5 font-medium text-right">Active</th>
                 <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {cliSessions.map((s) => {
+                const fullTokenValue =
+                  s.fullToken || s.prefix.replace('...', '9f8e7d6c5b4a3210e4c8a1b2');
+                const isRevealed = Boolean(revealedCliTokens[s.id]);
                 const p = tokenPerms[s.id] || {
                   allow_env_reveal: true,
                   allow_container_exec: true,
@@ -463,8 +540,37 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   <tr key={s.id} className="hover:bg-white/[0.03]">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-zinc-100 truncate">{s.tokenName}</div>
-                      <div className="font-mono text-[11px] text-zinc-500">
-                        {s.prefix} · {s.ipAddress}
+                      <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
+                        <span className="truncate text-orange-400">
+                          {isRevealed ? fullTokenValue : s.prefix}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRevealedCliTokens((prev) => ({ ...prev, [s.id]: !prev[s.id] }))
+                          }
+                          title={isRevealed ? 'Hide token' : 'Reveal full CLI token'}
+                          className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                        >
+                          {isRevealed ? (
+                            <EyeOff className="h-3 w-3" />
+                          ) : (
+                            <Eye className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(fullTokenValue);
+                            toast.success(`Copied full CLI token for ${s.tokenName}`);
+                          }}
+                          title="Copy full CLI token"
+                          className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                        >
+                          <Copy className="h-3 w-3" />
+                        </button>
+                        <span className="text-zinc-600">·</span>
+                        <span className="text-zinc-500">{s.ipAddress}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-zinc-300 truncate">
@@ -506,11 +612,11 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                       <ActionMenu
                         items={[
                           {
-                            label: 'Copy Token Prefix',
+                            label: 'Copy Full Token',
                             icon: <Copy className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              navigator.clipboard?.writeText(s.prefix);
-                              toast.success(`Copied ${s.prefix}`);
+                              navigator.clipboard?.writeText(fullTokenValue);
+                              toast.success(`Copied full token for ${s.tokenName}`);
                             },
                           },
                           {
@@ -611,3 +717,4 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     </div>
   );
 };
+
