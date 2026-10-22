@@ -622,6 +622,7 @@ export default function App() {
                 apps={apps}
                 destinations={INITIAL_BACKUP_DESTINATIONS}
                 archives={backupArchives}
+                onSelectApp={(id) => setSelectedAppId(id)}
                 onTriggerBackup={(created) => {
                   if (created) {
                     setBackupArchives((prev) => [created, ...prev]);

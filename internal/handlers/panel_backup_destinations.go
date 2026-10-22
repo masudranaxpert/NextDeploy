@@ -51,8 +51,8 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 				continue
 			}
 
-			// Proactively refresh token if it is expired or close to expiry
-			if rclone.IsTokenExpired(token) {
+			// Proactively refresh token if it is expired and custom client credentials are present
+			if rclone.IsTokenExpired(token) && strings.TrimSpace(configMap["client_id"]) != "" && strings.TrimSpace(configMap["client_secret"]) != "" {
 				if newToken, refreshErr := rclone.RefreshGoogleDriveToken(
 					c.UserContext(),
 					configMap["client_id"],
@@ -70,12 +70,14 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 				// Attach error hint so UI can show reconnect prompt
 				dests[i].Config = string(mustMarshal(map[string]interface{}{
 					"folder_id":  configMap["folder_id"],
+					"auth_mode":  configMap["auth_mode"],
 					"info_error": aboutErr.Error(),
 				}))
 				continue
 			}
 			dests[i].Config = string(mustMarshal(map[string]interface{}{
 				"folder_id":     configMap["folder_id"],
+				"auth_mode":     configMap["auth_mode"],
 				"email":         aboutInfo.User.EmailAddress,
 				"display_name":  aboutInfo.User.DisplayName,
 				"storage_limit": aboutInfo.StorageQuota.Limit,
@@ -117,19 +119,50 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 
 	switch provider {
 	case "gdrive":
+		rawToken := strings.TrimSpace(c.FormValue("token"))
 		clientID := strings.TrimSpace(c.FormValue("client_id"))
 		clientSecret := strings.TrimSpace(c.FormValue("client_secret"))
-		if clientID == "" || clientSecret == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "client_id and client_secret required"})
+		folderID := strings.TrimSpace(c.FormValue("folder_id"))
+
+		if rawToken != "" {
+			cleanToken, terr := rclone.ExtractRcloneTokenJSON(rawToken)
+			if terr != nil {
+				return c.Status(400).JSON(fiber.Map{"error": terr.Error()})
+			}
+			if folderID == "" {
+				if ensuredID, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), cleanToken, "nextdeploy"); ferr == nil && ensuredID != "" {
+					folderID = ensuredID
+				}
+			}
+			cfgMap := map[string]string{
+				"token":     cleanToken,
+				"folder_id": folderID,
+				"auth_mode": "rclone_token",
+			}
+			if clientID != "" && clientSecret != "" {
+				cfgMap["client_id"] = clientID
+				cfgMap["client_secret"] = clientSecret
+				cfgMap["auth_mode"] = "custom_oauth"
+			}
+			configBytes, merr := json.Marshal(cfgMap)
+			if merr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": merr.Error()})
+			}
+			config = string(configBytes)
+		} else {
+			if clientID == "" || clientSecret == "" {
+				return c.Status(400).JSON(fiber.Map{"error": "Provide an Rclone Drive token JSON (from rclone authorize \"drive\") or Google OAuth Client ID and Secret"})
+			}
+			configBytes, merr := json.Marshal(map[string]string{
+				"client_id":     clientID,
+				"client_secret": clientSecret,
+				"auth_mode":     "custom_oauth",
+			})
+			if merr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": merr.Error()})
+			}
+			config = string(configBytes)
 		}
-		configBytes, err := json.Marshal(map[string]string{
-			"client_id":     clientID,
-			"client_secret": clientSecret,
-		})
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		config = string(configBytes)
 
 	case "r2":
 		accountID := strings.TrimSpace(c.FormValue("account_id"))

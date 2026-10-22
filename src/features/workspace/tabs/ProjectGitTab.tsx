@@ -1,0 +1,626 @@
+import React, { useEffect, useState } from 'react';
+import {
+  GitBranch,
+  RefreshCw,
+  Webhook,
+  FolderGit2,
+  FolderOpen,
+  FileText,
+  Trash2,
+  Copy,
+  CheckCircle2,
+  AlertTriangle,
+  Lock,
+  Globe,
+  ChevronRight,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { AppStack } from '../../../types/nextdeploy';
+import { ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../../components/ui/Primitives';
+import { CodeEditorBox } from '../../../components/ui/CodeEditorBox';
+import { backendApi } from '../../../lib/backendApi';
+import { INITIAL_GIT_PROVIDERS, INITIAL_SYNCED_REPOS } from '../../../data/initialData';
+
+interface ProjectGitTabProps {
+  app: AppStack;
+  onUpdateApp: (updated: AppStack) => void;
+}
+
+interface RepoOption {
+  full_name: string;
+  clone_url: string;
+  html_url?: string;
+  private: boolean;
+  default_branch: string;
+}
+
+export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }) => {
+  const [sourceMode, setSourceMode] = useState<'git' | 'files'>(
+    app.sourceType === 'git' ? 'git' : 'files'
+  );
+  const [gitSyncEnabled, setGitSyncEnabled] = useState<boolean>(app.gitSync ?? true);
+  const [authMode, setAuthMode] = useState<'public' | 'github_app' | 'gitlab_token'>(
+    app.gitAuthMode || 'github_app'
+  );
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(
+    app.gitProviderId || INITIAL_GIT_PROVIDERS[0]?.id || '1'
+  );
+  const [repoUrl, setRepoUrl] = useState<string>(
+    app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`
+  );
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState<string>(
+    app.gitRepo
+      ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '')
+      : `masudranaxpert/${app.slug}`
+  );
+  const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
+  const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
+
+  // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
+  const [providerRepos, setProviderRepos] = useState<RepoOption[]>(
+    INITIAL_SYNCED_REPOS.map((r) => ({
+      full_name: r.fullName,
+      clone_url: `https://${r.provider === 'GitLab' ? 'gitlab.com' : 'github.com'}/${r.fullName}.git`,
+      private: r.private,
+      default_branch: r.defaultBranch,
+    }))
+  );
+  const [providerBranches, setProviderBranches] = useState<string[]>([
+    'main',
+    'production',
+    'staging',
+    'develop',
+    'feat/stripe-v3',
+  ]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+
+  // Force Copy Git Checkout Confirmation Modal (when pausing GitSync with existing workspace files)
+  const [forceSyncModalOpen, setForceSyncModalOpen] = useState(false);
+  const [forceSyncWarning, setForceSyncWarning] = useState('');
+
+  // Read-Only Git Checkout Tree & Blob Viewer (/apps/:id/git/tree & /apps/:id/git/blob)
+  const [gitTreePath, setGitTreePath] = useState('');
+  const [gitTreeEntries, setGitTreeEntries] = useState<
+    Array<{ name: string; path: string; is_dir: boolean; size: number }>
+  >([
+    { name: 'src', path: 'src', is_dir: true, size: 0 },
+    { name: 'docker-compose.yml', path: 'docker-compose.yml', is_dir: false, size: 642 },
+    { name: 'Dockerfile', path: 'Dockerfile', is_dir: false, size: 540 },
+    { name: 'package.json', path: 'package.json', is_dir: false, size: 462 },
+  ]);
+  const [viewingGitBlob, setViewingGitBlob] = useState<{
+    path: string;
+    content: string;
+  } | null>(null);
+
+  const loadProviderRepos = async (pid: string) => {
+    if (!pid) return;
+    setIsLoadingRepos(true);
+    const res = await backendApi.gitProviderRepos(app.id, pid);
+    setIsLoadingRepos(false);
+    if (res.ok && Array.isArray(res.data?.repos) && res.data.repos.length > 0) {
+      setProviderRepos(res.data.repos);
+    }
+  };
+
+  const loadProviderBranches = async (pid: string, repoFull: string) => {
+    if (!pid || !repoFull) return;
+    setIsLoadingBranches(true);
+    const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
+    setIsLoadingBranches(false);
+    if (res.ok && Array.isArray(res.data?.branches) && res.data.branches.length > 0) {
+      setProviderBranches(res.data.branches);
+    }
+  };
+
+  const loadGitCheckoutTree = async (targetPath = '') => {
+    setGitTreePath(targetPath);
+    const res = await backendApi.gitTree(app.id, targetPath);
+    if (res.ok && Array.isArray(res.data?.entries)) {
+      setGitTreeEntries(res.data.entries);
+    } else if (targetPath === 'src') {
+      setGitTreeEntries([
+        { name: 'server.ts', path: 'src/server.ts', is_dir: false, size: 690 },
+        { name: 'db.ts', path: 'src/db.ts', is_dir: false, size: 480 },
+      ]);
+    } else if (targetPath === '') {
+      setGitTreeEntries([
+        { name: 'src', path: 'src', is_dir: true, size: 0 },
+        { name: 'docker-compose.yml', path: 'docker-compose.yml', is_dir: false, size: 642 },
+        { name: 'Dockerfile', path: 'Dockerfile', is_dir: false, size: 540 },
+        { name: 'package.json', path: 'package.json', is_dir: false, size: 462 },
+      ]);
+    }
+  };
+
+  const openGitBlob = async (filePath: string) => {
+    const res = await backendApi.gitBlob(app.id, filePath);
+    if (res.ok && typeof res.data?.content === 'string') {
+      setViewingGitBlob({ path: filePath, content: res.data.content });
+      return;
+    }
+    const matched = app.files.find((f) => f.path === filePath);
+    setViewingGitBlob({
+      path: filePath,
+      content:
+        matched?.content ||
+        `# Read-only Git Checkout (${branch})\n# File: ${filePath}\nversion: "3.9"\nservices:\n  app:\n    build: .\n`,
+    });
+  };
+
+  useEffect(() => {
+    if (authMode !== 'public' && selectedProviderId) {
+      void loadProviderRepos(selectedProviderId);
+    }
+  }, [authMode, selectedProviderId]);
+
+  const handleSwitchSourceMode = async (next: 'git' | 'files') => {
+    setSourceMode(next);
+    await backendApi.switchAppSource(app.id, next);
+    onUpdateApp({
+      ...app,
+      sourceType: next === 'git' ? 'git' : 'compose',
+    });
+    toast.success(
+      next === 'git'
+        ? 'Switched project deployment source to Git Repository'
+        : 'Switched project deployment source to Workspace Files'
+    );
+  };
+
+  const handleToggleGitSync = async (nextEnabled: boolean, force = false) => {
+    const res = await backendApi.setGitSync(app.id, nextEnabled, force);
+    if (res.data?.confirm_needed && !force) {
+      setForceSyncWarning(
+        res.data.warning ||
+          'Workspace already contains local files. Pausing Git Sync will copy the Git checkout into the workspace and overwrite matching files.'
+      );
+      setForceSyncModalOpen(true);
+      return;
+    }
+    setGitSyncEnabled(nextEnabled);
+    setForceSyncModalOpen(false);
+    onUpdateApp({ ...app, gitSync: nextEnabled });
+    toast.success(
+      nextEnabled
+        ? 'Git Sync enabled — deployments track the Git repository checkout'
+        : 'Git Sync paused — copied Git checkout files into editable Workspace'
+    );
+  };
+
+  const handleSaveGitConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await backendApi.saveAppGit(app.id, {
+      auth_mode: authMode,
+      git_provider_id: authMode === 'public' ? '' : selectedProviderId,
+      repo_url: repoUrl.trim(),
+      branch: branch.trim() || 'main',
+      auto_deploy: autoDeploy,
+    });
+    if (!res.ok && !res.offlineFallback) {
+      toast.error(res.error || 'Failed to save Git configuration');
+      return;
+    }
+    onUpdateApp({
+      ...app,
+      sourceType: 'git',
+      gitAuthMode: authMode,
+      gitProviderId: selectedProviderId,
+      gitRepo: repoUrl.trim(),
+      gitBranch: branch.trim() || 'main',
+      webhookAutoDeploy: autoDeploy,
+    });
+    setSourceMode('git');
+    toast.success(`Saved Git configuration (${branch.trim() || 'main'})`);
+  };
+
+  const handleDisconnectGit = async () => {
+    await backendApi.deleteAppGit(app.id);
+    setSourceMode('files');
+    onUpdateApp({
+      ...app,
+      sourceType: 'compose',
+      gitRepo: undefined,
+      webhookAutoDeploy: false,
+    });
+    toast.success('Disconnected Git repository and switched to Workspace Files');
+  };
+
+  const webhookUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/webhooks/github`
+      : 'https://panel.nextdeploy.sh/webhooks/github';
+
+  return (
+    <div className="space-y-4">
+      {/* Row 1: Git Provider, Repository & Branch Configuration Form (POST /apps/:id/git) */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-orange-400" />
+            <h2 className="text-sm font-semibold text-zinc-100">
+              Git Repository &amp; Branch
+            </h2>
+            <StatusBadge
+              status={app.sourceType === 'git' ? 'active' : 'stopped'}
+              label={app.sourceType === 'git' ? 'Git Source' : 'Workspace Files'}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await backendApi.gitSyncNow(app.id, false);
+                if (!res.ok && !res.offlineFallback) {
+                  toast.error(res.error || 'Repository sync failed');
+                  return;
+                }
+                void loadGitCheckoutTree(gitTreePath);
+                toast.success(`Synced repository (${branch})`);
+              }}
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            >
+              <RefreshCw className="h-3 w-3 text-orange-400" />
+              Sync Now
+            </button>
+            {app.gitRepo && (
+              <button
+                type="button"
+                onClick={() => void handleDisconnectGit()}
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+              >
+                <Trash2 className="h-3 w-3" />
+                Disconnect
+              </button>
+            )}
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveGitConfig} className="space-y-4">
+          {/* Auth Mode Selector */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {(
+              [
+                {
+                  id: 'github_app',
+                  label: 'GitHub App Installation',
+                  sub: 'Auto repo & branch discovery',
+                },
+                {
+                  id: 'gitlab_token',
+                  label: 'GitLab OAuth 2.0 / Token',
+                  sub: 'GitLab repositories & webhooks',
+                },
+                {
+                  id: 'public',
+                  label: 'Public Git URL',
+                  sub: 'Any public HTTPS repository',
+                },
+              ] as const
+            ).map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setAuthMode(mode.id)}
+                className={`rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                  authMode === mode.id
+                    ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
+                    : 'border-white/[0.07] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <div className="text-xs font-semibold">{mode.label}</div>
+                <div className="mt-0.5 text-[10px] text-zinc-500">{mode.sub}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Connected Provider + Live Repository Picker */}
+          {authMode !== 'public' && (
+            <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-medium text-zinc-400">
+                    Connected Git Provider
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void loadProviderRepos(selectedProviderId)}
+                    className="inline-flex items-center gap-1 font-mono text-[10px] text-orange-400 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw className={`h-2.5 w-2.5 ${isLoadingRepos ? 'animate-spin' : ''}`} />
+                    Refresh Repos
+                  </button>
+                </div>
+                <select
+                  value={selectedProviderId}
+                  onChange={(e) => {
+                    setSelectedProviderId(e.target.value);
+                    void loadProviderRepos(e.target.value);
+                  }}
+                  className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                >
+                  {INITIAL_GIT_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.provider} · {p.accountName} ({p.authMethod})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  Select Repository ({providerRepos.length} available)
+                </label>
+                <select
+                  value={selectedRepoFullName}
+                  onChange={(e) => {
+                    const full = e.target.value;
+                    setSelectedRepoFullName(full);
+                    const matched = providerRepos.find((r) => r.full_name === full);
+                    if (matched) {
+                      setRepoUrl(matched.clone_url);
+                      setBranch(matched.default_branch || 'main');
+                    } else {
+                      setRepoUrl(`https://github.com/${full}.git`);
+                    }
+                    void loadProviderBranches(selectedProviderId, full);
+                  }}
+                  className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                >
+                  {providerRepos.map((r) => (
+                    <option key={r.full_name} value={r.full_name}>
+                      {r.full_name} {r.private ? '(Private)' : '(Public)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Repo URL & Branch Selector */}
+          <div className="grid grid-cols-1 gap-3.5 md:grid-cols-3">
+            <div className="md:col-span-2">
+              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                Repository Clone URL (repo_url)
+              </label>
+              <input
+                type="text"
+                required
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/org/repo.git"
+                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-medium text-zinc-400">Target Branch</label>
+                {authMode !== 'public' && (
+                  <button
+                    type="button"
+                    onClick={() => void loadProviderBranches(selectedProviderId, selectedRepoFullName)}
+                    className="inline-flex items-center gap-1 font-mono text-[10px] text-orange-400 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw
+                      className={`h-2.5 w-2.5 ${isLoadingBranches ? 'animate-spin' : ''}`}
+                    />
+                    Fetch Branches
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                required
+                list="git-provider-branches"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder="main"
+                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-orange-400 font-semibold focus:border-orange-500 focus:outline-none"
+              />
+              <datalist id="git-provider-branches">
+                {providerBranches.map((b) => (
+                  <option key={b} value={b} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          {/* Quick Branch Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-zinc-500 mr-1">Branches:</span>
+            {providerBranches.map((br) => (
+              <button
+                key={br}
+                type="button"
+                onClick={() => setBranch(br)}
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] cursor-pointer ${
+                  branch === br
+                    ? 'border-orange-500/50 bg-orange-500/15 text-orange-300 font-semibold'
+                    : 'border-white/[0.07] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <GitBranch className="h-3 w-3" />
+                {br}
+              </button>
+            ))}
+          </div>
+
+          {/* Webhook URL & Auto-Deploy Toggle */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 pt-1">
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-200">Push Webhook Endpoint</div>
+                  <div className="truncate font-mono text-[11px] text-zinc-500">{webhookUrl}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(webhookUrl);
+                  toast.success('Copied webhook URL');
+                }}
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
+              >
+                Copy
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+              <div>
+                <div className="text-xs font-medium text-zinc-200">
+                  Auto-Deploy on Push (auto_deploy)
+                </div>
+                <div className="text-[11px] text-zinc-500">
+                  Automatically pull and redeploy when commits are pushed to {branch}
+                </div>
+              </div>
+              <ShadcnSwitch checked={autoDeploy} onChange={setAutoDeploy} />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <button
+              type="submit"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Save Git Configuration
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Row 3: Read-Only Git Checkout File Browser (/apps/:id/git/tree & /apps/:id/git/blob) */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#09090b]/50 px-4 py-3">
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <FolderGit2 className="h-4 w-4 text-orange-400" />
+            <span className="font-semibold text-zinc-100">Git Checkout Tree</span>
+            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-orange-400">
+              {branch}
+            </span>
+            {gitTreePath && (
+              <>
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-600" />
+                <span className="text-zinc-300">/{gitTreePath}</span>
+                <button
+                  type="button"
+                  onClick={() => void loadGitCheckoutTree('')}
+                  className="ml-1 rounded border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[10px] text-orange-400 hover:bg-zinc-800 cursor-pointer"
+                >
+                  .. Root
+                </button>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadGitCheckoutTree(gitTreePath)}
+            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Refresh Checkout
+          </button>
+        </div>
+
+        {viewingGitBlob ? (
+          <div className="p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs font-semibold text-zinc-200">
+                {viewingGitBlob.path} (Read-only Git Checkout)
+              </span>
+              <button
+                type="button"
+                onClick={() => setViewingGitBlob(null)}
+                className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+                Close File
+              </button>
+            </div>
+            <CodeEditorBox
+              filename={viewingGitBlob.path}
+              value={viewingGitBlob.content}
+              onChange={() => {}}
+              readOnly
+              height={260}
+            />
+          </div>
+        ) : (
+          <table className="w-full text-left text-xs font-mono">
+            <thead>
+              <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-500">
+                <th className="px-4 py-2 font-medium">Name</th>
+                <th className="px-4 py-2 font-medium">Type</th>
+                <th className="px-4 py-2 font-medium text-right">Size</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {gitTreeEntries.map((entry) => (
+                <tr
+                  key={entry.path}
+                  onClick={() => {
+                    if (entry.is_dir) {
+                      void loadGitCheckoutTree(entry.path);
+                    } else {
+                      void openGitBlob(entry.path);
+                    }
+                  }}
+                  className="hover:bg-white/[0.03] cursor-pointer"
+                >
+                  <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
+                    {entry.is_dir ? (
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                    )}
+                    <span>{entry.name}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-zinc-400">
+                    {entry.is_dir ? 'Directory' : 'File'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
+                    {entry.is_dir ? '—' : `${entry.size} B`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Force Pause Git Sync Confirmation Modal */}
+      <ShadcnDialog
+        open={forceSyncModalOpen}
+        onClose={() => setForceSyncModalOpen(false)}
+        title="Copy Git Checkout into Workspace?"
+        icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-300 leading-relaxed">{forceSyncWarning}</p>
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <button
+              type="button"
+              onClick={() => setForceSyncModalOpen(false)}
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleToggleGitSync(false, true)}
+              className="rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 cursor-pointer"
+            >
+              Overwrite & Pause Git Sync
+            </button>
+          </div>
+        </div>
+      </ShadcnDialog>
+    </div>
+  );
+};

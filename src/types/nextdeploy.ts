@@ -54,6 +54,13 @@ export interface DomainRoute {
   tlsProvider: 'LetsEncrypt' | 'ZeroSSL' | 'Internal';
   tlsStatus: 'active' | 'provisioning' | 'error';
   forceHttps: boolean;
+  enableWww?: boolean;
+  serveStatic?: boolean;
+  staticPath?: string;
+  staticUrlPrefix?: string;
+  serveMedia?: boolean;
+  mediaPath?: string;
+  mediaUrlPrefix?: string;
   gzip: boolean;
   createdAt: string;
 }
@@ -128,6 +135,9 @@ export interface AppStack {
   slug: string;
   description: string;
   sourceType: AppSourceType;
+  gitSync?: boolean;
+  gitAuthMode?: 'public' | 'github_app' | 'gitlab_token';
+  gitProviderId?: string;
   gitRepo?: string;
   gitBranch?: string;
   gitCommitSha?: string;
@@ -224,6 +234,7 @@ export interface BackupDestination {
   displayName?: string;
   folderId?: string;
   infoError?: string;
+  createdAt?: string;
   status: 'connected' | 'provisioning' | 'error';
   scheduleCron: string;
   retentionDays: number;
@@ -239,28 +250,36 @@ export interface BackupScheduleItem {
   destinationId: string;
   destinationName: string;
   provider: 'Cloudflare R2' | 'Google Drive';
+  destinationProvider?: 'r2' | 'gdrive';
   type: 'full' | 'volume' | 'app';
-  volumeNames: string[];
+  volumeNames: string | string[];
   cron: string;
   retention: number;
   pauseContainers: boolean;
   enabled: boolean;
-  lastRunAt: string;
-  nextRunAt: string;
+  lastRun?: string;
+  lastRunAt?: string;
+  nextRunAt?: string;
 }
 
 export interface BackupArchiveRecord {
   id: string;
   appId?: string;
   appSlug: string;
+  destinationId?: string;
   destinationName: string;
+  destinationProvider?: 'r2' | 'gdrive';
   provider?: 'Cloudflare R2' | 'Google Drive';
   archiveName: string;
+  remotePath?: string;
   type?: 'full' | 'volume' | 'app';
+  backupType?: 'full' | 'volume' | 'app';
   volumeName?: string;
   sizeMB: number;
+  sizeBytes?: number;
   createdAt: string;
-  status: 'completed' | 'building' | 'failed';
+  status: 'completed' | 'building' | 'running' | 'failed';
+  errorMessage?: string;
   includesVolumes: boolean;
   includesEnv: boolean;
   pauseContainers?: boolean;

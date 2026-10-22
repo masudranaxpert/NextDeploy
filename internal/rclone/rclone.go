@@ -162,13 +162,44 @@ func DeleteRemoteObject(ctx context.Context, provider string, config map[string]
 	return nil
 }
 
+// ExtractRcloneTokenJSON extracts a valid Google OAuth token JSON object from raw user input
+// (supports pasting either the raw JSON object or the full `rclone authorize "drive"` terminal output).
+func ExtractRcloneTokenJSON(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("rclone token is empty")
+	}
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start < 0 || end <= start {
+		return "", fmt.Errorf("invalid rclone token: expected JSON object containing access_token")
+	}
+	candidate := trimmed[start : end+1]
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(candidate), &parsed); err != nil {
+		return "", fmt.Errorf("invalid rclone token JSON: %w", err)
+	}
+	if at, _ := parsed["access_token"].(string); strings.TrimSpace(at) == "" {
+		return "", fmt.Errorf("rclone token JSON is missing access_token")
+	}
+	normalized, err := json.Marshal(parsed)
+	if err != nil {
+		return candidate, nil
+	}
+	return string(normalized), nil
+}
+
 func rcloneEnvGoogleDrive(clientID, clientSecret, token, folderID string) []string {
 	out := []string{
 		"RCLONE_CONFIG_GDRIVE_TYPE=drive",
-		"RCLONE_CONFIG_GDRIVE_SCOPE=drive.file",
-		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_ID=%s", clientID),
-		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_SECRET=%s", clientSecret),
+		"RCLONE_CONFIG_GDRIVE_SCOPE=drive",
 		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_TOKEN=%s", token),
+	}
+	if strings.TrimSpace(clientID) != "" && strings.TrimSpace(clientSecret) != "" {
+		out = append(out,
+			fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_ID=%s", strings.TrimSpace(clientID)),
+			fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_SECRET=%s", strings.TrimSpace(clientSecret)),
+		)
 	}
 	if strings.TrimSpace(folderID) != "" {
 		out = append(out, fmt.Sprintf("RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID=%s", folderID))

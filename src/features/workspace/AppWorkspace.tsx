@@ -73,6 +73,10 @@ import {
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { CodeEditorBox, DevFileIcon, detectLanguageFromFilename } from '../../components/ui/CodeEditorBox';
 import { backendApi } from '../../lib/backendApi';
+import { ProjectDomainsTab } from './tabs/ProjectDomainsTab';
+import { ProjectGitTab } from './tabs/ProjectGitTab';
+import { ProjectVolumesTab } from './tabs/ProjectVolumesTab';
+import { ProjectBackupsTab } from './tabs/ProjectBackupsTab';
 
 interface AppWorkspaceProps {
   app: AppStack;
@@ -990,6 +994,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [mergedComposeModalOpen, setMergedComposeModalOpen] = useState(false);
   const [mergedComposeYaml, setMergedComposeYaml] = useState('');
 
+  // General Tab: Deploy Source Switcher (/apps/:id/switch-source) & Git Sync (/apps/:id/git-sync)
+  const [switchSourceModalOpen, setSwitchSourceModalOpen] = useState(false);
+  const [gitSyncModalOpen, setGitSyncModalOpen] = useState(false);
+  const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
+
   // =========================================================================
   // Actions & Handlers
   // =========================================================================
@@ -1745,6 +1754,73 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'overview' && (
         <div className="space-y-5">
+          {/* Deploy Source Bar (Git source vs Manual files + Pause/Resume Git Sync + Switch Source) */}
+          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+              {app.sourceType === 'git' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Git source
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300">
+                  <Folder className="h-3.5 w-3.5" />
+                  Manual files
+                </span>
+              )}
+
+              {app.gitRepo && app.sourceType !== 'git' && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-medium text-amber-300">
+                  Git sync paused · {app.gitBranch || 'main'}
+                </span>
+              )}
+
+              <span className="font-mono text-xs text-zinc-400 truncate">
+                {app.sourceType === 'git'
+                  ? `${app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`} (${app.gitBranch || 'main'})`
+                  : `Workspace directory (/apps/${app.id}) · ${app.composeFilePath || 'docker-compose.yml'}`}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {app.gitRepo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForceGitSyncResume(false);
+                    setGitSyncModalOpen(true);
+                  }}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium cursor-pointer ${
+                    app.sourceType === 'git'
+                      ? 'border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
+                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                  }`}
+                >
+                  {app.sourceType === 'git' ? (
+                    <>
+                      <Pause className="h-3.5 w-3.5 text-amber-400" />
+                      Pause Git sync
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-3.5 w-3.5 text-emerald-400" />
+                      Resume Git sync
+                    </>
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSwitchSourceModalOpen(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
+                Switch source
+              </button>
+            </div>
+          </div>
+
           {/* Compose Services Grid */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -2048,6 +2124,139 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Switch Deploy Source Modal (POST /apps/:id/switch-source) */}
+          <ShadcnDialog
+            open={switchSourceModalOpen}
+            onClose={() => setSwitchSourceModalOpen(false)}
+            title={
+              app.sourceType === 'git'
+                ? 'Switch to Manual Workspace Files'
+                : 'Switch to Git Repository Source'
+            }
+            icon={<RefreshCw className="h-4 w-4 text-orange-400" />}
+          >
+            <div className="space-y-4">
+              {app.sourceType === 'git' ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 leading-relaxed">
+                  Switching to <strong>Manual files</strong> disconnects the Git repository config and uses the editable workspace directory for future deployments. (To keep the repo saved while editing files, use <strong>Pause Git sync</strong> instead.)
+                </div>
+              ) : (
+                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-200 leading-relaxed">
+                  Switching to <strong>Git source</strong> clears uploaded workspace files (except panel <code className="font-mono">.env</code>) so your Git repository checkout is the single deploy source.
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setSwitchSourceModalOpen(false)}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const targetSource = app.sourceType === 'git' ? 'files' : 'git';
+                    const res = await backendApi.switchAppSource(app.id, targetSource);
+                    if (!res.ok && !res.offlineFallback) {
+                      toast.error(res.error || 'Failed to switch deploy source');
+                      return;
+                    }
+                    onUpdateApp({
+                      ...app,
+                      sourceType: targetSource === 'git' ? 'git' : 'compose',
+                      gitSync: targetSource === 'git',
+                    });
+                    setSwitchSourceModalOpen(false);
+                    if (targetSource === 'git') {
+                      setActiveTab('git');
+                      toast.success('Switched to Git source');
+                    } else {
+                      setActiveTab('files');
+                      toast.success('Switched to Manual workspace files');
+                    }
+                  }}
+                  className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                >
+                  {app.sourceType === 'git' ? 'Switch to Manual Files' : 'Switch to Git Source'}
+                </button>
+              </div>
+            </div>
+          </ShadcnDialog>
+
+          {/* Pause / Resume Git Sync Modal (POST /apps/:id/git-sync) */}
+          <ShadcnDialog
+            open={gitSyncModalOpen}
+            onClose={() => setGitSyncModalOpen(false)}
+            title={app.sourceType === 'git' ? 'Pause Git Sync' : 'Resume Git Sync'}
+            icon={<GitBranch className="h-4 w-4 text-orange-400" />}
+          >
+            <div className="space-y-4">
+              {app.sourceType === 'git' ? (
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                  Copies the current Git checkout into the workspace (newer workspace files are preserved) and pauses automatic Git pulls so you can edit files directly in File Manager or push via <code className="font-mono text-orange-300">nd push</code>.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Resumes deploying from <code className="font-mono text-emerald-300">{app.gitRepo}</code> (<code className="font-mono text-orange-300">{app.gitBranch || 'main'}</code>). Workspace files stay on disk, but the next deploy pulls from Git.
+                  </p>
+                  <label className="flex items-start gap-2.5 rounded-lg border border-white/[0.08] bg-[#09090b] p-3 text-xs text-zinc-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={forceGitSyncResume}
+                      onChange={(e) => setForceGitSyncResume(e.target.checked)}
+                      className="mt-0.5 rounded border-zinc-700 accent-orange-500"
+                    />
+                    <span>
+                      Discard uncommitted local edits in the Git checkout if present (<code className="font-mono text-[11px]">force=1</code>)
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setGitSyncModalOpen(false)}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const nextEnabled = app.sourceType !== 'git';
+                    const res = await backendApi.setGitSync(
+                      app.id,
+                      nextEnabled,
+                      nextEnabled ? forceGitSyncResume : false
+                    );
+                    if (!res.ok && !res.offlineFallback) {
+                      toast.error(res.error || 'Failed to update Git sync');
+                      return;
+                    }
+                    onUpdateApp({
+                      ...app,
+                      sourceType: nextEnabled ? 'git' : 'compose',
+                      gitSync: nextEnabled,
+                    });
+                    setGitSyncModalOpen(false);
+                    toast.success(
+                      nextEnabled
+                        ? 'Git sync resumed — deployments pull from repository'
+                        : 'Git sync paused — workspace files are now active'
+                    );
+                  }}
+                  className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                >
+                  {app.sourceType === 'git' ? 'Pause Git Sync' : 'Resume Git Sync'}
+                </button>
+              </div>
+            </div>
+          </ShadcnDialog>
         </div>
       )}
 
@@ -2303,158 +2512,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* TAB 3: DOMAINS (Clean Header + Auto-Port Detection + Preview Routing) */}
       {/* ===================================================================== */}
       {activeTab === 'domains' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-zinc-100">Domains</h2>
-              <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-                {app.domains.length}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={openAddDomainModal}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Domain
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3">
-            {app.domains.map((dom) => (
-              <div
-                key={dom.id}
-                className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <a
-                        href={`https://${dom.domain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono text-sm font-semibold text-zinc-100 hover:text-orange-400 inline-flex items-center gap-1"
-                      >
-                        https://{dom.domain}
-                        <ArrowUpRight className="h-3.5 w-3.5 opacity-60" />
-                      </a>
-                      <StatusBadge status={dom.tlsStatus} label="SSL Active" />
-                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
-                        Production
-                      </span>
-                    </div>
-                    <div className="mt-0.5 font-mono text-[11px] text-zinc-400">
-                      Upstream{' '}
-                      <span className="text-orange-400">
-                        {dom.targetService}:{dom.targetPort}
-                      </span>{' '}
-                      · HTTP/3
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-end sm:self-center">
-                  <ActionMenu
-                    items={[
-                      {
-                        label: 'Edit Domain & Static/Media',
-                        icon: <Sliders className="h-3.5 w-3.5" />,
-                        onClick: () => openEditDomainModal(dom),
-                      },
-                      {
-                        label: 'Verify DNS & Cloudflare',
-                        icon: <ShieldCheck className="h-3.5 w-3.5" />,
-                        onClick: async () => {
-                          const check = await backendApi.domainDnsCheck(app.id, dom.id);
-                          const ips = check.ips?.join(', ') || '188.114.96.3';
-                          toast.success(
-                            check.cloudflare
-                              ? `${dom.domain} resolved (${ips}) · Cloudflare Proxy detected`
-                              : `${dom.domain} DNS A/AAAA verified (${ips})`
-                          );
-                        },
-                      },
-                      {
-                        label: 'View Caddy Labels Snippet',
-                        icon: <FileCode2 className="h-3.5 w-3.5" />,
-                        onClick: async () => {
-                          const lbl = await backendApi.domainLabels(app.id, dom.id);
-                          setCaddyLabelsPreview({
-                            domain: lbl.domain || dom.domain,
-                            port: lbl.port || dom.targetPort,
-                            snippet:
-                              lbl.snippet ||
-                              `labels:\n  caddy: ${dom.domain}\n  caddy.reverse_proxy: "{{upstreams ${dom.targetPort}}}"`,
-                          });
-                        },
-                      },
-                      {
-                        label: 'Renew SSL Certificate',
-                        icon: <Lock className="h-3.5 w-3.5" />,
-                        onClick: () => toast.success(`Renewed TLS cert for ${dom.domain}`),
-                      },
-                      {
-                        label: 'Remove Domain',
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        variant: 'danger',
-                        onClick: () => {
-                          void backendApi.domainDelete(app.id, dom.id);
-                          onUpdateApp({
-                            ...app,
-                            domains: app.domains.filter((d) => d.id !== dom.id),
-                          });
-                          toast.success(`Removed ${dom.domain}`);
-                        },
-                      },
-                    ]}
-                  />
-                </div>
-              </div>
-            ))}
-
-            {/* Automatic PR & Branch Preview URL Card */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/[0.07] bg-[#111115]/60 p-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-500/25 bg-violet-500/10">
-                  <Sparkles className="h-4 w-4 text-violet-400" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-zinc-100">
-                      Automatic Preview URLs (Pull Requests & Branches)
-                    </span>
-                    <span className="rounded bg-violet-500/15 px-1.5 py-0.5 font-mono text-[10px] text-violet-300">
-                      *.preview.nextdeploy.sh
-                    </span>
-                  </div>
-                  <div className="mt-0.5 font-mono text-[11px] text-zinc-400">
-                    Active preview:{' '}
-                    <a
-                      href={previewUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-violet-300 hover:underline"
-                    >
-                      {previewUrl}
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              <ShadcnSwitch
-                checked={previewDeploymentsEnabled}
-                onChange={(next) => {
-                  setPreviewDeploymentsEnabled(next);
-                  toast.success(next ? 'Preview URLs enabled' : 'Preview URLs disabled');
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <ProjectDomainsTab app={app} onUpdateApp={onUpdateApp} />
       )}
 
       {/* ===================================================================== */}
@@ -3714,468 +3772,24 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 6: GIT SOURCE (With Auto-Detected GitHub Branches)                */}
+      {/* TAB 6: GIT SOURCE & GIT SYNC                                          */}
       {/* ===================================================================== */}
       {activeTab === 'git' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <GitBranch className="h-4 w-4 text-orange-400" />
-                <h2 className="text-sm font-semibold text-zinc-100">Git Source & Branches</h2>
-                <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 ring-1 ring-emerald-500/20">
-                  {detectedBranches.length} branches
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={triggerRescanBranches}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-                >
-                  <RefreshCw
-                    className={`h-3.5 w-3.5 text-orange-400 ${
-                      isScanningBranches ? 'animate-spin' : ''
-                    }`}
-                  />
-                  Sync Branches
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGitModalOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-                >
-                  Configure Git
-                </button>
-              </div>
-            </div>
-
-            {/* Auto-Detected Branches Grid */}
-            <div>
-              <div className="mb-2 flex items-center justify-between text-[11px] text-zinc-400">
-                <span className="font-semibold uppercase tracking-wider text-zinc-500">
-                  Remote Branches
-                </span>
-                <span className="font-mono text-zinc-500">{gitRepoInput}</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {detectedBranches.map((br) => {
-                  const isSelected = (app.gitBranch || gitBranchInput) === br.name;
-                  return (
-                    <button
-                      key={br.name}
-                      type="button"
-                      onClick={() => {
-                        setGitBranchInput(br.name);
-                        onUpdateApp({
-                          ...app,
-                          gitBranch: br.name,
-                          gitCommitSha: br.sha,
-                        });
-                        toast.success(`Switched target branch to ${br.name} (@${br.sha})`);
-                      }}
-                      className={`flex items-center justify-between rounded-xl border p-3 text-left transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-orange-500/50 bg-orange-500/10 shadow-[inset_0_1px_0_0_rgba(249,115,22,0.15)]'
-                          : 'border-white/[0.07] bg-[#09090b] hover:border-white/[0.15]'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <GitBranch
-                            className={`h-3.5 w-3.5 shrink-0 ${
-                              isSelected ? 'text-orange-400' : 'text-zinc-500'
-                            }`}
-                          />
-                          <span className="truncate font-mono text-xs font-semibold text-zinc-100">
-                            {br.name}
-                          </span>
-                          {br.prNumber && (
-                            <span className="rounded bg-violet-500/15 px-1.5 py-0.2 font-mono text-[10px] text-violet-300">
-                              PR #{br.prNumber}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1 font-mono text-[10px] text-zinc-500">
-                          @{br.sha} · {br.author} · {br.updatedAt}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <span className="rounded-md bg-orange-500/20 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-300">
-                          Active
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Webhook Endpoint + Auto-Sync Toggle + Source Switch */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-4 py-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-zinc-200">Webhook Endpoint</div>
-                    <div className="truncate font-mono text-[11px] text-zinc-500">
-                      https://panel.nextdeploy.sh/webhooks/github
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`https://panel.nextdeploy.sh/webhooks/github`);
-                    toast.success('Copied webhook URL');
-                  }}
-                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
-                >
-                  Copy URL
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-4 py-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-zinc-200">
-                      Git Auto-Sync & Source Mode
-                    </span>
-                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] uppercase text-orange-300">
-                      {app.sourceType}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {gitAutoSyncEnabled
-                      ? 'Auto-deploy on push active'
-                      : 'Webhook auto-sync paused'}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMode = app.sourceType === 'git' ? 'upload' : 'git';
-                      void backendApi.switchSourceMode(app.id, nextMode);
-                      onUpdateApp({
-                        ...app,
-                        sourceType: nextMode === 'git' ? 'git' : 'compose',
-                      });
-                      toast.success(
-                        nextMode === 'git'
-                          ? 'Switched source mode to Git Repository'
-                          : 'Switched source mode to Workspace Files'
-                      );
-                    }}
-                    className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-                  >
-                    Switch to {app.sourceType === 'git' ? 'Files' : 'Git'}
-                  </button>
-                  <ShadcnSwitch
-                    checked={gitAutoSyncEnabled}
-                    onChange={(next) => {
-                      setGitAutoSyncEnabled(next);
-                      void backendApi.toggleGitAutoSync(app.id, !next);
-                      toast.success(
-                        next ? 'Git webhook auto-sync resumed' : 'Git webhook auto-sync paused'
-                      );
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ProjectGitTab app={app} onUpdateApp={onUpdateApp} />
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 7: VOLUMES (No AI Slop Subtitle)                                  */}
+      {/* TAB 7: VOLUMES                                                        */}
       {/* ===================================================================== */}
       {activeTab === 'volumes' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-zinc-100">Volumes</h2>
-              <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-                {app.volumes.length}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setVolumeModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Mount Volume
-            </button>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <table className="w-full table-fixed text-left text-xs">
-              <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[34%] px-4 py-2.5 font-medium">Volume Name</th>
-                  <th className="w-[38%] px-4 py-2.5 font-medium">Container Mount Path</th>
-                  <th className="w-[16%] px-4 py-2.5 font-medium text-right">Size</th>
-                  <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {app.volumes.map((v) => {
-                  const pathVal = v.mountPath || v.mountPoint || '/data';
-                  return (
-                    <tr key={v.name} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-3 font-mono font-semibold text-zinc-100 truncate">
-                        {v.name}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-zinc-400 truncate">{pathVal}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-300">
-                        {v.sizeMB} MB
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <ActionMenu
-                          items={[
-                            {
-                              label: 'Snapshot Volume (.tar.gz)',
-                              icon: <Download className="h-3.5 w-3.5" />,
-                              onClick: () => toast.success(`Exporting ${v.name}.tar.gz`),
-                            },
-                            {
-                              label: 'Copy Mount Path',
-                              icon: <Copy className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                navigator.clipboard?.writeText(pathVal);
-                                toast.success('Copied mount path');
-                              },
-                            },
-                          ]}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <ProjectVolumesTab app={app} onUpdateApp={onUpdateApp} />
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 8: BACKUPS (Rich NextDeploy Rclone + Schedule + Point-in-Time)    */}
+      {/* TAB 8: BACKUPS                                                        */}
       {/* ===================================================================== */}
       {activeTab === 'backups' && (
-        <div className="space-y-4">
-          {/* Top Summary & Controls Row */}
-          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-            {/* Schedule Card */}
-            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-col justify-between gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-orange-400" />
-                  <span className="text-xs font-semibold text-zinc-100">Automated Schedule</span>
-                </div>
-                <ShadcnSwitch
-                  checked={autoBackupEnabled}
-                  onChange={(next) => {
-                    setAutoBackupEnabled(next);
-                    toast.success(next ? 'Automated backups enabled' : 'Automated backups paused');
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <select
-                  value={autoBackupSchedule}
-                  onChange={(e) => {
-                    setAutoBackupSchedule(e.target.value);
-                    toast.success(`Updated backup schedule to ${e.target.value}`);
-                  }}
-                  className="h-8 flex-1 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 font-mono text-xs text-zinc-200 focus:border-orange-500 focus:outline-none"
-                >
-                  <option value="0 */6 * * *">Every 6 hours (0 */6 * * *)</option>
-                  <option value="0 2 * * *">Daily at 02:00 UTC (0 2 * * *)</option>
-                  <option value="0 3 * * 0">Weekly Sunday (0 3 * * 0)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Pre-Deploy Snapshot & Encryption Card */}
-            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-col justify-between gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs font-semibold text-zinc-100">
-                    Pre-Deploy Auto-Snapshot
-                  </span>
-                </div>
-                <ShadcnSwitch
-                  checked={preDeploySnapshot}
-                  onChange={(next) => {
-                    setPreDeploySnapshot(next);
-                    toast.success(
-                      next
-                        ? 'Will snapshot volumes before every deploy'
-                        : 'Disabled pre-deploy snapshot'
-                    );
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between font-mono text-[11px] text-zinc-400">
-                <span>Encryption: AES-256-GCM</span>
-                <span className="text-emerald-400">Retention: 14 days</span>
-              </div>
-            </div>
-
-            {/* Rclone Cloud Target + Trigger Button */}
-            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-col justify-between gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Cloud className="h-4 w-4 text-sky-400" />
-                  <span className="text-xs font-semibold text-zinc-100">Rclone Cloud Sync</span>
-                </div>
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
-                  R2 + GDrive
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-zinc-400">
-                  {projectBackups.length} archives · 4.2 GB
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setBackupModalOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Create Snapshot
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Project Snapshots Table */}
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <table className="w-full table-fixed text-left text-xs">
-              <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[38%] px-4 py-2.5 font-medium">Archive & Checksum</th>
-                  <th className="w-[24%] px-4 py-2.5 font-medium">Included Assets</th>
-                  <th className="w-[20%] px-4 py-2.5 font-medium">Destination</th>
-                  <th className="w-[12%] px-4 py-2.5 font-medium text-right">Size</th>
-                  <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {projectBackups.map((bk) => (
-                  <tr key={bk.id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${
-                            bk.type === 'Pre-Deploy'
-                              ? 'bg-violet-500/15 text-violet-300'
-                              : bk.type === 'Scheduled'
-                                ? 'bg-sky-500/15 text-sky-300'
-                                : 'bg-orange-500/15 text-orange-300'
-                          }`}
-                        >
-                          {bk.type}
-                        </span>
-                        <span className="truncate font-mono font-semibold text-zinc-100">
-                          {bk.name}
-                        </span>
-                      </div>
-                      <div className="mt-1 font-mono text-[10px] text-zinc-500">
-                        {bk.checksum} · commit @{bk.commitSha} · {bk.createdAt}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {bk.includes.map((inc) => (
-                          <span
-                            key={inc}
-                            className="rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300"
-                          >
-                            {inc}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-3 font-mono text-[11px] text-zinc-300">
-                      <div>{bk.provider}</div>
-                      <div className="text-[10px] text-zinc-500 truncate">{bk.destination}</div>
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {(bk.sizeMB / 1024).toFixed(2)} GB
-                    </td>
-
-                    <td className="px-3 py-3 text-right">
-                      <ActionMenu
-                        items={[
-                          {
-                            label: 'Restore Snapshot',
-                            icon: <RotateCcw className="h-3.5 w-3.5" />,
-                            onClick: () => setRestoreSnapshotTarget(bk),
-                          },
-                          {
-                            label: 'View Rclone Backup Log',
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              const res = await backendApi.backupLog(app.id, bk.id);
-                              setBackupLogModal({
-                                name: bk.name,
-                                log:
-                                  res.log ||
-                                  `[rclone] Starting snapshot for ${app.slug} (${bk.name})\n[docker] Paused ${app.services.length} containers for consistent snapshot\n[tar] Archived /data/apps/${app.slug} + ${bk.includes.join(', ')}\n[rclone] Transferred ${(bk.sizeMB / 1024).toFixed(2)} GB to ${bk.destination} (100%)\n[verify] Checksum ${bk.checksum} OK`,
-                              });
-                            },
-                          },
-                          {
-                            label: 'Open in Google Drive / Cloud',
-                            icon: <ExternalLink className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              const res = await backendApi.backupDriveLink(app.id, bk.id);
-                              if (res.url) {
-                                window.open(res.url, '_blank');
-                              } else {
-                                toast.success(`Verified archive on ${bk.destination}`);
-                              }
-                            },
-                          },
-                          {
-                            label: 'Download .tar.gz',
-                            icon: <Download className="h-3.5 w-3.5" />,
-                            onClick: () => toast.success(`Downloading ${bk.name}`),
-                          },
-                          {
-                            label: 'Copy Checksum',
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(bk.checksum);
-                              toast.success('Copied SHA-256 checksum');
-                            },
-                          },
-                          {
-                            label: 'Delete Snapshot',
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            variant: 'danger',
-                            onClick: () => {
-                              void backendApi.backupDelete(app.id, bk.id);
-                              setProjectBackups((prev) => prev.filter((x) => x.id !== bk.id));
-                              toast.success(`Removed ${bk.name}`);
-                            },
-                          },
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <ProjectBackupsTab app={app} />
       )}
 
       {/* ===================================================================== */}

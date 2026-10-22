@@ -155,8 +155,10 @@ export const backendApi = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ compose_file: composeFile, compose_content: content }),
     }),
-  composeView: (appId: string) =>
-    requestText(`/apps/${encodeURIComponent(appId)}/compose-view`),
+  composeView: async (appId: string) => {
+    const res = await requestText(`/apps/${encodeURIComponent(appId)}/compose-view`);
+    return { ...res, yaml: res.data };
+  },
   clearDeployLogs: (appId: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/deploy-logs/clear`, { method: 'POST' }),
   saveAppEnv: (appId: string, envContent: string) =>
@@ -177,7 +179,7 @@ export const backendApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     }),
-  fileCreate: (appId: string, path: string, isDir: boolean) =>
+  fileCreate: (appId: string, path: string, isDir = false) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/${isDir ? 'mkdir' : 'create'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -207,11 +209,15 @@ export const backendApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths, dest }),
     }),
-  fileZip: (appId: string, paths: string[], name: string, dest = '') =>
+  fileZip: (appId: string, paths: string | string[], name = 'archive.zip', dest = '') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/zip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths, name, dest }),
+      body: JSON.stringify({
+        paths: Array.isArray(paths) ? paths : [paths],
+        name,
+        dest,
+      }),
     }),
   fileUnzip: (appId: string, path: string, dest = '') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/unzip`, {
@@ -219,12 +225,17 @@ export const backendApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, dest }),
     }),
-  fileUrlUpload: (appId: string, url: string, dest = '') =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/files/url-upload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, dest }),
-    }),
+  fileUrlUpload: async (appId: string, url: string, dest = '') => {
+    const res = await requestJson<{ file?: string; bytes?: number }>(
+      `/apps/${encodeURIComponent(appId)}/files/url-upload`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, dest }),
+      }
+    );
+    return { ...res, file: res.data?.file, bytes: res.data?.bytes };
+  },
 
   // Domains & DNS Check
   domainCreate: (appId: string, payload: DomainFormPayload) =>
@@ -267,32 +278,162 @@ export const backendApi = {
     requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/delete`, {
       method: 'POST',
     }),
-  domainDnsCheck: (appId: string, domainId: string | number) =>
-    requestJson<{
+  domainDnsCheck: async (appId: string, domainId: string | number) => {
+    const res = await requestJson<{
       ok: boolean;
       domain: string;
       ips: string[];
       cloudflare: boolean;
       internalTLS: boolean;
-    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/dns-check`),
-  domainLabels: (appId: string, domainId: string | number) =>
-    requestJson<{ ok: boolean; yaml: string }>(
-      `/apps/${encodeURIComponent(appId)}/domains/${domainId}/labels`
-    ),
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/dns-check`);
+    return {
+      ...res,
+      domain: res.data?.domain,
+      ips: res.data?.ips,
+      cloudflare: res.data?.cloudflare,
+      internalTLS: res.data?.internalTLS,
+    };
+  },
+  domainLabels: async (appId: string, domainId: string | number) => {
+    const res = await requestJson<{
+      ok?: boolean;
+      domain?: string;
+      port?: number;
+      labels?: Record<string, string>;
+      yaml?: string;
+      snippet?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/labels`);
+    return {
+      ...res,
+      domain: res.data?.domain,
+      port: res.data?.port,
+      labels: res.data?.labels,
+      yaml: res.data?.yaml,
+      snippet: res.data?.yaml || res.data?.snippet,
+    };
+  },
 
-  // Git Source & Providers (GitHub App Manifest + GitLab OAuth 2.0)
+  // Git Source & Providers (GitHub App + GitLab OAuth 2.0 + Git Sync)
   switchAppSource: (appId: string, sourceType: 'git' | 'files') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/switch-source`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ source_type: sourceType }),
     }),
-  toggleGitSync: (appId: string, paused: boolean) =>
+  switchSourceMode: (appId: string, sourceType: 'git' | 'files' | 'upload') =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/switch-source`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ source_type: sourceType === 'git' ? 'git' : 'files' }),
+    }),
+  saveAppGit: (
+    appId: string,
+    payload: {
+      auth_mode: 'public' | 'github_app' | 'gitlab_token';
+      git_provider_id?: string | number;
+      repo_url: string;
+      branch: string;
+      auto_deploy: boolean;
+    }
+  ) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/git`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({
+        auth_mode: payload.auth_mode,
+        git_provider_id: payload.git_provider_id ?? '',
+        repo_url: payload.repo_url,
+        branch: payload.branch,
+        auto_deploy: payload.auto_deploy ? 'on' : '',
+      }),
+    }),
+  deleteAppGit: (appId: string) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/git/delete`, {
+      method: 'POST',
+    }),
+  gitProviderRepos: (appId: string, providerId: string | number) =>
+    requestJson<{
+      ok?: boolean;
+      repos?: Array<{
+        full_name: string;
+        clone_url: string;
+        html_url: string;
+        private: boolean;
+        default_branch: string;
+      }>;
+    }>(`/apps/${encodeURIComponent(appId)}/git/providers/${providerId}/repos`),
+  gitProviderBranches: (appId: string, providerId: string | number, repoFullName: string) =>
+    requestJson<{
+      ok?: boolean;
+      branches?: string[];
+    }>(
+      `/apps/${encodeURIComponent(appId)}/git/providers/${providerId}/branches?repo=${encodeURIComponent(repoFullName)}`
+    ),
+  setGitSync: (appId: string, enabled: boolean, force = false) =>
+    requestJson<{
+      ok?: boolean;
+      git_sync?: boolean;
+      warning?: string;
+      confirm_needed?: boolean;
+      result?: {
+        changed?: boolean;
+        files_copied?: number;
+        files_kept_newer_in_workspace?: number;
+        files_unchanged?: number;
+        notes?: string[];
+        next_step?: string;
+      };
+    }>(`/apps/${encodeURIComponent(appId)}/git-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({
+        enabled: enabled ? '1' : '0',
+        force: force ? '1' : '0',
+      }),
+    }),
+  toggleGitSync: (appId: string, paused: boolean, force = false) =>
+    requestJson<{
+      ok?: boolean;
+      git_sync?: boolean;
+      warning?: string;
+      confirm_needed?: boolean;
+    }>(`/apps/${encodeURIComponent(appId)}/git-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({
+        enabled: !paused ? '1' : '0',
+        force: force ? '1' : '0',
+      }),
+    }),
+  toggleGitAutoSync: (appId: string, paused: boolean) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/git-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ paused: paused ? '1' : '0' }),
+      body: toFormBody({
+        enabled: !paused ? '1' : '0',
+        force: '0',
+      }),
     }),
+  gitTree: (appId: string, path = '') =>
+    requestJson<{
+      ok?: boolean;
+      path?: string;
+      entries?: Array<{
+        name: string;
+        path: string;
+        is_dir: boolean;
+        size: number;
+        mod_time?: string;
+      }>;
+    }>(`/apps/${encodeURIComponent(appId)}/git/tree?path=${encodeURIComponent(path)}`),
+  gitBlob: (appId: string, path: string) =>
+    requestJson<{
+      ok?: boolean;
+      path?: string;
+      content?: string;
+      binary?: boolean;
+    }>(`/apps/${encodeURIComponent(appId)}/git/blob?path=${encodeURIComponent(path)}`),
   gitSyncNow: (appId: string, force = false) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/git/sync`, {
       method: 'POST',
@@ -336,7 +477,7 @@ export const backendApi = {
       method: 'POST',
     }),
 
-  // Container Registries (Global vs Personal Scope)
+  // Container Registries (Global vs Personal Scope — POST /registries)
   addRegistry: (payload: {
     name: string;
     server: string;
@@ -351,11 +492,12 @@ export const backendApi = {
       server: string;
       username: string;
       scope: 'global' | 'personal';
-    }>('/settings/registries', {
+    }>('/registries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({
         name: payload.name,
+        server_address: payload.server,
         server: payload.server,
         username: payload.username,
         password: payload.password,
@@ -363,7 +505,7 @@ export const backendApi = {
       }),
     }),
   deleteRegistry: (registryId: string | number) =>
-    requestJson(`/settings/registries/${registryId}/delete`, {
+    requestJson(`/registries/${registryId}/delete`, {
       method: 'POST',
     }),
 
@@ -389,29 +531,52 @@ export const backendApi = {
   backupDestinationsList: () =>
     requestJson<{
       destinations: Array<{
-        id: number;
-        name: string;
-        provider: 'gdrive' | 'r2';
+        id?: number;
+        ID?: number;
+        name?: string;
+        Name?: string;
+        provider?: 'gdrive' | 'r2';
+        Provider?: 'gdrive' | 'r2';
+        config?: string;
+        Config?: string;
+        created_at?: string;
+        CreatedAt?: string;
         account_id?: string;
         bucket?: string;
         folder_id?: string;
         email?: string;
         display_name?: string;
         info_error?: string;
+        storage_limit?: number;
+        storage_used?: number;
         usage?: { Total?: number; Used?: number; Free?: number };
       }>;
     }>('/backup/destinations'),
-  backupGDriveAuthUrl: (clientId: string, clientSecret: string, state = '') =>
-    requestJson<{ url: string; redirect_uri: string }>(
+  backupGDriveAuthUrl: async (clientId: string, clientSecret: string, state = '') => {
+    const res = await requestJson<{
+      auth_url?: string;
+      redirect_url?: string;
+      url?: string;
+      redirect_uri?: string;
+    }>(
       `/backup/gdrive/auth-url?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&state=${encodeURIComponent(state)}`
-    ),
+    );
+    return {
+      ...res,
+      auth_url: res.data?.auth_url || res.data?.url,
+      redirect_url: res.data?.redirect_url || res.data?.redirect_uri,
+    };
+  },
   backupDestinationCreate: (
     payload:
       | {
           provider: 'gdrive';
           name: string;
-          client_id: string;
-          client_secret: string;
+          token?: string;
+          folder_id?: string;
+          client_id?: string;
+          client_secret?: string;
+          auth_mode?: 'rclone_token' | 'custom_oauth';
         }
       | {
           provider: 'r2';
@@ -422,7 +587,7 @@ export const backendApi = {
           bucket: string;
         }
   ) =>
-    requestJson('/backup/destinations', {
+    requestJson<{ id?: number; message?: string; auth_url?: string }>('/backup/destinations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody(payload),
@@ -445,7 +610,7 @@ export const backendApi = {
         type,
         volume_name: volumeNames,
         volume_names: volumeNames,
-        pause_containers: pauseContainers ? '1' : '0',
+        pause_containers: pauseContainers ? 'true' : 'false',
       }),
     }),
   backupNow: (appId: string, scope: 'full' | 'volume' | 'app' = 'full') =>
@@ -461,18 +626,30 @@ export const backendApi = {
   backupSchedulesList: (appId: string) =>
     requestJson<{
       schedules: Array<{
-        id: number;
-        app_id: string;
-        destination_id: number;
-        destination_name: string;
-        destination_provider: string;
-        type: 'full' | 'volume' | 'app';
-        volume_name: string;
-        cron: string;
-        retention: number;
-        pause_containers: boolean;
-        enabled: boolean;
-        last_run: string;
+        id?: number;
+        ID?: number;
+        app_id?: string;
+        AppID?: number;
+        destination_id?: number;
+        DestinationID?: number;
+        destination_name?: string;
+        destination_provider?: string;
+        type?: 'full' | 'volume' | 'app';
+        BackupType?: 'full' | 'volume' | 'app';
+        volume_name?: string;
+        VolumeNames?: string;
+        cron?: string;
+        CronExpression?: string;
+        retention?: number;
+        RetentionCount?: number;
+        pause_containers?: boolean;
+        PauseContainers?: boolean;
+        enabled?: boolean;
+        Enabled?: boolean;
+        last_run?: string;
+        LastRun?: string;
+        next_run_at?: string;
+        NextRunAt?: string;
       }>;
     }>(`/apps/${encodeURIComponent(appId)}/backup/schedules`),
   backupScheduleCreate: (
@@ -494,13 +671,14 @@ export const backendApi = {
         volume_names: payload.volume_names || '',
         cron: payload.cron,
         retention: payload.retention,
-        pause_containers: payload.pause_containers ? '1' : '0',
+        pause_containers: payload.pause_containers ? 'true' : 'false',
       }),
     }),
   backupScheduleUpdate: (
     appId: string,
     scheduleId: string | number,
     payload: {
+      destination?: string | number;
       type: 'full' | 'volume' | 'app';
       volume_names?: string;
       cron: string;
@@ -512,65 +690,91 @@ export const backendApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({
+        destination: payload.destination,
         type: payload.type,
         volume_names: payload.volume_names || '',
         cron: payload.cron,
         retention: payload.retention,
-        pause_containers: payload.pause_containers ? '1' : '0',
+        pause_containers: payload.pause_containers ? 'true' : 'false',
       }),
     }),
   backupScheduleToggle: (appId: string, scheduleId: string | number, enabled: boolean) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/backup/schedule/${scheduleId}/toggle`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ enabled: enabled ? 'true' : 'false' }),
-    }),
+    requestJson(
+      `/apps/${encodeURIComponent(appId)}/backup/schedule/${scheduleId}/toggle?enabled=${enabled ? 'true' : 'false'}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: toFormBody({ enabled: enabled ? 'true' : 'false' }),
+      }
+    ),
   backupScheduleDelete: (appId: string, scheduleId: string | number) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/backup/schedule/${scheduleId}/delete`, {
       method: 'POST',
     }),
-  backupHistoryList: (appId: string, page = 1, limit = 15) =>
+  backupHistoryList: (appId: string, page = 1, perPage = 5) =>
     requestJson<{
       history: Array<{
-        id: number;
-        app_id: string;
-        destination_id: number;
-        destination_name: string;
-        destination_provider: string;
-        schedule_id?: number;
-        type: string;
-        volume_name: string;
-        status: string;
-        size: number;
-        started_at: string;
-        completed_at?: string;
-        file_path: string;
+        id?: number;
+        ID?: number;
+        app_id?: string;
+        AppID?: number;
+        destination_id?: number;
+        DestinationID?: number;
+        destination_name?: string;
+        destination_provider?: string;
+        type?: string;
+        BackupType?: string;
+        volume_name?: string;
+        VolumeName?: string;
+        status?: string;
+        Status?: string;
+        error_message?: string;
+        ErrorMessage?: string;
+        size?: number;
+        SizeBytes?: number;
+        started_at?: string;
+        CreatedAt?: string;
+        file_path?: string;
+        RemotePath?: string;
+        remote_missing?: boolean;
+        RemoteMissing?: boolean;
       }>;
       total: number;
       page: number;
-      limit: number;
+      per_page?: number;
+      limit?: number;
       total_pages: number;
-    }>(`/apps/${encodeURIComponent(appId)}/backup/history?page=${page}&limit=${limit}`),
+    }>(
+      `/apps/${encodeURIComponent(appId)}/backup/history?page=${page}&per_page=${perPage}&limit=${perPage}`
+    ),
   restoreBackup: (appId: string, historyId: string | number) =>
-    requestJson<{ ok: boolean; job_id: string }>(
+    requestJson<{ ok: boolean; job_id?: string; status?: string }>(
       `/apps/${encodeURIComponent(appId)}/backup/restore/${historyId}`,
       { method: 'POST' }
     ),
-  backupRestoreStatus: (appId: string, jobId: string) =>
-    requestJson<{ ok: boolean; status: string; error?: string; history_id: number }>(
-      `/apps/${encodeURIComponent(appId)}/backup/restore/status?job=${encodeURIComponent(jobId)}`
-    ),
+  backupRestoreStatus: (appId: string) =>
+    requestJson<{
+      ok?: boolean;
+      status: 'idle' | 'running' | 'completed' | 'failed' | string;
+      log?: string;
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/backup/restore-status`),
   backupLog: async (appId: string, historyId: string | number) => {
-    const res = await requestJson<{ log: string }>(
+    const res = await requestJson<{ status?: string; error_message?: string; log: string }>(
       `/apps/${encodeURIComponent(appId)}/backup/history/${historyId}/log`
     );
-    return { ok: res.ok, log: res.data?.log };
+    return {
+      ok: res.ok,
+      status: res.data?.status,
+      error_message: res.data?.error_message,
+      log: res.data?.log,
+    };
   },
   backupDriveLink: async (appId: string, historyId: string | number) => {
-    const res = await requestJson<{ url: string; warning?: string }>(
+    const res = await requestJson<{ url: string; warning?: string; error?: string }>(
       `/apps/${encodeURIComponent(appId)}/backup/history/${historyId}/drivelink`
     );
-    return { ok: res.ok, url: res.data?.url, warning: res.data?.warning };
+    return { ok: res.ok, url: res.data?.url, warning: res.data?.warning, error: res.error };
   },
 
   // Server Migration (.nd-migrate Bundle Export & Estimate)
@@ -618,7 +822,7 @@ export const backendApi = {
       method: 'POST',
     }),
 
-  // Volumes Browse & Restore
+  // Volumes Browse, Download & Multipart Archive Restore
   volumeBrowse: (name: string, path = '') =>
     requestJson<{
       ok: boolean;
@@ -630,13 +834,41 @@ export const backendApi = {
     }>(
       `/volumes/browse?format=json&name=${encodeURIComponent(name)}&path=${encodeURIComponent(path)}`
     ),
+  volumeRestoreUpload: async (volumeName: string, archiveFile: File) => {
+    try {
+      const fd = new FormData();
+      fd.append('volume_name', volumeName);
+      fd.append('archive', archiveFile);
+      const res = await fetch('/volumes/restore', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-NextDeploy-Client': 'spa',
+        },
+        body: fd,
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return { ok: false, offlineFallback: true };
+      }
+      const json = (await res.json()) as { job_id?: string; error?: string };
+      if (!res.ok || json.error) {
+        return { ok: false, error: json.error || `HTTP ${res.status}` };
+      }
+      return { ok: true, job_id: json.job_id };
+    } catch {
+      return { ok: false, offlineFallback: true };
+    }
+  },
   volumeRestoreStatus: (jobId: string) =>
     requestJson<{
-      ok: boolean;
-      status: string;
+      ok?: boolean;
+      status: 'running' | 'done' | 'error' | string;
       error?: string;
-      volume_name: string;
-    }>(`/volumes/restore/status?job=${encodeURIComponent(jobId)}`),
+      extract_percent?: number;
+      volume_name?: string;
+    }>(`/volumes/restore/status?id=${encodeURIComponent(jobId)}&job=${encodeURIComponent(jobId)}`),
 
   // Caddy & NextDeploy Root Stack
   caddySaveConfig: (
@@ -688,14 +920,15 @@ export const backendApi = {
           panel_enable_https: boolean;
           panel_enable_www: boolean;
         },
-    _port?: number
+    enableHttps?: boolean,
+    enableWww?: boolean
   ) => {
     const payload =
       typeof payloadOrDomain === 'string'
         ? {
             panel_domain: payloadOrDomain,
-            panel_enable_https: true,
-            panel_enable_www: false,
+            panel_enable_https: enableHttps !== undefined ? enableHttps : true,
+            panel_enable_www: enableWww !== undefined ? enableWww : false,
           }
         : payloadOrDomain;
     return requestJson('/nextdeploy/panel', {
@@ -710,31 +943,54 @@ export const backendApi = {
   },
   panelApplyStatus: () =>
     requestJson<{
-      running: boolean;
+      running?: boolean;
+      done?: boolean;
+      succeeded?: boolean;
       status: string;
-      message: string;
-      log: string;
-      updated_at: string;
+      message?: string;
+      log?: string;
+      updated_at?: string;
     }>('/nextdeploy/apply-status'),
   saveSharedVolumes: (
-    payloadOrMounts:
+    payloadOrVolumes:
       | string
+      | string[]
       | {
           caddy_shared_mount_prefix: string;
-          caddy_shared_volumes: string;
-        }
+          caddy_shared_volumes: string | string[];
+        },
+    mountPrefix = '/mnt/shared'
   ) => {
-    const payload =
-      typeof payloadOrMounts === 'string'
-        ? {
-            caddy_shared_mount_prefix: '/srv/shared',
-            caddy_shared_volumes: payloadOrMounts,
-          }
-        : payloadOrMounts;
+    const body = new URLSearchParams();
+    if (Array.isArray(payloadOrVolumes)) {
+      body.set('caddy_shared_mount_prefix', mountPrefix || '/mnt/shared');
+      payloadOrVolumes.forEach((v) => {
+        if (v.trim()) body.append('caddy_shared_volumes', v.trim());
+      });
+    } else if (typeof payloadOrVolumes === 'string') {
+      body.set('caddy_shared_mount_prefix', mountPrefix || '/mnt/shared');
+      payloadOrVolumes
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((v) => body.append('caddy_shared_volumes', v));
+    } else {
+      body.set(
+        'caddy_shared_mount_prefix',
+        payloadOrVolumes.caddy_shared_mount_prefix || '/mnt/shared'
+      );
+      const vols = Array.isArray(payloadOrVolumes.caddy_shared_volumes)
+        ? payloadOrVolumes.caddy_shared_volumes
+        : payloadOrVolumes.caddy_shared_volumes.split(/[\n,]/);
+      vols
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((v) => body.append('caddy_shared_volumes', v));
+    }
     return requestJson('/nextdeploy/shared-volumes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody(payload),
+      body,
     });
   },
 

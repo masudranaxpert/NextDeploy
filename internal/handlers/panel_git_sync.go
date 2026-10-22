@@ -253,21 +253,39 @@ func (p *Panel) AppGitSyncToggle(c *fiber.Ctx) error {
 	id := c.Params("id")
 	back := "/apps/" + id + "?tab=overview"
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"ok": false, "error": "not found"})
+		}
 		return c.Status(fiber.StatusNotFound).SendString("not found")
 	}
 	if u, ok := currentUser(c); ok {
 		allowed, aerr := p.CanAccessApp(c.UserContext(), u.ID, u.Role, id, db.CollabRoleDeveloper)
 		if aerr != nil || !allowed {
+			if WantsJSON(c) {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden"})
+			}
 			return c.Status(fiber.StatusForbidden).SendString("forbidden")
 		}
 	} else {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+		}
 		return c.Redirect("/login")
 	}
 
-	enabled := c.FormValue("enabled") == "1"
-	force := c.FormValue("force") == "1"
+	enabled := c.FormValue("enabled") == "1" || strings.EqualFold(c.FormValue("enabled"), "true")
+	force := c.FormValue("force") == "1" || strings.EqualFold(c.FormValue("force"), "true")
 	res, err := p.SetGitSync(c.UserContext(), id, enabled, force)
 	if err != nil {
+		if WantsJSON(c) {
+			confirmNeeded := strings.Contains(err.Error(), "with force to confirm")
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"ok":             false,
+				"error":          err.Error(),
+				"warning":        err.Error(),
+				"confirm_needed": confirmNeeded,
+			})
+		}
 		utils.SetFlashError(c, err.Error())
 		return c.Redirect(back)
 	}
@@ -279,6 +297,13 @@ func (p *Panel) AppGitSyncToggle(c *fiber.Ctx) error {
 		}
 		p.RecordAuditLog(c, action, "app", id, strings.Join(res.Notes, " "))
 		utils.SetFlash(c, flash)
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{
+			"ok":       true,
+			"git_sync": enabled,
+			"result":   res,
+		})
 	}
 	return c.Redirect(back)
 }
