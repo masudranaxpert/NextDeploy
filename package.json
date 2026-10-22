@@ -1,7 +1,11 @@
 {
-  "name": "react-example",
+  "name": "nextdeploy",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.4.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/masudranaxpert/NextDeploy.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",

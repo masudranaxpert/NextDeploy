@@ -154,38 +154,27 @@ func main() {
 
 	app.Use("/apps/:id", p.AppAccessMiddleware)
 	app.Use("/monitor", p.RequireAdminMiddleware)
-	app.Use("/partials/monitor", p.RequireAdminMiddleware)
 	app.Use("/terminal", p.RequireAdminMiddleware)
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
 
-	spaPage := func(legacy fiber.Handler) fiber.Handler {
-		return func(c *fiber.Ctx) error {
-			if handlers.WantsJSON(c) && legacy != nil {
-				return legacy(c)
-			}
-			return p.ServeSPA(c)
-		}
-	}
-
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
 	})
-	app.Get("/overview", spaPage(nil))
-	app.Get("/monitor", spaPage(nil))
-	app.Get("/partials/monitor", p.MonitorPartial)
+	app.Get("/overview", p.ServeSPA)
+	app.Get("/monitor", p.ServeSPA)
 	app.Use("/monitor/ws", p.WSUpgrade)
 	app.Get("/monitor/ws", fws.New(p.MonitorWebSocket))
-	app.Get("/terminal", spaPage(nil))
+	app.Get("/terminal", p.ServeSPA)
 	app.Use("/terminal/ws", p.WSUpgrade)
 	app.Get("/terminal/ws", fws.New(p.VPSTerminalWebSocket))
-	app.Get("/nextdeploy", spaPage(nil))
+	app.Get("/nextdeploy", p.ServeSPA)
 	app.Get("/nextdeploy/apply-status", p.NextDeployApplyStatus)
-	app.Get("/containers", spaPage(nil))
-	app.Get("/images", spaPage(nil))
-	app.Get("/volumes", spaPage(nil))
-	app.Get("/volumes/browse", spaPage(nil))
+	app.Get("/containers", p.ServeSPA)
+	app.Get("/images", p.ServeSPA)
+	app.Get("/volumes", p.ServeSPA)
+	app.Get("/volumes/browse", p.VolumeBrowse)
 	app.Get("/volumes/download", p.VolumeDownload)
 	app.Get("/volumes/restore/status", p.RequireAdminMiddleware, p.VolumeRestoreStatus)
 	app.Post("/volumes/restore", p.RequireAdminMiddleware, p.VolumeRestore)
@@ -199,15 +188,15 @@ func main() {
 	app.Post("/settings/cleanup/run", p.RequireAdminMiddleware, p.ManualCleanupRun)
 	app.Post("/settings/tmp/clean", p.RequireAdminMiddleware, p.TempCleanupRun)
 	app.Get("/settings/tmp/info", p.RequireAdminMiddleware, p.TempCleanupInfo)
-	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, spaPage(nil))
-	app.Get("/migrate", spaPage(nil))
+	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, p.ServeSPA)
+	app.Get("/migrate", p.ServeSPA)
 	app.Post("/migrate/export", p.MigrateExportStart)
 	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
 	app.Post("/migrate/exports/:id/delete", p.MigrateExportDelete)
 	app.Get("/migrate/estimate", p.MigrateEstimate)
-	app.Get("/settings", p.RequireAdminMiddleware, spaPage(nil))
+	app.Get("/settings", p.RequireAdminMiddleware, p.ServeSPA)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
-	app.Get("/registries", spaPage(nil))
+	app.Get("/registries", p.ServeSPA)
 	app.Post("/registries", p.AddRegistry)
 	app.Post("/registries/:id/delete", p.DeleteRegistry)
 	app.Get("/mcp-docs", mcpServer.MCPDocsPage)
@@ -225,7 +214,7 @@ func main() {
 	app.Post("/cli-sessions/tokens/:id/toggle-container-exec", p.RequireAdminMiddleware, p.ToggleCLITokenContainerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.RequireAdminMiddleware, p.ToggleCLITokenServerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-app-delete", p.RequireAdminMiddleware, p.ToggleCLITokenAppDeletePost)
-	app.Get("/apps", spaPage(nil))
+	app.Get("/apps", p.ServeSPA)
 	app.Post("/apps", p.CreateApp)
 	// These URLs only accept POST (form upload). GET from the address bar redirects to Files tab.
 	app.Get("/apps/:id/upload-zip", func(c *fiber.Ctx) error {
@@ -235,9 +224,7 @@ func main() {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", c.Params("id")))
 	})
 	app.Get("/apps/:id/compose-view", p.ComposeFileView)
-	app.Get("/apps/:id/compose-preview", p.ComposeFileModal)
 	app.Get("/apps/:id/file", p.WorkspaceFile)
-	app.Get("/apps/:id/file-preview", p.WorkspaceFileModal)
 	app.Get("/apps/:id/files/tree", p.WorkspaceFilesTree)
 	app.Get("/apps/:id/files/blob", p.WorkspaceFilesBlob)
 	app.Post("/apps/:id/files/save", p.WorkspaceFileSave)
@@ -248,7 +235,6 @@ func main() {
 	app.Post("/apps/:id/git", p.GitConfigSave)
 	app.Post("/apps/:id/git/delete", p.GitConfigDelete)
 	app.Post("/apps/:id/git/sync", p.GitSync)
-	app.Get("/apps/:id/partials/browser", p.BrowsePartial)
 	app.Post("/apps/:id/files/create", p.BrowseCreate)
 	app.Post("/apps/:id/files/delete", p.BrowseDelete)
 	app.Post("/apps/:id/files/rename", p.BrowseRename)
@@ -259,11 +245,7 @@ func main() {
 	app.Post("/apps/:id/files/mkdir", p.BrowseMkdir)
 	app.Post("/apps/:id/files/zip", p.BrowseZip)
 	app.Post("/apps/:id/files/unzip", p.BrowseUnzip)
-	app.Get("/apps/:id/partials/compose", p.AppComposePartial)
-	app.Get("/apps/:id/partials/terminal-containers", p.TerminalContainersPartial)
-	app.Get("/apps/:id/partials/logs-containers", p.LogsContainersPartial)
 	app.Get("/apps/:id/partials/deploy-progress", p.DeployProgressPartial)
-	app.Get("/apps/:id/partials/logs", p.AppLogPartial)
 	app.Use("/apps/:id/ws/logs", p.WSUpgrade)
 	app.Get("/apps/:id/ws/logs", fws.New(p.AppLogWebSocket))
 	app.Post("/apps/:id/exec", p.AppExec)
@@ -277,7 +259,7 @@ func main() {
 		return c.Redirect("/apps", fiber.StatusFound)
 	})
 	// Register after all /apps/:id/... subpaths so :id is not swallowed by a shorter route.
-	app.Get("/apps/:id", spaPage(nil))
+	app.Get("/apps/:id", p.ServeSPA)
 	app.Post("/apps/:id/upload-zip", p.UploadZip)
 	app.Post("/apps/:id/upload", p.UploadFile)
 	app.Post("/apps/:id/compose/up", p.ComposeUp)
@@ -297,7 +279,6 @@ func main() {
 	app.Post("/apps/:id/containers/remove-selected", p.ContainerRemoveSelectedOp)
 
 	// Domains (Caddy routing per app)
-	app.Get("/apps/:id/domains", p.AppDomainPartial)
 	app.Post("/apps/:id/domains", p.AppDomainCreate)
 	app.Post("/apps/:id/domains/:did/edit", p.AppDomainEdit)
 	app.Post("/apps/:id/domains/:did/delete", p.AppDomainDelete)
@@ -305,7 +286,7 @@ func main() {
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
 	// Caddy global management
-	app.Get("/caddy", spaPage(nil))
+	app.Get("/caddy", p.ServeSPA)
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
@@ -313,7 +294,7 @@ func main() {
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 
 	// Git providers (GitHub App + GitLab OAuth only — no manual token POST)
-	app.Get("/git", spaPage(nil))
+	app.Get("/git", p.ServeSPA)
 	app.Post("/git/github/start", p.GitHubAppManifestStart)
 	app.Get("/git/github/callback", p.GitHubAppManifestCallback)
 	app.Get("/git/github/setup", p.GitHubAppSetup)
@@ -331,9 +312,9 @@ func main() {
 	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
 
 	// User management
-	app.Get("/users", spaPage(nil))
+	app.Get("/users", p.ServeSPA)
 	app.Post("/users", p.UserCreate)
-	app.Get("/users/:id/edit", spaPage(nil))
+	app.Get("/users/:id/edit", p.ServeSPA)
 	app.Post("/users/:id/delete", p.UserDelete)
 	app.Post("/users/:id/password", p.UserChangePassword)
 	app.Post("/users/:id/role", p.UserChangeRole)
@@ -341,7 +322,7 @@ func main() {
 	app.Post("/users/:id/limits", p.UserChangeLimits)
 
 	// Backup destinations
-	app.Get("/backup", spaPage(nil))
+	app.Get("/backup", p.ServeSPA)
 	app.Get("/backup/destinations", p.BackupDestinationsList)
 	app.Post("/backup/destinations", p.BackupDestinationCreate)
 	app.Post("/backup/destinations/:id/delete", p.BackupDestinationDelete)

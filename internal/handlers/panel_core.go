@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,48 +15,13 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
-	"panel/internal/perflog"
 	"panel/internal/handlers/utils"
+	"panel/internal/perflog"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
 )
-
-// viewsRenderer matches Fiber's template engine (e.g. github.com/gofiber/template/html/v2).
-type viewsRenderer interface {
-	Render(out io.Writer, name string, binding interface{}, layout ...string) error
-}
-
-func appShowTabPartialName(tab string) string {
-	switch tab {
-	case "git":
-		return utils.TmplPartialGitTab
-	case "files":
-		return utils.TmplPartialAppShowFiles
-	case "environment":
-		return utils.TmplPartialAppShowEnvironment
-	case "deployment":
-		return utils.TmplPartialAppShowDeployment
-	case "logs":
-		return utils.TmplPartialAppShowLogs
-	case "terminal":
-		return utils.TmplPartialAppShowTerminal
-	case "containers":
-		return utils.TmplPartialAppShowContainers
-	case "volumes":
-		return utils.TmplPartialAppShowVolumes
-	case "domains":
-		return utils.TmplPartialAppShowDomains
-	case "backup":
-		return utils.TmplPartialAppShowBackup
-	case "collaborators":
-		return utils.TmplPartialAppShowCollaborators
-	default:
-		return utils.TmplPartialAppShowOverview
-	}
-}
-
 
 type Panel struct {
 	DB               *db.Store

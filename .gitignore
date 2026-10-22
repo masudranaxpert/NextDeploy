@@ -1,14 +1,49 @@
+# Node / Frontend dependencies & build artifacts
 node_modules/
-/build/
 /dist/
-!web/dist/
-coverage/
-.DS_Store
-*.log
-.env*
+/dist-ssr/
+*.local
+
+# Go binaries & build artifacts
+/nextdeploy
+/nextdeploy-server
+/panel
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.txt
+vendor/
+
+# Runtime data, SQLite databases & backups
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.tar.gz
+*.tar.zst
+*.zip
+
+# Environment & secrets
+.env
+.env.*
 !.env.example
+
+# Editor, OS & temporary files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.tmp/
+tmp/
 .aistudio/
-public/assets/aistudio/
-web/dist/assets/aistudio/
-panel
-nd
+/public/assets/aistudio/
+/web/dist/assets/aistudio/

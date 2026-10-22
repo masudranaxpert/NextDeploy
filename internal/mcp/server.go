@@ -582,17 +582,23 @@ func (s *Server) ToggleMCPStatusPost(c *fiber.Ctx) error {
 	cur := s.p.DB.GetSetting(ctx, "mcp_enabled")
 	newVal := "1"
 	statusText := "enabled"
-	if cur == "1" {
+	if cur != "0" {
 		newVal = "0"
 		statusText = "disabled"
 	}
 
 	if err := s.p.DB.SetSetting(ctx, "mcp_enabled", newVal); err != nil {
+		if handlers.WantsJSON(c) {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
 		utils.SetFlash(c, "Failed to update MCP server status: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
 	s.p.RecordAuditLog(c, "toggle_mcp_status", "settings", "mcp_enabled", "MCP server "+statusText)
+	if handlers.WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "enabled": newVal == "1"})
+	}
 	utils.SetFlash(c, fmt.Sprintf("MCP Server successfully %s.", statusText))
 	return c.Redirect("/mcp-docs")
 }

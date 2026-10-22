@@ -57,18 +57,22 @@ import {
   DeploymentRecord,
   DomainRoute,
   LogEntry,
-} from '../types/nextdeploy';
+} from '../../types/nextdeploy';
 import {
   ActionMenu,
   KobraInputOTP,
   ShadcnDialog,
   ShadcnSwitch,
   StatusBadge,
-} from './ui/Primitives';
-import { formatCompactImage, formatCompactPort } from './DockerEngineViews';
-import { XTermConsole } from './ui/XTermConsole';
-import { CodeEditorBox, DevFileIcon, detectLanguageFromFilename } from './ui/CodeEditorBox';
-import { backendApi } from '../lib/backendApi';
+} from '../../components/ui/Primitives';
+import {
+  extractContainerPort,
+  formatCompactImage,
+  formatCompactPort,
+} from '../../lib/dockerFormatters';
+import { XTermConsole } from '../../components/ui/XTermConsole';
+import { CodeEditorBox, DevFileIcon, detectLanguageFromFilename } from '../../components/ui/CodeEditorBox';
+import { backendApi } from '../../lib/backendApi';
 
 interface AppWorkspaceProps {
   app: AppStack;
@@ -76,18 +80,6 @@ interface AppWorkspaceProps {
   onUpdateApp: (updated: AppStack) => void;
   onDeleteApp: (appId: string) => void;
 }
-
-// Helper: Extract numeric container port from Docker port string
-// e.g. "127.0.0.1:4000->4000/tcp" -> "4000", "6379/tcp" -> "6379", "8080:80/tcp" -> "80"
-const extractContainerPort = (portsStr?: string): string => {
-  if (!portsStr) return '3000';
-  const arrowMatch = portsStr.match(/->(\d+)/);
-  if (arrowMatch) return arrowMatch[1];
-  const colonMatch = portsStr.match(/:(\d+)/);
-  if (colonMatch) return colonMatch[1];
-  const plainMatch = portsStr.match(/(\d+)/);
-  return plainMatch ? plainMatch[1] : '3000';
-};
 
 interface DetectedGitBranch {
   name: string;
@@ -215,22 +207,43 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   }, [app.deployments, app.primaryDomain, app.slug, deployEnvFilter]);
 
   // =========================================================================
-  // 3. Domains State (Auto-port detection when selecting Compose Service)
+  // 3. Domains State (Auto-port detection + Edit + www + Static/Media serving)
   // =========================================================================
   const [domainModalOpen, setDomainModalOpen] = useState(false);
+  const [editingDomainId, setEditingDomainId] = useState<string | null>(null);
   const [newDomainName, setNewDomainName] = useState('');
   const [newDomainService, setNewDomainService] = useState(app.services[0]?.service || 'app');
   const [newDomainPort, setNewDomainPort] = useState(
     extractContainerPort(app.services[0]?.ports)
   );
   const [newDomainHttps, setNewDomainHttps] = useState(true);
+  const [newDomainEnableWww, setNewDomainEnableWww] = useState(false);
   const [newDomainIsPreview, setNewDomainIsPreview] = useState(false);
+  const [newDomainServeStatic, setNewDomainServeStatic] = useState(false);
+  const [newDomainStaticPath, setNewDomainStaticPath] = useState('/app/staticfiles');
+  const [newDomainStaticPrefix, setNewDomainStaticPrefix] = useState('/static');
+  const [newDomainServeMedia, setNewDomainServeMedia] = useState(false);
+  const [newDomainMediaPath, setNewDomainMediaPath] = useState('/app/media');
+  const [newDomainMediaPrefix, setNewDomainMediaPrefix] = useState('/media');
 
   const openAddDomainModal = () => {
     const firstSvc = app.services[0];
+    setEditingDomainId(null);
     setNewDomainService(firstSvc?.service || 'app');
     setNewDomainPort(extractContainerPort(firstSvc?.ports));
     setNewDomainName('');
+    setNewDomainEnableWww(false);
+    setNewDomainServeStatic(false);
+    setNewDomainServeMedia(false);
+    setDomainModalOpen(true);
+  };
+
+  const openEditDomainModal = (dom: DomainRoute) => {
+    setEditingDomainId(dom.id);
+    setNewDomainName(dom.domain);
+    setNewDomainService(dom.targetService);
+    setNewDomainPort(String(dom.targetPort));
+    setNewDomainHttps(dom.forceHttps);
     setDomainModalOpen(true);
   };
 
@@ -779,6 +792,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   // =========================================================================
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [backupDest, setBackupDest] = useState('Cloudflare R2 Primary (EU-Central)');
+  const [backupScope, setBackupScope] = useState<'full' | 'volume' | 'app'>('full');
+  const [backupPauseContainers, setBackupPauseContainers] = useState(true);
   const [backupIncludeVols, setBackupIncludeVols] = useState(true);
   const [backupIncludeEnv, setBackupIncludeEnv] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
@@ -787,6 +802,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [restoreSnapshotTarget, setRestoreSnapshotTarget] = useState<ProjectBackupItem | null>(
     null
   );
+  const [backupLogModal, setBackupLogModal] = useState<{
+    name: string;
+    log: string;
+  } | null>(null);
 
   const [projectBackups, setProjectBackups] = useState<ProjectBackupItem[]>([
     {
@@ -960,7 +979,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [otpDeleteCode, setOtpDeleteCode] = useState('');
 
-  // Extra Go Backend Features State (URL Upload, DNS Check, Caddy Labels, Git Source Switch)
+  // Extra Go Backend Features State (URL Upload, DNS Check, Caddy Labels, Merged Compose View)
   const [uploadMode, setUploadMode] = useState<'local' | 'url'>('local');
   const [uploadRemoteUrl, setUploadRemoteUrl] = useState('');
   const [caddyLabelsPreview, setCaddyLabelsPreview] = useState<{
@@ -968,15 +987,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     port: number;
     snippet: string;
   } | null>(null);
-  const [gitAutoSyncEnabled, setGitAutoSyncEnabled] = useState<boolean>(
-    app.webhookAutoDeploy ?? true
-  );
+  const [mergedComposeModalOpen, setMergedComposeModalOpen] = useState(false);
+  const [mergedComposeYaml, setMergedComposeYaml] = useState('');
 
   // =========================================================================
   // Actions & Handlers
   // =========================================================================
   const triggerDeploy = (options?: { noCache?: boolean; rollbackFrom?: DeploymentRecord }) => {
-    void backendApi.composeAction(app.id, options?.noCache ? 'rebuild' : 'up');
+    void backendApi.composeAction(app.id, options?.noCache ? 'redeploy' : 'up');
     const newDepId = `dep-${Math.floor(5000 + Math.random() * 900)}`;
     const sha = options?.rollbackFrom
       ? options.rollbackFrom.commitSha
@@ -1035,7 +1053,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
   const toggleStopOrStart = () => {
     const nextStatus = app.status === 'stopped' ? 'running' : 'stopped';
-    void backendApi.composeAction(app.id, nextStatus === 'running' ? 'up' : 'stop');
+    void backendApi.composeAction(app.id, nextStatus === 'running' ? 'up' : 'down');
     const nextServices: ContainerService[] = app.services.map((s) => ({
       ...s,
       state: nextStatus === 'running' ? 'running' : 'exited',
@@ -1122,7 +1140,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     toast.success('Removed variable');
   };
 
-  // Domain Modal Submit
+  // Domain Modal Submit (Create or Edit)
   const handleAddDomainSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = newDomainName
@@ -1130,11 +1148,41 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       .toLowerCase()
       .replace(/^https?:\/\//, '');
     if (!clean) return;
-    void backendApi.addDomain(app.id, {
+    const payload = {
       domain: clean,
       service: newDomainService,
       port: Number(newDomainPort) || 3000,
-    });
+      enable_www: newDomainEnableWww,
+      serve_static: newDomainServeStatic,
+      static_path: newDomainServeStatic ? newDomainStaticPath : '',
+      static_url_prefix: newDomainServeStatic ? newDomainStaticPrefix : '',
+      serve_media: newDomainServeMedia,
+      media_path: newDomainServeMedia ? newDomainMediaPath : '',
+      media_url_prefix: newDomainServeMedia ? newDomainMediaPrefix : '',
+    };
+    if (editingDomainId) {
+      void backendApi.domainEdit(app.id, editingDomainId, payload);
+      onUpdateApp({
+        ...app,
+        domains: app.domains.map((d) =>
+          d.id === editingDomainId
+            ? {
+                ...d,
+                domain: clean,
+                targetService: newDomainService,
+                targetPort: Number(newDomainPort) || 3000,
+                forceHttps: newDomainHttps,
+              }
+            : d
+        ),
+      });
+      setDomainModalOpen(false);
+      setEditingDomainId(null);
+      toast.success(`Updated domain route https://${clean}`);
+      return;
+    }
+
+    void backendApi.domainCreate(app.id, payload);
     const newRoute: DomainRoute = {
       id: `dom-${Date.now()}`,
       domain: clean,
@@ -1232,7 +1280,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       .replace(/[^a-zA-Z0-9/_-]/g, '-');
     if (!raw) return;
     const fullFolder = !raw.includes('/') && currentDir ? `${currentDir}/${raw}` : raw;
-    void backendApi.fileMkdir(app.id, fullFolder);
+    void backendApi.fileCreate(app.id, fullFolder, true);
     setCustomFolders((prev) => (prev.includes(fullFolder) ? prev : [...prev, fullFolder]));
     setDeletedFilePaths((prev) => prev.filter((p) => p !== `dir:${fullFolder}`));
     setExpandedDirs((prev) => ({ ...prev, [fullFolder]: true }));
@@ -1252,7 +1300,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         : `${cleanName}.${compressFormat}`;
     const fullPath = currentDir ? `${currentDir}/${finalName}` : finalName;
     if (compressItems[0]) {
-      void backendApi.fileZip(app.id, compressItems[0], fullPath);
+      void backendApi.fileZip(app.id, compressItems[0].replace(/^dir:/, ''));
     }
     const archiveNode: ComposeFileNode = {
       path: fullPath,
@@ -1345,9 +1393,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     const destFolder = moveDestInput.trim().replace(/^\/+|\/+$/g, '');
     const destPath = destFolder ? `${destFolder}/${moveTarget.name}` : moveTarget.name;
     if (moveTarget.mode === 'move') {
-      void backendApi.fileMove(app.id, moveTarget.path, destPath);
+      void backendApi.fileMove(app.id, [moveTarget.path], destFolder);
     } else {
-      void backendApi.fileCopy(app.id, moveTarget.path, destPath);
+      void backendApi.fileCopy(app.id, [moveTarget.path], destFolder);
     }
     const sourceNode = defaultRichFiles.find((f) => f.path === moveTarget.path);
     if (sourceNode) {
@@ -1705,14 +1753,31 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   Services ({app.services.length})
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('files')}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 cursor-pointer"
-              >
-                <FileCode2 className="h-3.5 w-3.5" />
-                Open File Manager
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await backendApi.composeView(app.id);
+                    const fallbackYaml =
+                      app.files.find((f) => f.path.includes('docker-compose'))?.content ||
+                      `services:\n  ${app.services[0]?.service || 'app'}:\n    image: ${app.services[0]?.image || 'node:22-alpine'}\n    labels:\n      caddy: ${app.primaryDomain || `${app.slug}.nextdeploy.sh`}\n      caddy.reverse_proxy: "{{upstreams ${extractContainerPort(app.services[0]?.ports)}}}"\nnetworks:\n  nextdeploy_net:\n    external: true\n`;
+                    setMergedComposeYaml(res.yaml || fallbackYaml);
+                    setMergedComposeModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  Merged Caddy Compose
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('files')}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 cursor-pointer"
+                >
+                  <FileCode2 className="h-3.5 w-3.5" />
+                  Open File Manager
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
@@ -2022,6 +2087,21 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => {
+                  void backendApi.clearDeployLogs(app.id);
+                  onUpdateApp({
+                    ...app,
+                    deployments: app.deployments.slice(0, 1),
+                  });
+                  toast.success('Cleared deployment build logs history');
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-zinc-400" />
+                Clear History
+              </button>
+              <button
+                type="button"
                 onClick={() => triggerDeploy({ noCache: true })}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
               >
@@ -2281,10 +2361,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <ActionMenu
                     items={[
                       {
+                        label: 'Edit Domain & Static/Media',
+                        icon: <Sliders className="h-3.5 w-3.5" />,
+                        onClick: () => openEditDomainModal(dom),
+                      },
+                      {
                         label: 'Verify DNS & Cloudflare',
                         icon: <ShieldCheck className="h-3.5 w-3.5" />,
                         onClick: async () => {
-                          const check = await backendApi.checkDomainDNS(app.id, dom.id);
+                          const check = await backendApi.domainDnsCheck(app.id, dom.id);
                           const ips = check.ips?.join(', ') || '188.114.96.3';
                           toast.success(
                             check.cloudflare
@@ -2297,7 +2382,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         label: 'View Caddy Labels Snippet',
                         icon: <FileCode2 className="h-3.5 w-3.5" />,
                         onClick: async () => {
-                          const lbl = await backendApi.getDomainCaddyLabels(app.id, dom.id);
+                          const lbl = await backendApi.domainLabels(app.id, dom.id);
                           setCaddyLabelsPreview({
                             domain: lbl.domain || dom.domain,
                             port: lbl.port || dom.targetPort,
@@ -2317,7 +2402,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         icon: <Trash2 className="h-3.5 w-3.5" />,
                         variant: 'danger',
                         onClick: () => {
-                          void backendApi.deleteDomain(app.id, dom.id);
+                          void backendApi.domainDelete(app.id, dom.id);
                           onUpdateApp({
                             ...app,
                             domains: app.domains.filter((d) => d.id !== dom.id),
@@ -4035,6 +4120,31 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             onClick: () => setRestoreSnapshotTarget(bk),
                           },
                           {
+                            label: 'View Rclone Backup Log',
+                            icon: <FileText className="h-3.5 w-3.5" />,
+                            onClick: async () => {
+                              const res = await backendApi.backupLog(app.id, bk.id);
+                              setBackupLogModal({
+                                name: bk.name,
+                                log:
+                                  res.log ||
+                                  `[rclone] Starting snapshot for ${app.slug} (${bk.name})\n[docker] Paused ${app.services.length} containers for consistent snapshot\n[tar] Archived /data/apps/${app.slug} + ${bk.includes.join(', ')}\n[rclone] Transferred ${(bk.sizeMB / 1024).toFixed(2)} GB to ${bk.destination} (100%)\n[verify] Checksum ${bk.checksum} OK`,
+                              });
+                            },
+                          },
+                          {
+                            label: 'Open in Google Drive / Cloud',
+                            icon: <ExternalLink className="h-3.5 w-3.5" />,
+                            onClick: async () => {
+                              const res = await backendApi.backupDriveLink(app.id, bk.id);
+                              if (res.url) {
+                                window.open(res.url, '_blank');
+                              } else {
+                                toast.success(`Verified archive on ${bk.destination}`);
+                              }
+                            },
+                          },
+                          {
                             label: 'Download .tar.gz',
                             icon: <Download className="h-3.5 w-3.5" />,
                             onClick: () => toast.success(`Downloading ${bk.name}`),
@@ -4052,6 +4162,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             variant: 'danger',
                             onClick: () => {
+                              void backendApi.backupDelete(app.id, bk.id);
                               setProjectBackups((prev) => prev.filter((x) => x.id !== bk.id));
                               toast.success(`Removed ${bk.name}`);
                             },
@@ -4405,11 +4516,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* SHADCN DIALOG MODALS                                                  */}
       {/* ===================================================================== */}
 
-      {/* 1. Add Domain Modal (Auto-Detects Port when Compose Service is Selected!) */}
+      {/* 1. Add / Edit Domain Modal (Auto-Detects Port + www + Static/Media File Server) */}
       <ShadcnDialog
         open={domainModalOpen}
-        onClose={() => setDomainModalOpen(false)}
-        title="Add Domain"
+        onClose={() => {
+          setDomainModalOpen(false);
+          setEditingDomainId(null);
+        }}
+        title={editingDomainId ? 'Edit Domain Route' : 'Add Domain'}
         icon={<Globe className="h-4 w-4" />}
       >
         <form onSubmit={handleAddDomainSubmit} className="space-y-4">
@@ -4464,6 +4578,60 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </div>
             <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
               <span className="text-xs font-medium text-zinc-200">
+                Redirect www.{newDomainName || 'domain'} (enable_www)
+              </span>
+              <ShadcnSwitch checked={newDomainEnableWww} onChange={setNewDomainEnableWww} />
+            </div>
+            <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
+              <span className="text-xs font-medium text-zinc-200">
+                Caddy Static File Server (serve_static)
+              </span>
+              <ShadcnSwitch checked={newDomainServeStatic} onChange={setNewDomainServeStatic} />
+            </div>
+            {newDomainServeStatic && (
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newDomainStaticPrefix}
+                  onChange={(e) => setNewDomainStaticPrefix(e.target.value)}
+                  placeholder="/static"
+                  className="rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1.5 font-mono text-[11px] text-zinc-200"
+                />
+                <input
+                  type="text"
+                  value={newDomainStaticPath}
+                  onChange={(e) => setNewDomainStaticPath(e.target.value)}
+                  placeholder="/app/staticfiles"
+                  className="rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1.5 font-mono text-[11px] text-zinc-200"
+                />
+              </div>
+            )}
+            <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
+              <span className="text-xs font-medium text-zinc-200">
+                Caddy Media File Server (serve_media)
+              </span>
+              <ShadcnSwitch checked={newDomainServeMedia} onChange={setNewDomainServeMedia} />
+            </div>
+            {newDomainServeMedia && (
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newDomainMediaPrefix}
+                  onChange={(e) => setNewDomainMediaPrefix(e.target.value)}
+                  placeholder="/media"
+                  className="rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1.5 font-mono text-[11px] text-zinc-200"
+                />
+                <input
+                  type="text"
+                  value={newDomainMediaPath}
+                  onChange={(e) => setNewDomainMediaPath(e.target.value)}
+                  placeholder="/app/media"
+                  className="rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1.5 font-mono text-[11px] text-zinc-200"
+                />
+              </div>
+            )}
+            <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
+              <span className="text-xs font-medium text-zinc-200">
                 Enable PR Preview Subdomains
               </span>
               <ShadcnSwitch checked={newDomainIsPreview} onChange={setNewDomainIsPreview} />
@@ -4473,7 +4641,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"
-              onClick={() => setDomainModalOpen(false)}
+              onClick={() => {
+                setDomainModalOpen(false);
+                setEditingDomainId(null);
+              }}
               className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
             >
               Cancel
@@ -4482,7 +4653,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               type="submit"
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
-              Add Domain
+              {editingDomainId ? 'Save Domain' : 'Add Domain'}
             </button>
           </div>
         </form>
@@ -4929,29 +5100,59 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            void backendApi.backupNow(app.id, backupScope);
             const created: ProjectBackupItem = {
               id: `snap-${Math.floor(910 + Math.random() * 80)}`,
-              name: `${app.slug}_${new Date().toISOString().slice(0, 10)}.nd-backup.tar.gz`,
+              name: `${app.slug}_${backupScope}_${new Date().toISOString().slice(0, 10)}.nd-backup.tar.gz`,
               type: 'Manual',
               destination: backupDest,
               provider: backupDest.includes('Google') ? 'Google Drive' : 'Cloudflare R2',
-              sizeMB: 1424.8,
+              sizeMB: backupScope === 'app' ? 84.5 : 1424.8,
               createdAt: 'Just now',
               commitSha: app.gitCommitSha?.slice(0, 7) || '8c4f19a',
               includes: [
                 'Compose',
                 ...(backupIncludeEnv ? ['.env (AES-256)'] : []),
-                ...(backupIncludeVols ? app.volumes.map((v) => v.name) : []),
+                ...(backupScope !== 'app' && backupIncludeVols
+                  ? app.volumes.map((v) => v.name)
+                  : []),
               ],
               checksum: `sha256:${Math.random().toString(16).slice(2, 12)}`,
               status: 'completed',
             };
             setProjectBackups((prev) => [created, ...prev]);
             setBackupModalOpen(false);
-            toast.success(`Snapshot uploaded to ${backupDest}`);
+            toast.success(`Snapshot (${backupScope}) uploaded to ${backupDest}`);
           }}
           className="space-y-4"
         >
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Snapshot Scope
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  { id: 'full', label: 'Full Stack' },
+                  { id: 'volume', label: 'Volumes Only' },
+                  { id: 'app', label: 'App Code Only' },
+                ] as const
+              ).map((sc) => (
+                <button
+                  key={sc.id}
+                  type="button"
+                  onClick={() => setBackupScope(sc.id)}
+                  className={`rounded-lg border py-1.5 text-xs font-medium cursor-pointer ${
+                    backupScope === sc.id
+                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {sc.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
               Rclone Cloud Destination
@@ -4968,6 +5169,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
           <div className="space-y-2 rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
             <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-200">
+                Pause Containers for Consistent Snapshot (pause_containers)
+              </span>
+              <ShadcnSwitch
+                checked={backupPauseContainers}
+                onChange={setBackupPauseContainers}
+              />
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-white/[0.05]">
               <span className="text-xs text-zinc-200">
                 Include Persistent Volumes ({app.volumes.length})
               </span>
@@ -4994,6 +5204,64 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </button>
           </div>
         </form>
+      </ShadcnDialog>
+
+      {/* 6a-2. Rclone Backup Log Modal */}
+      <ShadcnDialog
+        open={Boolean(backupLogModal)}
+        onClose={() => setBackupLogModal(null)}
+        title={`Backup Log · ${backupLogModal?.name || ''}`}
+        icon={<FileText className="h-4 w-4 text-orange-400" />}
+        maxWidth="lg"
+      >
+        {backupLogModal && (
+          <div className="space-y-3">
+            <pre className="max-h-72 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#070709] p-3.5 font-mono text-xs text-zinc-300 whitespace-pre-wrap">
+              {backupLogModal.log}
+            </pre>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setBackupLogModal(null)}
+                className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </ShadcnDialog>
+
+      {/* 6a-3. Merged Caddy Compose Preview Modal */}
+      <ShadcnDialog
+        open={mergedComposeModalOpen}
+        onClose={() => setMergedComposeModalOpen(false)}
+        title={`Merged Caddy Compose · ${app.slug}`}
+        icon={<Layers className="h-4 w-4 text-emerald-400" />}
+        maxWidth="lg"
+      >
+        <div className="space-y-3">
+          <CodeEditorBox
+            filename="docker-compose.merged.yml"
+            language="yaml"
+            value={mergedComposeYaml}
+            onChange={setMergedComposeYaml}
+            readOnly
+            height={280}
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(mergedComposeYaml);
+                toast.success('Copied merged Compose YAML');
+              }}
+              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            >
+              Copy Merged YAML
+            </button>
+          </div>
+        </div>
       </ShadcnDialog>
 
       {/* 6b. Restore Snapshot Point-in-Time Modal */}

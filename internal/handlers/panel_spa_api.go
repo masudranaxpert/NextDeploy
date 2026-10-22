@@ -116,6 +116,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	var caddyCfg map[string]string
 	var caddyUp bool
 	var caddyStatus string
+	var migrateExports []db.MigrateExport
 
 	if isAdmin {
 		users, _ = p.DB.ListUsers(ctx)
@@ -128,6 +129,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			adminAPI = "http://caddy:2019"
 		}
 		caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
+		migrateExports, _ = p.DB.ListRecentMigrateExports(ctx, 8)
 	}
 
 	usedStorage := p.UserStorageBytes(ctx, u.ID)
@@ -161,12 +163,13 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"users":               users,
 		"audit_logs":          auditLogs,
 		"settings":            settings,
+		"migrate_exports":     migrateExports,
 		"caddy": fiber.Map{
 			"up":     caddyUp,
 			"status": caddyStatus,
 			"config": caddyCfg,
 		},
-		"mcp_enabled": p.DB.GetSetting(ctx, "mcp_enabled") == "1",
+		"mcp_enabled": p.DB.GetSetting(ctx, "mcp_enabled") != "0",
 		"server_time": time.Now().UTC().Format(time.RFC3339),
 	})
 }

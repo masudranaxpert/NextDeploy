@@ -1,0 +1,97 @@
+================================================================================
+NEXTDEPLOY — UI-ONLY FEATURES PENDING GO BACKEND IMPLEMENTATION
+================================================================================
+Generated during Ponytail Repo Audit & Backend/UI Parity Sync.
+All Go backend endpoints currently implemented in `main.go` and `internal/handlers/*`
+are 100% wired into the React UI (`src/`).
+
+The following features exist in the React UI (`src/`) with interactive local/state
+workflows, and are documented here for future Go backend implementation:
+
+--------------------------------------------------------------------------------
+1. EPHEMERAL PR & BRANCH PREVIEW DEPLOYMENTS (*.preview.nextdeploy.sh)
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (Deployments Tab & Domains Tab)
+- UI Behavior:
+  - Toggle switch for "Automatic Preview URLs (Pull Requests & Branches)".
+  - Filter pill in Deployments tab (`Preview URLs`) displaying isolated PR stacks
+    (e.g., `pr-48-<slug>.preview.nextdeploy.sh`) with dedicated build step logs.
+- Pending Go Backend Work:
+  - Extend GitHub/GitLab webhook handler (`internal/handlers/webhook.go`) to listen
+    for `pull_request` (`opened`, `synchronize`, `closed`) events alongside `push`.
+  - Spin up an ephemeral Docker Compose project (`docker compose -p <slug>-pr<num>`)
+    and register a dynamic Caddy wildcard/subdomain route.
+  - Automatically tear down the preview stack when the PR is merged or closed.
+
+--------------------------------------------------------------------------------
+2. ONE-CLICK POINT-IN-TIME RELEASE ROLLBACK (IMAGE DIGEST / GIT SHA)
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (Deployments Tab -> Build Logs / 3-dot Menu)
+- UI Behavior:
+  - Users can click "Promote / Rollback to this Release" on any historical deployment
+    record to roll back production to a previous commit SHA.
+- Pending Go Backend Work:
+  - Store `commit_sha` and image digests per `DeployLog` record in SQLite (`internal/store`).
+  - Add `POST /apps/:id/deployments/:depId/rollback` handler to `git checkout <sha>`
+    (or restore tagged image digest) and run `docker compose up -d`.
+
+--------------------------------------------------------------------------------
+3. FILE MANAGER CHMOD PERMISSIONS MATRIX (OCTAL / SYMBOLIC PERMISSIONS)
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (File Manager Tab -> Right-Click -> Permissions)
+- UI Behavior:
+  - Interactive cPanel-style 3x3 Owner/Group/World Read-Write-Execute matrix that
+    computes octal (`0755`, `0644`, `0600`) and symbolic (`-rwxr-xr-x`) permissions.
+- Pending Go Backend Work:
+  - Add `POST /apps/:id/browse/chmod` in `internal/handlers/panel_workspace.go`
+    accepting `{"path": "...", "mode": "0755"}` and calling `os.Chmod(absPath, mode)`
+    after `workspaceSubpath(root, relPath)` path traversal validation.
+
+--------------------------------------------------------------------------------
+4. FILE MANAGER MULTI-FORMAT ARCHIVE COMPRESSION (.TAR.GZ IN ADDITION TO .ZIP)
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (File Manager Tab -> Compress Modal)
+- UI Behavior:
+  - Allows choosing between `.zip` and `.tar.gz` archive formats and custom output
+    archive filenames.
+- Pending Go Backend Work:
+  - Currently `POST /apps/:id/browse/zip` (`BrowseZip` in `panel_workspace.go`) creates
+    a `.zip` file named `<source>.zip`. Extend `BrowseZip` to accept optional
+    `archive_name` and `format` (`zip` | `tar.gz`) parameters.
+
+--------------------------------------------------------------------------------
+5. REMOTE GIT BRANCHES AUTO-SCANNER (WITHOUT CLONING)
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (Git Tab / Configure Git Modal)
+- UI Behavior:
+  - Displays auto-detected remote branches with latest commit SHA, author, PR badge,
+    and "Fetch Remote Branches" button.
+- Pending Go Backend Work:
+  - Add `GET /apps/:id/git/branches` endpoint running `git ls-remote --heads <repo_url>`
+    (or GitHub/GitLab API via stored provider token) to return live remote branches.
+
+--------------------------------------------------------------------------------
+6. STRUCTURED LOGS SEVERITY & TIME-RANGE FILTERING
+--------------------------------------------------------------------------------
+- UI Location: `src/components/AppWorkspace.tsx` (Logs Tab)
+- UI Behavior:
+  - Client-side filtering by severity (`ALL`, `INFO`, `WARN`, `ERR`, `DBG`), time window
+    (`Live Tail`, `15m`, `1h`, `24h`), regex/text search, and word-wrap/timestamp toggles.
+- Pending Go Backend Work:
+  - Support `--since` query parameter (`15m`, `1h`, `24h`) in `GET /apps/:id/logs`
+    passed directly to `docker compose logs --since <duration> --timestamps`.
+
+--------------------------------------------------------------------------------
+7. MCP SERVER PER-TOOL ENABLE/DISABLE & LIVE JSON-RPC STREAM VIEWER
+--------------------------------------------------------------------------------
+- UI Location: `src/components/InfraAndAiViews.tsx` (MCP Server Page)
+- UI Behavior:
+  - Global MCP Server Enable/Disable switch IS wired to `POST /mcp-docs/toggle-status`.
+  - Individual per-tool toggle switches and the "Live RPC Stream" tab currently
+    operate in UI state.
+- Pending Go Backend Work:
+  - Persist a disabled tools list in `store.SetSetting("mcp_disabled_tools", ...)` and
+    check it inside `internal/mcp/server.go` before executing a tool.
+  - Record recent MCP JSON-RPC tool invocations in a ring buffer or `audit_logs`
+    for the Live RPC Stream table.
+================================================================================

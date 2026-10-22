@@ -174,20 +174,6 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 	return nil
 }
 
-func (p *Panel) syncAndApplyBackground(c *fiber.Ctx, appID string) error {
-	return p.SyncAndApplyBackground(c.UserContext(), appID)
-}
-
-// ── Caddy global page ─────────────────────────────────────────────────────────
-
-func (p *Panel) CaddyPage(c *fiber.Ctx) error {
-	u, ok := currentUser(c)
-	if !ok || u.Role != db.RoleAdmin {
-		return c.Status(fiber.StatusForbidden).SendString("forbidden")
-	}
-	return c.Redirect("/nextdeploy", fiber.StatusFound)
-}
-
 // POST /caddy/config — save global caddy settings
 func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
@@ -208,6 +194,9 @@ func (p *Panel) CaddySaveConfig(c *fiber.Ctx) error {
 	if err := p.syncRootStackCompose(ctx); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
+	}
 	return c.Redirect("/nextdeploy")
 }
 
@@ -223,8 +212,10 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	case "start":
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
 	case "force_start":
+		killCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		killScript := "systemctl stop apache2 2>/dev/null || true; systemctl stop nginx 2>/dev/null || true; fuser -k 80/tcp 2>/dev/null || true; fuser -k 443/tcp 2>/dev/null || true"
-		_ = exec.Command("docker", "run", "--rm", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
+		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
+		cancel()
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
 	case "restart":
 		err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
@@ -236,25 +227,10 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	return c.Redirect("/nextdeploy")
-}
-
-// ── App domain tab ────────────────────────────────────────────────────────────
-
-// GET /apps/:id/domains — render domains tab (used by HTMX partial or full page)
-func (p *Panel) AppDomainPartial(c *fiber.Ctx) error {
-	id := c.Params("id")
-	domains, _ := p.DB.ListAppDomains(c.UserContext(), id)
-	for i := range domains {
-		sanitizeDomainRecord(&domains[i])
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
-	services := p.loadComposeServices(c.UserContext(), id)
-	return c.Render("partials/domain/domain_tab", fiber.Map{
-		"ID":                    id,
-		"Domains":               domains,
-		"Services":              services,
-		"ShowDomainFileServer":  p.userCanDomainFileServer(c),
-	})
+	return c.Redirect("/nextdeploy")
 }
 
 // POST /apps/:id/domains — create domain
@@ -294,8 +270,11 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if _, err := p.DB.CreateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyBackground(c, id); err != nil {
+	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
@@ -311,8 +290,11 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.DB.DeleteAppDomain(c.UserContext(), d.ID); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyBackground(c, id); err != nil {
+	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")
@@ -330,13 +312,13 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		port = 80
 	}
 	d := db.AppDomain{
-		ID:             current.ID,
-		AppID:          id,
-		Domain:         caddy.CleanQuotedValue(c.FormValue("domain")),
-		Service:        caddy.CleanQuotedValue(c.FormValue("service")),
-		Port:           port,
-		EnableHTTPS:    c.FormValue("enable_https") == "on",
-		EnableWWW:      c.FormValue("enable_www") == "on",
+		ID:              current.ID,
+		AppID:           id,
+		Domain:          caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:         caddy.CleanQuotedValue(c.FormValue("service")),
+		Port:            port,
+		EnableHTTPS:     c.FormValue("enable_https") == "on",
+		EnableWWW:       c.FormValue("enable_www") == "on",
 		ServeStatic:     c.FormValue("serve_static") == "on",
 		StaticPath:      strings.TrimSpace(c.FormValue("static_path")),
 		StaticURLPrefix: strings.TrimSpace(c.FormValue("static_url_prefix")),
@@ -360,8 +342,11 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
-	if err := p.syncAndApplyBackground(c, id); err != nil {
+	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	utils.SetFlash(c, "domainSaved")
 	return c.Redirect("/apps/" + id + "?tab=domains")

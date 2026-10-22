@@ -14,7 +14,6 @@ import (
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
-	"panel/internal/logview"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
 
@@ -32,12 +31,12 @@ func isHtmxRequest(c *fiber.Ctx) bool {
 func (p *Panel) AppExec(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("not found")
+		return c.Status(404).JSON(fiber.Map{"ok": false, "error": "not found"})
 	}
 	name := strings.TrimPrefix(strings.TrimSpace(c.FormValue("container")), "/")
 	cmd := c.FormValue("command")
 	if !p.ContainerBelongsToApp(c.UserContext(), id, name) {
-		return c.Status(400).SendString("invalid container for this app")
+		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid container for this app"})
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
 	defer cancel()
@@ -48,9 +47,9 @@ func (p *Panel) AppExec(c *fiber.Ctx) error {
 	} else if !res.OK {
 		out = out + "\n[non-zero exit: " + res.Output + "]"
 	}
-	return c.Render("partials/terminal_out", fiber.Map{
-		"ExecHTML": logview.FormatTerminalOutput(out),
-		"ExecOK":   res.OK,
+	return c.JSON(fiber.Map{
+		"ok":     res.OK,
+		"output": out,
 	})
 }
 
@@ -61,6 +60,9 @@ func (p *Panel) ClearDeployLogs(c *fiber.Ctx) error {
 	}
 	if err := p.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 }

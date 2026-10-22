@@ -30,42 +30,6 @@ func countAdminUsers(ctx context.Context, dbStore *db.Store) (int, error) {
 	return n, nil
 }
 
-// UsersPage renders the user management page (admin only).
-func (p *Panel) UsersPage(c *fiber.Ctx) error {
-	user, _ := currentUser(c)
-	if user.Role != db.RoleAdmin {
-		return c.Status(403).SendString("forbidden")
-	}
-	users, err := p.DB.ListUsers(c.UserContext())
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-
-	// Per-user workspace storage usage (sizes come from a short-TTL cache).
-	storageByUser := make(map[int64]string, len(users))
-	if apps, aerr := p.DB.ListApps(c.UserContext()); aerr == nil {
-		usage := make(map[int64]int64)
-		for _, app := range apps {
-			if app.OwnerID > 0 {
-				usage[app.OwnerID] += p.AppStorageBytes(app.ID)
-			}
-		}
-		for _, u := range users {
-			storageByUser[u.ID] = HumanStorage(usage[u.ID])
-		}
-	}
-
-	return c.Render("pages/users", fiber.Map{
-		"Nav":           "users",
-		"Title":         "Users",
-		"Users":         users,
-		"StorageByUser": storageByUser,
-		"CurrentUser":   user,
-		"Flash":         utils.ReadFlash(c),
-		"Error":         utils.ReadFlashError(c),
-	}, "layouts/shell")
-}
-
 // UserCreate handles creating a new user (admin only).
 func (p *Panel) UserCreate(c *fiber.Ctx) error {
 	user, _ := currentUser(c)
@@ -347,52 +311,9 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	}
 
 	p.InvalidateAfterUserChange()
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
+	}
 	utils.SetFlash(c, "Limits updated")
 	return c.Redirect("/users/" + idStr + "/edit")
-}
-
-func (p *Panel) UserEditPage(c *fiber.Ctx) error {
-	current, _ := currentUser(c)
-	idStr := c.Params("id")
-	var id int64
-	if _, err := parseID(idStr, &id); err != nil {
-		return c.Status(400).SendString("invalid id")
-	}
-
-	if id != current.ID && current.Role != db.RoleAdmin {
-		return c.Status(403).SendString("forbidden")
-	}
-
-	target, err := p.DB.GetUserByID(c.UserContext(), id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			utils.SetFlashError(c, "User not found")
-			return c.Redirect("/users")
-		}
-		return c.Status(500).SendString(err.Error())
-	}
-
-	usedBytes := p.UserStorageBytes(c.UserContext(), target.ID)
-	storageUnlimited := target.Role == db.RoleAdmin
-	maxBytes := int64(target.MaxStorageMB) * 1024 * 1024
-	var storagePct float64
-	if !storageUnlimited && maxBytes > 0 {
-		storagePct = (float64(usedBytes) / float64(maxBytes)) * 100.0
-		if storagePct > 100 {
-			storagePct = 100
-		}
-	}
-
-	return c.Render("pages/user_edit", fiber.Map{
-		"Nav":               "users",
-		"Title":             "Edit User",
-		"TargetUser":        target,
-		"CurrentUser":       current,
-		"StorageUsed":       HumanStorage(usedBytes),
-		"StorageMax":        HumanStorage(maxBytes),
-		"StoragePercent":    storagePct,
-		"StorageUnlimited":  storageUnlimited,
-		"Flash":          utils.ReadFlash(c),
-		"Error":          utils.ReadFlashError(c),
-	}, "layouts/shell")
 }

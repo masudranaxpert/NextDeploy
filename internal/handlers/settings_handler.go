@@ -658,31 +658,6 @@ func (p *Panel) SyncRootStackComposeOnStart() error {
 	return p.syncRootStackCompose(context.Background())
 }
 
-func (p *Panel) SettingsPage(c *fiber.Ctx) error {
-	u, ok := currentUser(c)
-	if !ok || u.Role != db.RoleAdmin {
-		return c.Status(fiber.StatusForbidden).SendString("forbidden")
-	}
-	ctx := c.UserContext()
-	cfg, _ := p.DB.GetAllSettings(ctx)
-	tmpCount, tmpBytes, _ := ScanPanelTempFiles(migrate.ProtectedStagingPaths(p.DB))
-
-	return c.Render("pages/settings", WithUser(c, fiber.Map{
-		"Nav":                        "settings",
-		"Title":                      "Settings",
-		"Flash":                      utils.ReadFlash(c),
-		"CleanupEnabled":             settingBool(cfg[settingCleanupEnabled], true),
-		"CleanupInterval":            normalizeCleanupInterval(cfg[settingCleanupInterval]),
-		"CleanupIntervals":           cleanupIntervalOptions(),
-		"CleanupLastRun":             cfg[settingCleanupLastRun],
-		"CleanupLastLog":             cfg[settingCleanupLastLog],
-		"CleanupIncludeBuildCache":   settingBool(cfg[settingCleanupIncludeBuildCache], false),
-		"TmpFileCount":               tmpCount,
-		"TmpFileSize":                formatBytes(tmpBytes),
-		"TmpFileSizeRaw":             tmpBytes,
-	}), "layouts/shell")
-}
-
 // TempCleanupRun deletes orphaned NextDeploy temp files immediately.
 func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
@@ -693,6 +668,9 @@ func (p *Panel) TempCleanupRun(c *fiber.Ctx) error {
 	msg := fmt.Sprintf("Removed %d temp file(s), freed %s.", removed, formatBytes(freed))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_run", time.Now().UTC().Format(time.RFC3339))
 	_ = p.DB.SetSetting(c.UserContext(), "tmp_cleanup_last_log", msg)
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "removed": removed, "freed": freed, "message": msg})
+	}
 	utils.SetFlash(c, "tmp_cleaned")
 	return c.Redirect("/settings")
 }
@@ -933,7 +911,8 @@ func (p *Panel) auditLogPruneLoop() {
 }
 
 func (p *Panel) prePullAlpineImage() {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "pull", "alpine:3.20")
 	_ = cmd.Run()
 }
@@ -1029,28 +1008,6 @@ func nextDeployPanelDomain(cfg map[string]string) db.AppDomain {
 		EnableHTTPS: settingBool(cfg[settingPanelEnableHTTPS], true),
 		EnableWWW:   settingBool(cfg[settingPanelEnableWWW], false),
 	}
-}
-
-func (p *Panel) RegistriesPage(c *fiber.Ctx) error {
-	ctx := c.UserContext()
-	u, _ := c.Locals("auth_user").(db.User)
-	var registries []db.PrivateRegistry
-	var rerr error
-	if u.Role == db.RoleAdmin {
-		registries, rerr = p.DB.ListPrivateRegistries(ctx, nil)
-	} else {
-		registries, rerr = p.DB.ListPrivateRegistries(ctx, &u.ID)
-	}
-	if rerr != nil {
-		log.Printf("error listing private registries: %v", rerr)
-	}
-
-	return c.Render("pages/registries", WithUser(c, fiber.Map{
-		"Nav":        "registries",
-		"Title":      "Registries",
-		"Flash":      utils.ReadFlash(c),
-		"Registries": registries,
-	}), "layouts/shell")
 }
 
 func (p *Panel) AddRegistry(c *fiber.Ctx) error {

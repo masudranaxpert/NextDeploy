@@ -3,34 +3,22 @@ import {
   Activity,
   Archive,
   ArrowLeftRight,
-  ArrowUpRight,
   Box,
   ChevronRight,
-  Copy,
-  ExternalLink,
   FileText,
   FolderGit2,
-  GitBranch,
   Globe,
   HardDrive,
-  Kanban,
   KeyRound,
   Layers,
   LayoutGrid,
-  List,
-  Lock,
   Menu,
-  Play,
   Plus,
-  RotateCw,
   Search,
   Server,
   Settings,
-  ShieldCheck,
   Sparkles,
-  Square,
   Terminal,
-  Trash2,
   Users,
   X,
 } from 'lucide-react';
@@ -61,29 +49,21 @@ import {
   INITIAL_VOLUMES,
   MCP_TOOLS_CATALOG,
 } from './data/initialData';
-import {
-  ActionMenu,
-  CommandPaletteModal,
-  DeployNewAppModal,
-  EvilAreaChart,
-  StatusBadge,
-} from './components/ui/Primitives';
-import { AppWorkspace } from './components/AppWorkspace';
-import {
-  ContainersView,
-  ImagesView,
-  VolumesView,
-  VpsTerminalView,
-} from './components/DockerEngineViews';
-import {
-  BackupsView,
-  CaddyProxyView,
-  GitAndRegistriesView,
-  McpAndCliView,
-  MigrationView,
-  MonitorView,
-  UsersAndSettingsView,
-} from './components/InfraAndAiViews';
+import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
+import { OverviewDashboard } from './features/overview/OverviewDashboard';
+import { ProjectsListView } from './features/projects/ProjectsListView';
+import { AppWorkspace } from './features/workspace/AppWorkspace';
+import { ContainersView } from './features/docker/ContainersView';
+import { ImagesView } from './features/docker/ImagesView';
+import { VolumesView } from './features/docker/VolumesView';
+import { VpsTerminalView } from './features/terminal/VpsTerminalView';
+import { MonitorView } from './features/monitoring/MonitorView';
+import { GitAndRegistriesView } from './features/integrations/GitAndRegistriesView';
+import { CaddyProxyView } from './features/proxy/CaddyProxyView';
+import { BackupsView } from './features/backups/BackupsView';
+import { MigrationView } from './features/migration/MigrationView';
+import { McpAndCliView } from './features/automation/McpAndCliView';
+import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
 import { backendApi } from './lib/backendApi';
 
 export default function App() {
@@ -101,14 +81,6 @@ export default function App() {
   const [migrationBundles, setMigrationBundles] =
     useState<MigrationExportBundle[]>(INITIAL_MIGRATION_BUNDLES);
   const [cliSessions, setCliSessions] = useState<CliSessionItem[]>(INITIAL_CLI_SESSIONS);
-
-  // View Controls
-  const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
-  const [appsLayout, setAppsLayout] = useState<'grid' | 'board' | 'table'>('grid');
-  const [appSearch, setAppSearch] = useState('');
-  const [appStatusFilter, setAppStatusFilter] = useState<
-    'all' | 'running' | 'building' | 'stopped'
-  >('all');
 
   // Modals
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
@@ -288,18 +260,6 @@ export default function App() {
 
   const selectedApp = apps.find((a) => a.id === selectedAppId) || null;
 
-  const filteredApps = apps.filter((a) => {
-    if (appStatusFilter !== 'all' && a.status !== appStatusFilter) return false;
-    if (
-      appSearch &&
-      !a.name.toLowerCase().includes(appSearch.toLowerCase()) &&
-      !(a.primaryDomain && a.primaryDomain.toLowerCase().includes(appSearch.toLowerCase()))
-    ) {
-      return false;
-    }
-    return true;
-  });
-
   const navGroups: {
     group: string;
     items: {
@@ -370,377 +330,6 @@ export default function App() {
 
   const currentNavLabel =
     navGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
-
-  const getAppActions = (app: AppStack) => [
-    {
-      label: 'Open Workspace',
-      icon: <ExternalLink className="h-3.5 w-3.5" />,
-      onClick: () => setSelectedAppId(app.id),
-    },
-    {
-      label: 'Trigger Deploy',
-      icon: <Play className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Deploying ${app.name}...`),
-    },
-    {
-      label: 'Copy App ID',
-      icon: <Copy className="h-3.5 w-3.5" />,
-      onClick: () => {
-        navigator.clipboard?.writeText(app.id);
-        toast.success(`Copied ${app.id}`);
-      },
-    },
-    {
-      label: 'Restart Containers',
-      icon: <RotateCw className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Restarted ${app.name}`),
-    },
-    {
-      label: app.status === 'stopped' ? 'Start Stack' : 'Stop Stack',
-      icon:
-        app.status === 'stopped' ? (
-          <Play className="h-3.5 w-3.5" />
-        ) : (
-          <Square className="h-3.5 w-3.5" />
-        ),
-      onClick: () => {
-        const nextStatus = app.status === 'stopped' ? ('running' as const) : ('stopped' as const);
-        setApps((prev) =>
-          prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a))
-        );
-        toast.success(`${nextStatus === 'running' ? 'Started' : 'Stopped'} ${app.name}`);
-      },
-    },
-    {
-      label: 'Delete Project',
-      icon: <Trash2 className="h-3.5 w-3.5" />,
-      variant: 'danger' as const,
-      onClick: () => {
-        setApps((prev) => prev.filter((a) => a.id !== app.id));
-        toast.success(`Deleted ${app.name}`);
-      },
-    },
-  ];
-
-  const renderAppsCollection = () => (
-    <div className="space-y-3.5">
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={appSearch}
-              onChange={(e) => setAppSearch(e.target.value)}
-              placeholder="Filter projects..."
-              className="h-8 w-52 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
-            />
-          </div>
-          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-            {(['all', 'running', 'building', 'stopped'] as const).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setAppStatusFilter(st)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-all cursor-pointer ${
-                  appStatusFilter === st
-                    ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {st}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setAppsLayout('grid')}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-              appsLayout === 'grid'
-                ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            Cards
-          </button>
-          <button
-            type="button"
-            onClick={() => setAppsLayout('board')}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-              appsLayout === 'board'
-                ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Kanban className="h-3.5 w-3.5" />
-            Board
-          </button>
-          <button
-            type="button"
-            onClick={() => setAppsLayout('table')}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-              appsLayout === 'table'
-                ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <List className="h-3.5 w-3.5" />
-            List
-          </button>
-        </div>
-      </div>
-
-      {/* Cards View */}
-      {appsLayout === 'grid' && (
-        <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
-          {filteredApps.map((app) => (
-            <div
-              key={app.id}
-              onClick={() => setSelectedAppId(app.id)}
-              className="group relative overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/80 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] transition-all hover:border-white/[0.15] hover:bg-[#141419] cursor-pointer flex flex-col justify-between gap-3.5"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-900 font-display text-xs font-bold text-orange-400 uppercase shadow-inner group-hover:border-orange-500/30 transition-colors">
-                    {app.name.slice(0, 2)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white transition-colors">
-                        {app.name}
-                      </h3>
-                      <StatusBadge status={app.status} />
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-400">
-                      {app.primaryDomain ? (
-                        <span className="inline-flex items-center gap-1 font-mono text-zinc-300 group-hover:text-orange-300 transition-colors truncate">
-                          <Globe className="h-3 w-3 text-emerald-400 shrink-0" />
-                          {app.primaryDomain}
-                          <ArrowUpRight className="h-2.5 w-2.5 opacity-60 shrink-0" />
-                        </span>
-                      ) : (
-                        <span className="font-mono text-zinc-500">internal compose network</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <ActionMenu items={getAppActions(app)} />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {app.services.map((svc) => (
-                    <span
-                      key={svc.id}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-[#09090b]/90 px-2 py-0.5 font-mono text-[10px] text-zinc-300"
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          svc.state === 'running' ? 'bg-emerald-400' : 'bg-zinc-500'
-                        }`}
-                      />
-                      {svc.service}
-                    </span>
-                  ))}
-                </div>
-
-                {app.gitBranch && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] bg-[#09090b]/60 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
-                    <GitBranch className="h-2.5 w-2.5 text-orange-400" />
-                    {app.gitBranch}
-                    {app.gitCommitSha && (
-                      <span className="text-zinc-500">@{app.gitCommitSha.slice(0, 7)}</span>
-                    )}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 text-[11px] text-zinc-500 font-mono tabular-nums">
-                <div className="flex items-center gap-3">
-                  <span>
-                    CPU <strong className="font-medium text-zinc-300">{app.cpuPct}%</strong>
-                  </span>
-                  <span>
-                    RAM <strong className="font-medium text-zinc-300">{app.memMB} MB</strong>
-                  </span>
-                </div>
-                <span>{app.updatedAt}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Board View */}
-      {appsLayout === 'board' && (
-        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-          {(
-            [
-              { key: 'running', title: 'Running' },
-              { key: 'building', title: 'Building' },
-              { key: 'stopped', title: 'Stopped' },
-            ] as const
-          ).map((col) => {
-            const colApps = filteredApps.filter((a) => a.status === col.key);
-            return (
-              <div
-                key={col.key}
-                className="rounded-xl border border-white/[0.07] bg-[#09090b]/60 p-3.5 space-y-2.5"
-              >
-                <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
-                  <StatusBadge status={col.key} label={col.title} />
-                  <span className="font-mono text-zinc-500">{colApps.length}</span>
-                </div>
-                <div className="space-y-2">
-                  {colApps.map((app) => (
-                    <div
-                      key={app.id}
-                      onClick={() => setSelectedAppId(app.id)}
-                      className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#111115] p-3 hover:border-white/[0.15] cursor-pointer transition-all"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-semibold text-zinc-100">
-                          {app.name}
-                        </div>
-                        <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                          {app.services.length} services · {app.cpuPct}% CPU
-                        </div>
-                      </div>
-                      <ActionMenu items={getAppActions(app)} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Table View */}
-      {appsLayout === 'table' && (
-        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/80">
-          <table className="w-full table-fixed text-left text-xs">
-            <thead>
-              <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-[38%] px-4 py-2.5 font-medium">Project</th>
-                <th className="w-[20%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[20%] px-4 py-2.5 font-medium">Containers</th>
-                <th className="w-[16%] px-4 py-2.5 font-medium text-right">Usage</th>
-                <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
-              {filteredApps.map((app) => (
-                <tr
-                  key={app.id}
-                  onClick={() => setSelectedAppId(app.id)}
-                  className="hover:bg-white/[0.03] cursor-pointer transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 font-display text-[11px] font-bold text-orange-400 uppercase">
-                        {app.name.slice(0, 2)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold text-zinc-100">{app.name}</div>
-                        {app.primaryDomain && (
-                          <div className="truncate font-mono text-[10px] text-zinc-500">
-                            {app.primaryDomain}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={app.status} />
-                  </td>
-                  <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
-                    {app.services.filter((s) => s.state === 'running').length}/{app.services.length}{' '}
-                    online
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-300">
-                    {app.cpuPct}% · {app.memMB} MB
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <ActionMenu items={getAppActions(app)} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-
-  // Recent Deployments across all projects for the Overview Dashboard
-  const recentDeploymentsFeed = [
-    {
-      id: 'dep-4920',
-      appId: 'app-9f81c2a0',
-      appName: 'commerce-core-api',
-      branch: 'main',
-      sha: '8c4f19a',
-      message: 'perf(checkout): batch inventory reservation lock in redis',
-      trigger: 'GitHub Push',
-      duration: '28s',
-      time: '4m ago',
-      status: 'ready' as const,
-    },
-    {
-      id: 'dep-4917',
-      appId: 'app-6b12f0e9',
-      appName: 'temporal-worker-queue',
-      branch: 'main',
-      sha: '19d04e2',
-      message: 'chore(ffmpeg): bump worker concurrency limit to 8 threads',
-      trigger: 'GitLab CI',
-      duration: '19s',
-      time: '12m ago',
-      status: 'building' as const,
-    },
-    {
-      id: 'dep-4915',
-      appId: 'app-7d24e8b1',
-      appName: 'studio-web-dashboard',
-      branch: 'production',
-      sha: 'f42a90c',
-      message: 'feat(billing): integrate instant SEPA & invoice PDF stream',
-      trigger: 'GitHub Push',
-      duration: '42s',
-      time: '38m ago',
-      status: 'ready' as const,
-    },
-    {
-      id: 'dep-4912',
-      appId: 'app-9f81c2a0',
-      appName: 'commerce-core-api',
-      branch: 'main',
-      sha: '3b10e4c',
-      message: 'feat(orders): add idempotency key header middleware',
-      trigger: 'nd CLI',
-      duration: '31s',
-      time: '5h ago',
-      status: 'ready' as const,
-    },
-    {
-      id: 'dep-4908',
-      appId: 'app-3c90a1f4',
-      appName: 'plausible-analytics',
-      branch: 'v2.1.4',
-      sha: 'compose',
-      message: 'ClickHouse 24.3-alpine + Plausible v2.1 rollout',
-      trigger: 'Compose',
-      duration: '16s',
-      time: '2d ago',
-      status: 'ready' as const,
-    },
-  ];
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
@@ -964,277 +553,17 @@ export default function App() {
                 }}
               />
             ) : activeNav === 'overview' ? (
-              <div className="space-y-5">
-                {/* Row 1: 4 Host Telemetry Cards */}
-                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-                  {/* Memory */}
-                  <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-medium text-zinc-400">Host Memory</p>
-                        <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
-                          15.4 <span className="text-xs font-normal text-zinc-500">/ 32 GB</span>
-                        </p>
-                      </div>
-                      <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-400 ring-1 ring-sky-500/20">
-                        48%
-                      </span>
-                    </div>
-                    <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
-                        style={{ width: '48%' }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Disk */}
-                  <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-medium text-zinc-400">NVMe Storage (/)</p>
-                        <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
-                          84.2 <span className="text-xs font-normal text-zinc-500">/ 320 GB</span>
-                        </p>
-                      </div>
-                      <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-400 ring-1 ring-orange-500/20">
-                        27%
-                      </span>
-                    </div>
-                    <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-                        style={{ width: '27%' }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* CPU */}
-                  <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-medium text-zinc-400">CPU Load (16 vCPU)</p>
-                        <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
-                          {telemetry[telemetry.length - 1]?.cpu || 23}
-                          <span className="text-xs font-normal text-zinc-500">%</span>
-                        </p>
-                      </div>
-                      <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-                        Healthy
-                      </span>
-                    </div>
-                    <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-                        style={{ width: `${telemetry[telemetry.length - 1]?.cpu || 23}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Runtime */}
-                  <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-[11px] font-medium text-zinc-400">Containers & TLS</p>
-                        <p className="mt-1.5 font-mono text-xl font-bold tabular-nums text-zinc-100 leading-none">
-                          7 <span className="text-xs font-normal text-zinc-500">running</span>
-                        </p>
-                      </div>
-                      <StatusBadge status="active" label="TLS 1.3" />
-                    </div>
-                    <div className="mt-3 flex items-center justify-between font-mono text-[11px] text-zinc-500">
-                      <span>4 projects</span>
-                      <span>4 SSL routes</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Row 2: Telemetry Area Chart Card */}
-                <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xs font-semibold text-zinc-200">Host Throughput</h2>
-                    </div>
-                    <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-                      {(
-                        [
-                          { id: 'requests', label: 'Ingress req/m' },
-                          { id: 'cpu-mem', label: 'CPU & RAM' },
-                          { id: 'network', label: 'Network I/O' },
-                        ] as const
-                      ).map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setChartMetric(tab.id)}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                            chartMetric === tab.id
-                              ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                              : 'text-zinc-400 hover:text-zinc-200'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {chartMetric === 'requests' && (
-                    <EvilAreaChart
-                      data={telemetry}
-                      dataKey="requests"
-                      color="#f97316"
-                      unit=" req/m"
-                      height={175}
-                      label="Requests"
-                    />
-                  )}
-                  {chartMetric === 'cpu-mem' && (
-                    <EvilAreaChart
-                      data={telemetry}
-                      dataKey="cpu"
-                      secondaryKey="memory"
-                      color="#10b981"
-                      secondaryColor="#38bdf8"
-                      unit="%"
-                      height={175}
-                      label="CPU"
-                      secondaryLabel="RAM"
-                    />
-                  )}
-                  {chartMetric === 'network' && (
-                    <EvilAreaChart
-                      data={telemetry}
-                      dataKey="netInMbps"
-                      secondaryKey="netOutMbps"
-                      color="#f97316"
-                      secondaryColor="#eab308"
-                      unit=" Mbps"
-                      height={175}
-                      label="Inbound"
-                      secondaryLabel="Outbound"
-                    />
-                  )}
-                </div>
-
-                {/* Row 3: Recent Deployments & Control Plane Health Bento (Replaces Projects 4) */}
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  {/* Left 2 Columns: Recent Deployments Feed */}
-                  <div className="lg:col-span-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <GitBranch className="h-3.5 w-3.5 text-orange-400" />
-                          <h2 className="text-xs font-semibold text-zinc-100">
-                            Recent Deployments
-                          </h2>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setActiveNav('apps')}
-                          className="text-[11px] font-medium text-zinc-400 hover:text-zinc-100 cursor-pointer"
-                        >
-                          All Projects →
-                        </button>
-                      </div>
-
-                      <div className="divide-y divide-white/[0.05]">
-                        {recentDeploymentsFeed.map((dep) => (
-                          <div
-                            key={dep.id}
-                            onClick={() => setSelectedAppId(dep.appId)}
-                            className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <StatusBadge status={dep.status} />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono font-semibold text-zinc-100">
-                                    {dep.appName}
-                                  </span>
-                                  <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
-                                    {dep.branch}@{dep.sha}
-                                  </span>
-                                </div>
-                                <div className="truncate text-[11px] text-zinc-500 mt-0.5">
-                                  {dep.message}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
-                              <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                {dep.trigger}
-                              </span>
-                              <span>{dep.duration}</span>
-                              <span className="text-zinc-500 w-12 text-right">{dep.time}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: System Daemons */}
-                  <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Server className="h-3.5 w-3.5 text-emerald-400" />
-                          <span className="text-xs font-semibold text-zinc-100">System Daemons</span>
-                        </div>
-                        <span className="font-mono text-[10px] text-emerald-400">5/5 Online</span>
-                      </div>
-
-                      <div className="divide-y divide-white/[0.05] font-mono text-xs">
-                        {[
-                          { name: 'dockerd', ver: 'v27.3.1', meta: '7 containers', status: 'running' as const },
-                          { name: 'caddy-proxy', ver: 'v2.8.4', meta: 'TLS 1.3 · HTTP/3', status: 'active' as const },
-                          { name: 'nextdeployd', ver: 'v2.4.0', meta: '24 MB RAM', status: 'running' as const },
-                          { name: 'mcp-server', ver: 'SSE/JSON-RPC', meta: '16 tools', status: 'active' as const },
-                          { name: 'rclone-cron', ver: '0 */6 * * *', meta: 'R2 + S3', status: 'connected' as const },
-                        ].map((d) => (
-                          <div
-                            key={d.name}
-                            className="flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
-                          >
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-zinc-100 font-semibold">{d.name}</span>
-                                <span className="text-[10px] text-zinc-500">{d.ver}</span>
-                              </div>
-                              <div className="text-[10px] text-zinc-500 mt-0.5">{d.meta}</div>
-                            </div>
-                            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              ok
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between border-t border-white/[0.06] bg-[#09090b]/50 px-4 py-2.5 font-mono text-[10px] text-zinc-500">
-                      <span>Ubuntu 24.04 LTS</span>
-                      <span className="text-zinc-400">Uptime 42d 18h</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <OverviewDashboard
+                telemetry={telemetry}
+                onSelectApp={(id) => setSelectedAppId(id)}
+                onSelectNav={(nav) => setActiveNav(nav)}
+              />
             ) : activeNav === 'apps' ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                      <Layers className="h-4 w-4 text-orange-400" />
-                    </div>
-                    <h1 className="text-base font-semibold tracking-tight text-zinc-100">
-                      Projects
-                    </h1>
-                  </div>
-                </div>
-                {renderAppsCollection()}
-              </div>
+              <ProjectsListView
+                apps={apps}
+                onSelectApp={(id) => setSelectedAppId(id)}
+                onUpdateApps={setApps}
+              />
             ) : activeNav === 'monitor' ? (
               <MonitorView
                 telemetry={telemetry}

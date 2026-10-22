@@ -10,45 +10,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// GitProvidersPage renders the global Git providers settings page.
-func (p *Panel) GitProvidersPage(c *fiber.Ctx) error {
-	u, ok := CurrentUser(c)
-	if !ok {
-		return c.Redirect("/login")
-	}
-	var userID *int64
-	if u.Role != db.RoleAdmin {
-		val := u.ID
-		userID = &val
-	}
-	providers, err := p.DB.ListGitProviders(c.UserContext(), userID)
-	if err != nil {
-		providers = nil
-	}
-	ghDetails, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
-	ghMap := map[int64]db.GitHubProviderDetail{}
-	for _, d := range ghDetails {
-		ghMap[d.ProviderID] = d
-	}
-	flash := utils.ReadFlash(c)
-	saved := flash == "saved" || c.Query("saved") == "1"
-	deleted := flash == "deleted" || c.Query("deleted") == "1"
-	errMsg := utils.ReadFlashError(c)
-	return c.Render("pages/git_providers", withUser(c, fiber.Map{
-		"Nav":                 "git",
-		"Title":               "Git Providers",
-		"Providers":           providers,
-		"GitHubDetails":       ghMap,
-		"Saved":               saved,
-		"Deleted":             deleted,
-		"Error":               errMsg,
-		"GitHubAppCreateURL":  "https://github.com/settings/apps/new",
-		"GitLabAppCreateURL":  "https://gitlab.com/-/user_settings/applications",
-		"GitHubManifestStart": "/git/github/start",
-		"GitLabCallbackURL":   p.gitlabCallbackURL(c),
-	}), "layouts/shell")
-}
-
 // GitProviderUpdate updates an existing global Git provider credential.
 func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 	u, ok := CurrentUser(c)

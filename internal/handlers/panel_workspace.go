@@ -12,42 +12,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func (p *Panel) BrowsePartial(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(404).SendString("not found")
-	}
-	if p.IsGitApp(c.UserContext(), id) {
-		return c.Status(400).SendString("files browser is disabled for git-backed apps")
-	}
-	return p.renderBrowse(c, id, c.Query("path", ""), "")
-}
-
-func (p *Panel) renderBrowse(c *fiber.Ctx, id, rel, flash string) error {
-	children, err := p.Store.ListChildren(id, rel)
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	parent := p.Store.ParentRel(rel)
-	return c.Render("partials/browser", fiber.Map{
-		"ID":           id,
-		"Path":         rel,
-		"ParentPath":   parent,
-		"Children":     children,
-		"BrowseFlash":  flash,
-		"DeleteTarget": fmt.Sprintf("/apps/%s/files/delete", id),
-	})
-}
-
 func (p *Panel) BrowseCreate(c *fiber.Ctx) error {
 	id := c.Params("id")
-	wantJSON := strings.EqualFold(c.Query("format"), "json")
+	wantJSON := strings.EqualFold(c.Query("format"), "json") || WantsJSON(c)
 	respond := func(status int, ok bool, message string) error {
 		if wantJSON {
 			return c.Status(status).JSON(fiber.Map{"ok": ok, "message": message})
-		}
-		if status >= 400 && status != 404 {
-			return c.Redirect("/apps/" + id + "?tab=files")
 		}
 		if status == 404 {
 			return c.Status(404).SendString(message)
@@ -100,20 +70,19 @@ func (p *Panel) BrowseCreate(c *fiber.Ctx) error {
 
 func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 	id := c.Params("id")
+	wantJSON := strings.EqualFold(c.Query("format"), "json") || WantsJSON(c)
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		if strings.EqualFold(c.Query("format"), "json") {
+		if wantJSON {
 			return c.Status(404).JSON(fiber.Map{"ok": false, "message": "not found"})
 		}
 		return c.Status(404).SendString("not found")
 	}
 	if p.IsGitApp(c.UserContext(), id) {
-		if strings.EqualFold(c.Query("format"), "json") {
+		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "files delete is disabled for git-backed apps"})
 		}
 		return c.Status(400).SendString("files delete is disabled for git-backed apps")
 	}
-	wantJSON := strings.EqualFold(c.Query("format"), "json")
-	returnPath := c.FormValue("path")
 	var paths []string
 	c.Request().PostArgs().VisitAll(func(key, val []byte) {
 		if string(key) == "paths" {
@@ -124,7 +93,7 @@ func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 		if wantJSON {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Select at least one file or folder."})
 		}
-		return p.renderBrowse(c, id, returnPath, "Select at least one file or folder.")
+		return c.Redirect("/apps/" + id + "?tab=files")
 	}
 	var errs []string
 	for _, pth := range paths {
@@ -143,11 +112,7 @@ func (p *Panel) BrowseDelete(c *fiber.Ctx) error {
 		}
 		return c.JSON(fiber.Map{"ok": true, "message": "Selected items removed."})
 	}
-	flash := ""
-	if len(errs) > 0 {
-		flash = "Some deletions failed: " + strings.Join(errs, " · ")
-	}
-	return p.renderBrowse(c, id, returnPath, flash)
+	return c.Redirect("/apps/" + id + "?tab=files")
 }
 
 const (
@@ -211,77 +176,6 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	}
 	c.Type(ct)
 	return c.Send(b)
-}
-
-func (p *Panel) WorkspaceFileModal(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
-		return c.Status(fiber.StatusNotFound).SendString("app not found")
-	}
-	if p.IsGitApp(c.UserContext(), id) {
-		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewError": "Files preview is disabled for git-backed apps. Use the Git tab and redeploy from repository source.",
-		})
-	}
-	rel := c.Query("path", "")
-	full, err := p.Store.SafeFilePath(id, rel)
-	if err != nil {
-		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewError": "invalid path",
-		})
-	}
-	st, err := os.Stat(full)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return c.Status(404).Render("partials/file_preview_modal", fiber.Map{
-				"PreviewError": "file not found",
-			})
-		}
-		return c.Status(500).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewError": err.Error(),
-		})
-	}
-	if st.IsDir() {
-		return c.Status(400).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewError": "cannot preview a directory",
-		})
-	}
-	if st.Size() > maxWorkspaceFileInline {
-		return c.Status(413).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewName":   utils.SafeContentDispositionFilename(rel),
-			"PreviewPath":   rel,
-			"PreviewTooBig": true,
-		})
-	}
-	b, err := os.ReadFile(full)
-	if err != nil {
-		return c.Status(500).Render("partials/file_preview_modal", fiber.Map{
-			"PreviewError": err.Error(),
-		})
-	}
-	head := b
-	if len(head) > 512 {
-		head = head[:512]
-	}
-	ct := utils.WorkspaceFileContentType(full, head)
-	textTypes := []string{"text/", "application/json", "application/javascript", "application/xml", "text/yaml"}
-	isText := false
-	for _, tt := range textTypes {
-		if strings.HasPrefix(ct, tt) {
-			isText = true
-			break
-		}
-	}
-	if !isText {
-		ct = "application/octet-stream"
-	}
-	return c.Render("partials/file_preview_modal", fiber.Map{
-		"PreviewName":    utils.SafeContentDispositionFilename(rel),
-		"PreviewPath":    rel,
-		"PreviewContent": string(b),
-		"PreviewCT":      ct,
-		"PreviewBinary":  !isText,
-	})
 }
 
 func (p *Panel) BrowseRename(c *fiber.Ctx) error {

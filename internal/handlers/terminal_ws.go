@@ -189,18 +189,6 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	wg.Wait()
 }
 
-// VPSTerminalPage renders the standalone VPS terminal page.
-func (p *Panel) VPSTerminalPage(c *fiber.Ctx) error {
-	u, ok := currentUser(c)
-	if !ok || u.Role != db.RoleAdmin {
-		return c.Status(fiber.StatusForbidden).SendString("forbidden")
-	}
-	return c.Render("pages/vps_terminal", WithUser(c, fiber.Map{
-		"Nav":   "terminal",
-		"Title": "Server Terminal",
-	}), "layouts/shell")
-}
-
 // VPSTerminalWebSocket streams a local shell (/bin/sh) to the browser.
 // This runs inside the panel container, giving full Docker CLI access.
 func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
