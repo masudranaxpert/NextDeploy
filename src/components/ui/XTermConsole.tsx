@@ -21,6 +21,7 @@ interface XTermConsoleProps {
   initialBanner?: string[];
   presets?: string[];
   height?: number;
+  wsPath?: string;
 }
 
 interface TermTab {
@@ -40,10 +41,13 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   ],
   presets = ['docker ps', 'nd status', 'docker stats --no-stream', 'free -h', 'df -h', 'clear'],
   height = 380,
+  wsPath,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const currentLineRef = useRef<string>('');
   const historyRef = useRef<string[]>(['docker ps', 'nd status', 'free -h', 'df -h']);
   const historyIdxRef = useRef<number>(-1);
@@ -159,6 +163,12 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   const runPresetCommand = (preset: string) => {
     const term = xtermRef.current;
     if (!term) return;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(new TextEncoder().encode(`${preset}\n`));
+      term.focus();
+      return;
+    }
     while (currentLineRef.current.length > 0) {
       term.write('\b \b');
       currentLineRef.current = currentLineRef.current.slice(0, -1);
@@ -208,10 +218,55 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       }
     }, 30);
 
-    initialBanner.forEach((line) => term.writeln(line));
-    writePrompt(term);
+    if (wsPath) {
+      try {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const sep = wsPath.includes('?') ? '&' : '?';
+        const url = `${proto}//${window.location.host}${wsPath}${sep}cols=${term.cols || 80}&rows=${term.rows || 24}`;
+        const ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+        wsRef.current = ws;
 
+        ws.onopen = () => {
+          setWsConnected(true);
+          try {
+            fitAddon.fit();
+            ws.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+          } catch {
+            // ignore
+          }
+        };
+
+        ws.onmessage = (ev: MessageEvent) => {
+          if (ev.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(ev.data));
+          } else {
+            term.write(ev.data);
+          }
+        };
+
+        ws.onclose = () => {
+          setWsConnected(false);
+        };
+
+        ws.onerror = () => {
+          setWsConnected(false);
+        };
+      } catch {
+        setWsConnected(false);
+      }
+    } else {
+      initialBanner.forEach((line) => term.writeln(line));
+      writePrompt(term);
+    }
+
+    const enc = new TextEncoder();
     term.onData((data) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(enc.encode(data));
+        return;
+      }
       const code = data.charCodeAt(0);
       if (data === '\r') {
         const line = currentLineRef.current;
@@ -268,6 +323,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     const handleResize = () => {
       try {
         fitAddon.fit();
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+        }
       } catch {
         // ignore
       }
@@ -276,9 +335,17 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (wsRef.current) {
+        try {
+          wsRef.current.close();
+        } catch {
+          // ignore
+        }
+        wsRef.current = null;
+      }
       term.dispose();
     };
-  }, [activeTabId]);
+  }, [activeTabId, wsPath]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -360,7 +427,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <StatusBadge status="connected" label="PTY Connected" />
+          <StatusBadge
+            status={wsPath ? (wsConnected ? 'connected' : 'provisioning') : 'connected'}
+            label={wsPath ? (wsConnected ? 'Live PTY Connected' : 'Connecting / Fallback') : 'PTY Emulated'}
+          />
           <button
             type="button"
             onClick={() => runPresetCommand('clear')}

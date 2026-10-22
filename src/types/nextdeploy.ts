@@ -28,7 +28,8 @@ export type AppWorkspaceTab =
   | 'terminal'
   | 'volumes'
   | 'backups'
-  | 'collaborators';
+  | 'collaborators'
+  | 'containers';
 
 export type AppSourceType = 'git' | 'zip' | 'compose';
 export type AppStatus = 'running' | 'building' | 'stopped' | 'failed';

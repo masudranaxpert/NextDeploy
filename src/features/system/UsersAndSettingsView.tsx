@@ -287,8 +287,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setAuditLoading(true);
     try {
       const res = await backendApi.auditLogsList(safeAuditPage, auditPerPage);
-      if (Array.isArray(res.logs) && res.logs.length > 0) {
-        const mapped: AuditLogEntry[] = res.logs.map((raw: Record<string, unknown>, idx: number) => ({
+      if (res.data && Array.isArray(res.data.logs) && res.data.logs.length > 0) {
+        const mapped: AuditLogEntry[] = res.data.logs.map((raw: Record<string, unknown>, idx: number) => ({
           id: String(raw.id ?? `aud-${idx}`),
           action: String(raw.action ?? 'system.event'),
           actor: String(raw.username ?? raw.actor ?? 'admin'),
@@ -1029,9 +1029,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           type="button"
           onClick={() => {
             void backendApi.saveSettings({
-              cleanup_enabled: cleanupEnabled ? 'true' : 'false',
+              cleanup_enabled: Boolean(cleanupEnabled),
               cleanup_interval: cleanupInterval,
-              cleanup_include_build_cache: cleanupIncludeBuildCache ? 'true' : 'false',
+              cleanup_include_build_cache: Boolean(cleanupIncludeBuildCache),
             });
             toast.success(`Saved Docker cleanup schedule (${cleanupInterval})`);
           }}
@@ -1065,8 +1065,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   setCleanupRunning(true);
                   try {
                     const res = await backendApi.runDockerCleanup();
-                    if (res.log) setCleanupLastLog(res.log);
-                    setCleanupLastStatus(res.status === 'error' ? 'error' : 'ok');
+                    if (res.data?.log) setCleanupLastLog(res.data.log);
+                    setCleanupLastStatus(res.ok ? 'ok' : 'error');
                   } catch {
                     // fallback in preview
                   } finally {

@@ -18,6 +18,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ActionMenu, StatusBadge } from '../../components/ui/Primitives';
+import { backendApi } from '../../lib/backendApi';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
@@ -57,7 +58,11 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Trigger Deploy',
       icon: <Play className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Deploying ${app.name}...`),
+      onClick: async () => {
+        toast.info(`Deploying ${app.name}...`);
+        await backendApi.composeAction(app.id, 'redeploy');
+        toast.success(`Deploy initiated for ${app.name}`);
+      },
     },
     {
       label: 'Copy App ID',
@@ -70,7 +75,11 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Restart Containers',
       icon: <RotateCw className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Restarted ${app.name}`),
+      onClick: async () => {
+        toast.info(`Restarting ${app.name}...`);
+        await backendApi.composeAction(app.id, 'restart');
+        toast.success(`Restarted ${app.name}`);
+      },
     },
     {
       label: app.status === 'stopped' ? 'Start Stack' : 'Stop Stack',
@@ -80,8 +89,9 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
         ) : (
           <Square className="h-3.5 w-3.5" />
         ),
-      onClick: () => {
+      onClick: async () => {
         const nextStatus = app.status === 'stopped' ? ('running' as const) : ('stopped' as const);
+        await backendApi.composeAction(app.id, nextStatus === 'running' ? 'up' : 'down');
         onUpdateApps((prev) =>
           prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a))
         );
@@ -92,7 +102,9 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
       label: 'Delete Project',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: () => {
+      onClick: async () => {
+        if (!window.confirm(`Permanently delete project "${app.name}" and remove all related containers?`)) return;
+        await backendApi.deleteApp(app.id, app.name);
         onUpdateApps((prev) => prev.filter((a) => a.id !== app.id));
         toast.success(`Deleted ${app.name}`);
       },

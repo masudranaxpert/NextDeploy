@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"panel/internal/db"
 	"panel/internal/handlers"

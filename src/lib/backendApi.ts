@@ -24,6 +24,9 @@ async function requestJson<T = Record<string, unknown>>(
       ...DEFAULT_HEADERS,
       ...(options.headers as Record<string, string> | undefined),
     };
+    if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+      delete headers['Content-Type'];
+    }
     const res = await fetch(path, {
       credentials: 'same-origin',
       ...options,
@@ -90,25 +93,172 @@ export interface DomainFormPayload {
   media_url_prefix?: string;
 }
 
+export interface BootstrapData {
+  ok?: boolean;
+  user?: {
+    id: number;
+    username: string;
+    role: string;
+    status: string;
+    max_apps: number;
+    max_memory_mb: number;
+    max_cpus: number;
+    max_storage_mb: number;
+    allow_domain_file_server: boolean;
+    storage_used_bytes?: number;
+    storage_used_human?: string;
+  };
+  sys?: {
+    os?: string;
+    arch?: string;
+    hostname?: string;
+    docker_version?: string;
+    cpus?: number;
+    memory_total_bytes?: number;
+    memory_used_bytes?: number;
+    disk_total_bytes?: number;
+    disk_used_bytes?: number;
+    load_1?: number;
+    uptime_seconds?: number;
+  };
+  apps?: Array<{
+    id: string;
+    name: string;
+    source_type?: string;
+    git_repo?: string;
+    git_branch?: string;
+    status?: string;
+    created_at?: string;
+    updated_at?: string;
+    domains?: Array<{
+      id: number;
+      domain: string;
+      service: string;
+      port: number;
+      enable_https: boolean;
+      enable_www: boolean;
+    }>;
+    services?: string[];
+    git_config?: {
+      repo_url?: string;
+      branch?: string;
+      auth_mode?: string;
+      auto_deploy?: boolean;
+      git_sync?: boolean;
+      last_commit_sha?: string;
+      last_commit_msg?: string;
+    };
+    deploy_logs?: Array<{
+      id: number;
+      action: string;
+      ok: boolean;
+      output: string;
+      created_at: string;
+    }>;
+    collaborators?: Array<{
+      app_id: string;
+      user_id: number;
+      role: string;
+      created_at: string;
+    }>;
+    volumes?: string[];
+    backup_history?: Array<{
+      id: number;
+      archive_name: string;
+      backup_type: string;
+      size_bytes: number;
+      status: string;
+      created_at: string;
+    }>;
+    backup_schedules?: Array<{
+      id: number;
+      destination_id: number;
+      cron_expression: string;
+      retention_count: number;
+      backup_type: string;
+      enabled: boolean;
+    }>;
+    env_content?: string;
+  }>;
+  containers?: Array<{
+    id: string;
+    names: string[];
+    image: string;
+    state: string;
+    status: string;
+    ports: Array<{ ip?: string; private_port: number; public_port?: number; type?: string }>;
+    created: number;
+  }>;
+  images?: Array<{
+    id: string;
+    repo_tags: string[];
+    size: number;
+    created: number;
+  }>;
+  volumes?: string[];
+  git_providers?: Array<{
+    id: number;
+    name: string;
+    provider: string;
+    token: string;
+    notes?: string;
+  }>;
+  registries?: Array<{
+    id: number;
+    name: string;
+    url: string;
+    username: string;
+  }>;
+  backup_destinations?: Array<{
+    id: number;
+    name: string;
+    provider: string;
+    bucket?: string;
+  }>;
+  cli_sessions?: Array<{
+    id: string;
+    name?: string;
+    token_prefix?: string;
+    hostname?: string;
+    os?: string;
+    arch?: string;
+    last_used_at?: string;
+    created_at?: string;
+    ip?: string;
+  }>;
+  users?: Array<{
+    id: number;
+    username: string;
+    role: string;
+    status: string;
+    max_apps: number;
+    max_memory_mb: number;
+    max_cpus: number;
+    max_storage_mb: number;
+    allow_domain_file_server: boolean;
+    created_at: string;
+  }>;
+  settings?: Record<string, string>;
+  caddy?: {
+    up: boolean;
+    status: string;
+    config?: Record<string, string>;
+  };
+  mcp_enabled?: boolean;
+  server_time?: string;
+}
+
 export const backendApi = {
   // Bootstrap & Auth
-  bootstrap: () =>
-    requestJson<{
-      ok?: boolean;
-      cli_sessions?: Array<{
-        id: string;
-        name?: string;
-        token_prefix?: string;
-        hostname?: string;
-        os?: string;
-        arch?: string;
-        last_used_at?: string;
-        created_at?: string;
-        ip?: string;
-      }>;
-    }>('/api/panel/bootstrap'),
+  bootstrap: () => requestJson<BootstrapData>('/api/panel/bootstrap'),
+  setup: (username: string, password: string, confirm: string) =>
+    requestJson<{ ok: boolean; error?: string }>('/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, confirm }),
+    }),
   login: (username: string, password: string, next = '/overview') =>
-    requestJson('/login', {
+    requestJson<{ ok: boolean; error?: string }>('/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, next }),
@@ -161,6 +311,18 @@ export const backendApi = {
   },
   clearDeployLogs: (appId: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/deploy-logs/clear`, { method: 'POST' }),
+  deployLogGet: (appId: string, logId: string | number) =>
+    requestJson<{
+      action: string;
+      ok: boolean;
+      output: string;
+      created_label: string;
+    }>(`/apps/${encodeURIComponent(appId)}/deploy-logs/${encodeURIComponent(String(logId))}`),
+  deployLogDelete: (appId: string, logId: string | number) =>
+    requestJson(
+      `/apps/${encodeURIComponent(appId)}/deploy-logs/${encodeURIComponent(String(logId))}/delete`,
+      { method: 'POST' }
+    ),
   saveAppEnv: (appId: string, envContent: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/env`, {
       method: 'POST',
@@ -185,12 +347,18 @@ export const backendApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path }),
     }),
-  fileDelete: (appId: string, path: string) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/files/delete?format=json`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ paths: path }),
-    }),
+  fileDelete: (appId: string, path: string | string[]) => {
+    const fd = new FormData();
+    const arr = Array.isArray(path) ? path : [path];
+    arr.forEach((p) => fd.append('paths', p));
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/delete?format=json`,
+      {
+        method: 'POST',
+        body: fd,
+      }
+    );
+  },
   fileRename: (appId: string, oldPath: string, newPath: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/rename`, {
       method: 'POST',
@@ -236,6 +404,103 @@ export const backendApi = {
     );
     return { ...res, file: res.data?.file, bytes: res.data?.bytes };
   },
+  fileUpload: (appId: string, file: File, destDir = '') => {
+    const fd = new FormData();
+    fd.append('path', destDir);
+    fd.append('file', file);
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/upload`,
+      { method: 'POST', body: fd }
+    );
+  },
+  uploadZip: (appId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('archive', file);
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/upload-zip`,
+      { method: 'POST', body: fd }
+    );
+  },
+  fileDownloadZipUrl: (appId: string, paths?: string[]) => {
+    const q = paths && paths.length ? `?paths=${encodeURIComponent(paths.join(','))}` : '';
+    return `/apps/${encodeURIComponent(appId)}/files/download-zip${q}`;
+  },
+  fileMkdir: (appId: string, path: string) => {
+    return requestJson<{ ok: boolean; message?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/mkdir`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      }
+    );
+  },
+
+  // Container & Image Lifecycle (App & Global)
+  appContainerAction: (
+    appId: string,
+    containerName: string,
+    action: 'start' | 'stop' | 'restart' | 'remove'
+  ) =>
+    requestJson(`/apps/${encodeURIComponent(appId)}/containers/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: containerName, container: containerName }),
+    }),
+  appExec: (appId: string, container: string, command: string) => {
+    const fd = new FormData();
+    fd.append('container', container);
+    fd.append('command', command);
+    return requestJson<{ ok: boolean; output: string }>(
+      `/apps/${encodeURIComponent(appId)}/exec`,
+      { method: 'POST', body: fd }
+    );
+  },
+  appContainersRemoveSelected: (appId: string, containerNames: string[]) => {
+    const body = new URLSearchParams();
+    for (const name of containerNames) {
+      body.append('name', name);
+      body.append('containers', name);
+    }
+    return requestJson(`/apps/${encodeURIComponent(appId)}/containers/remove-selected`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  },
+  globalContainerAction: (containerName: string, action: 'restart' | 'remove') =>
+    requestJson(`/containers/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: containerName }),
+    }),
+  globalContainersRemoveSelected: (containerNames: string[]) => {
+    const body = new URLSearchParams();
+    for (const name of containerNames) {
+      body.append('name', name);
+    }
+    return requestJson('/containers/remove-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  },
+  globalContainersPrune: () =>
+    requestJson<{ ok: boolean; message?: string }>('/containers/prune', { method: 'POST' }),
+  globalImageRemove: (idOrTag: string) =>
+    requestJson(`/images/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ id: idOrTag }),
+    }),
+  globalImagesPrune: () =>
+    requestJson<{ ok: boolean; message?: string }>('/images/prune', { method: 'POST' }),
+  globalVolumeRemove: (volumeName: string) =>
+    requestJson('/volumes/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: volumeName }),
+    }),
 
   // Domains & DNS Check
   domainCreate: (appId: string, payload: DomainFormPayload) =>

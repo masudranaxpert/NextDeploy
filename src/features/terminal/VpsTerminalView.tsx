@@ -24,6 +24,7 @@ export const VpsTerminalView: React.FC = () => {
       <XTermConsole
         hostLabel="root@nextdeploy"
         promptPrefix="root@nextdeploy:~# "
+        wsPath="/terminal/ws"
         height={420}
       />
     </div>
