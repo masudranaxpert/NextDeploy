@@ -64,12 +64,14 @@ import { BackupsView } from './features/backups/BackupsView';
 import { MigrationView } from './features/migration/MigrationView';
 import { McpAndCliView } from './features/automation/McpAndCliView';
 import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
+import { AuthView } from './features/auth/AuthView';
 import { backendApi } from './lib/backendApi';
 
 export default function App() {
   const [activeNav, setActiveNav] = useState<NavigationSection>('overview');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'setup' | 'login' | null>(null);
 
   // Core State
   const [apps, setApps] = useState<AppStack[]>(INITIAL_APPS);
@@ -100,6 +102,15 @@ export default function App() {
   // Hydrate live Go Fiber backend state when running inside the embedded NextDeploy binary
   React.useEffect(() => {
     void backendApi.bootstrap().then((res) => {
+      if (res.status === 401 || !res.ok) {
+        if (res.data?.needs_setup || window.location.pathname === '/setup') {
+          setAuthMode('setup');
+        } else {
+          setAuthMode('login');
+        }
+        return;
+      }
+      setAuthMode(null);
       const data = res.data;
       if (!data) return;
       if (Array.isArray(data.cli_sessions) && data.cli_sessions.length > 0) {
@@ -331,6 +342,18 @@ export default function App() {
 
   const currentNavLabel =
     navGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
+
+  if (authMode) {
+    return (
+      <AuthView
+        mode={authMode}
+        onSuccess={() => {
+          setAuthMode(null);
+          window.location.href = '/overview';
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">

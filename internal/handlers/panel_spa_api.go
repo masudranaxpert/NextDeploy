@@ -56,7 +56,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		Services      []string            `json:"services"`
 		GitConfig     *db.AppGitConfig    `json:"git_config,omitempty"`
 		DeployLogs    []db.DeployLog      `json:"deploy_logs"`
-		Collaborators []db.Collaborator   `json:"collaborators"`
+		Collaborators []db.AppCollaborator `json:"collaborators"`
 		Volumes       []string            `json:"volumes"`
 		BackupHistory []db.BackupHistory  `json:"backup_history"`
 		Schedules     []db.BackupSchedule `json:"backup_schedules"`
@@ -80,7 +80,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		projCands := append([]string{a.ID, strings.ReplaceAll(a.ID, "-", "_"), a.Name}, p.ComposeProjectCandidates(ctx, a, a.ID)...)
 		q := p.AppVolumeQuery(ctx, a, allProjects, projCands...)
 		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
-		bHist, _ := p.DB.ListBackupHistory(ctx, a.ID)
+		bHist, _ := p.DB.ListBackupHistory(ctx, a.ID, 25)
 		bSched, _ := p.DB.ListBackupSchedules(ctx, a.ID)
 		envStr, _ := p.DB.GetPanelEnv(ctx, a.ID)
 
@@ -100,11 +100,11 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 
 	containers, dockerErr := dockerapi.ListContainers(ctx)
 	images, _ := dockerapi.ListImages(ctx)
-	gitProviders, _ := p.DB.ListGitProvidersForUser(ctx, u.ID, isAdmin)
 	var ownerPtr *int64
 	if !isAdmin {
 		ownerPtr = &u.ID
 	}
+	gitProviders, _ := p.DB.ListGitProviders(ctx, ownerPtr)
 	registries, _ := p.DB.ListPrivateRegistries(ctx, ownerPtr)
 	backupDests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
 	apiTokens, _ := p.DB.ListAPITokensForUser(ctx, u.ID)
