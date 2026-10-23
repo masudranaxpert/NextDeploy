@@ -158,6 +158,7 @@ export default function App() {
   const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
   const [cgroupInfo, setCgroupInfo] = useState<{ mode?: string; supported?: boolean }>({ mode: 'systemd', supported: true });
+  const [caddyInfo, setCaddyInfo] = useState<{ up: boolean; status: string; config?: Record<string, string> } | null>(null);
 
   const handleLogout = async () => {
     try {
@@ -645,6 +646,9 @@ export default function App() {
             progressLog: me.log ? me.log.split('\n') : [],
           }))
         );
+      }
+      if (data.caddy) {
+        setCaddyInfo(data.caddy);
       }
     });
   }, []);
@@ -1136,7 +1140,16 @@ export default function App() {
                 }
               />
             ) : activeNav === 'proxy' ? (
-              <CaddyProxyView apps={apps} />
+              <CaddyProxyView
+                apps={apps}
+                caddyInfo={caddyInfo}
+                onRefreshCaddy={async () => {
+                  const res = await backendApi.bootstrap();
+                  if (res.ok && res.data?.caddy) {
+                    setCaddyInfo(res.data.caddy);
+                  }
+                }}
+              />
             ) : activeNav === 'backup' ? (
               <BackupsView
                 apps={apps}

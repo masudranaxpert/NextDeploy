@@ -29,7 +29,7 @@ export const systemAndTokensApi = {
       body: toFormBody(payload),
     });
   },
-  caddyContainerAction: (action: 'start' | 'force_start' | 'restart' | 'stop') =>
+  caddyContainerAction: (action: 'start' | 'force_start' | 'restart' | 'stop' | 'reconcile_network') =>
     requestJson('/caddy/container', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

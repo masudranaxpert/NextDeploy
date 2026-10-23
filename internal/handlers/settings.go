@@ -986,8 +986,24 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.orphanStagingSweepLoop()
 	go p.migrateSweepLoop()
 	go p.auditLogPruneLoop()
+	go p.caddyNetworkReconcileLoop()
 	go p.StartMonitorCollector()
 	migrate.StartupSweep(p.DB)
+}
+
+func (p *Panel) caddyNetworkReconcileLoop() {
+	// Reconcile network immediately on start
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+	cancel()
+
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		loopCtx, loopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = dockerapi.EnsureCaddySharedNetwork(loopCtx)
+		loopCancel()
+	}
 }
 
 func (p *Panel) auditLogPruneLoop() {

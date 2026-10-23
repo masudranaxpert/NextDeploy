@@ -800,6 +800,64 @@ func RestartContainerByName(ctx context.Context, name string) error {
 	return cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
 }
 
+// EnsureContainerNetwork verifies if containerName is attached to networkName.
+// If not attached, it connects the container dynamically.
+func EnsureContainerNetwork(ctx context.Context, containerName, networkName string) error {
+	containerName = strings.TrimSpace(containerName)
+	networkName = strings.TrimSpace(networkName)
+	if containerName == "" || networkName == "" {
+		return nil
+	}
+	cli, err := apiClient()
+	if err != nil {
+		return err
+	}
+	insp, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return err
+	}
+	if insp.NetworkSettings != nil && insp.NetworkSettings.Networks != nil {
+		if _, ok := insp.NetworkSettings.Networks[networkName]; ok {
+			return nil // already connected
+		}
+	}
+	if err := cli.NetworkConnect(ctx, networkName, containerName, nil); err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "already exists") || strings.Contains(lower, "already connected") {
+			return nil
+		}
+		out, cliErr := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerName).CombinedOutput()
+		if cliErr != nil && !strings.Contains(strings.ToLower(string(out)), "already exists") {
+			return fmt.Errorf("connect %s to %s: %s (%w)", containerName, networkName, strings.TrimSpace(string(out)), cliErr)
+		}
+	}
+	return nil
+}
+
+// EnsureCaddySharedNetwork ensures that the Caddy container shares the same Docker network
+// as the NextDeploy panel container (default "NextDeploy").
+func EnsureCaddySharedNetwork(ctx context.Context) error {
+	panelNet := "NextDeploy"
+	if cli, err := apiClient(); err == nil {
+		candNames := []string{"panel", os.Getenv("HOSTNAME")}
+		for _, name := range candNames {
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+			if insp, err := cli.ContainerInspect(ctx, name); err == nil && insp.NetworkSettings != nil {
+				for netName := range insp.NetworkSettings.Networks {
+					if netName != "bridge" && netName != "host" && netName != "none" {
+						panelNet = netName
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+	return EnsureContainerNetwork(ctx, "caddy", panelNet)
+}
+
 func RemoveContainerByName(ctx context.Context, name string) error {
 	id, err := containerIDByName(ctx, name)
 	if err != nil {

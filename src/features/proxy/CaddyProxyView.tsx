@@ -15,6 +15,7 @@ import {
   Zap,
   Server,
   Search,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
@@ -81,7 +82,15 @@ function parseCaddyLogLine(line: string): CaddyLogLine {
   return { raw, ts: '', msg: raw, level };
 }
 
-export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
+export const CaddyProxyView: React.FC<{
+  apps: AppStack[];
+  caddyInfo?: {
+    up: boolean;
+    status: string;
+    config?: Record<string, string>;
+  } | null;
+  onRefreshCaddy?: () => Promise<void>;
+}> = ({ apps, caddyInfo, onRefreshCaddy }) => {
   // 1. Panel Domain card (POST /nextdeploy/panel + GET /nextdeploy/apply-status)
   const [panelDomain, setPanelDomain] = useState('panel.nextdeploy.sh');
   const [panelEnableHttps, setPanelEnableHttps] = useState(true);
@@ -113,10 +122,27 @@ export const CaddyProxyView: React.FC<{ apps: AppStack[] }> = ({ apps }) => {
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)
-  const [caddyAdminApi, setCaddyAdminApi] = useState('http://caddy:2019');
-  const [acmeEmail, setAcmeEmail] = useState('masud132213@gmail.com');
-  const [caddyImage, setCaddyImage] = useState('lucaslorentz/caddy-docker-proxy:ci-alpine');
-  const [caddyContainerRunning, setCaddyContainerRunning] = useState(true);
+  const [caddyAdminApi, setCaddyAdminApi] = useState(
+    caddyInfo?.config?.admin_api || 'http://caddy:2019'
+  );
+  const [acmeEmail, setAcmeEmail] = useState(
+    caddyInfo?.config?.email || ''
+  );
+  const [caddyImage, setCaddyImage] = useState(
+    caddyInfo?.config?.caddy_image || 'lucaslorentz/caddy-docker-proxy:ci-alpine'
+  );
+  const [caddyContainerRunning, setCaddyContainerRunning] = useState(
+    caddyInfo?.up !== false
+  );
+
+  useEffect(() => {
+    if (caddyInfo) {
+      if (caddyInfo.config?.admin_api) setCaddyAdminApi(caddyInfo.config.admin_api);
+      if (caddyInfo.config?.email) setAcmeEmail(caddyInfo.config.email);
+      if (caddyInfo.config?.caddy_image) setCaddyImage(caddyInfo.config.caddy_image);
+      setCaddyContainerRunning(caddyInfo.up !== false);
+    }
+  }, [caddyInfo]);
 
   // 4. Root Stack Compose & Live Config Tab
   const [codeTab, setCodeTab] = useState<'root_compose' | 'live_config'>('root_compose');
@@ -443,6 +469,51 @@ ${externalVolDefs}`;
               Dismiss
             </button>
           )}
+        </div>
+      )}
+
+      {/* Admin API Unreachable & Network Diagnostic Banner */}
+      {caddyInfo && !caddyInfo.up && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-rose-100">
+                Caddy Admin API Unreachable ({caddyAdminApi})
+              </div>
+              <div className="mt-1 font-mono text-[11px] text-rose-300/80">{caddyInfo.status}</div>
+              <div className="mt-1.5 text-zinc-400">
+                This occurs when the Caddy container is running but disconnected from the NextDeploy network. Automatic network healing runs in the background.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                toast.loading('Reconnecting Caddy to NextDeploy network...');
+                await backendApi.caddyContainerAction('reconcile_network');
+                toast.dismiss();
+                toast.success('Network reconnected. Refreshing status...');
+                if (onRefreshCaddy) await onRefreshCaddy();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Auto-Connect Network
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await handleContainerLifecycle('start');
+                if (onRefreshCaddy) await onRefreshCaddy();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.1] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              Restart Proxy
+            </button>
+          </div>
         </div>
       )}
 

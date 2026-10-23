@@ -138,6 +138,11 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			adminAPI = "http://caddy:2019"
 		}
 		caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
+		if !caddyUp && (strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {
+			if err := dockerapi.EnsureCaddySharedNetwork(ctx); err == nil {
+				caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
+			}
+		}
 		migrateExports, _ = p.DB.ListRecentMigrateExports(ctx, 8)
 	}
 

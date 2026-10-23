@@ -303,16 +303,33 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 	var err error
 	switch action {
+	case "reconcile_network":
+		err = dockerapi.EnsureCaddySharedNetwork(ctx)
 	case "start":
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+		if err != nil && p.nextDeployComposePath() != "" {
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+			err = nil
+		} else if err == nil {
+			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+		}
 	case "force_start":
 		killCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		killScript := "systemctl stop apache2 2>/dev/null || true; systemctl stop nginx 2>/dev/null || true; fuser -k 80/tcp 2>/dev/null || true; fuser -k 443/tcp 2>/dev/null || true"
 		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
 		cancel()
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+		if err != nil && p.nextDeployComposePath() != "" {
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+			err = nil
+		} else if err == nil {
+			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+		}
 	case "restart":
 		err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
+		if err == nil {
+			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+		}
 	case "stop":
 		err = dockerapi.StopContainerByName(ctx, caddy.CaddyContainerName)
 	default:
