@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS app_domains (
 			return err
 		}
 	}
+	if _, err := s.db.Exec(`ALTER TABLE app_domains ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
 
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -137,6 +142,20 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE
 );`); err != nil {
 		return err
+	}
+	for _, col := range []string{
+		"provider TEXT NOT NULL DEFAULT 'github'",
+		"repo TEXT NOT NULL DEFAULT ''",
+		"event TEXT NOT NULL DEFAULT 'push'",
+		"sha TEXT NOT NULL DEFAULT ''",
+		"status TEXT NOT NULL DEFAULT '200 OK'",
+		"latency TEXT NOT NULL DEFAULT ''",
+	} {
+		if _, err := s.db.Exec(`ALTER TABLE webhook_deliveries ADD COLUMN ` + col); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				// ignore duplicate column errors
+			}
+		}
 	}
 
 	if _, err := s.db.Exec(`
@@ -288,7 +307,7 @@ CREATE TABLE IF NOT EXISTS backup_history (
 	// Check if backup_history has old schema and migrate
 	var hasFileNameColumn int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'file_name'`).Scan(&hasFileNameColumn)
-	
+
 	if hasFileNameColumn > 0 {
 		// Old schema detected - drop and recreate (safe since backup feature is new)
 		_, _ = s.db.Exec(`DROP TABLE IF EXISTS backup_history`)
@@ -310,7 +329,7 @@ CREATE TABLE IF NOT EXISTS backup_history (
 		`)
 		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_backup_history_app ON backup_history(app_id, created_at)`)
 	}
-	
+
 	// Add log column if missing
 	var hasLogColumn int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('backup_history') WHERE name = 'log'`).Scan(&hasLogColumn)
@@ -452,6 +471,7 @@ CREATE TABLE IF NOT EXISTS app_collaborators (
   app_id TEXT NOT NULL,
   user_id INTEGER NOT NULL,
   role TEXT NOT NULL DEFAULT 'developer',
+  permissions TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   PRIMARY KEY (app_id, user_id),
   FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE,
@@ -459,6 +479,7 @@ CREATE TABLE IF NOT EXISTS app_collaborators (
 );`); err != nil {
 		return err
 	}
+	_, _ = s.db.Exec(`ALTER TABLE app_collaborators ADD COLUMN permissions TEXT NOT NULL DEFAULT '[]';`)
 
 	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS private_registries (
@@ -584,6 +605,64 @@ CREATE TABLE IF NOT EXISTS cli_sessions (
 		return err
 	}
 
+	// Blue/Green slotting & allocated host ports
+	var hasActiveSlot int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('apps') WHERE name = 'active_slot'`).Scan(&hasActiveSlot)
+	if hasActiveSlot == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE apps ADD COLUMN active_slot TEXT NOT NULL DEFAULT 'blue'`)
+	}
+
+	var hasStandbySlot int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('apps') WHERE name = 'standby_slot'`).Scan(&hasStandbySlot)
+	if hasStandbySlot == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE apps ADD COLUMN standby_slot TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasPinnedSlot int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('apps') WHERE name = 'pinned_slot'`).Scan(&hasPinnedSlot)
+	if hasPinnedSlot == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE apps ADD COLUMN pinned_slot TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasSlotCol int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('deploy_logs') WHERE name = 'slot'`).Scan(&hasSlotCol)
+	if hasSlotCol == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE deploy_logs ADD COLUMN slot TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasCommitSHACol int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('deploy_logs') WHERE name = 'commit_sha'`).Scan(&hasCommitSHACol)
+	if hasCommitSHACol == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE deploy_logs ADD COLUMN commit_sha TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasImageDigestCol int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('deploy_logs') WHERE name = 'image_digest'`).Scan(&hasImageDigestCol)
+	if hasImageDigestCol == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE deploy_logs ADD COLUMN image_digest TEXT NOT NULL DEFAULT ''`)
+	}
+
+	var hasEnvSnapshotCol int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('deploy_logs') WHERE name = 'env_snapshot'`).Scan(&hasEnvSnapshotCol)
+	if hasEnvSnapshotCol == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE deploy_logs ADD COLUMN env_snapshot TEXT NOT NULL DEFAULT ''`)
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS allocated_ports (
+  port INTEGER PRIMARY KEY,
+  bind_ip TEXT NOT NULL DEFAULT '0.0.0.0',
+  app_id TEXT NOT NULL,
+  service TEXT NOT NULL DEFAULT '',
+  protocol TEXT NOT NULL DEFAULT 'tcp',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_allocated_ports_app ON allocated_ports(app_id);`); err != nil {
+		return err
+	}
+
 	return nil
 }
-

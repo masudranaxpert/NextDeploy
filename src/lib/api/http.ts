@@ -1,12 +1,13 @@
 // Core HTTP helpers and shared payload types for NextDeploy Go Backend API Client
 
-export interface ApiResult<T = Record<string, unknown>> {
+export type ApiResult<T = Record<string, unknown>> = {
   ok: boolean;
   status?: number;
   data?: T;
   error?: string;
+  message?: string;
   offlineFallback?: boolean;
-}
+} & (T extends Record<string, unknown> ? Partial<T> : Record<string, unknown>);
 
 const DEFAULT_HEADERS: Record<string, string> = {
   Accept: 'application/json',
@@ -33,20 +34,38 @@ export async function requestJson<T = Record<string, unknown>>(
     });
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      return { ok: res.ok, status: res.status, offlineFallback: true };
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        return {
+          ok: false,
+          status: res.status,
+          error: errText.trim().slice(0, 300) || `HTTP ${res.status}`,
+        } as ApiResult<T>;
+      }
+      return { ok: true, status: res.status } as ApiResult<T>;
     }
     const json = (await res.json()) as T & { ok?: boolean; error?: string; message?: string };
+    const spread =
+      typeof json === 'object' && json !== null && !Array.isArray(json)
+        ? (json as Record<string, unknown>)
+        : {};
     if (!res.ok || json.ok === false) {
       return {
+        ...spread,
         ok: false,
         status: res.status,
         data: json,
         error: json.error || json.message || `HTTP ${res.status}`,
-      };
+      } as ApiResult<T>;
     }
-    return { ok: true, status: res.status, data: json };
+    return {
+      ...spread,
+      ok: true,
+      status: res.status,
+      data: json,
+    } as ApiResult<T>;
   } catch {
-    return { ok: false, offlineFallback: true };
+    return { ok: false, offlineFallback: true } as ApiResult<T>;
   }
 }
 
@@ -85,6 +104,7 @@ export interface DomainFormPayload {
   domain: string;
   service: string;
   port: number;
+  is_primary?: boolean;
   enable_https?: boolean;
   enable_www?: boolean;
   serve_static?: boolean;
@@ -131,6 +151,8 @@ export interface BootstrapData {
     git_repo?: string;
     git_branch?: string;
     status?: string;
+    active_slot?: string;
+    standby_slot?: string;
     created_at?: string;
     updated_at?: string;
     domains?: Array<{
@@ -158,6 +180,10 @@ export interface BootstrapData {
       action: string;
       ok: boolean;
       output: string;
+      slot?: string;
+      commit_sha?: string;
+      image_digest?: string;
+      env_snapshot?: string;
       created_at: string;
     }>;
     collaborators?: Array<{
@@ -251,5 +277,61 @@ export interface BootstrapData {
     config?: Record<string, string>;
   };
   mcp_enabled?: boolean;
+  public_ip?: string;
   server_time?: string;
+}
+
+let cachedServerPublicIp = '';
+
+export function setServerPublicIp(ip?: string): void {
+  if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip.trim())) {
+    cachedServerPublicIp = ip.trim();
+  }
+}
+
+export function getServerPublicIp(): string {
+  if (cachedServerPublicIp) {
+    return cachedServerPublicIp;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+      return host;
+    }
+  }
+  return '127.0.0.1';
+}
+
+export function formatWildcardDomain(
+  slug: string,
+  provider: 'sslip.io' | 'nip.io' = 'sslip.io',
+  ipOverride?: string
+): string {
+  let cleanSlug =
+    slug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-|-$/g, '') || 'app';
+  if (/[0-9]$/.test(cleanSlug)) {
+    cleanSlug = `${cleanSlug}-app`;
+  }
+  const dashedIp = (ipOverride || getServerPublicIp()).replace(/\./g, '-');
+  return `${cleanSlug}-${dashedIp}.${provider}`;
+}
+
+export function formatSlotPreviewDomain(
+  domain: string,
+  slot: string = 'green'
+): string {
+  const cleanDom = domain.trim().toLowerCase().replace(/^https?:\/\//, '');
+  const cleanSlot = slot.trim().toLowerCase() || 'green';
+  if (!cleanDom) return '';
+  if (cleanDom.startsWith(`${cleanSlot}-`) || cleanDom.startsWith(`${cleanSlot}.`)) {
+    return cleanDom;
+  }
+  if (cleanDom.endsWith('.sslip.io') || cleanDom.endsWith('.nip.io')) {
+    return `${cleanSlot}-${cleanDom}`;
+  }
+  return `${cleanSlot}.${cleanDom}`;
 }

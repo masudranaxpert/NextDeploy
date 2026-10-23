@@ -6,10 +6,15 @@ import (
 	"time"
 )
 
-func (s *Store) AddCollaborator(ctx context.Context, appID string, userID int64, role string) error {
+func (s *Store) AddCollaborator(ctx context.Context, appID string, userID int64, role string, permissions ...string) error {
+	perms := "[]"
+	if len(permissions) > 0 && permissions[0] != "" {
+		perms = permissions[0]
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO app_collaborators (app_id, user_id, role, created_at) VALUES (?, ?, ?, ?)`,
-		appID, userID, role, time.Now().UTC().Format(time.RFC3339))
+		`INSERT INTO app_collaborators (app_id, user_id, role, permissions, created_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(app_id, user_id) DO UPDATE SET role = excluded.role, permissions = excluded.permissions`,
+		appID, userID, role, perms, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -24,8 +29,8 @@ func (s *Store) GetCollaborator(ctx context.Context, appID string, userID int64)
 	var c AppCollaborator
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT app_id, user_id, role, created_at FROM app_collaborators WHERE app_id = ? AND user_id = ?`,
-		appID, userID).Scan(&c.AppID, &c.UserID, &c.Role, &created)
+		`SELECT app_id, user_id, role, COALESCE(permissions, '[]'), created_at FROM app_collaborators WHERE app_id = ? AND user_id = ?`,
+		appID, userID).Scan(&c.AppID, &c.UserID, &c.Role, &c.Permissions, &created)
 	if err != nil {
 		return AppCollaborator{}, err
 	}
@@ -34,15 +39,16 @@ func (s *Store) GetCollaborator(ctx context.Context, appID string, userID int64)
 }
 
 type CollaboratorDetail struct {
-	UserID    int64
-	Username  string
-	Role      string
-	CreatedAt time.Time
+	UserID      int64
+	Username    string
+	Role        string
+	Permissions string
+	CreatedAt   time.Time
 }
 
 func (s *Store) ListCollaboratorsWithUsers(ctx context.Context, appID string) ([]CollaboratorDetail, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT c.user_id, u.username, c.role, c.created_at
+		`SELECT c.user_id, u.username, c.role, COALESCE(c.permissions, '[]'), c.created_at
 		 FROM app_collaborators c
 		 JOIN users u ON u.id = c.user_id
 		 WHERE c.app_id = ?
@@ -56,7 +62,7 @@ func (s *Store) ListCollaboratorsWithUsers(ctx context.Context, appID string) ([
 	for rows.Next() {
 		var d CollaboratorDetail
 		var created string
-		if err := rows.Scan(&d.UserID, &d.Username, &d.Role, &created); err != nil {
+		if err := rows.Scan(&d.UserID, &d.Username, &d.Role, &d.Permissions, &created); err != nil {
 			return nil, err
 		}
 		d.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -67,7 +73,7 @@ func (s *Store) ListCollaboratorsWithUsers(ctx context.Context, appID string) ([
 
 func (s *Store) ListCollaborators(ctx context.Context, appID string) ([]AppCollaborator, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT app_id, user_id, role, created_at FROM app_collaborators WHERE app_id = ?`,
+		`SELECT app_id, user_id, role, COALESCE(permissions, '[]'), created_at FROM app_collaborators WHERE app_id = ?`,
 		appID)
 	if err != nil {
 		return nil, err
@@ -77,7 +83,7 @@ func (s *Store) ListCollaborators(ctx context.Context, appID string) ([]AppColla
 	for rows.Next() {
 		var c AppCollaborator
 		var created string
-		if err := rows.Scan(&c.AppID, &c.UserID, &c.Role, &created); err != nil {
+		if err := rows.Scan(&c.AppID, &c.UserID, &c.Role, &c.Permissions, &created); err != nil {
 			return nil, err
 		}
 		c.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -180,7 +186,7 @@ func (s *Store) CountAppsOwnedByUser(ctx context.Context, userID int64) (int, er
 }
 
 func (s *Store) GetGlobalAllocatedResources(ctx context.Context) (totalMemoryMB int64, totalCPUs float64, err error) {
-	err = s.db.QueryRowContext(ctx, 
+	err = s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(max_memory_mb), 0), COALESCE(SUM(max_cpus), 0) FROM users WHERE status = 'active'`).Scan(&totalMemoryMB, &totalCPUs)
 	return
 }

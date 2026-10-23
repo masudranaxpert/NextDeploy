@@ -29,15 +29,17 @@ func RunWithStdin(ctx context.Context, dir string, env []string, stdin io.Reader
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}
+	baseEnv := os.Environ()
+	if os.Getenv("DOCKER_API_VERSION") == "" {
+		baseEnv = append(baseEnv, "DOCKER_API_VERSION=1.44")
+	}
 	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+		baseEnv = append(baseEnv, env...)
 	}
 	if configDir, ok := ctx.Value("docker_config").(string); ok && configDir != "" {
-		if len(cmd.Env) == 0 {
-			cmd.Env = os.Environ()
-		}
-		cmd.Env = append(cmd.Env, "DOCKER_CONFIG="+configDir)
+		baseEnv = append(baseEnv, "DOCKER_CONFIG="+configDir)
 	}
+	cmd.Env = baseEnv
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

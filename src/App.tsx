@@ -21,6 +21,8 @@ import {
   Terminal,
   Users,
   X,
+  Loader2,
+  LogOut,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
@@ -34,19 +36,6 @@ import {
   TelemetryPoint,
 } from './types/nextdeploy';
 import {
-  INITIAL_APPS,
-  INITIAL_AUDIT_LOGS,
-  INITIAL_BACKUP_ARCHIVES,
-  INITIAL_BACKUP_DESTINATIONS,
-  INITIAL_CLI_SESSIONS,
-  INITIAL_GIT_PROVIDERS,
-  INITIAL_IMAGES,
-  INITIAL_MIGRATION_BUNDLES,
-  INITIAL_REGISTRIES,
-  INITIAL_SYNCED_REPOS,
-  INITIAL_TELEMETRY,
-  INITIAL_USERS,
-  INITIAL_VOLUMES,
   MCP_TOOLS_CATALOG,
 } from './data/initialData';
 import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
@@ -65,24 +54,142 @@ import { MigrationView } from './features/migration/MigrationView';
 import { McpAndCliView } from './features/automation/McpAndCliView';
 import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
 import { AuthView } from './features/auth/AuthView';
-import { backendApi } from './lib/backendApi';
+import { backendApi, formatWildcardDomain, setServerPublicIp } from './lib/backendApi';
+
 
 export default function App() {
-  const [activeNav, setActiveNav] = useState<NavigationSection>('overview');
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  // Parse route from window.location.pathname on load
+  const parseInitialRoute = (): { nav: NavigationSection; appId: string | null } => {
+    if (typeof window === 'undefined') return { nav: 'overview', appId: null };
+    const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    if (!path || path === 'overview') return { nav: 'overview', appId: null };
+
+    // Matches /apps/:id
+    const appMatch = path.match(/^apps\/([^/]+)$/);
+    if (appMatch) {
+      return { nav: 'apps', appId: appMatch[1] };
+    }
+
+    const validNavs: NavigationSection[] = [
+      'overview',
+      'monitor',
+      'apps',
+      'containers',
+      'images',
+      'volumes',
+      'terminal',
+      'git',
+      'registries',
+      'backup',
+      'mcp',
+      'cli-sessions',
+      'migrate',
+      'proxy',
+      'settings',
+      'audit-logs',
+      'users',
+    ];
+
+    if (path === 'caddy') return { nav: 'proxy', appId: null };
+    if (validNavs.includes(path as NavigationSection)) {
+      return { nav: path as NavigationSection, appId: null };
+    }
+    return { nav: 'overview', appId: null };
+  };
+
+  const initialRoute = parseInitialRoute();
+  const [activeNav, setActiveNav] = useState<NavigationSection>(initialRoute.nav);
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(initialRoute.appId);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'setup' | 'login' | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+
+  // Sync URL with state navigation
+  const navigateTo = (
+    nav: NavigationSection,
+    appId: string | null = null,
+    replace = false,
+    tab?: string
+  ) => {
+    setActiveNav(nav);
+    setSelectedAppId(appId);
+    let targetPath = `/${nav}`;
+    if (appId) {
+      targetPath = `/apps/${appId}${tab ? `?tab=${tab}` : ''}`;
+    } else if (nav === 'overview') {
+      targetPath = '/overview';
+    }
+    if (window.location.pathname + window.location.search !== targetPath) {
+      if (replace) {
+        window.history.replaceState({ nav, appId, tab }, '', targetPath);
+      } else {
+        window.history.pushState({ nav, appId, tab }, '', targetPath);
+      }
+    }
+  };
+
+  // Handle browser Back / Forward buttons
+  React.useEffect(() => {
+    const handlePopState = () => {
+      const route = parseInitialRoute();
+      setActiveNav(route.nav);
+      setSelectedAppId(route.appId);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Core State
-  const [apps, setApps] = useState<AppStack[]>(INITIAL_APPS);
-  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>(INITIAL_TELEMETRY);
-  const [images, setImages] = useState<DockerImageItem[]>(INITIAL_IMAGES);
-  const [registries, setRegistries] = useState<RegistryCredential[]>(INITIAL_REGISTRIES);
+  const [sys, setSys] = useState<any>(null);
+  const [apps, setApps] = useState<AppStack[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
+  const [images, setImages] = useState<DockerImageItem[]>([]);
+  const [registries, setRegistries] = useState<RegistryCredential[]>([]);
   const [backupArchives, setBackupArchives] =
-    useState<BackupArchiveRecord[]>(INITIAL_BACKUP_ARCHIVES);
+    useState<BackupArchiveRecord[]>([]);
   const [migrationBundles, setMigrationBundles] =
-    useState<MigrationExportBundle[]>(INITIAL_MIGRATION_BUNDLES);
-  const [cliSessions, setCliSessions] = useState<CliSessionItem[]>(INITIAL_CLI_SESSIONS);
+    useState<MigrationExportBundle[]>([]);
+  const [cliSessions, setCliSessions] = useState<CliSessionItem[]>([]);
+  const [volumes, setVolumes] = useState<DockerVolumeItem[]>([]);
+  const [users, setUsers] = useState<PanelUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [gitProviders, setGitProviders] = useState<GitProviderConnection[]>([]);
+  const [syncedRepos, setSyncedRepos] = useState<SyncedGitRepository[]>([]);
+  const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
+  const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
+  const [cgroupInfo, setCgroupInfo] = useState<{ mode?: string; supported?: boolean }>({ mode: 'systemd', supported: true });
+
+  const handleLogout = async () => {
+    try {
+      await backendApi.logout();
+    } catch {
+      // ignore
+    }
+    window.location.href = '/login';
+  };
+
+  const liveSyncedRepos: SyncedGitRepository[] = React.useMemo(() => {
+    return apps
+      .filter((a) => Boolean(a.gitRepo))
+      .map((a) => {
+        const rawRepo = (a.gitRepo || '')
+          .replace(/^https?:\/\//, '')
+          .replace(/^github\.com\//, '')
+          .replace(/^gitlab\.com\//, '');
+        const isGitLab = (a.gitRepo || '').includes('gitlab');
+        return {
+          id: `repo-${a.id}`,
+          provider: isGitLab ? 'GitLab' : 'GitHub',
+          fullName: rawRepo || a.name,
+          defaultBranch: a.gitBranch || 'main',
+          private: true,
+          linkedAppSlug: a.slug || a.name,
+          lastCommitSha: a.gitCommit ? a.gitCommit.slice(0, 7) : 'latest',
+          lastPushAt: 'Active',
+          autoDeploy: a.gitSync !== false,
+        };
+      });
+  }, [apps]);
 
   // Modals
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
@@ -99,9 +206,230 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const mapRawAppToStack = (a: any, liveContainers: any[] = [], liveImages: any[] = []): AppStack => {
+    const idNorm = (a.id || '').toLowerCase();
+    const idUnderscore = idNorm.replace(/-/g, '_');
+    const nameNorm = (a.name || '').toLowerCase();
+
+    const appContainers = liveContainers.filter((c: any) => {
+      const cp = (c.ComposeProject || '').toLowerCase();
+      return (
+        cp === idNorm ||
+        cp === idUnderscore ||
+        cp === nameNorm ||
+        cp.startsWith(`${idNorm}_`) ||
+        cp.startsWith(`${idUnderscore}_`) ||
+        cp.startsWith(`${nameNorm}_`) ||
+        cp.startsWith(`${idNorm}-`) ||
+        cp.startsWith(`${idUnderscore}-`) ||
+        cp.startsWith(`${nameNorm}-`)
+      );
+    });
+
+    const checkSlotAvailable = (slot: 'blue' | 'green'): boolean => {
+      const prefixes = [`${idNorm}-${slot}`, `${nameNorm}-${slot}`, `${idUnderscore}-${slot}`];
+      const hasContainer = appContainers.some((c: any) => {
+        const cp = (c.ComposeProject || '').toLowerCase();
+        const cname = (c.Name || '').toLowerCase();
+        return prefixes.some((p) => cp === p || cname.startsWith(`${p}-`));
+      });
+      if (hasContainer) return true;
+      return liveImages.some((img: any) => {
+        const tags: string[] = Array.isArray(img.RepoTags) ? img.RepoTags : img.Tags ? [img.Tags] : [];
+        return tags.some((t) => {
+          const tl = String(t || '').toLowerCase();
+          return prefixes.some((p) => tl.startsWith(`${p}-`) || tl.startsWith(`${p}:`) || tl.startsWith(`${p}/`));
+        });
+      });
+    };
+
+    const slotImages = {
+      blue: checkSlotAvailable('blue'),
+      green: checkSlotAvailable('green'),
+    };
+
+    const hasRunningContainer = appContainers.some(
+      (c: any) => (c.State || '').toLowerCase() === 'running'
+    );
+    const latestDeploy = Array.isArray(a.deploy_logs) ? a.deploy_logs[0] : null;
+    const computedStatus: AppStack['status'] = hasRunningContainer
+      ? 'running'
+      : latestDeploy && latestDeploy.ok === false
+      ? 'failed'
+      : 'stopped';
+
+    return {
+      id: a.id,
+      name: a.name,
+      slug: a.name,
+      description: a.description || '',
+      sourceType: (a.source_type || 'compose') as any,
+      gitRepo: a.git_config?.repo_url || a.git_repo || '',
+      gitBranch: a.git_config?.branch || a.git_branch || 'main',
+      gitCommitSha: a.git_config?.last_commit_sha || a.active_slot || 'main',
+      gitCommitMessage: a.git_config?.last_commit_msg || 'Production build',
+      webhookAutoDeploy: a.git_config?.auto_deploy ?? false,
+      webhookSecret: a.git_config?.webhook_secret,
+      status: computedStatus,
+      activeSlot: a.active_slot,
+      standbySlot: a.standby_slot,
+      pinnedSlot: a.pinned_slot || '',
+      slotImages,
+      primaryDomain: (() => {
+        const doms = Array.isArray(a.domains) ? a.domains : [];
+        const pinned = doms.find((d: any) => d.is_primary);
+        if (pinned?.domain) return pinned.domain;
+        const custom = doms.find(
+          (d: any) =>
+            d.domain &&
+            !String(d.domain).toLowerCase().endsWith('.sslip.io') &&
+            !String(d.domain).toLowerCase().endsWith('.nip.io')
+        );
+        if (custom?.domain) return custom.domain;
+        return doms[0]?.domain || '';
+      })(),
+      preview: a.preview,
+      previewHostBase: a.preview_host_base || '',
+      ports: Array.isArray(a.ports) ? a.ports : [],
+      composeFilePath: 'docker-compose.yml',
+      owner: 'admin',
+      updatedAt: a.updated_at || 'Recently',
+      cpuPct: 0,
+      memMB: 0,
+      diskMB: 0,
+      reqPerMin: 0,
+      services:
+        appContainers.length > 0
+          ? appContainers.map((c: any, sIdx: number) => ({
+              id: c.ID || `svc-${a.id}-${sIdx}`,
+              name: c.Name || `${a.name}_${sIdx}`,
+              service: c.ComposeService || (Array.isArray(a.services) && a.services[sIdx]) || 'app',
+              image: c.Image || `${a.name}:latest`,
+              state: ((c.State || '').toLowerCase() === 'running'
+                ? 'running'
+                : 'exited') as any,
+              uptime: c.Status || 'Active',
+              cpuPct: 0,
+              memUsedMB: 0,
+              memLimitMB: 1024,
+              ports: c.Ports || '',
+            }))
+          : Array.isArray(a.services)
+          ? a.services.map((s: string, sIdx: number) => ({
+              id: `svc-${a.id}-${sIdx}`,
+              name: `${a.name}_${s}_1`,
+              service: s,
+              image: `${a.name}:latest`,
+              state: 'exited' as const,
+              uptime: 'Stopped',
+              cpuPct: 0,
+              memUsedMB: 0,
+              memLimitMB: 1024,
+              ports: '',
+            }))
+          : [],
+    domains: Array.isArray(a.domains)
+      ? a.domains.map((d: any) => ({
+          id: String(d.id),
+          domain: d.domain,
+          targetService: d.service,
+          targetPort: d.port,
+          isPrimary: Boolean(d.is_primary),
+          tlsProvider: 'LetsEncrypt' as const,
+          tlsStatus: 'active' as const,
+          forceHttps: d.enable_https ?? true,
+          enableWww: d.enable_www ?? false,
+          serveStatic: d.serve_static ?? false,
+          staticPath: d.static_path,
+          staticUrlPrefix: d.static_url_prefix,
+          serveMedia: d.serve_media ?? false,
+          mediaPath: d.media_path,
+          mediaUrlPrefix: d.media_url_prefix,
+          gzip: true,
+          createdAt: d.created_at || 'Active',
+        }))
+      : [],
+    files: [
+      {
+        path: 'docker-compose.yml',
+        name: 'docker-compose.yml',
+        type: 'file' as const,
+        sizeBytes: 100,
+        updatedAt: 'Recently',
+        language: 'yaml' as const,
+        content: 'services:\n  app:\n    build: .\n',
+      },
+    ],
+    envVars: (a.env_content || '')
+      .split('\n')
+      .filter((l: string) => l.includes('='))
+      .map((l: string, evIdx: number) => {
+        const parts = l.split('=');
+        return {
+          id: `ev-${evIdx}`,
+          key: parts[0].trim(),
+          value: parts.slice(1).join('=').trim(),
+          isSecret: /key|secret|pass|token/i.test(parts[0]),
+        };
+      }),
+    deployments: Array.isArray(a.deploy_logs)
+      ? a.deploy_logs.map((dl: any) => ({
+          id: `dep-${dl.id}`,
+          commitSha: dl.commit_sha || 'latest',
+          commitMessage: dl.action || 'Deploy',
+          branch: 'main',
+          trigger: 'manual-compose' as const,
+          author: 'admin',
+          status: dl.ok ? ('ready' as const) : ('failed' as const),
+          durationSec: 15,
+          startedAt: dl.created_at,
+          slot: dl.slot,
+          rawOutput: dl.output || "",
+          buildSteps: [],
+        }))
+      : [],
+    logs: [],
+    volumes: Array.isArray(a.volumes)
+      ? a.volumes.map((v: string) => ({
+          name: v,
+          mountPath: `/var/lib/${v}`,
+          driver: 'local',
+          sizeMB: 0,
+        }))
+      : [],
+      collaborators: Array.isArray(a.collaborators)
+        ? a.collaborators.map((c: any) => {
+            let perms: string[] = [];
+            try {
+              if (Array.isArray(c.permissions)) perms = c.permissions;
+              else if (typeof c.permissions === 'string' && c.permissions.startsWith('['))
+                perms = JSON.parse(c.permissions);
+              else if (typeof c.Permissions === 'string' && c.Permissions.startsWith('['))
+                perms = JSON.parse(c.Permissions);
+            } catch {
+              perms = [];
+            }
+            return {
+              userId: String(c.user_id || c.UserID || ''),
+              username: c.username || c.Username || `user_${c.user_id || c.UserID}`,
+              email: c.email || '',
+              role: c.role || c.Role || 'viewer',
+              permissions: perms,
+              addedAt: c.created_at || c.CreatedAt || 'Active',
+            };
+          })
+        : [],
+    };
+  };
+
+  const loadLiveApps = (rawApps: any[], liveContainers: any[] = [], liveImages: any[] = []) => {
+    setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages)));
+  };
+
   // Hydrate live Go Fiber backend state when running inside the embedded NextDeploy binary
   React.useEffect(() => {
     void backendApi.bootstrap().then((res) => {
+      setIsBootstrapping(false);
       if (res.status === 401 || !res.ok) {
         if (res.data?.needs_setup || window.location.pathname === '/setup') {
           setAuthMode('setup');
@@ -113,18 +441,208 @@ export default function App() {
       setAuthMode(null);
       const data = res.data;
       if (!data) return;
-      if (Array.isArray(data.cli_sessions) && data.cli_sessions.length > 0) {
-        setCliSessions(
-          data.cli_sessions.map((s) => ({
-            id: s.id,
-            tokenName: s.name || 'CLI Session',
-            prefix: s.token_prefix || 'nd_cli_...',
-            deviceHost: s.hostname || 'workstation',
-            osArch: `${s.os || 'linux'}/${s.arch || 'amd64'}`,
-            cliVersion: 'nd v2.0',
-            lastCommand: 'nd status',
-            lastActiveAt: s.last_used_at || s.created_at || 'Active',
-            ipAddress: s.ip || '127.0.0.1',
+      if (data.public_ip) {
+        setServerPublicIp(data.public_ip);
+      }
+      if (data.user) {
+        setCurrentUser({
+          id: data.user.id,
+          username: data.user.username || 'masud',
+          role: data.user.role || 'admin',
+        });
+      }
+
+      const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
+      const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
+
+      // 1. Live Apps
+      if (Array.isArray(data.apps)) {
+        loadLiveApps(data.apps, liveContainers, liveImages);
+      }
+
+      // 2. Live Docker Images with Live Container Usage
+      if (Array.isArray(data.images)) {
+        setImages(
+          data.images.map((img: any) => {
+            const tagStr =
+              Array.isArray(img.RepoTags) && img.RepoTags.length > 0
+                ? img.RepoTags[0]
+                : img.Tags || img.ID.slice(0, 12);
+            const parts = tagStr.split(':');
+            const repo = parts[0] || tagStr;
+            const tag = parts[1] || 'latest';
+            const shortId = img.ID.slice(0, 12);
+
+            // Match running containers referencing this image (by RepoTag, name, or ID)
+            const inUseBy = liveContainers
+              .filter((c: any) => {
+                const cImg = c.Image || '';
+                return (
+                  cImg === tagStr ||
+                  cImg === repo ||
+                  cImg.startsWith(repo + ':') ||
+                  cImg.includes(shortId)
+                );
+              })
+              .map((c: any) => c.Name || c.ID);
+
+            return {
+              id: shortId,
+              repository: repo,
+              tag: tag,
+              sizeMB: Math.round((img.Size || 0) / (1024 * 1024)),
+              created: img.Created ? new Date(img.Created).toLocaleDateString() : 'Recently',
+              inUseBy,
+            };
+          })
+        );
+      }
+
+      // 3. Live Host Telemetry & Historical Series
+      if (Array.isArray(data.telemetry_history) && data.telemetry_history.length > 0) {
+        setTelemetry(data.telemetry_history);
+      } else if (data.sys) {
+        const sys = data.sys;
+        const currentCpu = Math.round(sys.CPUPercent || 0);
+        const currentMem = Math.round(sys.MemUsedPct || 0);
+        const currentPoint: TelemetryPoint = {
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          cpu: currentCpu,
+          memory: currentMem,
+          diskIo: Math.round(sys.DiskUsedPct || 0),
+          netInMbps: 5,
+          netOutMbps: 5,
+          requests: 120,
+        };
+        setTelemetry((prev) => [...prev.slice(1), currentPoint]);
+      }
+      if (data.sys) {
+        setSys(data.sys);
+      }
+      if (data.cgroup) {
+        setCgroupInfo(data.cgroup);
+      }
+
+      // 5. Live Volumes
+      if (Array.isArray(data.volumes)) {
+        setVolumes(
+          data.volumes.map((v: string) => ({
+            name: v,
+            appSlug: v.split('_')[0] || 'system',
+            mountPoint: `/var/lib/docker/volumes/${v}/_data`,
+            driver: 'local',
+            sizeMB: 0,
+            createdAt: 'Active',
+            filesCount: 0,
+            sampleFiles: [],
+          }))
+        );
+      }
+
+      // 6. Live Users & Audit Logs
+      if (Array.isArray(data.users)) {
+        setUsers(
+          data.users.map((u: any) => ({
+            id: String(u.ID || u.id),
+            username: u.Username || u.username,
+            role: (u.Role || u.role || 'user') as any,
+            status: (u.Status || u.status || 'active') as any,
+            maxApps: u.MaxApps || u.max_apps || 5,
+            maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
+            maxCpuCores: u.MaxCPUs || u.max_cpus || 2,
+            maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
+            storageUsedMB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024)),
+            activeAppsCount: 0,
+            createdAt: u.CreatedAt || u.created_at || 'Recently',
+          }))
+        );
+      }
+      if (Array.isArray(data.audit_logs)) {
+        setAuditLogs(
+          data.audit_logs.map((al: any) => ({
+            id: String(al.id ?? al.ID),
+            actor: al.username || al.Username || 'system',
+            actorRole: al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'admin'),
+            action: al.action || al.Action || 'system.event',
+            target: (al.target_id || al.TargetID)
+              ? `${al.target_type || al.TargetType || 'resource'}: ${al.target_id || al.TargetID}`
+              : (al.target_type || al.TargetType || 'system'),
+            details: al.details || al.Details || '',
+            ip: al.ip_address || al.IPAddress || al.ip || '127.0.0.1',
+            timestamp: al.created_at || al.CreatedAt ? new Date(al.created_at || al.CreatedAt).toLocaleString() : 'Just now',
+            status: 'success' as const,
+          }))
+        );
+      }
+
+      // 7. Live Registries & Git Providers
+      if (Array.isArray(data.registries)) {
+        setRegistries(
+          data.registries.map((r: any) => ({
+            id: String(r.id),
+            name: r.name,
+            url: r.url,
+            username: r.username,
+            imageCount: 0,
+            status: 'connected' as const,
+            lastChecked: 'Recently',
+          }))
+        );
+      }
+      if (Array.isArray(data.git_providers)) {
+        setGitProviders(
+          data.git_providers.map((gp: any) => ({
+            id: String(gp.id),
+            provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
+            authMethod: 'Fine-Grained PAT' as const,
+            accountName: gp.name,
+            instanceUrl: 'https://github.com',
+            status: 'connected' as const,
+            reposAccessible: 0,
+            webhookDeliveryRate: '100%',
+            webhookUrl: '',
+            lastSynced: 'Recently',
+          }))
+        );
+      }
+
+      // 8. Live Backup Destinations & Migration Exports
+      if (Array.isArray(data.backup_destinations)) {
+        setBackupDestinations(
+          data.backup_destinations.map((bd: any) => ({
+            id: String(bd.id),
+            name: bd.name,
+            provider: bd.provider === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
+            providerCode: (bd.provider || 'r2') as 'r2' | 'gdrive',
+            bucket: bd.bucket || '',
+            endpoint: '',
+            region: 'auto',
+            status: 'connected' as const,
+            scheduleCron: '0 2 * * *',
+            retentionDays: 7,
+            usedGB: 0,
+            quotaGB: 100,
+            lastBackupAt: 'Never',
+          }))
+        );
+      }
+      if (Array.isArray(data.migrate_exports)) {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        setMigrationBundles(
+          data.migrate_exports.map((me: any) => ({
+            id: String(me.id),
+            createdAt: me.created_at || 'Recently',
+            selectedApps: me.apps ? me.apps.split(',') : [],
+            estimatedSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
+            actualSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
+            workspaceBytes: 0,
+            volumeBytes: me.size_bytes || 0,
+            status: me.consumed_at ? 'consumed' : (me.status || 'ready'),
+            token: me.token || '',
+            expiresIn: me.expires_at ? `${Math.max(0, Math.round((new Date(me.expires_at).getTime() - Date.now()) / (1000 * 60)))}m` : '3h',
+            downloadUrl: `${origin}/migrate/download/${me.token}`,
+            migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${origin}/migrate/download/${me.token}"`,
+            progressLog: me.log ? me.log.split('\n') : [],
           }))
         );
       }
@@ -136,14 +654,17 @@ export default function App() {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
       now.getMinutes()
     ).padStart(2, '0')}`;
+    const cpuVal = sys ? Math.round(sys.CPUPercent || 0) : 22;
+    const memVal = sys ? Math.round(sys.MemUsedPct || 0) : 48;
+    const diskVal = sys ? Math.round(sys.DiskUsedPct || 0) : 25;
     const nextPoint: TelemetryPoint = {
       time: timeStr,
-      cpu: Math.floor(19 + Math.random() * 22),
-      memory: Math.floor(46 + Math.random() * 6),
-      diskIo: Math.floor(12 + Math.random() * 25),
-      netInMbps: Math.floor(32 + Math.random() * 28),
-      netOutMbps: Math.floor(24 + Math.random() * 22),
-      requests: Math.floor(1650 + Math.random() * 750),
+      cpu: cpuVal,
+      memory: memVal,
+      diskIo: diskVal,
+      netInMbps: 5,
+      netOutMbps: 4,
+      requests: 120,
     };
     setTelemetry((prev) => [...prev.slice(1), nextPoint]);
   };
@@ -168,108 +689,26 @@ export default function App() {
       gitRepo: payload.gitRepo,
       gitBranch: payload.gitBranch,
       composeContent: payload.composeContent,
+    }).then(async (res) => {
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to create project');
+        return;
+      }
+      const createdId = (res.data as any)?.id || slug;
+      if (payload.composeContent) {
+        await backendApi.saveComposeFile(createdId, 'docker-compose.yml', payload.composeContent);
+      }
+      const bootRes = await backendApi.bootstrap();
+      if (bootRes.ok && bootRes.data?.apps) {
+        loadLiveApps(bootRes.data.apps);
+      }
+      setSelectedAppId(createdId);
+      navigateTo('apps', createdId);
+      toast.success(`Created ${slug}`);
     });
-    const created: AppStack = {
-      id: `app-${Math.random().toString(16).slice(2, 10)}`,
-      name: slug,
-      slug,
-      description: payload.description,
-      sourceType: payload.sourceType,
-      gitRepo: payload.gitRepo,
-      gitBranch: payload.gitBranch || 'main',
-      gitCommitSha: payload.sourceType === 'git' ? 'e91b40a' : 'compose',
-      gitCommitMessage: 'Initial deploy',
-      webhookAutoDeploy: payload.sourceType === 'git',
-      status: 'running',
-      primaryDomain: payload.primaryDomain,
-      composeFilePath: 'docker-compose.yml',
-      owner: 'masud',
-      updatedAt: 'Just now',
-      cpuPct: 4.1,
-      memMB: 256,
-      diskMB: 512,
-      reqPerMin: 180,
-      services: [
-        {
-          id: `c-${Math.random().toString(16).slice(2, 9)}`,
-          name: `${slug}-app-1`,
-          service: 'app',
-          image: `ghcr.io/masudranaxpert/${slug}:latest`,
-          state: 'running',
-          uptime: 'Just started',
-          cpuPct: 4.1,
-          memUsedMB: 256,
-          memLimitMB: 1024,
-          ports: '3000/tcp',
-        },
-      ],
-      domains: payload.primaryDomain
-        ? [
-            {
-              id: `dom-${Date.now()}`,
-              domain: payload.primaryDomain,
-              targetService: 'app',
-              targetPort: 3000,
-              tlsProvider: 'LetsEncrypt',
-              tlsStatus: 'active',
-              forceHttps: true,
-              gzip: true,
-              createdAt: 'Just now',
-            },
-          ]
-        : [],
-      files: [
-        {
-          path: 'docker-compose.yml',
-          name: 'docker-compose.yml',
-          type: 'file',
-          sizeBytes: payload.composeContent.length,
-          updatedAt: 'Just now',
-          language: 'yaml',
-          content: payload.composeContent,
-        },
-      ],
-      envVars: [{ id: `ev-${Date.now()}`, key: 'PORT', value: '3000', isSecret: false }],
-      deployments: [
-        {
-          id: `dep-${Math.floor(5000 + Math.random() * 900)}`,
-          commitSha: 'e91b40a',
-          commitMessage: 'Initial deploy',
-          branch: payload.gitBranch || 'main',
-          trigger: 'manual-compose',
-          author: 'masud',
-          status: 'ready',
-          durationSec: 14,
-          startedAt: 'Just now',
-          buildSteps: [],
-        },
-      ],
-      logs: [
-        {
-          id: `log-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          container: 'app',
-          level: 'info',
-          message: `Container ${slug}-app-1 started on :3000`,
-        },
-      ],
-      volumes: [],
-      collaborators: [
-        {
-          userId: 'u1',
-          username: 'masud',
-          email: 'masud132213@gmail.com',
-          role: 'owner',
-          addedAt: 'Just now',
-        },
-      ],
-    };
-
-    setApps((prev) => [created, ...prev]);
-    setSelectedAppId(created.id);
-    toast.success(`Created ${created.name}`);
   };
 
+  const containersCount = apps.reduce((acc, a) => acc + (a.services?.length || 0), 0);
   const selectedApp = apps.find((a) => a.id === selectedAppId) || null;
 
   const navGroups: {
@@ -368,16 +807,15 @@ export default function App() {
 
       {/* Dokploy / shadcn Inset Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-60 xl:w-64 2xl:w-68 shrink-0 flex-col bg-[#09090b] transition-transform lg:static lg:translate-x-0 ${
-          mobileMenuOpen ? 'translate-x-0 border-r border-white/[0.08]' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 xl:w-64 2xl:w-68 shrink-0 flex-col bg-[#09090b] border-r border-white/[0.06] transition-transform lg:sticky lg:top-0 lg:h-screen lg:self-start lg:translate-x-0 ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-14 items-center justify-between px-3.5 pt-2">
+        <div className="flex h-14 items-center justify-between px-3.5 pt-2 shrink-0">
           <button
             type="button"
             onClick={() => {
-              setSelectedAppId(null);
-              setActiveNav('overview');
+              navigateTo('overview');
             }}
             className="flex flex-1 items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-1.5 text-left hover:border-white/[0.14] transition-all cursor-pointer"
           >
@@ -405,7 +843,7 @@ export default function App() {
         </div>
 
         {/* Sidebar Search Trigger */}
-        <div className="px-3.5 pt-2.5 pb-1">
+        <div className="px-3.5 pt-2.5 pb-1 shrink-0">
           <button
             type="button"
             onClick={() => setCmdPaletteOpen(true)}
@@ -422,7 +860,7 @@ export default function App() {
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 overflow-y-auto no-scrollbar px-3 py-2 space-y-4">
+        <nav className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar px-3 py-2 space-y-4">
           {navGroups.map((grp) => (
             <div key={grp.group} className="space-y-0.5">
               <p className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -437,8 +875,7 @@ export default function App() {
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      setSelectedAppId(null);
-                      setActiveNav(item.id);
+                      navigateTo(item.id);
                       setMobileMenuOpen(false);
                     }}
                     className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 xl:py-2 text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
@@ -475,19 +912,27 @@ export default function App() {
         </nav>
 
         {/* User Footer */}
-        <div className="p-3">
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#111115] px-3 py-2">
+        <div className="p-3 shrink-0 border-t border-white/[0.05]">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/15 font-mono text-[10px] font-bold text-orange-400 uppercase ring-1 ring-orange-500/30">
-                MA
+                {(currentUser?.username || 'masud').slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <span className="block truncate text-xs font-medium text-zinc-200">masud</span>
+                <span className="block truncate text-xs font-medium text-zinc-200">
+                  {currentUser?.username || 'masud'}
+                </span>
               </div>
             </div>
-            <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-400">
-              root
-            </span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Sign out of NextDeploy"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 px-2.5 py-1 text-[11px] font-medium text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-all cursor-pointer shrink-0"
+            >
+              <LogOut className="h-3 w-3" />
+              <span>Logout</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -511,8 +956,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedAppId(null);
-                  setActiveNav('overview');
+                  navigateTo('overview');
                 }}
                 className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap"
               >
@@ -524,8 +968,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedAppId(null);
-                      setActiveNav('apps');
+                      navigateTo('apps');
                     }}
                     className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap"
                   >
@@ -563,30 +1006,61 @@ export default function App() {
 
           {/* Main Viewport */}
           <main className="relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7">
-            {selectedApp ? (
+            {isBootstrapping ? (
+              <div className="flex h-64 flex-col items-center justify-center gap-3">
+                <Loader2 className="h-6 w-6 animate-spin text-orange-400" />
+                <span className="font-mono text-xs text-zinc-400">Loading NextDeploy...</span>
+              </div>
+            ) : selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
-                onBack={() => setSelectedAppId(null)}
+                onBack={() => navigateTo('apps')}
                 onUpdateApp={(updated) =>
                   setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
                 }
-                onDeleteApp={(id) => {
-                  void backendApi.deleteApp(id);
+                onDeleteApp={async (id) => {
+                  const res = await backendApi.deleteApp(id);
+                  if (!res.ok) {
+                    toast.error(res.error || 'Failed to delete project');
+                    return;
+                  }
                   setApps((prev) => prev.filter((a) => a.id !== id));
-                  setSelectedAppId(null);
+                  navigateTo('apps');
                   toast.success('Deleted project');
                 }}
               />
+            ) : selectedAppId && !selectedApp ? (
+              <div className="rounded-xl border border-white/[0.08] bg-[#0e0e12] p-8 text-center max-w-lg mx-auto mt-12 space-y-3">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                  <Box className="h-5 w-5 text-zinc-400" />
+                </div>
+                <h3 className="font-semibold text-zinc-200">App not found</h3>
+                <p className="text-xs text-zinc-400">
+                  The application <code className="text-orange-400 bg-white/[0.05] px-1.5 py-0.5 rounded">{selectedAppId}</code> could not be found or you don&apos;t have permission to access it.
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('apps')}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] px-3.5 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
+                  >
+                    Back to Projects
+                  </button>
+                </div>
+              </div>
             ) : activeNav === 'overview' ? (
               <OverviewDashboard
                 telemetry={telemetry}
-                onSelectApp={(id) => setSelectedAppId(id)}
-                onSelectNav={(nav) => setActiveNav(nav)}
+                sys={sys}
+                apps={apps}
+                containersCount={containersCount}
+                onSelectApp={(id) => navigateTo('apps', id)}
+                onSelectNav={(nav) => navigateTo(nav)}
               />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
                 apps={apps}
-                onSelectApp={(id) => setSelectedAppId(id)}
+                onSelectApp={(id) => navigateTo('apps', id)}
                 onUpdateApps={setApps}
               />
             ) : activeNav === 'monitor' ? (
@@ -598,7 +1072,7 @@ export default function App() {
             ) : activeNav === 'containers' ? (
               <ContainersView
                 apps={apps}
-                onOpenAppTab={(id) => setSelectedAppId(id)}
+                onOpenAppTab={(id) => navigateTo('apps', id)}
                 onUpdateApp={(updated) =>
                   setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
                 }
@@ -606,32 +1080,55 @@ export default function App() {
             ) : activeNav === 'images' ? (
               <ImagesView
                 images={images}
-                onDeleteImage={(id) => {
-                  setImages((prev) => prev.filter((i) => i.id !== id));
-                  toast.success(`Removed ${id}`);
+                onDeleteImage={async (id) => {
+                  try {
+                    const res = await backendApi.globalImageRemove(id);
+                    if (res.ok) {
+                      setImages((prev) => prev.filter((i) => i.id !== id));
+                      toast.success(`Removed image ${id}`);
+                    } else {
+                      toast.error(res.error || `Failed to remove image ${id}`);
+                    }
+                  } catch (err: any) {
+                    toast.error(err?.message || `Failed to remove image`);
+                  }
                 }}
-                onPruneUnused={() => {
-                  setImages((prev) => prev.filter((i) => i.inUseBy.length > 0));
-                  toast.success('Deleted unused images');
+                onPruneUnused={async () => {
+                  try {
+                    const res = await backendApi.globalImagesPrune();
+                    if (res.ok) {
+                      setImages((prev) => prev.filter((i) => i.inUseBy.length > 0));
+                      toast.success('Successfully pruned all unused Docker images');
+                    } else {
+                      toast.error(res.error || 'Failed to prune images');
+                    }
+                  } catch (err: any) {
+                    toast.error(err?.message || 'Failed to prune images');
+                  }
                 }}
               />
             ) : activeNav === 'volumes' ? (
-              <VolumesView volumes={INITIAL_VOLUMES} />
+              <VolumesView
+                volumes={volumes}
+                onDeleteVolume={(name) =>
+                  setVolumes((prev) => prev.filter((v) => v.name !== name))
+                }
+              />
             ) : activeNav === 'terminal' ? (
               <VpsTerminalView />
             ) : activeNav === 'git' ? (
               <GitAndRegistriesView
                 mode="git"
-                gitProviders={INITIAL_GIT_PROVIDERS}
-                syncedRepos={INITIAL_SYNCED_REPOS}
+                gitProviders={gitProviders}
+                syncedRepos={syncedRepos.length > 0 ? syncedRepos : liveSyncedRepos}
                 registries={registries}
                 onAddRegistry={(r) => setRegistries((prev) => [...prev, r])}
               />
             ) : activeNav === 'registries' ? (
               <GitAndRegistriesView
                 mode="registries"
-                gitProviders={INITIAL_GIT_PROVIDERS}
-                syncedRepos={INITIAL_SYNCED_REPOS}
+                gitProviders={gitProviders}
+                syncedRepos={syncedRepos.length > 0 ? syncedRepos : liveSyncedRepos}
                 registries={registries}
                 onAddRegistry={(r) => setRegistries((prev) => [...prev, r])}
                 onDeleteRegistry={(id) =>
@@ -643,9 +1140,9 @@ export default function App() {
             ) : activeNav === 'backup' ? (
               <BackupsView
                 apps={apps}
-                destinations={INITIAL_BACKUP_DESTINATIONS}
+                destinations={backupDestinations}
                 archives={backupArchives}
-                onSelectApp={(id) => setSelectedAppId(id)}
+                onSelectApp={(id) => navigateTo('apps', id)}
                 onTriggerBackup={(created) => {
                   if (created) {
                     setBackupArchives((prev) => [created, ...prev]);
@@ -727,20 +1224,23 @@ export default function App() {
             ) : activeNav === 'users' ? (
               <UsersAndSettingsView
                 mode="users"
-                users={INITIAL_USERS}
-                auditLogs={INITIAL_AUDIT_LOGS}
+                users={users}
+                auditLogs={auditLogs}
+                cgroupInfo={cgroupInfo}
               />
             ) : activeNav === 'audit-logs' ? (
               <UsersAndSettingsView
                 mode="audit-logs"
-                users={INITIAL_USERS}
-                auditLogs={INITIAL_AUDIT_LOGS}
+                users={users}
+                auditLogs={auditLogs}
+                cgroupInfo={cgroupInfo}
               />
             ) : (
               <UsersAndSettingsView
                 mode="settings"
-                users={INITIAL_USERS}
-                auditLogs={INITIAL_AUDIT_LOGS}
+                users={users}
+                auditLogs={auditLogs}
+                cgroupInfo={cgroupInfo}
               />
             )}
           </main>
@@ -752,11 +1252,11 @@ export default function App() {
         open={cmdPaletteOpen}
         onClose={() => setCmdPaletteOpen(false)}
         apps={apps}
-        onSelectNav={(nav) => {
-          setSelectedAppId(null);
-          setActiveNav(nav);
-        }}
-        onSelectApp={(id) => setSelectedAppId(id)}
+        images={images}
+        volumes={volumes}
+        gitProviders={gitProviders}
+        onSelectNav={(nav) => navigateTo(nav)}
+        onSelectApp={(id, tab) => navigateTo('apps', id, false, tab)}
         onOpenNewApp={() => setNewAppModalOpen(true)}
       />
 

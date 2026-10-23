@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   Play,
   RotateCw,
@@ -36,17 +37,21 @@ import {
   ShieldCheck,
   Webhook,
   RefreshCw,
-  Sparkles,
   Filter,
   Pause,
   WrapText,
   Check,
   ChevronRight,
+  ChevronDown,
   Cloud,
   Calendar,
   KeyRound,
   Layers,
+  Pin,
+  PinOff,
+  Rocket,
   X,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -69,10 +74,15 @@ import {
   extractContainerPort,
   formatCompactImage,
   formatCompactPort,
+  formatCompactUptime,
 } from '../../lib/dockerFormatters';
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { CodeEditorBox, DevFileIcon, detectLanguageFromFilename } from '../../components/ui/CodeEditorBox';
-import { backendApi } from '../../lib/backendApi';
+import {
+  backendApi,
+  formatSlotPreviewDomain,
+  formatWildcardDomain,
+} from '../../lib/backendApi';
 import { ProjectDomainsTab } from './tabs/ProjectDomainsTab';
 import { ProjectGitTab } from './tabs/ProjectGitTab';
 import { ProjectVolumesTab } from './tabs/ProjectVolumesTab';
@@ -109,13 +119,69 @@ interface ProjectBackupItem {
   status: 'completed' | 'building';
 }
 
+/**
+ * Normalizes any file permission (symbolic, octal with/without leading 0, parenthesized)
+ * into a clean 3-digit octal string like "644" or "755".
+ */
+export function formatPermOctal(perm?: string | null, isDir = false): string {
+  if (!perm) return isDir ? '755' : '644';
+  const trimmed = perm.trim();
+  const parenMatch = trimmed.match(/\(0?([0-7]{3})\)/);
+  if (parenMatch) return parenMatch[1];
+  const octalMatch = trimmed.match(/^0?([0-7]{3})$/);
+  if (octalMatch) return octalMatch[1];
+  const sym = trimmed.replace(/^[d-]/, '');
+  if (sym.length >= 9) {
+    const parseTriplet = (s: string) =>
+      (s[0] === 'r' ? 4 : 0) + (s[1] === 'w' ? 2 : 0) + (s[2] === 'x' || s[2] === 's' ? 1 : 0);
+    const u = parseTriplet(sym.slice(0, 3));
+    const g = parseTriplet(sym.slice(3, 6));
+    const o = parseTriplet(sym.slice(6, 9));
+    return `${u}${g}${o}`;
+  }
+  return isDir ? '755' : '644';
+}
+
 export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   app,
   onBack,
   onUpdateApp,
   onDeleteApp,
 }) => {
-  const [activeTab, setActiveTab] = useState<AppWorkspaceTab>('overview');
+  const [activeTab, setActiveTab] = useState<AppWorkspaceTab>(() => {
+    if (typeof window !== 'undefined') {
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      const validTabs: AppWorkspaceTab[] = [
+        'overview',
+        'terminal',
+        'compose',
+        'deploy',
+        'logs',
+        'env',
+        'domains',
+        'files',
+        'backups',
+        'git',
+        'advanced',
+      ];
+      if (tabParam && validTabs.includes(tabParam as AppWorkspaceTab)) {
+        return tabParam as AppWorkspaceTab;
+      }
+    }
+    return 'overview';
+  });
+
+  useEffect(() => {
+    const handleUrlTab = () => {
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      if (tabParam && tabParam !== activeTab) {
+        setActiveTab(tabParam as AppWorkspaceTab);
+      }
+    };
+    handleUrlTab();
+    window.addEventListener('popstate', handleUrlTab);
+    return () => window.removeEventListener('popstate', handleUrlTab);
+  }, []);
 
   // =========================================================================
   // 1. Environment Variables State
@@ -129,86 +195,280 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [envSearch, setEnvSearch] = useState('');
 
   // =========================================================================
-  // 2. Deployments State (Production, Preview URLs, Rollback)
+  // 2. Deployments State (Production, Preview URLs, Rollback & Live Progress)
   // =========================================================================
   const [deployEnvFilter, setDeployEnvFilter] = useState<
     'all' | 'production' | 'preview' | 'rollback'
   >('all');
   const [buildLogsDeployment, setBuildLogsDeployment] = useState<DeploymentRecord | null>(null);
   const [previewDeploymentsEnabled, setPreviewDeploymentsEnabled] = useState(true);
+  const [liveDeployState, setLiveDeployState] = useState<{
+    running: boolean;
+    action: string;
+    output: string;
+  }>({ running: false, action: '', output: '' });
+  const [isBuildLogExpanded, setIsBuildLogExpanded] = useState<boolean | null>(null);
+  const liveDeployLogRef = useRef<HTMLDivElement | null>(null);
 
-  // Enhance deployments with Preview URLs & Environment metadata
+  // Refresh current app state from /api/panel/bootstrap after deploy/stop/restart/container ops
+  const refreshAppFromBackend = async () => {
+    try {
+      const bootRes = await backendApi.bootstrap();
+      if (!bootRes.ok || !bootRes.data?.apps) return;
+      const fresh = bootRes.data.apps.find((a: any) => a.id === app.id);
+      if (!fresh) return;
+      const liveContainers: any[] = Array.isArray(bootRes.data.containers)
+        ? bootRes.data.containers
+        : [];
+      const liveImages: any[] = Array.isArray(bootRes.data.images)
+        ? bootRes.data.images
+        : [];
+      const idNorm = (fresh.id || '').toLowerCase();
+      const idUnderscore = idNorm.replace(/-/g, '_');
+      const nameNorm = (fresh.name || '').toLowerCase();
+
+      const appContainers = liveContainers.filter((c: any) => {
+        const cp = (c.ComposeProject || '').toLowerCase();
+        return (
+          cp === idNorm ||
+          cp === idUnderscore ||
+          cp === nameNorm ||
+          cp.startsWith(`${idNorm}_`) ||
+          cp.startsWith(`${idUnderscore}_`) ||
+          cp.startsWith(`${nameNorm}_`) ||
+          cp.startsWith(`${idNorm}-`) ||
+          cp.startsWith(`${idUnderscore}-`) ||
+          cp.startsWith(`${nameNorm}-`)
+        );
+      });
+
+      const checkSlotAvailable = (slot: 'blue' | 'green'): boolean => {
+        const prefixes = [`${idNorm}-${slot}`, `${nameNorm}-${slot}`, `${idUnderscore}-${slot}`];
+        const hasContainer = appContainers.some((c: any) => {
+          const cp = (c.ComposeProject || '').toLowerCase();
+          const cname = (c.Name || '').toLowerCase();
+          return prefixes.some((p) => cp === p || cname.startsWith(`${p}-`));
+        });
+        if (hasContainer) return true;
+        return liveImages.some((img: any) => {
+          const tags: string[] = Array.isArray(img.RepoTags) ? img.RepoTags : img.Tags ? [img.Tags] : [];
+          return tags.some((t) => {
+            const tl = String(t || '').toLowerCase();
+            return prefixes.some((p) => tl.startsWith(`${p}-`) || tl.startsWith(`${p}:`) || tl.startsWith(`${p}/`));
+          });
+        });
+      };
+
+      const slotImages = {
+        blue: checkSlotAvailable('blue'),
+        green: checkSlotAvailable('green'),
+      };
+      const hasRunningContainer = appContainers.some(
+        (c: any) => (c.State || '').toLowerCase() === 'running'
+      );
+      const latestDeploy = Array.isArray(fresh.deploy_logs) ? fresh.deploy_logs[0] : null;
+      const computedStatus: AppStack['status'] = hasRunningContainer
+        ? 'running'
+        : latestDeploy && latestDeploy.ok === false
+        ? 'failed'
+        : 'stopped';
+
+      const mappedServices: ContainerService[] =
+        appContainers.length > 0
+          ? appContainers.map((c: any, sIdx: number) => ({
+              id: c.ID || `svc-${fresh.id}-${sIdx}`,
+              name: c.Name || `${fresh.name}_${sIdx}`,
+              service: c.ComposeService || (Array.isArray(fresh.services) && fresh.services[sIdx]) || 'app',
+              image: c.Image || `${fresh.name}:latest`,
+              state: ((c.State || '').toLowerCase() === 'running'
+                ? 'running'
+                : 'exited') as any,
+              uptime: c.Status || 'Active',
+              cpuPct: 0,
+              memUsedMB: 0,
+              memLimitMB: 1024,
+              ports: c.Ports || '',
+            }))
+          : Array.isArray(fresh.services)
+          ? fresh.services.map((s: string, sIdx: number) => ({
+              id: `svc-${fresh.id}-${sIdx}`,
+              name: `${fresh.name}_${s}_1`,
+              service: s,
+              image: `${fresh.name}:latest`,
+              state: 'exited' as const,
+              uptime: 'Stopped',
+              cpuPct: 0,
+              memUsedMB: 0,
+              memLimitMB: 1024,
+              ports: '',
+            }))
+          : [];
+
+      const mappedDeployments: DeploymentRecord[] = Array.isArray(fresh.deploy_logs)
+        ? fresh.deploy_logs.map((dl: any) => ({
+            id: `dep-${dl.id}`,
+            commitSha: dl.commit_sha || 'latest',
+            commitMessage: dl.action || 'Deploy',
+            branch: fresh.git_config?.branch || app.gitBranch || 'main',
+            trigger: 'manual-compose' as const,
+            author: 'admin',
+            status: dl.ok ? ('ready' as const) : ('failed' as const),
+            durationSec: 15,
+            startedAt: dl.created_at,
+            slot: dl.slot,
+            rawOutput: dl.output || '',
+            buildSteps: [],
+          }))
+        : app.deployments;
+
+      const mappedDomains: DomainRoute[] = Array.isArray(fresh.domains)
+        ? fresh.domains.map((d: any) => ({
+            id: String(d.id),
+            domain: d.domain,
+            targetService: d.service,
+            targetPort: d.port,
+            isPrimary: Boolean(d.is_primary),
+            tlsProvider: 'LetsEncrypt' as const,
+            tlsStatus: 'active' as const,
+            forceHttps: d.enable_https ?? true,
+            enableWww: d.enable_www ?? false,
+            serveStatic: d.serve_static ?? false,
+            staticPath: d.static_path,
+            staticUrlPrefix: d.static_url_prefix,
+            serveMedia: d.serve_media ?? false,
+            mediaPath: d.media_path,
+            mediaUrlPrefix: d.media_url_prefix,
+            gzip: true,
+            createdAt: d.created_at || 'Active',
+          }))
+        : app.domains;
+
+      const resolvedPrimaryDomain = (() => {
+        const pinned = mappedDomains.find((d) => d.isPrimary);
+        if (pinned?.domain) return pinned.domain;
+        const custom = mappedDomains.find(
+          (d) =>
+            d.domain &&
+            !d.domain.toLowerCase().endsWith('.sslip.io') &&
+            !d.domain.toLowerCase().endsWith('.nip.io')
+        );
+        if (custom?.domain) return custom.domain;
+        return mappedDomains[0]?.domain || '';
+      })();
+
+      onUpdateApp({
+        ...app,
+        status: computedStatus,
+        activeSlot: fresh.active_slot || app.activeSlot,
+        standbySlot: fresh.standby_slot ?? app.standbySlot,
+        pinnedSlot: fresh.pinned_slot ?? '',
+        slotImages,
+        domains: mappedDomains,
+        primaryDomain: resolvedPrimaryDomain,
+        preview: fresh.preview,
+        previewHostBase: fresh.preview_host_base || '',
+        ports: Array.isArray(fresh.ports) ? fresh.ports : [],
+        services: mappedServices,
+        deployments: mappedDeployments,
+        updatedAt: fresh.updated_at || 'Just now',
+      });
+    } catch {
+      // Ignore refresh errors
+    }
+  };
+
+  // Auto-scroll build log console to bottom when new logs stream in
+  useEffect(() => {
+    if (liveDeployLogRef.current) {
+      liveDeployLogRef.current.scrollTop = liveDeployLogRef.current.scrollHeight;
+    }
+  }, [liveDeployState.output, isBuildLogExpanded]);
+  useEffect(() => {
+    let active = true;
+    let wasRunning = false;
+    const checkProgress = async () => {
+      const res = await backendApi.deployProgress(app.id);
+      if (!active || !res.ok || !res.data) return;
+      const { running, action, output } = res.data;
+      setLiveDeployState((prev) => {
+        if (prev.running === running && prev.output === output && prev.action === action) {
+          return prev;
+        }
+        return { running: Boolean(running), action: action || 'Deploy', output: output || '' };
+      });
+      if (wasRunning && !running) {
+        wasRunning = false;
+        await refreshAppFromBackend();
+      } else if (running) {
+        wasRunning = true;
+      }
+    };
+    void checkProgress();
+    const timer = window.setInterval(checkProgress, 1200);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [app.id]);
+
+  // Enhance deployments with environment metadata
+  const defaultWildcardHost = useMemo(() => {
+    const doms = app.domains || [];
+    return (doms.find((d) => d.isPrimary) || doms[0])?.domain || '';
+  }, [app.domains]);
+
+  const previewBaseHost = app.previewHostBase || '';
+
   const enrichedDeployments = useMemo(() => {
-    const extraPreview: (DeploymentRecord & {
-      envType: 'production' | 'preview' | 'rollback';
-      previewUrl: string;
-      prLabel?: string;
-    })[] = [
-      ...app.deployments.map((d, idx) => ({
+    const activeSlot = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
+    const standbySlot = (activeSlot === 'green' ? 'blue' : 'green') as 'blue' | 'green';
+    const isPinned = Boolean(app.pinnedSlot && (app.pinnedSlot === 'blue' || app.pinnedSlot === 'green'));
+
+    const latestActiveId = app.deployments.find(
+      (d) => d.status === 'ready' && (d.slot || activeSlot).toLowerCase() === activeSlot
+    )?.id;
+    const latestStandbyId = app.deployments.find(
+      (d) => d.status === 'ready' && (d.slot || '').toLowerCase() === standbySlot
+    )?.id;
+
+    const standbyHasImage = app.slotImages ? Boolean(app.slotImages[standbySlot]) : Boolean(app.standbySlot);
+
+    const list = app.deployments.map((d, idx) => {
+      const slotName = (d.slot || (idx === 0 ? activeSlot : standbySlot)).toLowerCase() as 'blue' | 'green';
+      const isCurrentProd = d.id ? d.id === latestActiveId : idx === 0;
+      const isLatestStandby = Boolean(d.id && d.id === latestStandbyId && !isCurrentProd);
+      const canInstantRollback = isLatestStandby && standbyHasImage && d.status === 'ready';
+
+      const host = isCurrentProd
+        ? defaultWildcardHost
+        : previewBaseHost
+        ? formatSlotPreviewDomain(previewBaseHost, slotName)
+        : '';
+
+      const envType = d.commitMessage.toLowerCase().includes('rollback')
+        ? ('rollback' as const)
+        : isLatestStandby && isPinned
+        ? ('preview' as const)
+        : ('production' as const);
+
+      return {
         ...d,
-        envType:
-          d.commitMessage.toLowerCase().includes('rollback')
-            ? ('rollback' as const)
-            : ('production' as const),
-        previewUrl:
-          idx === 0 && app.primaryDomain
-            ? `https://${app.primaryDomain}`
-            : `https://${d.id}-${app.slug}.preview.nextdeploy.sh`,
-      })),
-      {
-        id: 'dep-pr48',
-        commitSha: '9a21f0e',
-        commitMessage: 'feat(payments): add webhook signature verification & retry queue',
-        branch: 'feat/stripe-v3',
-        trigger: 'git-webhook',
-        author: 'masud',
-        status: 'ready',
-        durationSec: 24,
-        startedAt: '35m ago',
-        envType: 'preview',
-        prLabel: 'PR #48',
-        previewUrl: `https://pr-48-${app.slug}.preview.nextdeploy.sh`,
-        buildSteps: [
-          {
-            name: 'Clone PR #48 (feat/stripe-v3)',
-            duration: '2s',
-            status: 'done',
-            logs: ['Checked out 9a21f0e from feat/stripe-v3'],
-          },
-          {
-            name: 'Build Isolated Preview Stack',
-            duration: '19s',
-            status: 'done',
-            logs: [`docker compose -p ${app.slug}-pr48 up -d --build`],
-          },
-          {
-            name: 'Provision Ephemeral Caddy Route',
-            duration: '3s',
-            status: 'done',
-            logs: [`TLS route ready: https://pr-48-${app.slug}.preview.nextdeploy.sh`],
-          },
-        ],
-      },
-      {
-        id: 'dep-pr45',
-        commitSha: '4d19b8c',
-        commitMessage: 'perf(cache): pipeline redis session lookups',
-        branch: 'staging',
-        trigger: 'git-webhook',
-        author: 'nadia_ops',
-        status: 'ready',
-        durationSec: 21,
-        startedAt: '3h ago',
-        envType: 'preview',
-        prLabel: 'Staging',
-        previewUrl: `https://staging-${app.slug}.preview.nextdeploy.sh`,
-        buildSteps: [],
-      },
-    ];
-    return extraPreview.filter((d) =>
-      deployEnvFilter === 'all' ? true : d.envType === deployEnvFilter
+        slot: slotName,
+        isCurrentProd,
+        isLatestStandby,
+        canInstantRollback,
+        envType,
+        previewUrl: host ? `https://${host}` : '',
+      };
+    });
+    return list.filter((d) =>
+      deployEnvFilter === 'all'
+        ? true
+        : deployEnvFilter === 'production'
+        ? d.envType === 'production' || d.envType === 'preview'
+        : d.envType === deployEnvFilter
     );
-  }, [app.deployments, app.primaryDomain, app.slug, deployEnvFilter]);
+  }, [app.deployments, app.activeSlot, app.standbySlot, app.pinnedSlot, app.slotImages, defaultWildcardHost, previewBaseHost, deployEnvFilter]);
 
   // =========================================================================
   // 3. Domains State (Auto-port detection + Edit + www + Static/Media serving)
@@ -265,165 +525,75 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   // 4. Unified cPanel / Webuzo-Style File Manager State
   // =========================================================================
   const [deletedFilePaths, setDeletedFilePaths] = useState<string[]>([]);
-  const [customFolders, setCustomFolders] = useState<string[]>([
-    'src',
-    'src/routes',
-    'config',
-    'nginx',
-    'scripts',
-  ]);
+  const [customFolders, setCustomFolders] = useState<string[]>([]);
   const [renamedPaths, setRenamedPaths] = useState<Record<string, string>>({});
+  const [isDragOverFileManager, setIsDragOverFileManager] = useState(false);
+  const [liveFileList, setLiveFileList] = useState<ComposeFileNode[] | null>(null);
+
+  // Sync real files from server disk into frontend state, preserving already loaded file contents
+  const syncWorkspaceFilesFromDisk = async () => {
+    try {
+      const listRes = await backendApi.filesList(app.id, '', true);
+      const res = listRes.data;
+      if (Array.isArray(res)) {
+        // Build map of existing file contents from state so we don't wipe them out with empty strings
+        const contentByPath = new Map<string, string>();
+        (app.files || []).forEach((f) => {
+          if (f.path && f.content) contentByPath.set(f.path, f.content);
+        });
+        (liveFileList || []).forEach((f) => {
+          if (f.path && f.content) contentByPath.set(f.path, f.content);
+        });
+
+        const liveNodes: ComposeFileNode[] = res
+          .filter((item) => !item.is_dir)
+          .map((item) => {
+            const ext = item.name.split('.').pop()?.toLowerCase();
+            return {
+              path: item.rel_path,
+              name: item.name,
+              type: 'file',
+              sizeBytes: item.size,
+              updatedAt: 'Recently',
+              language: ext === 'json' ? 'json' : ext === 'yml' || ext === 'yaml' ? 'yaml' : ext === 'sh' ? 'sh' : 'dockerfile',
+              content: contentByPath.get(item.rel_path) || '',
+            };
+          });
+        const liveFolders = res
+          .filter((item) => item.is_dir)
+          .map((item) => item.rel_path);
+
+        const permsMap: Record<string, string> = {};
+        res.forEach((item) => {
+          if (item.rel_path && item.perms) {
+            permsMap[item.rel_path] = formatPermOctal(item.perms, item.is_dir);
+          }
+        });
+        if (Object.keys(permsMap).length > 0) {
+          setFilePermissions((prev) => ({ ...prev, ...permsMap }));
+        }
+
+        setLiveFileList(liveNodes);
+        setCustomFolders((prev) => Array.from(new Set([...prev, ...liveFolders])));
+        onUpdateApp({
+          ...app,
+          files: liveNodes,
+        });
+      }
+    } catch {
+      // Ignore background sync errors
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'files') {
+      void syncWorkspaceFilesFromDisk();
+    }
+  }, [activeTab, app.id]);
 
   const defaultRichFiles: ComposeFileNode[] = useMemo(() => {
-    const existingPaths = new Set(app.files.map((f) => f.path));
-    const portNum = extractContainerPort(app.services[0]?.ports);
-    const extras: ComposeFileNode[] = [
-      {
-        path: 'Dockerfile',
-        name: 'Dockerfile',
-        type: 'file',
-        sizeBytes: 542,
-        updatedAt: '2d ago',
-        language: 'dockerfile',
-        content: `# Syntax: docker/dockerfile:1.7\nFROM node:22-alpine AS base\nWORKDIR /app\n\nCOPY package.json pnpm-lock.yaml* ./\nRUN corepack enable && pnpm install --frozen-lockfile --prod\n\nCOPY ./src ./src\nCOPY ./config ./config\n\nENV NODE_ENV=production\nENV PORT=${portNum}\nEXPOSE ${portNum}\n\nHEALTHCHECK --interval=15s --timeout=3s \\\n  CMD wget -qO- http://127.0.0.1:${portNum}/health || exit 1\n\nUSER node\nCMD ["node", "src/server.js"]`,
-      },
-      {
-        path: 'Caddyfile',
-        name: 'Caddyfile',
-        type: 'file',
-        sizeBytes: 388,
-        updatedAt: '1d ago',
-        language: 'nginx',
-        content: `${app.primaryDomain || `${app.slug}.nextdeploy.sh`} {\n  encode zstd gzip\n  tls {\n    protocols tls1.3\n  }\n  header {\n    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"\n    X-Content-Type-Options "nosniff"\n    -Server\n  }\n  reverse_proxy ${app.services[0]?.service || 'app'}:${portNum} {\n    health_uri /health\n    health_interval 10s\n  }\n}`,
-      },
-      {
-        path: 'package.json',
-        name: 'package.json',
-        type: 'file',
-        sizeBytes: 462,
-        updatedAt: '3d ago',
-        language: 'json',
-        content: `{\n  "name": "@nextdeploy/${app.slug}",\n  "version": "2.4.0",\n  "private": true,\n  "scripts": {\n    "start": "node dist/server.js",\n    "build": "tsup src/server.ts --format esm",\n    "db:migrate": "drizzle-kit migrate"\n  },\n  "dependencies": {\n    "fastify": "^5.1.0",\n    "ioredis": "^5.4.1",\n    "pg": "^8.13.1",\n    "pino": "^9.5.0"\n  }\n}`,
-      },
-      {
-        path: 'release-bundle.zip',
-        name: 'release-bundle.zip',
-        type: 'file',
-        sizeBytes: 18432,
-        updatedAt: '1d ago',
-        language: 'yaml',
-        content: `# Binary Zip Archive: release-bundle.zip\n# Contains: public/index.html, public/robots.txt, config/staging.json`,
-      },
-      {
-        path: 'src/server.ts',
-        name: 'server.ts',
-        type: 'file',
-        sizeBytes: 690,
-        updatedAt: '4h ago',
-        language: 'yaml',
-        content: `import Fastify from 'fastify';\nimport { registerHealthRoutes } from './routes/health';\n\nconst server = Fastify({ logger: true, trustProxy: true });\nregisterHealthRoutes(server);\n\nconst port = Number(process.env.PORT || ${portNum});\nserver.listen({ host: '0.0.0.0', port });`,
-      },
-      {
-        path: 'src/db.ts',
-        name: 'db.ts',
-        type: 'file',
-        sizeBytes: 480,
-        updatedAt: '1d ago',
-        language: 'yaml',
-        content: `import pg from 'pg';\n\nexport const pool = new pg.Pool({\n  connectionString: process.env.DATABASE_URL,\n  max: 25,\n  idleTimeoutMillis: 30000,\n});`,
-      },
-      {
-        path: 'src/worker.go',
-        name: 'worker.go',
-        type: 'file',
-        sizeBytes: 615,
-        updatedAt: '5h ago',
-        language: 'yaml',
-        content: `package main\n\nimport (\n  "context"\n  "fmt"\n  "time"\n)\n\ntype JobPayload struct {\n  ID        string\n  QueueName string\n  Attempts  int\n}\n\nfunc ProcessQueue(ctx context.Context, queue string) error {\n  fmt.Printf("[worker] listening on stream=%s port=${portNum}\\n", queue)\n  time.Sleep(250 * time.Millisecond)\n  return nil\n}`,
-      },
-      {
-        path: 'src/telemetry.py',
-        name: 'telemetry.py',
-        type: 'file',
-        sizeBytes: 584,
-        updatedAt: '8h ago',
-        language: 'yaml',
-        content: `#!/usr/bin/env python3\nimport os\nimport time\nfrom typing import Dict, Optional\n\nSERVICE_SLUG = "${app.slug}"\nDEFAULT_PORT = ${portNum}\n\ndef collect_container_metrics(interval: float = 5.0) -> Dict[str, object]:\n    # Sample container memory & latency metrics\n    return {\n        "service": SERVICE_SLUG,\n        "port": DEFAULT_PORT,\n        "healthy": True,\n        "timestamp": int(time.time()),\n    }`,
-      },
-      {
-        path: 'src/crypto.rs',
-        name: 'crypto.rs',
-        type: 'file',
-        sizeBytes: 530,
-        updatedAt: '2d ago',
-        language: 'yaml',
-        content: `use std::time::Duration;\n\n#[derive(Debug, Clone)]\npub struct TokenVerifier {\n    pub issuer: String,\n    pub ttl: Duration,\n}\n\nimpl TokenVerifier {\n    pub fn new(issuer: &str, ttl_secs: u64) -> Self {\n        Self {\n            issuer: issuer.to_string(),\n            ttl: Duration::from_secs(ttl_secs),\n        }\n    }\n}`,
-      },
-      {
-        path: 'src/routes/health.ts',
-        name: 'health.ts',
-        type: 'file',
-        sizeBytes: 512,
-        updatedAt: '6h ago',
-        language: 'yaml',
-        content: `import type { FastifyInstance } from 'fastify';\n\nexport async function registerHealthRoutes(app: FastifyInstance) {\n  app.get('/health', async () => ({\n    status: 'ok',\n    service: '${app.slug}',\n    uptime: process.uptime(),\n  }));\n}`,
-      },
-      {
-        path: 'config/production.json',
-        name: 'production.json',
-        type: 'file',
-        sizeBytes: 345,
-        updatedAt: '4d ago',
-        language: 'json',
-        content: `{\n  "service": "${app.slug}",\n  "port": ${portNum},\n  "rateLimit": {\n    "windowMs": 60000,\n    "maxRequests": 240\n  },\n  "metrics": true\n}`,
-      },
-      {
-        path: 'config/schema.sql',
-        name: 'schema.sql',
-        type: 'file',
-        sizeBytes: 490,
-        updatedAt: '3d ago',
-        language: 'yaml',
-        content: `-- PostgreSQL schema for ${app.slug}\nCREATE TABLE IF NOT EXISTS deployments_audit (\n  id UUID PRIMARY KEY,\n  service_slug VARCHAR(120) NOT NULL,\n  commit_sha VARCHAR(40) NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nCREATE INDEX idx_deployments_service ON deployments_audit (service_slug);`,
-      },
-      {
-        path: 'nginx/default.conf',
-        name: 'default.conf',
-        type: 'file',
-        sizeBytes: 412,
-        updatedAt: '5d ago',
-        language: 'nginx',
-        content: `upstream backend_upstream {\n  server 127.0.0.1:${portNum} keepalive=64;\n}\n\nserver {\n  listen 80;\n  client_max_body_size 50M;\n  location / {\n    proxy_pass http://backend_upstream;\n    proxy_http_version 1.1;\n  }\n}`,
-      },
-      {
-        path: 'scripts/entrypoint.sh',
-        name: 'entrypoint.sh',
-        type: 'file',
-        sizeBytes: 310,
-        updatedAt: '6d ago',
-        language: 'sh',
-        content: `#!/usr/bin/env sh\nset -eu\n\necho "[nextdeploy] Waiting for database socket..."\necho "[nextdeploy] Running schema migrations for ${app.slug}..."\nexec "$@"`,
-      },
-      {
-        path: 'scripts/backup-db.sh',
-        name: 'backup-db.sh',
-        type: 'file',
-        sizeBytes: 295,
-        updatedAt: '3d ago',
-        language: 'sh',
-        content: `#!/usr/bin/env sh\nset -eu\n\npg_dump "$DATABASE_URL" | gzip > "/backups/${app.slug}_\$(date +%F).sql.gz"`,
-      },
-      {
-        path: 'scripts/webhook.php',
-        name: 'webhook.php',
-        type: 'file',
-        sizeBytes: 428,
-        updatedAt: '2d ago',
-        language: 'yaml',
-        content: `<?php\ndeclare(strict_types=1);\n\n$secret = getenv('WEBHOOK_SECRET') ?: 'nd_live_secret';\n$payload = file_get_contents('php://input');\n\nheader('Content-Type: application/json');\necho json_encode([\n    'verified' => true,\n    'service' => '${app.slug}',\n    'bytes' => strlen($payload),\n]);`,
-      },
-    ];
-    return [...app.files, ...extras.filter((e) => !existingPaths.has(e.path))]
+    const sourceFiles = liveFileList || app.files;
+    return sourceFiles
       .map((f) => {
         const mappedPath = renamedPaths[f.path] || f.path;
         return {
@@ -433,25 +603,19 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         };
       })
       .filter((f) => !deletedFilePaths.includes(f.path));
-  }, [app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths]);
+  }, [liveFileList, app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths]);
 
   const [currentDir, setCurrentDir] = useState<string>('');
   const [editingFilePath, setEditingFilePath] = useState<string | null>(null);
   const [openEditorTabs, setOpenEditorTabs] = useState<string[]>([]);
-  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({
-    src: true,
-    'src/routes': true,
-    config: false,
-    nginx: false,
-    scripts: false,
-  });
+  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
   const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
   const [selectedEntries, setSelectedEntries] = useState<string[]>([]);
   const [filePermissions, setFilePermissions] = useState<Record<string, string>>({
-    'scripts/entrypoint.sh': '-rwxr-xr-x (0755)',
-    'scripts/backup-db.sh': '-rwxr-xr-x (0755)',
-    '.env': '-rw------- (0600)',
+    'scripts/entrypoint.sh': '755',
+    'scripts/backup-db.sh': '755',
+    '.env': '600',
   });
 
   // Right-click floating Context Menu state
@@ -487,10 +651,27 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   } | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [moveTarget, setMoveTarget] = useState<{
-    path: string;
+    paths: string[];
     name: string;
     mode: 'move' | 'copy';
   } | null>(null);
+
+  const openMoveOrCopyModal = (paths: string[], mode: 'move' | 'copy' = 'move') => {
+    setContextMenu(null);
+    const cleanPaths = paths.map((p) => p.replace(/^dir:/, ''));
+    if (cleanPaths.length === 0) return;
+    const displayName =
+      cleanPaths.length === 1
+        ? cleanPaths[0].split('/').pop() || cleanPaths[0]
+        : `${cleanPaths.length} items`;
+    setMoveTarget({
+      paths: cleanPaths,
+      name: displayName,
+      mode,
+    });
+    setMoveDestInput(currentDir || '');
+    setShowInlineFolderCreator(false);
+  };
   const [moveDestInput, setMoveDestInput] = useState('');
   const [inlineNewDestFolder, setInlineNewDestFolder] = useState('');
   const [showInlineFolderCreator, setShowInlineFolderCreator] = useState(false);
@@ -501,7 +682,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [extractTargetFile, setExtractTargetFile] = useState<ComposeFileNode | null>(null);
   const [extractDestDir, setExtractDestDir] = useState('');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadFileName, setUploadFileName] = useState('assets-bundle.zip');
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const [isDragOverUploadZone, setIsDragOverUploadZone] = useState(false);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [uploadFileName, setUploadFileName] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [restoreArchiveModalOpen, setRestoreArchiveModalOpen] = useState(false);
+  const [selectedRestoreFile, setSelectedRestoreFile] = useState<File | null>(null);
+  const [isRestoringArchive, setIsRestoringArchive] = useState(false);
 
   const selectedFile: ComposeFileNode =
     defaultRichFiles.find((f) => f.path === editingFilePath) || defaultRichFiles[0];
@@ -606,12 +794,30 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     }));
   };
 
-  const openFileInEditor = (file: ComposeFileNode) => {
+  const openFileInEditor = async (file: ComposeFileNode) => {
     setContextMenu(null);
     if (isArchiveFile(file.name)) {
       setExtractTargetFile(file);
       setExtractDestDir(currentDir || '');
       return;
+    }
+    // If file content is empty on frontend, fetch real text from backend
+    if (!file.content) {
+      try {
+        const res = await backendApi.fileBlob(app.id, file.path);
+        const textContent = res.data?.text ?? '';
+        file.content = textContent;
+        setLiveFileList((prev) => {
+          if (!prev) return null;
+          return prev.map((f) => (f.path === file.path ? { ...f, content: textContent } : f));
+        });
+        onUpdateApp({
+          ...app,
+          files: app.files.map((f) => (f.path === file.path ? { ...f, content: textContent } : f)),
+        });
+      } catch {
+        // Fallback to empty editor
+      }
     }
     setEditingFilePath(file.path);
     setOpenEditorTabs((prev) => (prev.includes(file.path) ? prev : [...prev, file.path]));
@@ -634,46 +840,23 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     });
   };
 
-  const openChmodFor = (targetPath: string) => {
+  const openChmodFor = (targetPath: string, isDir = false) => {
     setContextMenu(null);
-    const currentPerm = filePermissions[targetPath] || '-rw-r--r-- (0644)';
-    if (currentPerm.includes('0755')) {
-      setChmodMatrix({
-        ownerR: true,
-        ownerW: true,
-        ownerX: true,
-        groupR: true,
-        groupW: false,
-        groupX: true,
-        worldR: true,
-        worldW: false,
-        worldX: true,
-      });
-    } else if (currentPerm.includes('0600')) {
-      setChmodMatrix({
-        ownerR: true,
-        ownerW: true,
-        ownerX: false,
-        groupR: false,
-        groupW: false,
-        groupX: false,
-        worldR: false,
-        worldW: false,
-        worldX: false,
-      });
-    } else {
-      setChmodMatrix({
-        ownerR: true,
-        ownerW: true,
-        ownerX: false,
-        groupR: true,
-        groupW: false,
-        groupX: false,
-        worldR: true,
-        worldW: false,
-        worldX: false,
-      });
-    }
+    const oct = formatPermOctal(filePermissions[targetPath], isDir);
+    const u = parseInt(oct[0] || (isDir ? '7' : '6'), 10);
+    const g = parseInt(oct[1] || (isDir ? '5' : '4'), 10);
+    const w = parseInt(oct[2] || (isDir ? '5' : '4'), 10);
+    setChmodMatrix({
+      ownerR: Boolean(u & 4),
+      ownerW: Boolean(u & 2),
+      ownerX: Boolean(u & 1),
+      groupR: Boolean(g & 4),
+      groupW: Boolean(g & 2),
+      groupX: Boolean(g & 1),
+      worldR: Boolean(w & 4),
+      worldW: Boolean(w & 2),
+      worldX: Boolean(w & 1),
+    });
     setChmodModalFile(targetPath);
   };
 
@@ -690,14 +873,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       (chmodMatrix.worldR ? 4 : 0) +
       (chmodMatrix.worldW ? 2 : 0) +
       (chmodMatrix.worldX ? 1 : 0);
-    const sym = `-${chmodMatrix.ownerR ? 'r' : '-'}${chmodMatrix.ownerW ? 'w' : '-'}${
-      chmodMatrix.ownerX ? 'x' : '-'
-    }${chmodMatrix.groupR ? 'r' : '-'}${chmodMatrix.groupW ? 'w' : '-'}${
-      chmodMatrix.groupX ? 'x' : '-'
-    }${chmodMatrix.worldR ? 'r' : '-'}${chmodMatrix.worldW ? 'w' : '-'}${
-      chmodMatrix.worldX ? 'x' : '-'
-    }`;
-    return { octal: `0${o}${g}${w}`, symbolic: `${sym} (0${o}${g}${w})` };
+    const octal = `${o}${g}${w}`;
+    return { octal, symbolic: octal };
   }, [chmodMatrix]);
 
   const toggleSelectEntry = (entryKey: string) => {
@@ -736,52 +913,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   );
   const [isScanningBranches, setIsScanningBranches] = useState(false);
 
-  const detectedBranches: DetectedGitBranch[] = useMemo(
-    () => [
+  const detectedBranches: DetectedGitBranch[] = useMemo(() => {
+    if (!app.gitBranch && !app.gitRepo) return [];
+    const current = app.gitBranch || 'main';
+    return [
       {
-        name: 'main',
-        sha: app.gitCommitSha?.slice(0, 7) || '8c4f19a',
-        author: 'masud',
-        updatedAt: '4m ago',
+        name: current,
+        sha: app.gitCommitSha?.slice(0, 7) || 'HEAD',
+        author: app.owner || 'current',
+        updatedAt: 'Active branch',
         isDefault: true,
         protected: true,
       },
-      {
-        name: 'production',
-        sha: 'f42a90c',
-        author: 'masud',
-        updatedAt: '38m ago',
-        protected: true,
-      },
-      {
-        name: 'staging',
-        sha: '4d19b8c',
-        author: 'nadia_ops',
-        updatedAt: '3h ago',
-      },
-      {
-        name: 'develop',
-        sha: '71e09b4',
-        author: 'tanvir_dev',
-        updatedAt: '6h ago',
-      },
-      {
-        name: 'feat/stripe-v3',
-        sha: '9a21f0e',
-        author: 'masud',
-        updatedAt: '35m ago',
-        prNumber: 48,
-      },
-      {
-        name: 'fix/redis-pool-timeout',
-        sha: '2c88d10',
-        author: 'masud',
-        updatedAt: '1d ago',
-        prNumber: 46,
-      },
-    ],
-    [app.gitCommitSha]
-  );
+    ];
+  }, [app.gitBranch, app.gitRepo, app.gitCommitSha, app.owner]);
 
   const triggerRescanBranches = () => {
     setIsScanningBranches(true);
@@ -811,47 +956,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     log: string;
   } | null>(null);
 
-  const [projectBackups, setProjectBackups] = useState<ProjectBackupItem[]>([
-    {
-      id: 'snap-904',
-      name: `${app.slug}_2025-05-14_06-00.nd-backup.tar.gz`,
-      type: 'Scheduled',
-      destination: 'Cloudflare R2 Primary (EU-Central)',
-      provider: 'Cloudflare R2',
-      sizeMB: 1420.5,
-      createdAt: '2h ago',
-      commitSha: app.gitCommitSha?.slice(0, 7) || '8c4f19a',
-      includes: ['Compose', '.env (AES-256)', ...app.volumes.map((v) => v.name)],
-      checksum: 'sha256:9f84c1e0b2',
-      status: 'completed',
-    },
-    {
-      id: 'snap-901',
-      name: `${app.slug}_pre-deploy_dep-4920.nd-backup.tar.gz`,
-      type: 'Pre-Deploy',
-      destination: 'Cloudflare R2 Primary (EU-Central)',
-      provider: 'Cloudflare R2',
-      sizeMB: 1418.2,
-      createdAt: '4h ago',
-      commitSha: '3b10e4c',
-      includes: ['Compose', '.env (AES-256)', ...app.volumes.map((v) => v.name)],
-      checksum: 'sha256:4a12d9f8c7',
-      status: 'completed',
-    },
-    {
-      id: 'snap-894',
-      name: `${app.slug}_vault-sync_weekly.nd-backup.tar.gz`,
-      type: 'Manual',
-      destination: 'Google Drive Team Vault',
-      provider: 'Google Drive',
-      sizeMB: 1390.0,
-      createdAt: '2d ago',
-      commitSha: '7c01a8b',
-      includes: ['Compose', '.env (AES-256)'],
-      checksum: 'sha256:8e31b4a021',
-      status: 'completed',
-    },
-  ]);
+  const [projectBackups, setProjectBackups] = useState<ProjectBackupItem[]>([]);
 
   // =========================================================================
   // 7. Modern Logs Explorer State
@@ -867,64 +972,79 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [logShowTimestamps, setLogShowTimestamps] = useState(true);
   const [logWordWrap, setLogWordWrap] = useState(true);
 
+  const [liveStreamLogs, setLiveStreamLogs] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    if (activeTab !== 'logs' || !logLiveTail) return;
+    setLiveStreamLogs([]);
+    const targetSvc =
+      logContainerFilter !== 'all'
+        ? app.services.find((s) => s.service === logContainerFilter || s.name === logContainerFilter)
+        : app.services[0];
+    const containerName =
+      logContainerFilter !== 'all'
+        ? targetSvc?.service || targetSvc?.name || logContainerFilter
+        : targetSvc?.service || '';
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const sinceParam = logTimeRange !== 'live' ? `&since=${encodeURIComponent(logTimeRange)}` : '';
+    const wsUrl = `${proto}//${window.location.host}/apps/${encodeURIComponent(
+      app.id
+    )}/ws/logs?tail=200${sinceParam}${containerName ? `&container=${encodeURIComponent(containerName)}` : ''}`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (ev) => {
+        const raw = typeof ev.data === 'string' ? ev.data : '';
+        if (!raw) return;
+        const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        const nowIso = new Date().toISOString();
+        const newEntries: LogEntry[] = lines.map((line, i) => {
+          let logTime = nowIso;
+          let logMsg = line;
+          const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.*)$/);
+          if (tsMatch) {
+            logTime = tsMatch[1];
+            logMsg = tsMatch[2];
+          }
+          const lower = logMsg.toLowerCase();
+          const level: LogEntry['level'] =
+            lower.includes('error') || lower.includes('fatal') || lower.includes('panic')
+              ? 'error'
+              : lower.includes('warn')
+              ? 'warn'
+              : lower.includes('debug')
+              ? 'debug'
+              : 'info';
+          return {
+            id: `ws-log-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            timestamp: logTime,
+            container: targetSvc?.service || containerName || 'app',
+            level,
+            message: logMsg,
+          };
+        });
+        setLiveStreamLogs((prev) => [...prev.slice(-600), ...newEntries]);
+      };
+      ws.onerror = (err) => {
+        console.warn('Logs WebSocket error:', err);
+      };
+    } catch (err) {
+      console.warn('Failed to connect to logs WebSocket:', err);
+    }
+    return () => {
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [activeTab, logLiveTail, logContainerFilter, app.id, app.services, logTimeRange]);
+
   const syntheticLogs: LogEntry[] = useMemo(() => {
-    const firstSvc = app.services[0]?.service || 'api';
-    const secondSvc = app.services[1]?.service || firstSvc;
-    const thirdSvc = app.services[2]?.service || firstSvc;
-    const baseLogs: LogEntry[] = [
-      ...app.logs,
-      {
-        id: 'lg-101',
-        timestamp: '2025-05-14T18:20:04.112Z',
-        container: firstSvc,
-        level: 'info',
-        message: `GET /api/v1/health 200 OK - 2.4ms (Caddy TLS 1.3 ingress)`,
-      },
-      {
-        id: 'lg-102',
-        timestamp: '2025-05-14T18:20:09.408Z',
-        container: secondSvc,
-        level: 'debug',
-        message: `Connection pool heartbeat: active=6 idle=18 waiting=0 max=50`,
-      },
-      {
-        id: 'lg-103',
-        timestamp: '2025-05-14T18:20:15.892Z',
-        container: firstSvc,
-        level: 'info',
-        message: `POST /api/v1/checkout/session 201 Created - 18.7ms [req_id=nd_991a04]`,
-      },
-      {
-        id: 'lg-104',
-        timestamp: '2025-05-14T18:20:22.301Z',
-        container: thirdSvc,
-        level: 'warn',
-        message: `Rate limiter threshold reached for IP 185.199.108.153 (120 req/min) — throttling burst`,
-      },
-      {
-        id: 'lg-105',
-        timestamp: '2025-05-14T18:20:31.004Z',
-        container: thirdSvc,
-        level: 'info',
-        message: `Job #8841 [invoice.pdf.render] completed in 142ms · uploaded to R2 bucket`,
-      },
-      {
-        id: 'lg-106',
-        timestamp: '2025-05-14T18:20:44.719Z',
-        container: firstSvc,
-        level: 'error',
-        message: `Upstream webhook timeout after 3000ms on endpoint https://hooks.stripe.com/v1/events (retrying 1/3)`,
-      },
-      {
-        id: 'lg-107',
-        timestamp: '2025-05-14T18:20:46.105Z',
-        container: firstSvc,
-        level: 'info',
-        message: `Retry 1/3 succeeded (200 OK in 94ms) — webhook event evt_3Q91kL processed`,
-      },
-    ];
-    return baseLogs;
-  }, [app.logs, app.services]);
+    return [...(app.logs || []), ...liveStreamLogs];
+  }, [app.logs, liveStreamLogs]);
 
   const filteredLogs = useMemo(() => {
     return syntheticLogs.filter((l) => {
@@ -976,6 +1096,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<'deployer' | 'viewer'>('deployer');
+  const [newMemberPermissions, setNewMemberPermissions] = useState<string[]>([
+    'deploy',
+    'files',
+    'terminal',
+    'logs',
+  ]);
 
   const [limitsModalOpen, setLimitsModalOpen] = useState(false);
   const [unlimitedResources, setUnlimitedResources] = useState(false);
@@ -1001,81 +1127,93 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [gitSyncModalOpen, setGitSyncModalOpen] = useState(false);
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
 
-  // =========================================================================
-  // Actions & Handlers
-  // =========================================================================
-  const triggerDeploy = (options?: { noCache?: boolean; rollbackFrom?: DeploymentRecord }) => {
-    void backendApi.composeAction(app.id, options?.noCache ? 'redeploy' : 'up');
-    const newDepId = `dep-${Math.floor(5000 + Math.random() * 900)}`;
-    const sha = options?.rollbackFrom
-      ? options.rollbackFrom.commitSha
-      : Math.random().toString(16).slice(2, 9);
-    const msg = options?.rollbackFrom
-      ? `Rollback to ${options.rollbackFrom.id} (${options.rollbackFrom.commitSha.slice(0, 7)})`
-      : options?.noCache
-        ? 'Clean rebuild (--no-cache) triggered from workspace'
-        : 'Production compose deploy triggered';
+  const [selectedContainers, setSelectedContainers] = useState<string[]>([]);
+  const [isDeletingContainers, setIsDeletingContainers] = useState(false);
 
-    const nextDeployment: DeploymentRecord = {
-      id: newDepId,
-      commitSha: sha,
-      commitMessage: msg,
-      branch: options?.rollbackFrom?.branch || app.gitBranch || 'main',
-      trigger: 'manual-compose',
-      author: 'masud',
-      status: 'ready',
-      durationSec: options?.rollbackFrom ? 6 : 18,
-      startedAt: 'Just now',
-      buildSteps: [
-        {
-          name: 'Validate Compose & Secrets',
-          duration: '1s',
-          status: 'done',
-          logs: ['Validated docker-compose.yml', `Injected ${app.envVars.length} variables`],
-        },
-        {
-          name: options?.rollbackFrom ? 'Restore Container Image Digest' : 'Build & Start Services',
-          duration: options?.rollbackFrom ? '3s' : '14s',
-          status: 'done',
-          logs: ['docker compose up -d --remove-orphans'],
-        },
-        {
-          name: 'Switch Caddy HTTPS Upstream',
-          duration: '2s',
-          status: 'done',
-          logs: [`Zero-downtime healthcheck passed for ${app.primaryDomain || app.slug}`],
-        },
-      ],
-    };
-
-    onUpdateApp({
-      ...app,
-      status: 'running',
-      gitCommitSha: sha,
-      updatedAt: 'Just now',
-      deployments: [nextDeployment, ...app.deployments],
-    });
-    toast.success(
-      options?.rollbackFrom
-        ? `Rolled back production to ${options.rollbackFrom.id} (${sha.slice(0, 7)})`
-        : `Deployed ${app.name} (${newDepId})`
+  const toggleSelectContainer = (containerName: string) => {
+    setSelectedContainers((prev) =>
+      prev.includes(containerName)
+        ? prev.filter((name) => name !== containerName)
+        : [...prev, containerName]
     );
   };
 
-  const toggleStopOrStart = () => {
-    const nextStatus = app.status === 'stopped' ? 'running' : 'stopped';
-    void backendApi.composeAction(app.id, nextStatus === 'running' ? 'up' : 'down');
-    const nextServices: ContainerService[] = app.services.map((s) => ({
-      ...s,
-      state: nextStatus === 'running' ? 'running' : 'exited',
-      cpuPct: nextStatus === 'running' ? 3.8 : 0,
-    }));
-    onUpdateApp({
-      ...app,
-      status: nextStatus,
-      services: nextServices,
+  const toggleSelectAllContainers = () => {
+    if (selectedContainers.length === app.services.length) {
+      setSelectedContainers([]);
+    } else {
+      setSelectedContainers(app.services.map((s) => s.name || s.service));
+    }
+  };
+
+  const handleRemoveSelectedContainers = async (targets?: string[]) => {
+    const toRemove = targets || selectedContainers;
+    if (toRemove.length === 0) return;
+    setIsDeletingContainers(true);
+    try {
+      const res = await backendApi.appContainersRemoveSelected(app.id, toRemove);
+      if (res.ok) {
+        toast.success(`Removed ${toRemove.length} container(s)`);
+        setSelectedContainers((prev) => prev.filter((name) => !toRemove.includes(name)));
+        await refreshAppFromBackend();
+      } else {
+        toast.error(res.error || 'Failed to remove containers');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to remove containers');
+    } finally {
+      setIsDeletingContainers(false);
+    }
+  };
+
+  // =========================================================================
+  // Actions & Handlers
+  // =========================================================================
+  const triggerDeploy = async (options?: { noCache?: boolean; rollbackFrom?: DeploymentRecord }) => {
+    if (options?.rollbackFrom) {
+      const dep = options.rollbackFrom;
+      const rawLogId = String(dep.id).replace(/^dep-/, '');
+      const res = await backendApi.rollbackDeployment(app.id, rawLogId);
+      if (res.ok) {
+        toast.success(res.message || `Rolled back production to ${dep.id}`);
+        await refreshAppFromBackend();
+      } else {
+        toast.error(res.error || 'Rollback failed');
+      }
+      return;
+    }
+
+    const action = options?.noCache ? 'redeploy' : 'up';
+    toast.info(`Starting ${options?.noCache ? 'clean rebuild' : 'deployment'} for ${app.name}...`);
+    setLiveDeployState({
+      running: true,
+      action: options?.noCache ? 'Redeploy (pull + up)' : 'Deploy',
+      output: 'Initializing compose build pipeline...\n',
     });
-    toast.success(nextStatus === 'running' ? `Started ${app.name}` : `Stopped ${app.name}`);
+    const res = await backendApi.composeAction(app.id, action);
+    if (!res.ok) {
+      setLiveDeployState((prev) => ({ ...prev, running: false }));
+      toast.error(res.error || 'Deployment failed to start');
+      await refreshAppFromBackend();
+      return;
+    }
+    setActiveTab('deployments');
+    toast.success(`Deployment job started for ${app.name}`);
+  };
+
+  const toggleStopOrStart = async () => {
+    const isStopped = app.status === 'stopped';
+    const action = isStopped ? 'up' : 'down';
+    toast.info(`${isStopped ? 'Starting' : 'Stopping'} ${app.name}...`);
+    const res = await backendApi.composeAction(app.id, action);
+    if (!res.ok) {
+      toast.error(res.error || `Failed to ${isStopped ? 'start' : 'stop'} ${app.name}`);
+      return;
+    }
+    toast.success(isStopped ? `Starting ${app.name}...` : `Stopping ${app.name}...`);
+    setTimeout(() => {
+      void refreshAppFromBackend();
+    }, 1500);
   };
 
   // Environment Variables Handlers
@@ -1216,12 +1354,16 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   // New File Submit
-  const handleCreateFileSubmit = (e: React.FormEvent) => {
+  const handleCreateFileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const raw = newFileName.trim().replace(/^\/+/, '');
     if (!raw) return;
     const fullPath = !raw.includes('/') && currentDir ? `${currentDir}/${raw}` : raw;
-    void backendApi.fileCreate(app.id, fullPath);
+    const createRes = await backendApi.fileCreate(app.id, fullPath);
+    if (!createRes.ok) {
+      toast.error(createRes.error || createRes.message || 'Failed to create file');
+      return;
+    }
     const ext = fullPath.split('.').pop()?.toLowerCase();
     const lang: ComposeFileNode['language'] =
       ext === 'yml' || ext === 'yaml'
@@ -1255,11 +1397,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       starterContent = `#!/usr/bin/env sh\nset -eu\n\necho "Executing ${fullPath}..."\n`;
     }
 
-    const parentSlash = fullPath.lastIndexOf('/');
-    if (parentSlash !== -1) {
-      const parentDir = fullPath.slice(0, parentSlash);
-      setCustomFolders((prev) => (prev.includes(parentDir) ? prev : [...prev, parentDir]));
-    }
+    await backendApi.fileSave(app.id, fullPath, starterContent);
+    await syncWorkspaceFilesFromDisk();
 
     const created: ComposeFileNode = {
       path: fullPath,
@@ -1270,10 +1409,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       language: lang,
       content: starterContent,
     };
-    onUpdateApp({
-      ...app,
-      files: [...app.files, created],
-    });
+    setLiveFileList((prev) =>
+      prev ? [...prev.filter((f) => f.path !== fullPath), created] : [created]
+    );
     setDeletedFilePaths((prev) => prev.filter((p) => p !== fullPath));
     setEditingFilePath(fullPath);
     setOpenEditorTabs((prev) => (prev.includes(fullPath) ? prev : [...prev, fullPath]));
@@ -1283,25 +1421,30 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   // New Folder Submit
-  const handleCreateFolderSubmit = (e: React.FormEvent) => {
+  const handleCreateFolderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const raw = newFolderName
       .trim()
       .replace(/^\/+|\/+$/g, '')
-      .replace(/[^a-zA-Z0-9/_-]/g, '-');
+      .replace(/[^a-zA-Z0-9/_.-]/g, '-');
     if (!raw) return;
     const fullFolder = !raw.includes('/') && currentDir ? `${currentDir}/${raw}` : raw;
-    void backendApi.fileCreate(app.id, fullFolder, true);
+    const res = await backendApi.fileCreate(app.id, fullFolder, true);
+    if (!res.ok) {
+      toast.error(res.error || res.message || 'Failed to create folder');
+      return;
+    }
     setCustomFolders((prev) => (prev.includes(fullFolder) ? prev : [...prev, fullFolder]));
     setDeletedFilePaths((prev) => prev.filter((p) => p !== `dir:${fullFolder}`));
     setExpandedDirs((prev) => ({ ...prev, [fullFolder]: true }));
     setNewFolderName('');
     setNewFolderModalOpen(false);
+    await syncWorkspaceFilesFromDisk();
     toast.success(`Created folder /${fullFolder}`);
   };
 
   // Compress (Zip / Tar.gz) Submit
-  const handleCompressSubmit = (e: React.FormEvent) => {
+  const handleCompressSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = compressArchiveName.trim().replace(/^\/+/, '');
     if (!cleanName) return;
@@ -1309,73 +1452,41 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       cleanName.endsWith('.zip') || cleanName.endsWith('.tar.gz')
         ? cleanName
         : `${cleanName}.${compressFormat}`;
-    const fullPath = currentDir ? `${currentDir}/${finalName}` : finalName;
-    if (compressItems[0]) {
-      void backendApi.fileZip(app.id, compressItems[0].replace(/^dir:/, ''));
+    const cleanPaths = compressItems.map((p) => p.replace(/^dir:/, '')).filter(Boolean);
+    if (cleanPaths.length === 0) return;
+    const res = await backendApi.fileZip(app.id, cleanPaths, finalName, currentDir || '');
+    if (!res.ok) {
+      toast.error(res.error || res.message || 'Failed to compress items');
+      return;
     }
-    const archiveNode: ComposeFileNode = {
-      path: fullPath,
-      name: finalName,
-      type: 'file',
-      sizeBytes: 14820,
-      updatedAt: 'Just now',
-      language: 'yaml',
-      content: `# Archive: ${finalName}\n# Compressed items: ${compressItems.join(', ')}\n`,
-    };
-    onUpdateApp({
-      ...app,
-      files: [...app.files.filter((f) => f.path !== fullPath), archiveNode],
-    });
-    setDeletedFilePaths((prev) => prev.filter((p) => p !== fullPath));
+    await syncWorkspaceFilesFromDisk();
     setSelectedEntries([]);
     setCompressModalOpen(false);
-    toast.success(`Compressed ${compressItems.length} item(s) into ${fullPath}`);
+    toast.success(`Compressed ${cleanPaths.length} item(s) into ${finalName}`);
   };
 
   // Extract (Unzip) Submit
-  const handleExtractSubmit = (e: React.FormEvent) => {
+  const handleExtractSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!extractTargetFile) return;
     const targetDir = extractDestDir.trim().replace(/^\/+|\/+$/g, '');
-    void backendApi.fileUnzip(app.id, extractTargetFile.path, targetDir);
-    const baseArchive = extractTargetFile.name
-      .replace(/\.tar\.gz$/i, '')
-      .replace(/\.(zip|tgz|tar)$/i, '');
-    const extractedDir = targetDir ? `${targetDir}/${baseArchive}` : baseArchive;
-
-    const extractedFiles: ComposeFileNode[] = [
-      {
-        path: `${extractedDir}/manifest.json`,
-        name: 'manifest.json',
-        type: 'file',
-        sizeBytes: 318,
-        updatedAt: 'Just now',
-        language: 'json',
-        content: `{\n  "archive": "${extractTargetFile.name}",\n  "extractedAt": "${new Date().toISOString()}",\n  "integrity": "verified"\n}`,
-      },
-      {
-        path: `${extractedDir}/deploy-hook.sh`,
-        name: 'deploy-hook.sh',
-        type: 'file',
-        sizeBytes: 240,
-        updatedAt: 'Just now',
-        language: 'sh',
-        content: `#!/usr/bin/env sh\necho "Running extracted hook from ${extractTargetFile.name}"\n`,
-      },
-    ];
-
-    setCustomFolders((prev) => (prev.includes(extractedDir) ? prev : [...prev, extractedDir]));
-    setExpandedDirs((prev) => ({ ...prev, [extractedDir]: true }));
-    onUpdateApp({
-      ...app,
-      files: [...app.files, ...extractedFiles],
-    });
-    setExtractTargetFile(null);
-    toast.success(`Extracted ${extractTargetFile.name} to /${extractedDir}`);
+    toast.info(`Extracting ${extractTargetFile.name}...`);
+    try {
+      const res = await backendApi.fileUnzip(app.id, extractTargetFile.path, targetDir);
+      if (res && res.ok === false) {
+        toast.error(res.message || 'Extract failed');
+        return;
+      }
+      setExtractTargetFile(null);
+      await syncWorkspaceFilesFromDisk();
+      toast.success(`Extracted ${extractTargetFile.name} successfully!`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to extract archive');
+    }
   };
 
   // Rename Submit
-  const handleRenameSubmit = (e: React.FormEvent) => {
+  const handleRenameSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!renameTarget || !renameInput.trim()) return;
     const cleanNewName = renameInput.trim().replace(/^\/+|\/+$/g, '');
@@ -1383,56 +1494,81 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       ? renameTarget.path.slice(0, renameTarget.path.lastIndexOf('/'))
       : '';
     const nextPath = parent ? `${parent}/${cleanNewName}` : cleanNewName;
-    void backendApi.fileRename(app.id, renameTarget.path, nextPath);
+    const res = await backendApi.fileRename(app.id, renameTarget.path, nextPath);
+    if (!res.ok) {
+      toast.error(res.error || res.message || 'Failed to rename');
+      return;
+    }
 
     if (renameTarget.isFolder) {
       setCustomFolders((prev) =>
-        prev.map((d) => (d === renameTarget.path ? nextPath : d)).concat(nextPath)
+        prev.map((d) => (d === renameTarget.path ? nextPath : d))
       );
       toast.success(`Renamed folder to /${nextPath}`);
     } else {
-      setRenamedPaths((prev) => ({ ...prev, [renameTarget.path]: nextPath }));
       toast.success(`Renamed ${renameTarget.name} → ${cleanNewName}`);
     }
     setRenameTarget(null);
+    await syncWorkspaceFilesFromDisk();
   };
 
   // Copy / Move Submit
-  const handleMoveOrCopySubmit = (e: React.FormEvent) => {
+  const handleMoveOrCopySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!moveTarget) return;
+    if (!moveTarget || moveTarget.paths.length === 0) return;
     const destFolder = moveDestInput.trim().replace(/^\/+|\/+$/g, '');
-    const destPath = destFolder ? `${destFolder}/${moveTarget.name}` : moveTarget.name;
-    if (moveTarget.mode === 'move') {
-      void backendApi.fileMove(app.id, [moveTarget.path], destFolder);
-    } else {
-      void backendApi.fileCopy(app.id, [moveTarget.path], destFolder);
-    }
-    const sourceNode = defaultRichFiles.find((f) => f.path === moveTarget.path);
-    if (sourceNode) {
-      const cloned: ComposeFileNode = {
-        ...sourceNode,
-        path: destPath,
-        name: destPath.split('/').pop() || destPath,
-        updatedAt: 'Just now',
-      };
-      onUpdateApp({
-        ...app,
-        files: [...app.files, cloned],
-      });
-      if (moveTarget.mode === 'move') {
-        setDeletedFilePaths((prev) => [...prev, moveTarget.path]);
+    const isMove = moveTarget.mode === 'move';
+    try {
+      const res = isMove
+        ? await backendApi.fileMove(app.id, moveTarget.paths, destFolder)
+        : await backendApi.fileCopy(app.id, moveTarget.paths, destFolder);
+      if (res && (res as any).ok === false) {
+        toast.error((res as any).message || `Failed to ${isMove ? 'move' : 'copy'}`);
+        return;
       }
-      if (destFolder) {
-        setCustomFolders((prev) => (prev.includes(destFolder) ? prev : [...prev, destFolder]));
-      }
+      await syncWorkspaceFilesFromDisk();
+      setSelectedEntries([]);
+      const destLabel = destFolder ? `/${destFolder}` : 'root directory';
       toast.success(
-        moveTarget.mode === 'move'
-          ? `Moved to /${destPath}`
-          : `Copied to /${destPath}`
+        `${isMove ? 'Moved' : 'Copied'} ${moveTarget.paths.length} item(s) to ${destLabel}`
       );
+    } catch (err: any) {
+      toast.error(err?.message || `Failed to ${isMove ? 'move' : 'copy'}`);
+    } finally {
+      setMoveTarget(null);
     }
-    setMoveTarget(null);
+  };
+
+  // Deletes on disk first; local hiding alone made files reappear after refresh
+  const deleteEntries = async (entries: string[]) => {
+    const paths = entries.map((e) => e.replace(/^dir:/, ''));
+    const res = await backendApi.fileDelete(app.id, paths);
+    if (!res.ok) {
+      toast.error(res.error || 'Failed to delete');
+      return;
+    }
+    setCustomFolders((prev) => prev.filter((d) => !paths.some((p) => d === p || d.startsWith(`${p}/`))));
+    await syncWorkspaceFilesFromDisk();
+    toast.success(`Deleted ${paths.length} item(s)`);
+  };
+
+  // Shared local upload runner (modal + drag & drop) with live progress
+  const runLocalUpload = async (files: File[]): Promise<boolean> => {
+    setUploadProgress(0);
+    setUploadFileName(files.length === 1 ? files[0].name : `${files.length} files`);
+    setIsUploadingFiles(true);
+    try {
+      const res = await backendApi.fileUpload(app.id, files, currentDir || '', setUploadProgress);
+      if (!res.ok) {
+        toast.error(res.message || 'Failed to upload files');
+        return false;
+      }
+      await syncWorkspaceFilesFromDisk();
+      toast.success(`Uploaded ${files.length} file(s) into /${currentDir || 'root'}`);
+      return true;
+    } finally {
+      setIsUploadingFiles(false);
+    }
   };
 
   // Upload File or Remote URL Submit
@@ -1441,49 +1577,48 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     if (uploadMode === 'url') {
       const rawUrl = uploadRemoteUrl.trim();
       if (!rawUrl) return;
-      const res = await backendApi.fileUrlUpload(app.id, rawUrl, currentDir || '');
-      const inferredName =
-        res.file ||
-        rawUrl.split('?')[0].split('/').filter(Boolean).pop() ||
-        'remote-download.zip';
-      const fullPath = currentDir ? `${currentDir}/${inferredName}` : inferredName;
-      const uploaded: ComposeFileNode = {
-        path: fullPath,
-        name: inferredName,
-        type: 'file',
-        sizeBytes: res.bytes || 32768,
-        updatedAt: 'Just now',
-        language: inferredName.endsWith('.json') ? 'json' : 'yaml',
-        content: `# Fetched from remote URL: ${rawUrl}\n`,
-      };
-      onUpdateApp({
-        ...app,
-        files: [...app.files, uploaded],
-      });
-      setUploadRemoteUrl('');
-      setUploadModalOpen(false);
-      toast.success(`Fetched ${inferredName} into /${currentDir || 'root'}`);
+      setIsUploadingFiles(true);
+      try {
+        const res = await backendApi.fileUrlUpload(app.id, rawUrl, currentDir || '');
+        const inferredName =
+          res.file ||
+          rawUrl.split('?')[0].split('/').filter(Boolean).pop() ||
+          'remote-download.zip';
+        const fullPath = currentDir ? `${currentDir}/${inferredName}` : inferredName;
+        const uploaded: ComposeFileNode = {
+          path: fullPath,
+          name: inferredName,
+          type: 'file',
+          sizeBytes: res.bytes || 32768,
+          updatedAt: 'Just now',
+          language: inferredName.endsWith('.json') ? 'json' : 'yaml',
+          content: `# Fetched from remote URL: ${rawUrl}\n`,
+        };
+        onUpdateApp({
+          ...app,
+          files: [...app.files.filter((f) => f.path !== fullPath), uploaded],
+        });
+        setUploadRemoteUrl('');
+        setUploadModalOpen(false);
+        toast.success(`Fetched ${inferredName} into /${currentDir || 'root'}`);
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to fetch remote URL');
+      } finally {
+        setIsUploadingFiles(false);
+      }
       return;
     }
 
-    const clean = uploadFileName.trim().replace(/^\/+/, '');
-    if (!clean) return;
-    const fullPath = currentDir ? `${currentDir}/${clean}` : clean;
-    const uploaded: ComposeFileNode = {
-      path: fullPath,
-      name: clean.split('/').pop() || clean,
-      type: 'file',
-      sizeBytes: clean.endsWith('.zip') ? 24576 : 1024,
-      updatedAt: 'Just now',
-      language: clean.endsWith('.json') ? 'json' : 'yaml',
-      content: `# Uploaded file: ${clean}\n`,
-    };
-    onUpdateApp({
-      ...app,
-      files: [...app.files, uploaded],
-    });
+    // Local file upload (drag & drop or file selector)
+    if (selectedUploadFiles.length === 0) {
+      toast.error('Please select or drop at least one file to upload');
+      return;
+    }
+
     setUploadModalOpen(false);
-    toast.success(`Uploaded ${fullPath}`);
+    const ok = await runLocalUpload(selectedUploadFiles);
+    if (ok) setSelectedUploadFiles([]);
+    else setUploadModalOpen(true);
   };
 
   // Volume Modal Submit
@@ -1514,6 +1649,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   const handleSaveFileContent = (nextContent: string) => {
+    selectedFile.content = nextContent;
+    setLiveFileList((prev) => {
+      if (!prev) return null;
+      return prev.map((f) =>
+        f.path === selectedFile.path
+          ? {
+              ...f,
+              content: nextContent,
+              sizeBytes: new Blob([nextContent]).size,
+              updatedAt: 'Just now',
+            }
+          : f
+      );
+    });
     const existsInApp = app.files.some((f) => f.path === selectedFile.path);
     if (existsInApp) {
       const updatedFiles = app.files.map((f) =>
@@ -1550,15 +1699,19 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     if (!hasGitConnection && activeTab === 'git') {
       setActiveTab('overview');
     }
+    if (activeTab === 'files') {
+      void syncWorkspaceFilesFromDisk();
+    }
   }, [hasGitConnection, activeTab]);
 
   // Tabs
   const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
     { id: 'overview', label: 'General' },
-    { id: 'deployments', label: 'Deployments', count: app.deployments.length + 2 },
+    { id: 'containers', label: 'Containers', count: app.services.length },
+    { id: 'deployments', label: 'Deployments', count: app.deployments.length },
     { id: 'domains', label: 'Domains', count: app.domains.length },
     { id: 'env', label: 'Environment', count: app.envVars.length },
-    { id: 'files', label: 'File Manager', count: defaultRichFiles.length },
+    { id: 'files', label: 'File Manager' },
     ...(hasGitConnection ? [{ id: 'git' as AppWorkspaceTab, label: 'Git' }] : []),
     { id: 'volumes', label: 'Volumes', count: app.volumes.length },
     { id: 'backups', label: 'Backups', count: projectBackups.length },
@@ -1575,11 +1728,153 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   );
 
   const runningContainersCount = app.services.filter((s) => s.state === 'running').length;
-  const activeProductionDeployment = app.deployments[0];
-  const productionUrl = app.primaryDomain
-    ? `https://${app.primaryDomain}`
-    : `https://${app.slug}.nextdeploy.sh`;
-  const previewUrl = `https://pr-48-${app.slug}.preview.nextdeploy.sh`;
+  const activeSlotLower = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
+  const standbySlotName = (activeSlotLower === 'green' ? 'blue' : 'green') as 'blue' | 'green';
+  const isPinnedProduction = Boolean(app.pinnedSlot && (app.pinnedSlot === 'blue' || app.pinnedSlot === 'green'));
+  const activeProductionDeployment =
+    app.deployments.find(
+      (d) => d.status === 'ready' && (d.slot || activeSlotLower).toLowerCase() === activeSlotLower
+    ) || app.deployments[0];
+  const latestStandbyDeployment = app.deployments.find(
+    (d) => d.status === 'ready' && (d.slot || '').toLowerCase() === standbySlotName
+  );
+  const standbySlotHasImage = Boolean(
+    latestStandbyDeployment && (app.slotImages ? app.slotImages[standbySlotName] : Boolean(app.standbySlot))
+  );
+  const isStandbyContainerRunning = app.services.some(
+    (s) => s.state === 'running' && (s.name || '').toLowerCase().includes(`-${standbySlotName}-`)
+  );
+  const productionUrl = defaultWildcardHost ? `https://${defaultWildcardHost}` : '';
+  const previewHost = previewBaseHost ? formatSlotPreviewDomain(previewBaseHost, standbySlotName) : '';
+  const previewUrl = previewHost ? `https://${previewHost}` : '';
+
+  const [isPinningSlot, setIsPinningSlot] = useState(false);
+  const [isPromotingSlot, setIsPromotingSlot] = useState(false);
+
+  const handleTogglePinSlot = async () => {
+    setIsPinningSlot(true);
+    try {
+      const target = isPinnedProduction ? 'unpin' : activeSlotLower;
+      const res = await backendApi.pinAppSlot(app.id, target);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to update production pin');
+        return;
+      }
+      const nextPin = res.data?.pinned_slot ?? (isPinnedProduction ? '' : activeSlotLower);
+      onUpdateApp({ ...app, pinnedSlot: nextPin });
+      if (nextPin) {
+        toast.success(`Pinned Production on Slot ${nextPin.toUpperCase()}. New deploys will run on Preview Slot ${standbySlotName.toUpperCase()}.`);
+      } else {
+        toast.success('Unpinned Production Slot. Normal zero-downtime cutover resumed.');
+      }
+    } finally {
+      setIsPinningSlot(false);
+    }
+  };
+
+  const handlePromotePreviewSlot = async () => {
+    setIsPromotingSlot(true);
+    try {
+      toast.info(`Promoting Slot ${standbySlotName.toUpperCase()} to Production...`);
+      const res = await backendApi.promoteAppSlot(app.id);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to promote preview slot');
+        return;
+      }
+      toast.success(res.data?.message || `Promoted Slot ${standbySlotName.toUpperCase()} to Production!`);
+      await refreshAppFromBackend();
+    } finally {
+      setIsPromotingSlot(false);
+    }
+  };
+
+  // Format raw build log line with terminal syntax highlighting
+  const renderStyledBuildLog = (text: string) => {
+    return text.split('\n').map((line, idx) => {
+      if (!line) return <div key={idx} className="h-3" />;
+
+      // Match timestamp e.g. "2026-Oct-23 03:29:14.410246"
+      const timeMatch = line.match(/^(\d{4}-[A-Za-z]{3}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*(.*)$/);
+      const timestamp = timeMatch ? timeMatch[1] : null;
+      const content = timeMatch ? timeMatch[2] : line;
+
+      let contentEl: React.ReactNode = content;
+
+      if (content.startsWith('#')) {
+        // Docker buildkit step e.g. #1 [app internal] load build definition
+        const stepMatch = content.match(/^(#\d+)\s+(\[[^\]]+\])?\s*(.*)$/);
+        if (stepMatch) {
+          const stepNum = stepMatch[1];
+          const target = stepMatch[2];
+          const rest = stepMatch[3];
+          contentEl = (
+            <span>
+              <span className="text-sky-400 font-semibold">{stepNum}</span>{' '}
+              {target && <span className="text-amber-400/90">{target} </span>}
+              <span className={rest.includes('DONE') ? 'text-emerald-400 font-medium' : rest.includes('CACHED') ? 'text-zinc-500' : 'text-zinc-300'}>
+                {rest}
+              </span>
+            </span>
+          );
+        }
+      } else if (content.includes('Starting Deploy') || content.includes('Compose command finished')) {
+        contentEl = <span className="text-sky-300 font-semibold">{content}</span>;
+      } else if (content.startsWith('---')) {
+        contentEl = <span className="text-zinc-600 select-none">{content}</span>;
+      } else if (content.includes('[zero-downtime]')) {
+        contentEl = (
+          <span>
+            <span className="text-violet-400 font-semibold">[zero-downtime]</span>{' '}
+            <span className="text-zinc-200">{content.replace('[zero-downtime]', '')}</span>
+          </span>
+        );
+      } else if (content.includes('[pinned-mode]')) {
+        contentEl = (
+          <span>
+            <span className="text-amber-400 font-semibold">[pinned-mode]</span>{' '}
+            <span className="text-zinc-200">{content.replace('[pinned-mode]', '')}</span>
+          </span>
+        );
+      } else if (content.includes('[readiness]')) {
+        contentEl = (
+          <span>
+            <span className="text-emerald-400 font-semibold">[readiness]</span>{' '}
+            <span className="text-zinc-200">{content.replace('[readiness]', '')}</span>
+          </span>
+        );
+      } else if (content.includes('[connection-draining]')) {
+        contentEl = (
+          <span>
+            <span className="text-amber-400 font-semibold">[connection-draining]</span>{' '}
+            <span className="text-zinc-300">{content.replace('[connection-draining]', '')}</span>
+          </span>
+        );
+      } else if (content.includes('Container ') && (content.includes('Creating') || content.includes('Starting') || content.includes('Started') || content.includes('Created'))) {
+        contentEl = (
+          <span>
+            <span className="text-orange-400 font-medium">{content}</span>
+          </span>
+        );
+      } else if (content.includes('✓') || content.includes('✔') || content.includes('Built')) {
+        contentEl = <span className="text-emerald-400 font-medium">{content}</span>;
+      } else if (content.toLowerCase().includes('error') || content.toLowerCase().includes('failed')) {
+        contentEl = <span className="text-rose-400 font-medium">{content}</span>;
+      } else if (content.toLowerCase().includes('warn')) {
+        contentEl = <span className="text-amber-300">{content}</span>;
+      }
+
+      return (
+        <div key={idx} className="flex items-start gap-2.5 font-mono text-[11px] leading-5 hover:bg-white/[0.02] px-1 py-0.5 rounded">
+          {timestamp && (
+            <span className="text-zinc-500/80 shrink-0 select-none text-[10px] font-mono">
+              {timestamp}
+            </span>
+          )}
+          <span className="break-all select-text">{contentEl}</span>
+        </div>
+      );
+    });
+  };
 
   // Highlight matching search text inside logs
   const renderLogMessage = (msg: string) => {
@@ -1624,18 +1919,27 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <h1 className="truncate text-base font-semibold tracking-tight text-zinc-100">
                   {app.name}
                 </h1>
-                <StatusBadge status={app.status} />
-                <span className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-emerald-400">
-                  production
+                <StatusBadge
+                  status={
+                    runningContainersCount > 0
+                      ? 'running'
+                      : app.status === 'failed' || app.status === 'building'
+                      ? app.status
+                      : 'stopped'
+                  }
+                />
+                <span className="rounded-md border border-white/[0.1] bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
+                  production · {activeSlotLower.toUpperCase()}
                 </span>
-                {previewDeploymentsEnabled && (
-                  <span className="rounded-md border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-violet-300">
-                    PR Previews
+                {isPinnedProduction && (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
+                    <Pin className="h-2.5 w-2.5" />
+                    Pinned
                   </span>
                 )}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-                <a
+                {productionUrl && (                <a
                   href={productionUrl}
                   target="_blank"
                   rel="noreferrer"
@@ -1644,8 +1948,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <Globe className="h-3 w-3 text-emerald-400" />
                   {productionUrl}
                   <ArrowUpRight className="h-3 w-3 opacity-60" />
-                </a>
-                {app.gitBranch && (
+                </a>)}
+                {hasGitConnection && app.gitBranch && (
                   <button
                     type="button"
                     onClick={() => setGitModalOpen(true)}
@@ -1653,7 +1957,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   >
                     <GitBranch className="h-3 w-3 text-orange-400" />
                     {app.gitBranch}
-                    {app.gitCommitSha && <span>@{app.gitCommitSha.slice(0, 7)}</span>}
+                    {app.gitCommitSha && app.gitCommitSha !== 'blue' && app.gitCommitSha !== 'green' && (
+                      <span>@{app.gitCommitSha.slice(0, 7)}</span>
+                    )}
                   </button>
                 )}
                 <span className="font-mono text-[11px] text-zinc-500">
@@ -1676,7 +1982,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
             <button
               type="button"
-              onClick={() => toast.success(`Restarted ${app.name} containers`)}
+              onClick={async () => {
+                toast.info(`Restarting ${app.name} containers...`);
+                const res = await backendApi.composeAction(app.id, 'restart');
+                if (!res.ok) {
+                  toast.error(res.error || `Failed to restart ${app.name}`);
+                  return;
+                }
+                toast.success(`Restarting ${app.name} containers`);
+              }}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
@@ -1786,11 +2100,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </span>
               )}
 
-              <span className="font-mono text-xs text-zinc-400 break-all">
-                {isGitSyncActive
-                  ? `${app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`} (${app.gitBranch || 'main'})`
-                  : `Workspace directory (/data/apps/${app.slug}) · ${app.composeFilePath || 'docker-compose.yml'}`}
-              </span>
+              {isGitSyncActive && (
+                <span className="font-mono text-xs text-zinc-400 break-all">
+                  {app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`} ({app.gitBranch || 'main'})
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1829,163 +2143,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
                 {hasGitConnection ? 'Switch to Manual Mode' : 'Connect Git'}
               </button>
-            </div>
-          </div>
-
-          {/* Compose Services Grid */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  Services ({app.services.length})
-                </h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const res = await backendApi.composeView(app.id);
-                    const fallbackYaml =
-                      app.files.find((f) => f.path.includes('docker-compose'))?.content ||
-                      `services:\n  ${app.services[0]?.service || 'app'}:\n    image: ${app.services[0]?.image || 'node:22-alpine'}\n    labels:\n      caddy: ${app.primaryDomain || `${app.slug}.nextdeploy.sh`}\n      caddy.reverse_proxy: "{{upstreams ${extractContainerPort(app.services[0]?.ports)}}}"\nnetworks:\n  nextdeploy_net:\n    external: true\n`;
-                    setMergedComposeYaml(res.yaml || fallbackYaml);
-                    setMergedComposeModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 cursor-pointer"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  Merged Caddy Compose
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('files')}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 cursor-pointer"
-                >
-                  <FileCode2 className="h-3.5 w-3.5" />
-                  Open File Manager
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
-              {app.services.map((svc) => {
-                const imgInfo = formatCompactImage(svc.image);
-                const shortPort = formatCompactPort(svc.ports);
-                const memPct = Math.min(Math.round((svc.memUsedMB / svc.memLimitMB) * 100), 100);
-
-                return (
-                  <div
-                    key={svc.id}
-                    className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between gap-3.5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                          <Box className="h-4 w-4 text-orange-400" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-semibold text-zinc-100 truncate">
-                              {svc.service}
-                            </span>
-                            <StatusBadge status={svc.state} />
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px] text-zinc-400">
-                            <span className="truncate">
-                              {imgInfo.shortName}
-                              <span className="text-orange-400">:{imgInfo.tagPart}</span>
-                            </span>
-                            <span className="text-zinc-600">·</span>
-                            <span className="inline-flex items-center gap-1 text-zinc-300">
-                              <Network className="h-3 w-3 text-emerald-400" />
-                              {shortPort}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLogContainerFilter(svc.service);
-                            setActiveTab('logs');
-                          }}
-                          className="rounded-lg border border-white/[0.07] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-                        >
-                          Logs
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTerminalService(svc.service);
-                            setActiveTab('terminal');
-                          }}
-                          className="rounded-lg border border-white/[0.07] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-                        >
-                          Shell
-                        </button>
-                        <ActionMenu
-                          items={[
-                            {
-                              label: 'Restart Container',
-                              icon: <RotateCw className="h-3.5 w-3.5" />,
-                              onClick: () => toast.success(`Restarted ${svc.name}`),
-                            },
-                            {
-                              label: 'Route Domain to Service',
-                              icon: <Globe className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                setNewDomainService(svc.service);
-                                setNewDomainPort(extractContainerPort(svc.ports));
-                                setDomainModalOpen(true);
-                              },
-                            },
-                            {
-                              label: 'Copy Container ID',
-                              icon: <Copy className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                navigator.clipboard?.writeText(svc.id);
-                                toast.success(`Copied ${svc.id}`);
-                              },
-                            },
-                          ]}
-                        />
-                      </div>
-                    </div>
-
-                    {/* CPU & Memory Mini Bars */}
-                    <div className="grid grid-cols-2 gap-3 border-t border-white/[0.05] pt-3 font-mono text-[11px]">
-                      <div>
-                        <div className="flex justify-between text-zinc-400 mb-1">
-                          <span>CPU</span>
-                          <span className="text-zinc-200">{svc.cpuPct}%</span>
-                        </div>
-                        <div className="h-1 w-full rounded-full bg-zinc-900 overflow-hidden">
-                          <div
-                            className="h-full bg-orange-500 rounded-full"
-                            style={{ width: `${Math.min(svc.cpuPct * 3, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-zinc-400 mb-1">
-                          <span>Memory</span>
-                          <span className="text-zinc-200">
-                            {svc.memUsedMB} / {svc.memLimitMB} MB
-                          </span>
-                        </div>
-                        <div className="h-1 w-full rounded-full bg-zinc-900 overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-500 rounded-full"
-                            style={{ width: `${memPct}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
@@ -2100,10 +2257,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </div>
               )}
 
-              {/* Production & Preview URLs Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3 text-xs">
+              {/* Production & Preview URLs Bar + Quick Compose & File Manager Actions */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3 text-xs">
                 <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
-                  <a
+                  {productionUrl && (                  <a
                     href={productionUrl}
                     target="_blank"
                     rel="noreferrer"
@@ -2112,18 +2269,44 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     Prod: {productionUrl.replace('https://', '')}
                     <ArrowUpRight className="h-3 w-3" />
-                  </a>
+                  </a>)}
                   <span className="text-zinc-700">|</span>
-                  <a
+                  {previewUrl && (                  <a
                     href={previewUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 text-violet-300 hover:underline"
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-                    Preview: pr-48-{app.slug}.preview.nextdeploy.sh
+                    Standby ({standbySlotName}): {previewHost}
                     <ArrowUpRight className="h-3 w-3" />
-                  </a>
+                  </a>)}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await backendApi.composeView(app.id);
+                      const fallbackYaml =
+                        app.files.find((f) => f.path.includes('docker-compose'))?.content ||
+                        'services:\n  app:\n    build: .\n';
+                      setMergedComposeYaml(res.yaml || fallbackYaml);
+                      setMergedComposeModalOpen(true);
+                    }}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-emerald-400 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    Merged Caddy Compose
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('files')}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <FileCode2 className="h-3.5 w-3.5" />
+                    Open File Manager
+                  </button>
                 </div>
               </div>
             </div>
@@ -2370,247 +2553,735 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 2: DEPLOYMENTS (Dokploy / Vercel — Prod, Preview URLs, Rollback)  */}
+            {/* ===================================================================== */}
+      {/* TAB: CONTAINERS (Dedicated Project Services & Runtime Management)     */}
+      {/* ===================================================================== */}
+      {activeTab === 'containers' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden shadow-sm">
+            {selectedContainers.length > 0 && (
+              <div className="flex items-center justify-between border-b border-white/[0.07] bg-[#0c0c0f] px-4 py-2.5">
+                <span className="text-xs text-zinc-300 font-medium">
+                  {selectedContainers.length} container(s) selected
+                </span>
+                <button
+                  type="button"
+                  disabled={isDeletingContainers}
+                  onClick={() => handleRemoveSelectedContainers()}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>
+                    {isDeletingContainers
+                      ? 'Deleting...'
+                      : `Delete Selected (${selectedContainers.length})`}
+                  </span>
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-[#09090b]/80 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                    <th className="w-9 px-3 py-2.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          app.services.length > 0 &&
+                          selectedContainers.length === app.services.length
+                        }
+                        onChange={toggleSelectAllContainers}
+                        className="rounded border-zinc-700 bg-zinc-900 text-orange-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        title="Select all containers"
+                      />
+                    </th>
+                    <th className="w-[32%] px-3 py-2.5">Container</th>
+                    <th className="w-[24%] px-3 py-2.5">Image & Port</th>
+                    <th className="w-[19%] px-3 py-2.5">Status</th>
+                    <th className="w-[11%] px-3 py-2.5 text-right">Metrics</th>
+                    <th className="w-[14%] px-3 py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05]">
+                  {app.services.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-12 text-center">
+                        <Box className="mx-auto h-8 w-8 text-zinc-600 mb-2" />
+                        <p className="text-xs font-medium text-zinc-300">No containers running</p>
+                        <p className="text-[11px] text-zinc-500 mt-1">
+                          Deploy this project to launch your compose services.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    app.services.map((svc) => {
+                      const imgInfo = formatCompactImage(svc.image);
+                      const shortPort = formatCompactPort(svc.ports);
+                      const isSelected = selectedContainers.includes(svc.name || svc.service);
+
+                      return (
+                        <tr
+                          key={svc.id}
+                          className={`transition-colors hover:bg-white/[0.02] ${
+                            isSelected ? 'bg-orange-500/[0.04]' : ''
+                          }`}
+                        >
+                          <td className="w-9 px-3 py-2.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectContainer(svc.name || svc.service)}
+                              className="rounded border-zinc-700 bg-zinc-900 text-orange-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                            />
+                          </td>
+
+                          <td className="px-3 py-2.5 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-white/[0.08] bg-zinc-900">
+                                <Box className="h-3 w-3 text-orange-400" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    className="font-mono text-xs font-semibold text-zinc-100 truncate"
+                                    title={svc.name || svc.service}
+                                  >
+                                    {svc.name || svc.service}
+                                  </span>
+                                  {(() => {
+                                    const n = (svc.name || '').toLowerCase();
+                                    const containerSlot = n.includes('-blue-')
+                                      ? 'blue'
+                                      : n.includes('-green-')
+                                      ? 'green'
+                                      : null;
+                                    if (!containerSlot) return null;
+                                    const isProdSlot = containerSlot === activeSlotLower;
+                                    return isProdSlot ? (
+                                      <span className="rounded bg-emerald-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold uppercase text-emerald-400 border border-emerald-500/25 shrink-0">
+                                        PROD
+                                      </span>
+                                    ) : (
+                                      <span className="rounded bg-violet-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold uppercase text-violet-300 border border-violet-500/25 shrink-0">
+                                        PREVIEW
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                                <div className="font-mono text-[10px] text-zinc-500 truncate flex items-center gap-1 mt-0.5">
+                                  {svc.service && svc.service !== svc.name ? (
+                                    <span className="text-zinc-400">svc: {svc.service} · </span>
+                                  ) : null}
+                                  {svc.id ? <span>#{svc.id.slice(0, 8)}</span> : null}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2.5 min-w-0">
+                            <div className="flex flex-col gap-0.5 min-w-0 font-mono text-[11px]">
+                              <div className="truncate text-zinc-300" title={svc.image}>
+                                {imgInfo.shortName}
+                                <span className="text-orange-400">:{imgInfo.tagPart}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-white/[0.07] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                  <Network className="h-2.5 w-2.5 text-emerald-400" />
+                                  {shortPort}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2.5 min-w-0">
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <div className="flex items-center">
+                                <StatusBadge status={svc.state} />
+                              </div>
+                              <span
+                                className="font-mono text-[10px] text-zinc-400 truncate"
+                                title={svc.uptime}
+                              >
+                                {formatCompactUptime(svc.uptime)}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2.5 text-right font-mono tabular-nums text-[11px] whitespace-nowrap">
+                            <span className="text-zinc-200">{svc.cpuPct}%</span>
+                            <span className="mx-1 text-zinc-600">·</span>
+                            <span className="text-zinc-400">{svc.memUsedMB}M</span>
+                          </td>
+
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                title="View logs"
+                                onClick={() => {
+                                  setLogContainerFilter(svc.service);
+                                  setActiveTab('logs');
+                                }}
+                                className="rounded border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                              >
+                                Logs
+                              </button>
+                              <ActionMenu
+                                items={[
+                                  {
+                                    label: 'Open Shell',
+                                    icon: <TerminalIcon className="h-3.5 w-3.5" />,
+                                    onClick: () => {
+                                      setTerminalService(svc.service);
+                                      setActiveTab('terminal');
+                                    },
+                                  },
+                                  {
+                                    label: 'Restart Container',
+                                    icon: <RotateCw className="h-3.5 w-3.5" />,
+                                    onClick: async () => {
+                                      await backendApi.appContainerAction(app.id, svc.name, 'restart');
+                                      toast.success(`Restarted ${svc.name}`);
+                                    },
+                                  },
+                                  {
+                                    label: 'Route Domain to Service',
+                                    icon: <Globe className="h-3.5 w-3.5" />,
+                                    onClick: () => {
+                                      setNewDomainService(svc.service);
+                                      setNewDomainPort(extractContainerPort(svc.ports));
+                                      setDomainModalOpen(true);
+                                    },
+                                  },
+                                  {
+                                    label: 'Copy Container ID',
+                                    icon: <Copy className="h-3.5 w-3.5" />,
+                                    onClick: () => {
+                                      navigator.clipboard?.writeText(svc.id || svc.name);
+                                      toast.success(`Copied ID`);
+                                    },
+                                  },
+                                  {
+                                    label: 'Delete Container',
+                                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                                    variant: 'danger',
+                                    onClick: () => handleRemoveSelectedContainers([svc.name || svc.service]),
+                                  },
+                                ]}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: DEPLOYMENTS (Vercel-Grade Blue/Green, Zero-Downtime & Rollback) */}
       {/* ===================================================================== */}
       {activeTab === 'deployments' && (
-        <div className="space-y-4">
-          {/* Top Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-                {(
-                  [
-                    { id: 'all', label: 'All Releases' },
-                    { id: 'production', label: 'Production' },
-                    { id: 'preview', label: 'Preview URLs' },
-                    { id: 'rollback', label: 'Rollbacks' },
-                  ] as const
-                ).map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setDeployEnvFilter(f.id)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                      deployEnvFilter === f.id
-                        ? 'bg-zinc-800 text-zinc-100'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
+        <div className="space-y-3">
+          {/* Unified Slot & Production Control Bar */}
+          <div className="flex flex-col gap-3 rounded-xl border border-white/[0.08] bg-[#111115]/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3 min-w-0">
+              <div
+                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
+                  isPinnedProduction
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                    : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
+                }`}
+              >
+                {isPinnedProduction ? (
+                  <Pin className="h-3.5 w-3.5" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-emerald-400 border border-emerald-500/25">
+                    PROD · {activeSlotLower.toUpperCase()}
+                  </span>
+                  {activeProductionDeployment && (
+                    <span className="font-mono text-xs font-semibold text-zinc-100">
+                      {activeProductionDeployment.id}
+                    </span>
+                  )}
+                  {isPinnedProduction && (
+                    <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-amber-300 border border-amber-500/25">
+                      <Lock className="h-2.5 w-2.5" />
+                      Pinned
+                    </span>
+                  )}
+                  {productionUrl && (                  <a
+                    href={productionUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-[11px] text-zinc-300 hover:text-emerald-400 transition-colors truncate"
                   >
-                    {f.label}
-                  </button>
-                ))}
+                    <Globe className="h-3 w-3 text-emerald-400 shrink-0" />
+                    <span className="truncate">{productionUrl.replace('https://', '')}</span>
+                    <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" />
+                  </a>)}
+                </div>
+
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+                  {isPinnedProduction && isStandbyContainerRunning ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="rounded bg-violet-500/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-violet-300 border border-violet-500/25">
+                        PREVIEW · {standbySlotName.toUpperCase()}
+                      </span>
+                      {latestStandbyDeployment && (
+                        <span className="font-mono text-[11px] text-zinc-300">
+                          {latestStandbyDeployment.id}
+                        </span>
+                      )}
+                      {previewUrl && (                      <a
+                        href={previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-[11px] text-violet-300 hover:text-violet-200 underline"
+                      >
+                        {previewHost}
+                        <ArrowUpRight className="h-3 w-3" />
+                      </a>)}
+                    </div>
+                  ) : isPinnedProduction ? (
+                    <span>
+                      Standby · <span className="font-mono text-violet-300">Slot {standbySlotName.toUpperCase()}</span>
+                      {previewHost && <span className="text-zinc-400"> · {previewHost}</span>}
+                    </span>
+                  ) : (
+                    <span>
+                      Standby · <span className="font-mono text-zinc-300">Slot {standbySlotName.toUpperCase()}</span>
+                      {standbySlotHasImage && latestStandbyDeployment ? (
+                        <span className="text-emerald-400/90 font-mono">
+                          {' '}· {latestStandbyDeployment.id}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500"> · Idle</span>
+                      )}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {activeProductionDeployment && (
+                <button
+                  type="button"
+                  onClick={() => setBuildLogsDeployment(activeProductionDeployment)}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                >
+                  <TerminalIcon className="h-3.5 w-3.5 text-zinc-400" />
+                  <span>Logs</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => {
-                  void backendApi.clearDeployLogs(app.id);
+                disabled={isPinningSlot}
+                onClick={handleTogglePinSlot}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer ${
+                  isPinnedProduction
+                    ? 'border-amber-500/35 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                    : 'border-white/[0.08] bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                }`}
+                title={
+                  isPinnedProduction
+                    ? 'Unpin production to resume automatic zero-downtime cutover'
+                    : 'Pin production so new builds deploy to the Preview Slot first'
+                }
+              >
+                {isPinnedProduction ? (
+                  <PinOff className="h-3.5 w-3.5 text-amber-400" />
+                ) : (
+                  <Pin className="h-3.5 w-3.5 text-zinc-400" />
+                )}
+                <span>{isPinnedProduction ? 'Unpin' : 'Pin Prod'}</span>
+              </button>
+
+              {(isStandbyContainerRunning || standbySlotHasImage || Boolean(app.standbySlot)) && (
+                <button
+                  type="button"
+                  disabled={isPromotingSlot || liveDeployState.running}
+                  onClick={handlePromotePreviewSlot}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition-colors cursor-pointer disabled:opacity-50"
+                  title={`Promote Standby Slot ${standbySlotName.toUpperCase()} directly to live production traffic`}
+                >
+                  <Rocket className="h-3.5 w-3.5" />
+                  <span>
+                    {isPromotingSlot
+                      ? 'Promoting...'
+                      : `Promote Slot ${standbySlotName.toUpperCase()} to Prod`}
+                  </span>
+                </button>
+              )}
+
+              {!isPinnedProduction && standbySlotHasImage && latestStandbyDeployment && (
+                <button
+                  type="button"
+                  disabled={liveDeployState.running}
+                  onClick={() => triggerDeploy({ rollbackFrom: latestStandbyDeployment })}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                  title={`Switch production back to Slot ${standbySlotName.toUpperCase()} (${latestStandbyDeployment.id})`}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Rollback to {standbySlotName.toUpperCase()}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filter & Action Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+              {(
+                [
+                  { id: 'all', label: 'All' },
+                  { id: 'production', label: 'Production' },
+                  { id: 'rollback', label: 'Rollbacks' },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setDeployEnvFilter(f.id)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                    deployEnvFilter === f.id
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await backendApi.clearDeployLogs(app.id);
+                  if (!res.ok) {
+                    toast.error(res.error || 'Failed to clear deployment history');
+                    return;
+                  }
                   onUpdateApp({
                     ...app,
-                    deployments: app.deployments.slice(0, 1),
+                    deployments: [],
                   });
-                  toast.success('Cleared deployment build logs history');
+                  toast.success('Cleared deployment history');
                 }}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
               >
                 <Trash2 className="h-3.5 w-3.5 text-zinc-400" />
                 Clear History
               </button>
               <button
                 type="button"
+                disabled={liveDeployState.running}
                 onClick={() => triggerDeploy({ noCache: true })}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
-                Redeploy (No Cache)
+                <RefreshCw className={`h-3.5 w-3.5 text-orange-400 ${liveDeployState.running ? 'animate-spin' : ''}`} />
+                Rebuild (No Cache)
               </button>
               <button
                 type="button"
+                disabled={liveDeployState.running}
                 onClick={() => triggerDeploy()}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
               >
-                <Play className="h-3.5 w-3.5 fill-current" />
-                Deploy Now
+                {liveDeployState.running ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                )}
+                {liveDeployState.running ? 'Deploying...' : 'Deploy'}
               </button>
             </div>
           </div>
 
-          {/* Active Production Release Card (Vercel / Dokploy Style) */}
-          {activeProductionDeployment && (
-            <div className="rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/[0.06] via-[#111115] to-[#111115] p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3.5 min-w-0">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/15">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-emerald-400 ring-1 ring-emerald-500/30">
-                      Active Production
-                    </span>
-                    <span className="font-mono text-xs font-semibold text-zinc-100">
-                      {activeProductionDeployment.id}
-                    </span>
-                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-orange-400">
-                      {activeProductionDeployment.branch}@
-                      {activeProductionDeployment.commitSha.slice(0, 7)}
-                    </span>
-                    <span className="text-xs text-zinc-300 truncate">
-                      {activeProductionDeployment.commitMessage}
-                    </span>
-                  </div>
-
-                  <div className="mt-1.5 flex flex-wrap items-center gap-3 font-mono text-[11px] text-zinc-400">
-                    <a
-                      href={productionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-emerald-400 hover:underline"
-                    >
-                      <Globe className="h-3 w-3" />
-                      {productionUrl}
-                      <ArrowUpRight className="h-3 w-3" />
-                    </a>
-                    <span>·</span>
-                    <span>Built in {activeProductionDeployment.durationSec}s</span>
-                    <span>·</span>
-                    <span>{activeProductionDeployment.startedAt}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setBuildLogsDeployment(activeProductionDeployment)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+          {/* Live Deployment Streaming Console Drawer */}
+          {(liveDeployState.running || liveDeployState.output) && (() => {
+            const isVisible = isBuildLogExpanded ?? liveDeployState.running;
+            return (
+              <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#09090b]">
+                <div
+                  className="flex items-center justify-between bg-zinc-900/70 px-3.5 py-2 cursor-pointer select-none"
+                  onClick={() => setIsBuildLogExpanded(!isVisible)}
                 >
-                  <TerminalIcon className="h-3.5 w-3.5 text-orange-400" />
-                  Build Logs
-                </button>
+                  <div className="flex items-center gap-2">
+                    {liveDeployState.running ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-400" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    )}
+                    <span className="font-mono text-xs font-medium text-zinc-200">
+                      {liveDeployState.running
+                        ? `Building · ${liveDeployState.action || 'Deploy'}`
+                        : `Build output · ${liveDeployState.action || 'Completed'}`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsBuildLogExpanded(!isVisible);
+                    }}
+                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 cursor-pointer"
+                  >
+                    <span>{isVisible ? 'Hide' : 'Show'}</span>
+                    {isVisible ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                {isVisible && (
+                  <div
+                    ref={liveDeployLogRef}
+                    className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px] scroll-smooth"
+                  >
+                    {renderStyledBuildLog(liveDeployState.output || 'Waiting for output...')}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* Deployments Table with Production / Preview URLs / Instant Rollback */}
+          {/* Deployments Table */}
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
             <table className="w-full table-fixed text-left text-xs">
               <thead>
-                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[36%] px-4 py-2.5 font-medium">Release & Commit</th>
-                  <th className="w-[18%] px-4 py-2.5 font-medium">Environment</th>
-                  <th className="w-[26%] px-4 py-2.5 font-medium">Preview / Live URL</th>
-                  <th className="w-[14%] px-4 py-2.5 font-medium text-right">Duration</th>
-                  <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
+                <tr className="border-b border-white/[0.07] bg-[#09090b]/80 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                  <th className="w-[34%] px-3.5 py-2.5">Release</th>
+                  <th className="w-[22%] px-3.5 py-2.5">Slot & State</th>
+                  <th className="w-[24%] px-3.5 py-2.5">Endpoint</th>
+                  <th className="w-[12%] px-3.5 py-2.5 text-right">Time</th>
+                  <th className="w-[8%] px-3 py-2.5 text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.05]">
-                {enrichedDeployments.map((dep, index) => {
-                  const isCurrentProd = index === 0 && dep.envType !== 'preview';
-                  return (
-                    <tr
-                      key={dep.id}
-                      className="hover:bg-white/[0.02] transition-colors"
-                    >
-                      {/* Column 1: Release + Commit */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <StatusBadge status={dep.status} />
-                          <span className="font-mono font-semibold text-zinc-100">{dep.id}</span>
-                          <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400 shrink-0">
-                            {dep.branch}@{dep.commitSha.slice(0, 7)}
-                          </span>
-                        </div>
-                        <div className="mt-1 truncate text-[11px] text-zinc-400">
-                          {dep.commitMessage}
-                        </div>
-                      </td>
+                {enrichedDeployments.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center">
+                      <p className="text-xs font-medium text-zinc-300">No deployments recorded yet</p>
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Click Deploy to build and launch your project into an active slot.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  enrichedDeployments.map((dep) => {
+                    const isCurrentProd = dep.isCurrentProd;
+                    const canRollbackThisRow = dep.canInstantRollback;
+                    const isPreviewLive =
+                      dep.isLatestStandby && isStandbyContainerRunning && dep.status === 'ready';
+                    const isRowLive =
+                      ((isCurrentProd && dep.status === 'ready') || isPreviewLive) &&
+                      Boolean(dep.previewUrl);
+                    const hasValidGitSha =
+                      hasGitConnection &&
+                      dep.commitSha &&
+                      dep.commitSha !== 'latest' &&
+                      dep.commitSha !== 'main';
 
-                      {/* Column 2: Environment (Production / Preview PR / Rollback) */}
-                      <td className="px-4 py-3">
-                        {dep.envType === 'preview' ? (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-violet-300">
-                            <Sparkles className="h-2.5 w-2.5" />
-                            {dep.prLabel || 'Preview'}
-                          </span>
-                        ) : dep.envType === 'rollback' ? (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-amber-300">
-                            <RotateCcw className="h-2.5 w-2.5" />
-                            Rollback
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-emerald-400">
-                            Production
-                            {isCurrentProd && ' · Live'}
-                          </span>
-                        )}
-                      </td>
+                    const formattedTime = (() => {
+                      if (!dep.startedAt) return '—';
+                      const parsed = new Date(dep.startedAt);
+                      if (Number.isNaN(parsed.getTime())) {
+                        return dep.startedAt.replace('T', ' ').replace('Z', '');
+                      }
+                      return (
+                        parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+                        ', ' +
+                        parsed.toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                        })
+                      );
+                    })();
 
-                      {/* Column 3: Clickable Preview / Production URL */}
-                      <td className="px-4 py-3">
-                        <a
-                          href={dep.previewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 truncate font-mono text-[11px] text-zinc-300 hover:text-orange-400 transition-colors max-w-full"
-                        >
-                          <Globe className="h-3 w-3 text-emerald-400 shrink-0" />
-                          <span className="truncate">
-                            {dep.previewUrl.replace('https://', '')}
-                          </span>
-                          <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" />
-                        </a>
-                      </td>
+                    return (
+                      <tr
+                        key={dep.id}
+                        className="hover:bg-white/[0.02] transition-colors"
+                      >
+                        {/* Column 1: Release + Source */}
+                        <td className="px-3.5 py-2.5 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <StatusBadge status={dep.status} />
+                            <span className="font-mono text-xs font-semibold text-zinc-100">
+                              {dep.id}
+                            </span>
+                            {hasGitConnection ? (
+                              <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-orange-400 shrink-0">
+                                {dep.branch}@{dep.commitSha.slice(0, 7)}
+                              </span>
+                            ) : (
+                              <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 shrink-0">
+                                Workspace
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-zinc-400">
+                            {dep.commitMessage}
+                          </div>
+                        </td>
 
-                      {/* Column 4: Duration */}
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[11px] text-zinc-400">
-                        <div>{dep.durationSec}s</div>
-                        <div className="text-[10px] text-zinc-500">{dep.startedAt}</div>
-                      </td>
+                        {/* Column 2: Slot & State */}
+                        <td className="px-3.5 py-2.5 min-w-0">
+                          {isCurrentProd ? (
+                            <div className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-400">
+                              {dep.envType === 'rollback' && (
+                                <RotateCcw className="h-2.5 w-2.5 text-emerald-300" />
+                              )}
+                              <span>PROD · {dep.slot?.toUpperCase()}</span>
+                              {isPinnedProduction && (
+                                <Pin className="h-2.5 w-2.5 text-amber-300 ml-0.5" />
+                              )}
+                            </div>
+                          ) : isPreviewLive || (dep.isLatestStandby && isPinnedProduction && standbySlotHasImage) ? (
+                            <span className="inline-flex items-center gap-1 rounded border border-violet-500/30 bg-violet-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-300">
+                              PREVIEW · {dep.slot?.toUpperCase()}
+                            </span>
+                          ) : canRollbackThisRow ? (
+                            <span className="inline-flex items-center gap-1 rounded border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-300">
+                              STANDBY · {dep.slot?.toUpperCase()}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500">
+                              {dep.envType === 'rollback' && (
+                                <RotateCcw className="h-2.5 w-2.5 text-zinc-500" />
+                              )}
+                              <span>History {dep.slot && `· ${dep.slot.toUpperCase()}`}</span>
+                            </span>
+                          )}
+                        </td>
 
-                      {/* Column 5: 3-Dot Action Menu */}
-                      <td className="px-3 py-3 text-right">
-                        <ActionMenu
-                          items={[
-                            {
-                              label: 'View Build Logs',
-                              icon: <TerminalIcon className="h-3.5 w-3.5" />,
-                              onClick: () => setBuildLogsDeployment(dep),
-                            },
-                            ...(!isCurrentProd
-                              ? [
-                                  {
-                                    label: 'Rollback to Release',
-                                    icon: <RotateCcw className="h-3.5 w-3.5" />,
-                                    onClick: () => triggerDeploy({ rollbackFrom: dep }),
-                                  },
-                                ]
-                              : []),
-                            {
-                              label: 'Redeploy Commit',
-                              icon: <RefreshCw className="h-3.5 w-3.5" />,
-                              onClick: () => triggerDeploy(),
-                            },
-                            {
-                              label: 'Open Release URL',
-                              icon: <ExternalLink className="h-3.5 w-3.5" />,
-                              onClick: () => window.open(dep.previewUrl, '_blank'),
-                            },
-                            {
-                              label: 'Copy Commit SHA',
-                              icon: <Copy className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                navigator.clipboard?.writeText(dep.commitSha);
-                                toast.success(`Copied SHA ${dep.commitSha.slice(0, 7)}`);
+                        {/* Column 3: Endpoint (ONLY shown when container actually exists & is live) */}
+                        <td className="px-3.5 py-2.5 min-w-0">
+                          {isRowLive ? (
+                            <a
+                              href={dep.previewUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 truncate font-mono text-[11px] text-zinc-300 hover:text-orange-400 transition-colors max-w-full"
+                              title={dep.previewUrl}
+                            >
+                              <Globe
+                                className={`h-3 w-3 shrink-0 ${
+                                  isCurrentProd ? 'text-emerald-400' : 'text-violet-400'
+                                }`}
+                              />
+                              <span className="truncate">
+                                {dep.previewUrl.replace('https://', '')}
+                              </span>
+                              <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" />
+                            </a>
+                          ) : (
+                            <span className="font-mono text-[11px] text-zinc-600">—</span>
+                          )}
+                        </td>
+
+                        {/* Column 4: Time & Duration */}
+                        <td className="px-3.5 py-2.5 text-right font-mono tabular-nums text-[11px] text-zinc-300 whitespace-nowrap">
+                          <div>{dep.durationSec}s</div>
+                          <div className="text-[10px] text-zinc-500">{formattedTime}</div>
+                        </td>
+
+                        {/* Column 5: Actions */}
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          <ActionMenu
+                            items={[
+                              {
+                                label: 'View Build Logs',
+                                icon: <TerminalIcon className="h-3.5 w-3.5" />,
+                                onClick: () => setBuildLogsDeployment(dep),
                               },
-                            },
-                          ]}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
+                              ...((dep.isLatestStandby || dep.slot?.toLowerCase() === standbySlotName) && !isCurrentProd
+                                ? [
+                                    {
+                                      label: `Promote Slot ${dep.slot?.toUpperCase()} to Prod`,
+                                      icon: <Rocket className="h-3.5 w-3.5" />,
+                                      onClick: () => handlePromotePreviewSlot(),
+                                    },
+                                  ]
+                                : []),
+                              ...(canRollbackThisRow && !isPinnedProduction
+                                ? [
+                                    {
+                                      label: `Rollback to Slot ${dep.slot?.toUpperCase()}`,
+                                      icon: <RotateCcw className="h-3.5 w-3.5" />,
+                                      onClick: () => triggerDeploy({ rollbackFrom: dep }),
+                                    },
+                                  ]
+                                : []),
+                              ...(hasValidGitSha && !isCurrentProd
+                                ? [
+                                    {
+                                      label: `Redeploy Commit (${dep.commitSha.slice(0, 7)})`,
+                                      icon: <RefreshCw className="h-3.5 w-3.5" />,
+                                      onClick: () => triggerDeploy({ rollbackFrom: dep }),
+                                    },
+                                  ]
+                                : []),
+                              ...(isRowLive
+                                ? [
+                                    {
+                                      label: 'Open Live URL',
+                                      icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                      onClick: () => window.open(dep.previewUrl, '_blank'),
+                                    },
+                                  ]
+                                : []),
+                              ...(hasValidGitSha
+                                ? [
+                                    {
+                                      label: 'Copy Commit SHA',
+                                      icon: <Copy className="h-3.5 w-3.5" />,
+                                      onClick: () => {
+                                        navigator.clipboard?.writeText(dep.commitSha);
+                                        toast.success(`Copied SHA ${dep.commitSha.slice(0, 7)}`);
+                                      },
+                                    },
+                                  ]
+                                : []),
+                              {
+                                label: 'Delete Build Log',
+                                icon: <Trash2 className="h-3.5 w-3.5" />,
+                                variant: 'danger',
+                                onClick: async () => {
+                                  const rawLogId = String(dep.id).replace(/^dep-/, '');
+                                  const res = await backendApi.deployLogDelete(app.id, rawLogId);
+                                  if (!res.ok) {
+                                    toast.error(res.error || 'Failed to delete build log');
+                                    return;
+                                  }
+                                  onUpdateApp({
+                                    ...app,
+                                    deployments: app.deployments.filter((d) => d.id !== dep.id),
+                                  });
+                                  toast.success(`Deleted build log ${dep.id}`);
+                                },
+                              },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -2692,7 +3363,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const parsed = envRawText
                       .split('\n')
                       .map((l) => l.trim())
@@ -2706,9 +3377,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                           isSecret: true,
                         };
                       });
+                    const res = await backendApi.saveAppEnv(app.id, envRawText);
+                    if (!res.ok) {
+                      toast.error(res.error || 'Failed to save .env file');
+                      return;
+                    }
                     onUpdateApp({ ...app, envVars: parsed });
                     setEnvRawMode(false);
-                    toast.success(`Synced ${parsed.length} variables`);
+                    toast.success(`Saved ${parsed.length} variables to .env`);
                   }}
                   className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
                 >
@@ -2802,14 +3478,21 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const rawEnv = app.envVars.map((e) => `${e.key}=${e.value}`).join('\n');
-                    void backendApi.saveAppEnv(app.id, rawEnv);
+                  onClick={async () => {
+                    const rawEnv = app.envVars
+                      .filter((e) => e.key.trim().length > 0)
+                      .map((e) => `${e.key}=${e.value}`)
+                      .join('\n');
+                    const res = await backendApi.saveAppEnv(app.id, rawEnv);
+                    if (!res.ok) {
+                      toast.error(res.error || 'Failed to save .env variables');
+                      return;
+                    }
                     toast.success(`Saved ${app.envVars.length} variables to .env`);
                   }}
                   className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer"
                 >
-                  Save & Redeploy
+                  Save .env Variables
                 </button>
               </div>
             </div>
@@ -2822,11 +3505,45 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'files' && (
         <div
-          className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-[#111115] shadow-xl select-none"
+          className={`relative overflow-hidden rounded-xl border bg-[#111115] shadow-xl select-none transition-colors ${
+            isDragOverFileManager
+              ? 'border-orange-500 ring-2 ring-orange-500/30'
+              : 'border-white/[0.08]'
+          }`}
           onClick={() => {
             if (contextMenu) setContextMenu(null);
           }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!isDragOverFileManager) setIsDragOverFileManager(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+            setIsDragOverFileManager(false);
+          }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOverFileManager(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              const droppedFiles = Array.from(e.dataTransfer.files);
+              void runLocalUpload(droppedFiles);
+            }
+          }}
         >
+          {/* Visual Drag & Drop Overlay */}
+          {isDragOverFileManager && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#09090b]/85 backdrop-blur-sm border-2 border-dashed border-orange-500">
+              <Upload className="h-10 w-10 text-orange-400 mb-2 animate-bounce" />
+              <p className="text-sm font-semibold text-zinc-100">
+                Drop files here to upload into /{app.slug}{currentDir ? `/${currentDir}` : ''}
+              </p>
+              <p className="text-xs text-zinc-400 mt-0.5">Zip archives, code files, and assets are supported</p>
+            </div>
+          )}
           {/* 1. TOP CPANEL-STYLE FILE MANAGER ACTION TOOLBAR */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#0c0c0f] px-3.5 py-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2899,15 +3616,57 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <span>Extract</span>
               </button>
 
-              {/* Bulk Delete when items are checked */}
+              <div className="mx-0.5 h-4 w-px bg-white/[0.07]" />
+
+              <a
+                href={`/api/v1/apps/${encodeURIComponent(app.id)}/workspace/archive`}
+                download={`${app.slug}-workspace.tar.gz`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                title="Download full workspace backup (.tar.gz archive)"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Export Workspace</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRestoreFile(null);
+                  setRestoreArchiveModalOpen(true);
+                }}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                title="Restore full workspace from a .tar.gz or .zip archive"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Restore Archive</span>
+              </button>
+
+              {/* Bulk Move, Copy & Delete when items are checked */}
               {selectedEntries.length > 0 && (
                 <>
                   <div className="mx-0.5 h-4 w-px bg-white/[0.07]" />
                   <button
                     type="button"
+                    onClick={() => openMoveOrCopyModal(selectedEntries, 'move')}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] font-medium text-orange-300 hover:bg-orange-500/20 cursor-pointer"
+                    title="Move selected files/folders"
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    <span>Move ({selectedEntries.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openMoveOrCopyModal(selectedEntries, 'copy')}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-[11px] font-medium text-sky-300 hover:bg-sky-500/20 cursor-pointer"
+                    title="Copy selected files/folders"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copy ({selectedEntries.length})</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
-                      setDeletedFilePaths((prev) => [...prev, ...selectedEntries]);
-                      toast.success(`Deleted ${selectedEntries.length} selected item(s)`);
+                      void deleteEntries(selectedEntries);
                       setSelectedEntries([]);
                     }}
                     className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
@@ -3062,6 +3821,17 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => navigateToFolder('')}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      targetPath: '',
+                      targetName: app.slug,
+                      isFolder: true,
+                    });
+                  }}
                   className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-mono text-xs transition-colors cursor-pointer ${
                     currentDir === '' && !editingFilePath
                       ? 'bg-amber-500/15 text-amber-300 font-semibold ring-1 ring-amber-500/25'
@@ -3282,7 +4052,21 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </div>
 
             {/* RIGHT PANE: Directory Listing Table OR Auto Code Editor when a file is opened */}
-            <div className="lg:col-span-9 flex flex-col justify-between bg-[#111115] min-w-0">
+            <div
+              className="lg:col-span-9 flex flex-col justify-between bg-[#111115] min-w-0"
+              onContextMenu={(e) => {
+                // Allow right click on empty canvas to open actions menu for current folder
+                if ((e.target as HTMLElement).closest('tr')) return;
+                e.preventDefault();
+                setContextMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  targetPath: currentDir,
+                  targetName: currentDir ? (currentDir.split('/').pop() || currentDir) : app.slug,
+                  isFolder: true,
+                });
+              }}
+            >
               {!editingFilePath ? (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[600px] table-fixed text-left text-xs">
@@ -3339,7 +4123,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                           </td>
                           <td className="px-3 py-2.5 text-zinc-600">—</td>
                           <td className="px-3 py-2.5 text-zinc-600">—</td>
-                          <td className="px-3 py-2.5 text-[11px] text-zinc-500">0755</td>
+                          <td className="px-3 py-2.5 text-[11px] text-zinc-500">755</td>
                           <td className="px-3 py-2.5"></td>
                         </tr>
                       )}
@@ -3400,10 +4184,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             >
                               <button
                                 type="button"
-                                onClick={() => openChmodFor(dirPath)}
-                                className="hover:text-emerald-400 hover:underline cursor-pointer"
+                                onClick={() => openChmodFor(dirPath, true)}
+                                className="font-mono hover:text-emerald-400 hover:underline cursor-pointer"
                               >
-                                {filePermissions[dirPath] || 'drwxr-xr-x (0755)'}
+                                {formatPermOctal(filePermissions[dirPath], true)}
                               </button>
                             </td>
                             <td
@@ -3435,6 +4219,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                     },
                                   },
                                   {
+                                    label: 'Copy / Move to...',
+                                    icon: <Copy className="h-3.5 w-3.5" />,
+                                    onClick: () => openMoveOrCopyModal([dirPath]),
+                                  },
+                                  {
                                     label: 'Permissions (chmod)',
                                     icon: <KeyRound className="h-3.5 w-3.5" />,
                                     onClick: () => openChmodFor(dirPath),
@@ -3444,8 +4233,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                     icon: <Trash2 className="h-3.5 w-3.5" />,
                                     variant: 'danger',
                                     onClick: () => {
-                                      setDeletedFilePaths((prev) => [...prev, `dir:${dirPath}`]);
-                                      toast.success(`Deleted folder /${dirPath}`);
+                                      void deleteEntries([dirPath]);
                                     },
                                   },
                                 ]}
@@ -3516,10 +4304,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             >
                               <button
                                 type="button"
-                                onClick={() => openChmodFor(file.path)}
-                                className="hover:underline cursor-pointer"
+                                onClick={() => openChmodFor(file.path, false)}
+                                className="font-mono hover:underline cursor-pointer"
                               >
-                                {filePermissions[file.path] || '-rw-r--r-- (0644)'}
+                                {formatPermOctal(filePermissions[file.path], false)}
                               </button>
                             </td>
                             <td
@@ -3561,15 +4349,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                   {
                                     label: 'Copy / Move to...',
                                     icon: <Copy className="h-3.5 w-3.5" />,
-                                    onClick: () => {
-                                      setMoveTarget({
-                                        path: file.path,
-                                        name: file.name,
-                                        mode: 'move',
-                                      });
-                                      setMoveDestInput(currentDir || 'config');
-                                      setShowInlineFolderCreator(false);
-                                    },
+                                    onClick: () => openMoveOrCopyModal([file.path]),
                                   },
                                   {
                                     label: 'Compress (.zip / .tar.gz)',
@@ -3584,15 +4364,24 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                   {
                                     label: 'Download',
                                     icon: <Download className="h-3.5 w-3.5" />,
-                                    onClick: () => toast.success(`Downloaded ${file.name}`),
+                                    onClick: () => {
+                                      const a = document.createElement('a');
+                                      a.href = `/apps/${encodeURIComponent(
+                                        app.id
+                                      )}/file?path=${encodeURIComponent(file.path)}&download=1`;
+                                      a.download = file.name;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      toast.success(`Downloading ${file.name}`);
+                                    },
                                   },
                                   {
                                     label: 'Delete',
                                     icon: <Trash2 className="h-3.5 w-3.5" />,
                                     variant: 'danger',
                                     onClick: () => {
-                                      setDeletedFilePaths((prev) => [...prev, file.path]);
-                                      toast.success(`Deleted ${file.path}`);
+                                      void deleteEntries([file.path]);
                                     },
                                   },
                                 ]}
@@ -3667,10 +4456,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => openChmodFor(selectedFile.path)}
+                        onClick={() => openChmodFor(selectedFile.path, false)}
                         className="hidden md:inline-block font-mono text-[11px] text-emerald-400 hover:underline cursor-pointer px-1.5"
                       >
-                        {filePermissions[selectedFile.path] || '-rw-r--r-- (0644)'}
+                        {formatPermOctal(filePermissions[selectedFile.path], false)}
                       </button>
                     </div>
                   </div>
@@ -3680,8 +4469,16 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     language={selectedFile.language}
                     value={selectedFile.content}
                     onChange={handleSaveFileContent}
-                    onSave={() => {
-                      void backendApi.fileSave(app.id, selectedFile.path, selectedFile.content);
+                    onSave={async () => {
+                      const res = await backendApi.fileSave(
+                        app.id,
+                        selectedFile.path,
+                        selectedFile.content
+                      );
+                      if (!res.ok) {
+                        toast.error(res.error || res.message || `Failed to save ${selectedFile.path}`);
+                        return;
+                      }
                       if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
                         void backendApi.setGitSync(app.id, false, false);
                         onUpdateApp({
@@ -3695,15 +4492,25 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       } else {
                         toast.success(`Saved ${selectedFile.path}`);
                       }
+                      await syncWorkspaceFilesFromDisk();
                     }}
-                    permissions={filePermissions[selectedFile.path] || '-rw-r--r-- (0644)'}
+                    permissions={formatPermOctal(filePermissions[selectedFile.path], false)}
                     height={420}
                     actions={
                       <button
                         type="button"
-                        onClick={() => {
-                          void backendApi.fileSave(app.id, selectedFile.path, selectedFile.content);
-                          void backendApi.composeAction(app.id, 'restart');
+                        onClick={async () => {
+                          const res = await backendApi.fileSave(
+                            app.id,
+                            selectedFile.path,
+                            selectedFile.content
+                          );
+                          if (!res.ok) {
+                            toast.error(
+                              res.error || res.message || `Failed to save ${selectedFile.path}`
+                            );
+                            return;
+                          }
                           if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
                             void backendApi.setGitSync(app.id, false, false);
                             onUpdateApp({
@@ -3711,18 +4518,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                               sourceType: 'compose',
                               gitSync: false,
                             });
-                            toast.success(
-                              `Saved ${selectedFile.path}, paused Git Sync & restarted compose services`
-                            );
-                          } else {
-                            toast.success(`Saved ${selectedFile.path} & restarted compose services`);
                           }
+                          await syncWorkspaceFilesFromDisk();
+                          void triggerDeploy();
                         }}
                         className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/25 cursor-pointer"
                       >
                         <RotateCw className="h-3 w-3" />
-                        <span className="hidden sm:inline">Save & Restart</span>
-                        <span className="sm:hidden">Restart</span>
+                        <span className="hidden sm:inline">Save & Deploy</span>
+                        <span className="sm:hidden">Deploy</span>
                       </button>
                     }
                   />
@@ -3736,7 +4540,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <div
               className="fixed z-50 w-56 rounded-xl border border-white/[0.12] bg-[#141419]/98 p-1.5 shadow-2xl backdrop-blur-xl font-sans text-xs"
               style={{
-                top: Math.min(contextMenu.y, window.innerHeight - 310),
+                top:
+                  contextMenu.y + 440 > window.innerHeight
+                    ? Math.max(10, window.innerHeight - 450)
+                    : contextMenu.y,
                 left: Math.min(contextMenu.x, window.innerWidth - 240),
               }}
               onClick={(e) => e.stopPropagation()}
@@ -3754,14 +4561,73 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
               <div className="py-1 space-y-0.5">
                 {contextMenu.isFolder ? (
-                  <button
-                    type="button"
-                    onClick={() => navigateToFolder(contextMenu.targetPath)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Open Folder</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => navigateToFolder(contextMenu.targetPath)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
+                      <span>Open Folder</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetDir = contextMenu.targetPath;
+                        setCurrentDir(targetDir);
+                        setNewFileName(targetDir ? `${targetDir}/` : '');
+                        setNewFileModalOpen(true);
+                        setContextMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      <FilePlus className="h-3.5 w-3.5 text-orange-400" />
+                      <span>New File in this Folder</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetDir = contextMenu.targetPath;
+                        setCurrentDir(targetDir);
+                        setNewFolderName(targetDir ? `${targetDir}/` : '');
+                        setNewFolderModalOpen(true);
+                        setContextMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5 text-amber-400" />
+                      <span>New Subfolder</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentDir(contextMenu.targetPath);
+                        setUploadModalOpen(true);
+                        setContextMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-sky-400" />
+                      <span>Upload Files Here</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextMenu(null);
+                        toast.success(`Reloaded /data/apps/${app.slug}${contextMenu.targetPath ? `/${contextMenu.targetPath}` : ''}`);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-teal-400" />
+                      <span>Reload / Refresh</span>
+                    </button>
+
+                    <div className="my-1 border-t border-white/[0.06]" />
+                  </>
                 ) : isArchiveFile(contextMenu.targetName) ? (
                   <button
                     type="button"
@@ -3822,24 +4688,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <span>Rename</span>
                 </button>
 
-                {!contextMenu.isFolder && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMoveTarget({
-                        path: contextMenu.targetPath,
-                        name: contextMenu.targetName,
-                        mode: 'move',
-                      });
-                      setMoveDestInput(currentDir || 'config');
-                      setContextMenu(null);
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
-                  >
-                    <Copy className="h-3.5 w-3.5 text-sky-400" />
-                    <span>Copy / Move to...</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => openMoveOrCopyModal([contextMenu.targetPath])}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
+                >
+                  <Copy className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Copy / Move to...</span>
+                </button>
 
                 <button
                   type="button"
@@ -3869,7 +4725,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      toast.success(`Downloaded ${contextMenu.targetName}`);
+                      const a = document.createElement('a');
+                      a.href = `/apps/${encodeURIComponent(
+                        app.id
+                      )}/file?path=${encodeURIComponent(contextMenu.targetPath)}&download=1`;
+                      a.download = contextMenu.targetName;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      toast.success(`Downloading ${contextMenu.targetName}`);
                       setContextMenu(null);
                     }}
                     className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-zinc-200 hover:bg-white/[0.06] cursor-pointer"
@@ -3884,13 +4748,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (contextMenu.isFolder) {
-                      setDeletedFilePaths((prev) => [...prev, `dir:${contextMenu.targetPath}`]);
-                      toast.success(`Deleted folder /${contextMenu.targetPath}`);
-                    } else {
-                      setDeletedFilePaths((prev) => [...prev, contextMenu.targetPath]);
-                      toast.success(`Deleted ${contextMenu.targetPath}`);
-                    }
+                    void deleteEntries([contextMenu.targetPath]);
                     setContextMenu(null);
                   }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-rose-400 hover:bg-rose-500/15 cursor-pointer"
@@ -4079,7 +4937,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           {/* Log Console Stream */}
           <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#07070a]">
             <div className="divide-y divide-white/[0.03] font-mono text-xs max-h-[420px] overflow-y-auto">
-              {filteredLogs.map((l) => (
+              {filteredLogs.length === 0 ? (
+                <div className="p-8 text-center text-xs text-zinc-500 font-mono">
+                  {logLiveTail ? 'Listening for container log output...' : 'No logs recorded'}
+                </div>
+              ) : (
+                filteredLogs.map((l) => (
                 <div
                   key={l.id}
                   className={`group flex items-start justify-between gap-3 px-3.5 py-2 hover:bg-white/[0.03] transition-colors ${
@@ -4146,7 +5009,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     <Copy className="h-3 w-3" />
                   </button>
                 </div>
-              ))}
+              )))}
             </div>
           </div>
         </div>
@@ -4160,7 +5023,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           hostLabel={`root@${app.slug}`}
           promptPrefix={`root@${app.slug}:/app# `}
           services={app.services}
-          appSlug={app.slug}
+          appSlug={app.id}
           initialService={terminalService || app.services[0]?.service}
           height={400}
         />
@@ -4206,9 +5069,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       <div className="font-mono text-[11px] text-zinc-500">{c.email}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-200 uppercase">
-                        {c.role}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-200 uppercase">
+                          {c.role}
+                        </span>
+                        {Array.isArray((c as any).permissions) &&
+                          (c as any).permissions.map((perm: string) => (
+                            <span
+                              key={perm}
+                              className="rounded bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.2 font-mono text-[9px] text-orange-300"
+                            >
+                              {perm}
+                            </span>
+                          ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-zinc-400">{c.addedAt}</td>
                     <td className="px-3 py-3 text-right">
@@ -4277,13 +5151,35 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       >
         <form onSubmit={handleAddDomainSubmit} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Domain</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-[11px] font-medium text-zinc-400">Domain</label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNewDomainName(formatWildcardDomain(app.slug, 'sslip.io'))
+                  }
+                  className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer"
+                >
+                  + sslip.io
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNewDomainName(formatWildcardDomain(app.slug, 'nip.io'))
+                  }
+                  className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer"
+                >
+                  + nip.io
+                </button>
+              </div>
+            </div>
             <input
               type="text"
               required
               value={newDomainName}
               onChange={(e) => setNewDomainName(e.target.value)}
-              placeholder={`api.${app.slug}.com`}
+              placeholder={formatWildcardDomain(app.slug, 'sslip.io')}
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
           </div>
@@ -4430,24 +5326,32 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </span>
             </div>
 
-            <div className="rounded-xl border border-white/[0.07] bg-[#070709] p-4 space-y-2 leading-relaxed">
-              <div className="text-zinc-500">
-                [1/4] $ git checkout {buildLogsDeployment.branch} ({buildLogsDeployment.commitSha})
-              </div>
-              <div className="text-emerald-400">
-                [2/4] ✓ Validated {app.composeFilePath} · injected {app.envVars.length} variables
-              </div>
-              <div className="text-zinc-300">
-                [3/4] $ docker compose -p {app.slug} up -d --build --remove-orphans
-              </div>
-              {app.services.map((s) => (
-                <div key={s.id} className="text-emerald-400 pl-4">
-                  ✔ Container {s.name} Healthy ({formatCompactPort(s.ports)})
+            <div className="rounded-xl border border-white/[0.07] bg-[#070709] p-3 space-y-0.5 leading-relaxed max-h-[60vh] overflow-y-auto font-mono text-[11px]">
+              {buildLogsDeployment.rawOutput ? (
+                <div className="select-text">
+                  {renderStyledBuildLog(buildLogsDeployment.rawOutput)}
                 </div>
-              ))}
-              <div className="text-orange-400">
-                [4/4] ✓ Switched Caddy upstream route in {buildLogsDeployment.durationSec}s
-              </div>
+              ) : (
+                <>
+                  <div className="text-zinc-500">
+                    [1/4] $ git checkout {buildLogsDeployment.branch} ({buildLogsDeployment.commitSha})
+                  </div>
+                  <div className="text-emerald-400">
+                    [2/4] ✓ Validated {app.composeFilePath} · injected {app.envVars.length} variables
+                  </div>
+                  <div className="text-zinc-300">
+                    [3/4] $ docker compose -p {app.slug} up -d --build --remove-orphans
+                  </div>
+                  {app.services.map((s) => (
+                    <div key={s.id} className="text-emerald-400 pl-4">
+                      ✔ Container {s.name} Healthy ({formatCompactPort(s.ports)})
+                    </div>
+                  ))}
+                  <div className="text-orange-400">
+                    [4/4] ✓ Switched Caddy upstream route in {buildLogsDeployment.durationSec}s
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
@@ -4535,7 +5439,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     }`}
                   >
                     <Folder className="h-3 w-3 text-amber-400 fill-amber-400/20" />
-                    <span>{dir ? `/${dir}` : '/ (root)'}</span>
+                    <span>{dir ? `/${app.slug}/${dir}` : `/${app.slug}`}</span>
                   </button>
                 );
               })}
@@ -4551,7 +5455,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               required
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
-              placeholder={currentDir ? `${currentDir}/worker.ts` : 'src/worker.ts'}
+              placeholder={currentDir ? `${currentDir}/worker.ts` : 'worker.ts'}
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
           </div>
@@ -4606,7 +5510,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     }`}
                   >
                     <Folder className="h-3 w-3 text-amber-400 fill-amber-400/20" />
-                    <span>{dir ? `/${dir}` : '/ (root)'}</span>
+                    <span>{dir ? `/${app.slug}/${dir}` : `/${app.slug}`}</span>
                   </button>
                 );
               })}
@@ -5059,14 +5963,22 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       >
         {chmodModalFile && (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
+              const targetPath = chmodModalFile;
+              const targetOctal = computedOctal.octal;
+              const res = await backendApi.fileChmod(app.id, targetPath, targetOctal);
+              if (res.ok === false) {
+                toast.error(res.error || res.message || 'Failed to update file permissions');
+                return;
+              }
               setFilePermissions((prev) => ({
                 ...prev,
-                [chmodModalFile]: computedOctal.symbolic,
+                [targetPath]: targetOctal,
               }));
+              await syncWorkspaceFilesFromDisk();
               toast.success(
-                `Updated permissions for ${chmodModalFile} to ${computedOctal.octal}`
+                `Updated permissions for ${targetPath} to ${targetOctal}`
               );
               setChmodModalFile(null);
             }}
@@ -5075,7 +5987,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3 py-2 font-mono text-xs">
               <span className="text-zinc-300 truncate">{chmodModalFile}</span>
               <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-emerald-300 font-semibold">
-                {computedOctal.symbolic}
+                {computedOctal.octal}
               </span>
             </div>
 
@@ -5374,6 +6286,84 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         )}
       </ShadcnDialog>
 
+      {/* 6f. Restore Workspace Archive Modal */}
+      <ShadcnDialog
+        open={restoreArchiveModalOpen}
+        onClose={() => setRestoreArchiveModalOpen(false)}
+        title="Restore Workspace Archive"
+        icon={<RotateCcw className="h-4 w-4 text-amber-400" />}
+      >
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!selectedRestoreFile) {
+              toast.error('Please select a .tar.gz or .zip archive file');
+              return;
+            }
+            setIsRestoringArchive(true);
+            toast.info(`Extracting ${selectedRestoreFile.name} into workspace...`);
+            try {
+              const res = await backendApi.uploadWorkspaceArchive(app.id, selectedRestoreFile);
+              if (res.ok) {
+                toast.success(
+                  res.message || `Successfully restored ${res.files_extracted || ''} files to workspace`
+                );
+                await syncWorkspaceFilesFromDisk();
+                setRestoreArchiveModalOpen(false);
+                setSelectedRestoreFile(null);
+              } else {
+                toast.error(res.error || 'Failed to extract archive');
+              }
+            } catch (err: any) {
+              toast.error(err.message || 'Restore failed');
+            } finally {
+              setIsRestoringArchive(false);
+            }
+          }}
+          className="space-y-4"
+        >
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+            <strong>Warning:</strong> Restoring an archive will unpack its files directly into{' '}
+            <code className="font-mono text-zinc-100">/{app.slug}</code>, overwriting matching existing files.
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              Select Archive File (.tar.gz, .tgz, .zip)
+            </label>
+            <input
+              type="file"
+              required
+              accept=".tar.gz,.tgz,.zip,.tar"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setSelectedRestoreFile(e.target.files[0]);
+                }
+              }}
+              className="w-full text-xs text-zinc-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:text-xs file:font-semibold file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <button
+              type="button"
+              disabled={isRestoringArchive}
+              onClick={() => setRestoreArchiveModalOpen(false)}
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isRestoringArchive || !selectedRestoreFile}
+              className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400 cursor-pointer disabled:opacity-50"
+            >
+              {isRestoringArchive ? 'Extracting...' : 'Restore Workspace'}
+            </button>
+          </div>
+        </form>
+      </ShadcnDialog>
+
       {/* 6f. Rename File / Folder Modal */}
       <ShadcnDialog
         open={Boolean(renameTarget)}
@@ -5418,20 +6408,32 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       <ShadcnDialog
         open={Boolean(moveTarget)}
         onClose={() => setMoveTarget(null)}
-        title="Copy / Move File"
+        title={moveTarget?.mode === 'move' ? 'Move Files / Folders' : 'Copy Files / Folders'}
         icon={<Copy className="h-4 w-4 text-sky-400" />}
       >
         {moveTarget && (
           <form onSubmit={handleMoveOrCopySubmit} className="space-y-4">
-            {/* Source File Indicator */}
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3 py-2 font-mono text-xs">
-              <span className="flex items-center gap-2 text-zinc-200 truncate">
-                <DevFileIcon filename={moveTarget.name} />
-                <span className="truncate font-semibold">{moveTarget.path}</span>
-              </span>
-              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase text-zinc-400 shrink-0">
-                Source
-              </span>
+            {/* Source Files Indicator */}
+            <div className="rounded-lg border border-white/[0.07] bg-[#09090b] px-3 py-2 font-mono text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-zinc-400 font-sans">
+                  Selected Items ({moveTarget.paths.length}):
+                </span>
+                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase text-zinc-400 shrink-0">
+                  Source
+                </span>
+              </div>
+              <div className="max-h-24 overflow-y-auto space-y-1">
+                {moveTarget.paths.map((p) => {
+                  const fname = p.split('/').pop() || p;
+                  return (
+                    <div key={p} className="flex items-center gap-2 text-zinc-200 truncate">
+                      <DevFileIcon filename={fname} />
+                      <span className="truncate font-semibold">{p}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Mode Switch: Move vs Copy */}
@@ -5556,12 +6558,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               />
               <div className="mt-1.5 flex items-center justify-between rounded-md bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
-                <span>Resulting Path:</span>
+                <span>Destination Folder:</span>
                 <span className="text-emerald-400 font-semibold truncate ml-2">
                   /data/apps/{app.slug}/
                   {moveDestInput.trim().replace(/^\/+|\/+$/g, '')
-                    ? `${moveDestInput.trim().replace(/^\/+|\/+$/g, '')}/${moveTarget.name}`
-                    : moveTarget.name}
+                    ? `${moveDestInput.trim().replace(/^\/+|\/+$/g, '')}/`
+                    : '(Root)'}
                 </span>
               </div>
             </div>
@@ -5619,18 +6621,86 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
 
           {uploadMode === 'local' ? (
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                File Name {currentDir ? `(into /${currentDir})` : '(into root)'}
-              </label>
-              <input
-                type="text"
-                required
-                value={uploadFileName}
-                onChange={(e) => setUploadFileName(e.target.value)}
-                placeholder="release-assets.zip or .env.production"
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-              />
+            <div className="space-y-3">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOverUploadZone(true);
+                }}
+                onDragLeave={() => setIsDragOverUploadZone(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragOverUploadZone(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const dropped = Array.from(e.dataTransfer.files);
+                    setSelectedUploadFiles((prev) => [...prev, ...dropped]);
+                  }
+                }}
+                className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-all cursor-pointer ${
+                  isDragOverUploadZone
+                    ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                    : 'border-white/[0.12] bg-[#09090b]/80 hover:border-white/[0.24] hover:bg-zinc-900/60 text-zinc-400'
+                }`}
+                onClick={() => document.getElementById('workspace-file-input')?.click()}
+              >
+                <input
+                  id="workspace-file-input"
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      const files = Array.from(e.target.files);
+                      setSelectedUploadFiles((prev) => [...prev, ...files]);
+                    }
+                  }}
+                />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 mb-2">
+                  <Upload className="h-5 w-5 text-orange-400" />
+                </div>
+                <p className="text-xs font-semibold text-zinc-200">
+                  Click to browse or drag & drop files here
+                </p>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Upload into: <span className="font-mono text-zinc-300">/{currentDir || 'root'}</span>
+                </p>
+              </div>
+
+              {selectedUploadFiles.length > 0 && (
+                <div className="space-y-1.5 rounded-lg border border-white/[0.08] bg-[#09090b] p-2.5 max-h-40 overflow-y-auto">
+                  <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400 px-1 pb-1 border-b border-white/[0.06]">
+                    <span>Selected Files ({selectedUploadFiles.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUploadFiles([])}
+                      className="text-rose-400 hover:underline cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  {selectedUploadFiles.map((f, fIdx) => (
+                    <div
+                      key={fIdx}
+                      className="flex items-center justify-between gap-2 px-1 py-0.5 text-xs font-mono text-zinc-300"
+                    >
+                      <span className="truncate">{f.name}</span>
+                      <div className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500">
+                        <span>{(f.size / 1024).toFixed(1)} KB</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedUploadFiles((prev) => prev.filter((_, i) => i !== fIdx));
+                          }}
+                          className="text-zinc-500 hover:text-rose-400 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div>
@@ -5658,9 +6728,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              disabled={isUploadingFiles}
+              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
             >
-              {uploadMode === 'url' ? 'Fetch URL' : 'Upload'}
+              {isUploadingFiles
+                ? 'Uploading...'
+                : uploadMode === 'url'
+                ? 'Fetch URL'
+                : `Upload ${selectedUploadFiles.length > 0 ? `(${selectedUploadFiles.length})` : ''}`}
             </button>
           </div>
         </form>
@@ -5709,7 +6784,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             void backendApi.addCollaborator(
               app.id,
               uname,
-              newMemberRole === 'deployer' ? 'developer' : 'viewer'
+              newMemberRole === 'deployer' ? 'developer' : 'viewer',
+              newMemberPermissions
             );
             onUpdateApp({
               ...app,
@@ -5720,13 +6796,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   username: uname,
                   email: newMemberEmail.trim(),
                   role: newMemberRole,
+                  permissions: newMemberPermissions,
                   addedAt: 'Just now',
                 },
               ],
             });
             setNewMemberEmail('');
             setMemberModalOpen(false);
-            toast.success('Collaborator invited');
+            toast.success('Collaborator invited with custom permissions');
           }}
           className="space-y-4"
         >
@@ -5744,15 +6821,60 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Role</label>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Role Preset</label>
             <select
               value={newMemberRole}
-              onChange={(e) => setNewMemberRole(e.target.value as 'deployer' | 'viewer')}
+              onChange={(e) => {
+                const nextRole = e.target.value as 'deployer' | 'viewer';
+                setNewMemberRole(nextRole);
+                if (nextRole === 'deployer') {
+                  setNewMemberPermissions(['deploy', 'files', 'terminal', 'logs', 'env']);
+                } else {
+                  setNewMemberPermissions(['logs']);
+                }
+              }}
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 text-xs text-zinc-100"
             >
-              <option value="deployer">Deployer (Deploy, Restart, Logs, Env)</option>
-              <option value="viewer">Viewer (Read-only Metrics & Logs)</option>
+              <option value="deployer">Deployer (Full operational permissions)</option>
+              <option value="viewer">Viewer (Read-only logs & monitoring)</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-2">
+              Granular Action Permissions Matrix
+            </label>
+            <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs">
+              {[
+                { id: 'deploy', label: 'Deploy & Restart' },
+                { id: 'files', label: 'File Manager (Read/Write)' },
+                { id: 'terminal', label: 'Terminal & Exec' },
+                { id: 'env', label: 'Environment Variables' },
+                { id: 'logs', label: 'View Logs & Telemetry' },
+              ].map((p) => {
+                const checked = newMemberPermissions.includes(p.id);
+                return (
+                  <label
+                    key={p.id}
+                    className="flex items-center gap-2 text-zinc-300 cursor-pointer select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewMemberPermissions((prev) => [...prev, p.id]);
+                        } else {
+                          setNewMemberPermissions((prev) => prev.filter((x) => x !== p.id));
+                        }
+                      }}
+                      className="h-3.5 w-3.5 accent-orange-500 rounded"
+                    />
+                    <span className="font-mono text-[11px]">{p.label}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
@@ -5894,6 +7016,30 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
         </div>
       </ShadcnDialog>
+
+      {/* Persistent Upload Progress Floating Toast/Modal */}
+      {isUploadingFiles && (
+        <div className="fixed bottom-5 right-5 z-50 flex w-80 items-center gap-3.5 rounded-xl border border-orange-500/30 bg-[#121217]/98 p-3.5 shadow-2xl backdrop-blur-xl">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 border border-orange-500/25">
+            <Loader2 className="h-5 w-5 animate-spin text-orange-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-xs font-semibold text-zinc-100 truncate">Uploading files...</span>
+              <span className="font-mono text-[10px] text-orange-400 font-semibold tabular-nums">{uploadProgress}%</span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-zinc-400 truncate">
+              {uploadProgress >= 100 ? 'Processing on server...' : uploadFileName}
+            </p>
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-[width] duration-150"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -126,9 +126,10 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             onClick={onPruneUnused}
             disabled={unusedCount === 0}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+            title="Remove all unused and dangling Docker images"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Prune ({unusedCount})
+            Delete Unused ({unusedCount})
           </button>
         </div>
       </div>

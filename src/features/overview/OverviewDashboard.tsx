@@ -5,6 +5,9 @@ import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 
 interface OverviewDashboardProps {
   telemetry: TelemetryPoint[];
+  sys?: any;
+  apps?: any[];
+  containersCount?: number;
   onSelectApp: (appId: string) => void;
   onSelectNav: (nav: NavigationSection) => void;
 }
@@ -74,10 +77,32 @@ const RECENT_DEPLOYMENTS_FEED = [
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   telemetry,
+  sys,
+  apps = [],
+  containersCount = 0,
   onSelectApp,
   onSelectNav,
 }) => {
   const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
+
+  const memUsedGB = sys?.MemUsedGB ? sys.MemUsedGB.toFixed(1) : (15.4).toFixed(1);
+  const memTotalGB = sys?.MemTotalGB ? Math.round(sys.MemTotalGB) : 16;
+  const memPct = sys?.MemUsedPct ? Math.round(sys.MemUsedPct) : 48;
+
+  const diskUsedGB = sys?.DiskUsedGB ? sys.DiskUsedGB.toFixed(1) : (84.2).toFixed(1);
+  const diskTotalGB = sys?.DiskTotalGB ? Math.round(sys.DiskTotalGB) : 120;
+  const diskPct = sys?.DiskUsedPct ? Math.round(sys.DiskUsedPct) : 27;
+
+  const cpuPct = sys?.CPUPercent ? Math.round(sys.CPUPercent) : (telemetry[telemetry.length - 1]?.cpu || 18);
+  const numCPU = sys?.NumCPU || 4;
+
+  const recentDeployments = apps.flatMap((a) =>
+    (a.deployments || []).map((d: any) => ({
+      ...d,
+      appId: a.id,
+      appName: a.name,
+    }))
+  ).slice(0, 5);
 
   return (
     <div className="space-y-5 xl:space-y-6">
@@ -88,17 +113,17 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Host Memory</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                15.4 <span className="text-xs font-normal text-zinc-500">/ 32 GB</span>
+                {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
               </p>
             </div>
             <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-400 ring-1 ring-sky-500/20">
-              48%
+              {memPct}%
             </span>
           </div>
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
-              style={{ width: '48%' }}
+              style={{ width: `${memPct}%` }}
             />
           </div>
         </div>
@@ -106,19 +131,19 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">NVMe Storage (/)</p>
+              <p className="text-[11px] font-medium text-zinc-400">Storage (/)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                84.2 <span className="text-xs font-normal text-zinc-500">/ 320 GB</span>
+                {diskUsedGB} <span className="text-xs font-normal text-zinc-500">/ {diskTotalGB} GB</span>
               </p>
             </div>
             <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-400 ring-1 ring-orange-500/20">
-              27%
+              {diskPct}%
             </span>
           </div>
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-              style={{ width: '27%' }}
+              style={{ width: `${diskPct}%` }}
             />
           </div>
         </div>
@@ -126,9 +151,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">CPU Load (16 vCPU)</p>
+              <p className="text-[11px] font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {telemetry[telemetry.length - 1]?.cpu || 23}
+                {cpuPct}
                 <span className="text-xs font-normal text-zinc-500">%</span>
               </p>
             </div>
@@ -139,7 +164,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-              style={{ width: `${telemetry[telemetry.length - 1]?.cpu || 23}%` }}
+              style={{ width: `${cpuPct}%` }}
             />
           </div>
         </div>
@@ -149,14 +174,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Containers & TLS</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                7 <span className="text-xs font-normal text-zinc-500">running</span>
+                {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
               </p>
             </div>
             <StatusBadge status="active" label="TLS 1.3" />
           </div>
           <div className="mt-3 flex items-center justify-between font-mono text-[11px] text-zinc-500">
-            <span>4 projects</span>
-            <span>4 SSL routes</span>
+            <span>{apps.length} projects</span>
+            <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
           </div>
         </div>
       </div>
@@ -248,36 +273,46 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
 
             <div className="divide-y divide-white/[0.05]">
-              {RECENT_DEPLOYMENTS_FEED.map((dep) => (
-                <div
-                  key={dep.id}
-                  onClick={() => onSelectApp(dep.appId)}
-                  className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <StatusBadge status={dep.status} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-zinc-100">
-                          {dep.appName}
-                        </span>
-                        <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
-                          {dep.branch}@{dep.sha}
-                        </span>
+              {recentDeployments.length === 0 ? (
+                <div className="p-6 text-center text-xs text-zinc-500 font-mono">
+                  No deployments yet. Create and deploy a project to see releases here.
+                </div>
+              ) : (
+                recentDeployments.map((dep: any) => (
+                  <div
+                    key={dep.id}
+                    onClick={() => onSelectApp(dep.appId)}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StatusBadge status={dep.status || 'ready'} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-zinc-100">
+                            {dep.appName}
+                          </span>
+                          <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
+                            {dep.branch || 'main'}@{dep.commitSha?.slice(0, 7) || 'latest'}
+                          </span>
+                        </div>
+                        <div className="truncate text-[11px] text-zinc-500 mt-0.5">
+                          {dep.commitMessage || 'Production deployment'}
+                        </div>
                       </div>
-                      <div className="truncate text-[11px] text-zinc-500 mt-0.5">{dep.message}</div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
+                      <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                        {dep.trigger || 'manual'}
+                      </span>
+                      <span>{dep.durationSec || 15}s</span>
+                      <span className="text-zinc-500 w-16 text-right">
+                        {dep.startedAt ? new Date(dep.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                      </span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
-                    <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                      {dep.trigger}
-                    </span>
-                    <span>{dep.duration}</span>
-                    <span className="text-zinc-500 w-12 text-right">{dep.time}</span>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -294,11 +329,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="divide-y divide-white/[0.05] font-mono text-xs">
               {[
-                { name: 'dockerd', ver: 'v27.3.1', meta: '7 containers', status: 'running' as const },
-                { name: 'caddy-proxy', ver: 'v2.8.4', meta: 'TLS 1.3 · HTTP/3', status: 'active' as const },
-                { name: 'nextdeployd', ver: 'v2.4.0', meta: '24 MB RAM', status: 'running' as const },
+                { name: 'dockerd', ver: 'v27.3.1', meta: `${containersCount} containers`, status: 'running' as const },
+                { name: 'caddy-proxy', ver: 'ci-alpine', meta: 'TLS 1.3 · sslip.io', status: 'active' as const },
+                { name: 'nextdeployd', ver: 'v2.4.0', meta: 'Embedded panel', status: 'running' as const },
                 { name: 'mcp-server', ver: 'SSE/JSON-RPC', meta: '16 tools', status: 'active' as const },
-                { name: 'rclone-cron', ver: '0 */6 * * *', meta: 'R2 + GDrive', status: 'connected' as const },
               ].map((d) => (
                 <div
                   key={d.name}

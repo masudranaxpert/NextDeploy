@@ -28,19 +28,22 @@ endpoints or database schema support in the Go backend yet.
     and tear down the preview stack when the PR is merged or closed.
 
 --------------------------------------------------------------------------------
-2. ONE-CLICK POINT-IN-TIME RELEASE ROLLBACK (IMAGE DIGEST / GIT COMMIT SHA)
+2. ONE-CLICK POINT-IN-TIME RELEASE ROLLBACK & ZERO-DOWNTIME BLUE/GREEN [DONE]
 --------------------------------------------------------------------------------
-- UI Location:
-  `src/features/workspace/AppWorkspace.tsx` (Deployments Tab -> 3-dot Action Menu)
+- Status: Fully implemented in Go backend & React UI.
+- Backend Features:
+  - SQLite schema migrations: `apps.active_slot`, `apps.standby_slot`, `deploy_logs.slot`,
+    `deploy_logs.commit_sha`, `deploy_logs.image_digest`, `deploy_logs.env_snapshot`,
+    and `allocated_ports` table.
+  - Caddy Port Gateway (`:4013`, `127.0.0.1:4013`) with `lb_try_duration: 30s` and active healthcheck.
+  - Multi-tier Readiness Probe Cascade (Docker Healthcheck -> HTTP 200-399 -> TCP socket dial).
+  - 30-second Connection Draining grace period before warm standby retention.
+  - Backend handler `POST /apps/:id/deployments/:depId/rollback` for instant slot switch (< 100ms)
+    or deep Git SHA restore.
 - UI Behavior:
-  - Users can click "Promote / Rollback to this Release" on any historical deployment
-    record to roll back production to a previous commit SHA or image digest.
-- Pending Go Backend Work:
-  - Store `commit_sha` and image digests per `DeployLog` record in SQLite (`internal/db`).
-  - Add `POST /apps/:id/deployments/:depId/rollback` endpoint to:
-    1. Checkout the specific Git commit SHA (or pull previous image digest).
-    2. Execute `docker compose up -d --force-recreate`.
-    3. Record an audit log entry and deployment log with `action: "rollback"`.
+  - Cleaned up mock PR badges and previews as requested.
+  - Active Production Slot & Zero-Downtime Status banner added.
+  - 3-dot menu "Rollback to Release" wired to backend API.
 
 --------------------------------------------------------------------------------
 3. FILE MANAGER CHMOD PERMISSIONS MATRIX (OCTAL / SYMBOLIC PERMISSIONS)

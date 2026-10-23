@@ -19,6 +19,7 @@ export type NavigationSection =
 
 export type AppWorkspaceTab =
   | 'overview'
+  | 'containers'
   | 'deployments'
   | 'domains'
   | 'files'
@@ -46,11 +47,26 @@ export interface ContainerService {
   ports: string;
 }
 
+export interface PreviewConfig {
+  provider: '' | 'sslip.io' | 'nip.io' | 'custom';
+  base: string;
+  service: string;
+  port: number;
+}
+
+export interface ExposedPort {
+  port: number;
+  bind_ip: string;
+  service: string;
+  protocol: string;
+}
+
 export interface DomainRoute {
   id: string;
   domain: string;
   targetService: string;
   targetPort: number;
+  isPrimary?: boolean;
   tlsProvider: 'LetsEncrypt' | 'ZeroSSL' | 'Internal';
   tlsStatus: 'active' | 'provisioning' | 'error';
   forceHttps: boolean;
@@ -93,6 +109,8 @@ export interface DeploymentRecord {
   status: 'ready' | 'building' | 'failed';
   durationSec: number;
   startedAt: string;
+  slot?: string;
+  rawOutput?: string;
   buildSteps: {
     step?: string;
     name?: string;
@@ -145,7 +163,14 @@ export interface AppStack {
   webhookAutoDeploy: boolean;
   webhookSecret?: string;
   status: AppStatus;
+  activeSlot?: string;
+  standbySlot?: string;
+  pinnedSlot?: string;
+  slotImages?: Record<'blue' | 'green', boolean>;
   primaryDomain?: string;
+  preview?: PreviewConfig;
+  previewHostBase?: string;
+  ports?: ExposedPort[];
   composeFilePath: string;
   owner: string;
   updatedAt: string;

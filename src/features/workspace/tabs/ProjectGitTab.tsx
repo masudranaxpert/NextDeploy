@@ -16,7 +16,6 @@ import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
 import { ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
-import { INITIAL_GIT_PROVIDERS, INITIAL_SYNCED_REPOS } from '../../../data/initialData';
 
 interface ProjectGitTabProps {
   app: AppStack;
@@ -34,40 +33,15 @@ interface RepoOption {
 export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }) => {
   const [gitSyncEnabled, setGitSyncEnabled] = useState<boolean>(app.gitSync ?? (app.sourceType === 'git'));
   const [authMode, setAuthMode] = useState<'public' | 'github_app' | 'gitlab_token'>(
-    app.gitAuthMode || 'github_app'
+    app.gitAuthMode || 'public'
   );
 
-  // Filter providers according to active authMode
-  const availableProviders = useMemo(() => {
-    if (authMode === 'github_app') {
-      return INITIAL_GIT_PROVIDERS.filter((p) => p.provider.toLowerCase() === 'github');
-    }
-    if (authMode === 'gitlab_token') {
-      return INITIAL_GIT_PROVIDERS.filter((p) => p.provider.toLowerCase() === 'gitlab');
-    }
-    return INITIAL_GIT_PROVIDERS;
-  }, [authMode]);
+  const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(app.gitProviderId || '');
 
-  const [selectedProviderId, setSelectedProviderId] = useState<string>(() => {
-    if (app.gitProviderId) return app.gitProviderId;
-    const initialMatch = INITIAL_GIT_PROVIDERS.find((p) =>
-      (app.gitAuthMode === 'gitlab_token' ? 'gitlab' : 'github') === p.provider.toLowerCase()
-    );
-    return initialMatch?.id || '1';
-  });
-
-  const [repoUrl, setRepoUrl] = useState<string>(() => {
-    if (app.gitRepo) return app.gitRepo;
-    if (app.gitAuthMode === 'gitlab_token') {
-      return `https://gitlab.com/nextdeploy-internal/${app.slug}.git`;
-    }
-    return `https://github.com/masudranaxpert/${app.slug}.git`;
-  });
-
+  const [repoUrl, setRepoUrl] = useState<string>(app.gitRepo || '');
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string>(
-    app.gitRepo
-      ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '')
-      : (app.gitAuthMode === 'gitlab_token' ? `nextdeploy/${app.slug}` : `masudranaxpert/${app.slug}`)
+    app.gitRepo ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '') : ''
   );
   const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
@@ -76,26 +50,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
   }, [app.gitSync, app.sourceType]);
 
-  // Initial provider repos filtered by provider type
-  const [providerRepos, setProviderRepos] = useState<RepoOption[]>(() => {
-    const isGitLab = (app.gitAuthMode || 'github_app') === 'gitlab_token';
-    const targetProvider = isGitLab ? 'GitLab' : 'GitHub';
-    const matched = INITIAL_SYNCED_REPOS.filter((r) => r.provider === targetProvider);
-    return (matched.length > 0 ? matched : INITIAL_SYNCED_REPOS).map((r) => ({
-      full_name: r.fullName,
-      clone_url: `https://${r.provider === 'GitLab' ? 'gitlab.com' : 'github.com'}/${r.fullName}.git`,
-      private: r.private,
-      default_branch: r.defaultBranch,
-    }));
-  });
-
-  const [providerBranches, setProviderBranches] = useState<string[]>([
-    'main',
-    'production',
-    'staging',
-    'develop',
-    'feat/stripe-v3',
-  ]);
+  const [providerRepos, setProviderRepos] = useState<RepoOption[]>([]);
+  const [providerBranches, setProviderBranches] = useState<string[]>(['main', 'master', 'production']);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
@@ -104,55 +60,29 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [webhookSecret] = useState<string>(() => {
     if (app.webhookSecret) return app.webhookSecret;
     const cleanSlug = app.slug.replace(/[^a-z0-9]/g, '').slice(0, 8) || 'a1b2c3d4';
-    return `nd_whsec_${cleanSlug}9f8e7d23a54b`;
+    return `nd_whsec_${cleanSlug}`;
   });
   const [showSecret, setShowSecret] = useState(false);
 
-  // Switch authMode and adjust providers, repos, and clone URL placeholders
+  // Fetch real providers on mount
+  useEffect(() => {
+    void backendApi.gitProvidersList().then((res) => {
+      const providers = res.data?.providers || [];
+      setAvailableProviders(providers);
+      if (providers.length > 0 && !selectedProviderId) {
+        setSelectedProviderId(String(providers[0].id));
+      }
+    });
+  }, []);
+
   const handleSelectAuthMode = (mode: 'public' | 'github_app' | 'gitlab_token') => {
     setAuthMode(mode);
-    if (mode === 'github_app') {
-      const gh = INITIAL_GIT_PROVIDERS.find((p) => p.provider.toLowerCase() === 'github');
-      if (gh) {
-        setSelectedProviderId(gh.id);
-        void loadProviderRepos(gh.id);
-      }
-      const ghRepos = INITIAL_SYNCED_REPOS.filter((r) => r.provider === 'GitHub');
-      if (ghRepos.length > 0) {
-        setProviderRepos(
-          ghRepos.map((r) => ({
-            full_name: r.fullName,
-            clone_url: `https://github.com/${r.fullName}.git`,
-            private: r.private,
-            default_branch: r.defaultBranch,
-          }))
-        );
-        setSelectedRepoFullName(ghRepos[0].fullName);
-        setRepoUrl(`https://github.com/${ghRepos[0].fullName}.git`);
-        setBranch(ghRepos[0].defaultBranch || 'main');
-      }
-    } else if (mode === 'gitlab_token') {
-      const gl = INITIAL_GIT_PROVIDERS.find((p) => p.provider.toLowerCase() === 'gitlab');
-      if (gl) {
-        setSelectedProviderId(gl.id);
-        void loadProviderRepos(gl.id);
-      }
-      const glRepos = INITIAL_SYNCED_REPOS.filter((r) => r.provider === 'GitLab');
-      if (glRepos.length > 0) {
-        setProviderRepos(
-          glRepos.map((r) => ({
-            full_name: r.fullName,
-            clone_url: `https://gitlab.com/${r.fullName}.git`,
-            private: r.private,
-            default_branch: r.defaultBranch,
-          }))
-        );
-        setSelectedRepoFullName(glRepos[0].fullName);
-        setRepoUrl(`https://gitlab.com/${glRepos[0].fullName}.git`);
-        setBranch(glRepos[0].defaultBranch || 'main');
-      }
-    } else {
-      setRepoUrl(`https://github.com/masudranaxpert/${app.slug}.git`);
+    const matched = availableProviders.find(
+      (p) => p.provider?.toLowerCase() === (mode === 'gitlab_token' ? 'gitlab' : 'github')
+    );
+    if (matched) {
+      setSelectedProviderId(String(matched.id));
+      void loadProviderRepos(matched.id);
     }
   };
 
@@ -177,6 +107,26 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     setIsLoadingBranches(false);
     if (res.ok && Array.isArray(res.data?.branches) && res.data.branches.length > 0) {
       setProviderBranches(res.data.branches);
+    }
+  };
+
+  const scanPublicBranches = async (urlToScan?: string) => {
+    const targetUrl = (urlToScan || repoUrl).trim();
+    if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://') && !targetUrl.startsWith('git://'))) {
+      toast.error('Enter a valid Git HTTP/HTTPS URL first');
+      return;
+    }
+    setIsLoadingBranches(true);
+    const res = await backendApi.publicGitRemoteBranches(app.id, targetUrl);
+    setIsLoadingBranches(false);
+    if (res.ok && Array.isArray(res.data?.branches) && res.data.branches.length > 0) {
+      setProviderBranches(res.data.branches);
+      if (!branch || !res.data.branches.includes(branch)) {
+        setBranch(res.data.branches[0]);
+      }
+      toast.success(`Found ${res.data.branches.length} remote branch(es)`);
+    } else {
+      toast.error(res.data?.error || 'No remote branches found');
     }
   };
 
@@ -416,9 +366,9 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                   }}
                   className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
                 >
-                  {availableProviders.map((p) => (
+                  {availableProviders.map((p: any) => (
                     <option key={p.id} value={p.id}>
-                      {p.provider} · {p.accountName} ({p.authMethod})
+                      {(p.provider?.toLowerCase() === 'gitlab' ? 'GitLab' : 'GitHub')} · {p.accountName || p.name} ({p.authMethod || p.notes || (p.token ? 'Token' : 'GitHub App')})
                     </option>
                   ))}
                   {availableProviders.length === 0 && (
@@ -469,6 +419,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                 required
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
+                onBlur={() => {
+                  if (authMode === 'public' && repoUrl.trim()) {
+                    void scanPublicBranches();
+                  }
+                }}
                 placeholder={
                   authMode === 'gitlab_token'
                     ? 'https://gitlab.com/group/project.git'
@@ -481,7 +436,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[11px] font-medium text-zinc-400">Target Branch</label>
-                {authMode !== 'public' && (
+                {authMode !== 'public' ? (
                   <button
                     type="button"
                     onClick={() => void loadProviderBranches(selectedProviderId, selectedRepoFullName)}
@@ -491,6 +446,17 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                       className={`h-2.5 w-2.5 ${isLoadingBranches ? 'animate-spin' : ''}`}
                     />
                     Fetch Branches
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void scanPublicBranches()}
+                    className="inline-flex items-center gap-1 font-mono text-[10px] text-orange-400 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw
+                      className={`h-2.5 w-2.5 ${isLoadingBranches ? 'animate-spin' : ''}`}
+                    />
+                    Scan Branches
                   </button>
                 )}
               </div>

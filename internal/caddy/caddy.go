@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"sort"
@@ -308,7 +309,6 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 	return out
 }
 
-
 // ParseComposeServiceNames extracts service names from compose YAML, supporting any indentation.
 func ParseComposeServiceNames(data []byte) []string {
 	var doc map[string]interface{}
@@ -552,9 +552,43 @@ func normalizeNamedVolumes(doc map[string]interface{}, projectName string) {
 	doc["volumes"] = rawVolumes
 }
 
+// MergeCaddyGatewayPorts adds custom host gateway ports (e.g. 4013:4013) to Caddy's published ports.
+func MergeCaddyGatewayPorts(caddySvc map[string]interface{}, ports []db.AllocatedPort) {
+	if len(ports) == 0 {
+		return
+	}
+	var current []interface{}
+	if raw, ok := caddySvc["ports"]; ok {
+		if list, ok := raw.([]interface{}); ok {
+			current = list
+		}
+	}
+	seen := make(map[string]bool)
+	for _, p := range current {
+		seen[fmt.Sprint(p)] = true
+	}
+	for _, ap := range ports {
+		if ap.Port <= 0 {
+			continue
+		}
+		portMapping := fmt.Sprintf("%d:%d", ap.Port, ap.Port)
+		if ap.BindIP != "" && ap.BindIP != "0.0.0.0" {
+			portMapping = fmt.Sprintf("%s:%d:%d", ap.BindIP, ap.Port, ap.Port)
+		}
+		if ap.Protocol == "udp" {
+			portMapping += "/udp"
+		}
+		if !seen[portMapping] {
+			seen[portMapping] = true
+			current = append(current, portMapping)
+		}
+	}
+	caddySvc["ports"] = current
+}
+
 // GenerateRootStackCompose updates the root NextDeploy stack compose with
-// Caddy admin settings and optional panel domain labels.
-func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string, sharedMounts []NDSharedMount) ([]byte, error) {
+// Caddy admin settings, optional panel domain labels, and allocated gateway ports.
+func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string, sharedMounts []NDSharedMount, gatewayPorts ...db.AllocatedPort) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -610,6 +644,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 		})
 	}
 	mergeNDSharedMountsIntoDoc(doc, caddySvc, sharedMounts)
+	MergeCaddyGatewayPorts(caddySvc, gatewayPorts)
 	services["caddy"] = caddySvc
 
 	rawPanel, ok := services["panel"]
@@ -663,13 +698,13 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	}
 
 	labels[prefix] = strings.Join(sites, ", ")
-	
+
 	// Automatic security headers for all user apps
 	labels[prefix+".header.X-Frame-Options"] = "SAMEORIGIN"
 	labels[prefix+".header.X-Content-Type-Options"] = "nosniff"
 	labels[prefix+".header.Referrer-Policy"] = "strict-origin-when-cross-origin"
 	labels[prefix+".header.X-XSS-Protection"] = "1; mode=block"
-	
+
 	if d.EnableHTTPS && ShouldUseInternalTLS(domain) {
 		labels[prefix+".tls"] = "internal"
 	}
@@ -736,7 +771,61 @@ func ShouldUseInternalTLS(domain string) bool {
 			return true
 		}
 	}
+	if ip := ExtractWildcardDomainIP(domain); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return true
+		}
+	}
 	return false
+}
+
+var (
+	wildcardDotIPv4Re  = regexp.MustCompile(`(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
+	wildcardDashIPv4Re = regexp.MustCompile(`(\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})`)
+)
+
+// ExtractWildcardDomainIP extracts the embedded IPv4 address from a sslip.io or nip.io hostname.
+func ExtractWildcardDomainIP(domain string) net.IP {
+	d := strings.TrimSpace(strings.ToLower(domain))
+	if !strings.HasSuffix(d, ".sslip.io") && !strings.HasSuffix(d, ".nip.io") {
+		return nil
+	}
+	if matches := wildcardDashIPv4Re.FindAllString(d, -1); len(matches) > 0 {
+		if ip := net.ParseIP(strings.ReplaceAll(matches[len(matches)-1], "-", ".")); ip != nil {
+			return ip
+		}
+	}
+	if matches := wildcardDotIPv4Re.FindAllString(d, -1); len(matches) > 0 {
+		if ip := net.ParseIP(matches[len(matches)-1]); ip != nil {
+			return ip
+		}
+	}
+	return nil
+}
+
+// FormatWildcardDomain builds a public sslip.io or nip.io hostname using dashed IPv4 notation
+// so Let's Encrypt can issue certificates without hitting public suffix depth edge cases.
+// If the slug ends with digits (e.g. "api-2"), "-app" is appended before the dashed IP so
+// sslip.io / nip.io do not misparse the trailing digit as the first IPv4 octet.
+func FormatWildcardDomain(slug, ipStr, provider string) string {
+	slug = strings.Trim(strings.ToLower(strings.TrimSpace(slug)), "-.")
+	if slug == "" {
+		slug = "app"
+	}
+	last := slug[len(slug)-1]
+	if last >= '0' && last <= '9' {
+		slug = slug + "-app"
+	}
+	ipStr = strings.TrimSpace(ipStr)
+	if ipStr == "" {
+		ipStr = "127.0.0.1"
+	}
+	dashedIP := strings.ReplaceAll(ipStr, ".", "-")
+	provider = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(provider)), ".")
+	if provider != "nip.io" {
+		provider = "sslip.io"
+	}
+	return fmt.Sprintf("%s-%s.%s", slug, dashedIP, provider)
 }
 
 // LabelsToYAML converts a labels map to a YAML snippet for display.

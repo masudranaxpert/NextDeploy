@@ -20,6 +20,12 @@ import {
   Cpu,
   HardDrive,
   Terminal,
+  Eye,
+  EyeOff,
+  User,
+  UserPlus,
+  Lock,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuditLogEntry, PanelUser } from '../../types/nextdeploy';
@@ -35,12 +41,14 @@ interface UsersAndSettingsViewProps {
   mode: 'users' | 'audit-logs' | 'settings';
   users: PanelUser[];
   auditLogs: AuditLogEntry[];
+  cgroupInfo?: { mode?: string; supported?: boolean };
 }
 
 export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   mode,
   users: initialUsers,
   auditLogs: initialAuditLogs,
+  cgroupInfo,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialAuditLogs);
@@ -58,6 +66,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Edit Resource Limits Modal State (matches POST /users/:id/limits in users_handler.go)
   const [limitsModalUser, setLimitsModalUser] = useState<PanelUser | null>(null);
@@ -355,11 +364,22 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             <div className="mt-0.5 text-[10px] text-zinc-500">Sessions revoked & apps stopped</div>
           </div>
           <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3.5">
-            <div className="text-[11px] text-zinc-400">Kernel cgroup v2 Slice</div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-zinc-400">Kernel cgroup v2 Slice</span>
+              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                cgroupInfo?.supported !== false
+                  ? 'border border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
+                  : 'border border-zinc-700 bg-zinc-800 text-zinc-400'
+              }`}>
+                {cgroupInfo?.mode ? `${cgroupInfo.mode} driver` : 'Active'}
+              </span>
+            </div>
             <div className="mt-1 font-mono text-xs font-semibold text-orange-400 truncate">
               nextdeploy-user-&lt;id&gt;.slice
             </div>
-            <div className="mt-1 text-[10px] text-zinc-500">Enforces CPUQuota & MemoryMax</div>
+            <div className="mt-1 text-[10px] text-zinc-500">
+              {cgroupInfo?.supported !== false ? 'Hardware CPUQuota & MemoryMax enforced' : 'System limits fallback'}
+            </div>
           </div>
         </div>
 
@@ -522,90 +542,148 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         {/* Create User Modal (POST /users) */}
         <ShadcnDialog
           open={userModalOpen}
-          onClose={() => setUserModalOpen(false)}
+          onClose={() => {
+            setUserModalOpen(false);
+            setShowNewPassword(false);
+          }}
           title="Create Panel User"
-          icon={<Users className="h-4 w-4 text-orange-400" />}
+          icon={<UserPlus className="h-4 w-4 text-orange-400" />}
         >
           <form onSubmit={handleCreateUser} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Username (min 3 characters)
-              </label>
-              <input
-                type="text"
-                required
-                minLength={3}
-                placeholder="e.g. developer-alex"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-zinc-300">
+                  Username
+                </label>
+                <span className="text-[10px] text-zinc-500 font-mono">Min 3 characters</span>
+              </div>
+              <div className="relative flex items-center">
+                <span className="absolute left-3 text-zinc-500 text-xs font-mono">@</span>
+                <input
+                  type="text"
+                  required
+                  minLength={3}
+                  placeholder="developer-alex"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] pl-8 pr-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none transition-colors"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Password (min 8 characters, bcrypt hashed)
-              </label>
-              <input
-                type="password"
-                required
-                minLength={8}
-                placeholder="Minimum 8 characters"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-zinc-300">
+                  Password
+                </label>
+                <span className="text-[10px] text-zinc-500 font-mono">Min 8 characters</span>
+              </div>
+              <div className="relative flex items-center">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  required
+                  minLength={8}
+                  placeholder="Enter secure password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] pl-3 pr-10 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((p) => !p)}
+                  title={showNewPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-2.5 text-zinc-400 hover:text-white p-1 cursor-pointer transition-colors"
+                >
+                  {showNewPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                Encrypted securely with bcrypt before saving to database.
+              </p>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              <label className="block text-xs font-medium text-zinc-300 mb-2">
                 Account Role
               </label>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setNewRole('user')}
-                  className={`rounded-lg border p-3 text-left transition cursor-pointer ${
+                  className={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all cursor-pointer ${
                     newRole === 'user'
-                      ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
-                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                      ? 'border-orange-500/60 bg-orange-500/[0.07] ring-1 ring-orange-500/20 text-white'
+                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:border-white/[0.15] hover:text-zinc-200'
                   }`}
                 >
-                  <div className="text-xs font-semibold">Standard User (user)</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-400">
-                    Isolated apps & enforced cgroup quotas
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 font-medium text-xs text-zinc-100">
+                        <User className="h-3.5 w-3.5 text-orange-400" />
+                        <span>Standard User</span>
+                      </div>
+                      <span className="rounded bg-white/[0.06] border border-white/[0.08] px-1.5 py-0.2 font-mono text-[9px] text-zinc-400">
+                        user
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      Isolated apps restricted by Linux cgroup v2 slice limits.
+                    </p>
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    <span>Enforces CPU & RAM Quotas</span>
                   </div>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setNewRole('admin')}
-                  className={`rounded-lg border p-3 text-left transition cursor-pointer ${
+                  className={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all cursor-pointer ${
                     newRole === 'admin'
-                      ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
-                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                      ? 'border-orange-500/60 bg-orange-500/[0.07] ring-1 ring-orange-500/20 text-white'
+                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:border-white/[0.15] hover:text-zinc-200'
                   }`}
                 >
-                  <div className="text-xs font-semibold">Administrator (admin)</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-400">
-                    Full control plane access & unlimited quotas
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 font-medium text-xs text-zinc-100">
+                        <Shield className="h-3.5 w-3.5 text-orange-400" />
+                        <span>Administrator</span>
+                      </div>
+                      <span className="rounded bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.2 font-mono text-[9px] text-orange-400">
+                        admin
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      Full control plane access, host shell, and unlimited quotas.
+                    </p>
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
+                    <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                    <span>Root Permissions</span>
                   </div>
                 </button>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3.5">
               <button
                 type="button"
-                onClick={() => setUserModalOpen(false)}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                onClick={() => {
+                  setUserModalOpen(false);
+                  setShowNewPassword(false);
+                }}
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 hover:text-white cursor-pointer transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors cursor-pointer"
               >
-                Create User
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Create User</span>
               </button>
             </div>
           </form>
@@ -634,14 +712,21 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
 
               <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 font-mono text-[11px] text-zinc-400">
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 font-semibold">systemd cgroup v2 Slice:</span>
-                  <span className="text-orange-400">
-                    nextdeploy-user-{limitsModalUser.id}.slice
+                  <span className="text-zinc-300 font-semibold">
+                    {cgroupInfo?.mode === 'cgroupfs' ? 'cgroupfs v2 Parent:' : 'systemd cgroup v2 Slice:'}
                   </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-orange-400">
+                      nextdeploy-user-{limitsModalUser.id}.slice
+                    </span>
+                    <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300 uppercase">
+                      {cgroupInfo?.mode || 'systemd'} Active
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-1 text-[10px] text-zinc-500">
                   Set any value to <code className="text-zinc-300">0</code> for unlimited. Saving
-                  immediately updates Linux systemd slice properties (<code className="text-zinc-300">CPUQuota</code> &amp;{' '}
+                  immediately updates Linux slice properties (<code className="text-zinc-300">CPUQuota</code> &amp;{' '}
                   <code className="text-zinc-300">MemoryMax</code>).
                 </div>
               </div>
@@ -903,9 +988,11 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                       </td>
                       <td className="px-4 py-3 text-zinc-200 whitespace-nowrap">
                         {log.actor}{' '}
-                        <span className="font-mono text-[10px] text-zinc-500">
-                          ({log.actorRole})
-                        </span>
+                        {log.actorRole ? (
+                          <span className="font-mono text-[10px] text-zinc-500">
+                            ({log.actorRole})
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-mono text-zinc-200">{log.target}</div>

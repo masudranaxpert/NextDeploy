@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Copy,
+  Check,
   Trash2,
   Plus,
   Sparkles,
@@ -54,6 +55,8 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     allow_server_exec: false,
     allow_app_delete: false,
   });
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [installCliOpen, setInstallCliOpen] = useState(false);
@@ -183,11 +186,18 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                 type="button"
                 onClick={() => {
                   navigator.clipboard?.writeText('https://panel.nextdeploy.sh/mcp/sse');
+                  setCopiedEndpoint(true);
+                  setTimeout(() => setCopiedEndpoint(false), 2000);
                   toast.success('Copied SSE endpoint');
                 }}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer shrink-0 ml-2"
+                title="Copy SSE endpoint"
+                className={`rounded-lg border p-1.5 transition-all cursor-pointer shrink-0 ml-2 ${
+                  copiedEndpoint
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                    : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
               >
-                Copy
+                {copiedEndpoint ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
             </div>
 
@@ -215,11 +225,18 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   type="button"
                   onClick={() => {
                     navigator.clipboard?.writeText(mcpToken);
+                    setCopiedToken(true);
+                    setTimeout(() => setCopiedToken(false), 2000);
                     toast.success('Copied full MCP token');
                   }}
-                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
+                  title="Copy full token"
+                  className={`rounded-lg border p-1.5 transition-all cursor-pointer ${
+                    copiedToken
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  }`}
                 >
-                  Copy
+                  {copiedToken ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   type="button"

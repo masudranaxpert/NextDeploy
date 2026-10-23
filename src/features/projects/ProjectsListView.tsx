@@ -18,6 +18,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ActionMenu, StatusBadge } from '../../components/ui/Primitives';
+import { backendApi } from '../../lib/backendApi';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
@@ -57,7 +58,16 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Trigger Deploy',
       icon: <Play className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Deploying ${app.name}...`),
+      onClick: async () => {
+        toast.info(`Starting deployment for ${app.name}...`);
+        const res = await backendApi.composeAction(app.id, 'up');
+        if (!res.ok) {
+          toast.error(res.error || `Failed to deploy ${app.name}`);
+          return;
+        }
+        toast.success(`Deployment started for ${app.name}`);
+        onSelectApp(app.id);
+      },
     },
     {
       label: 'Copy App ID',
@@ -70,7 +80,14 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Restart Containers',
       icon: <RotateCw className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Restarted ${app.name}`),
+      onClick: async () => {
+        const res = await backendApi.composeAction(app.id, 'restart');
+        if (!res.ok) {
+          toast.error(res.error || `Failed to restart ${app.name}`);
+          return;
+        }
+        toast.success(`Restarting ${app.name}`);
+      },
     },
     {
       label: app.status === 'stopped' ? 'Start Stack' : 'Stop Stack',
@@ -80,8 +97,16 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
         ) : (
           <Square className="h-3.5 w-3.5" />
         ),
-      onClick: () => {
+      onClick: async () => {
         const nextStatus = app.status === 'stopped' ? ('running' as const) : ('stopped' as const);
+        const res = await backendApi.composeAction(
+          app.id,
+          nextStatus === 'running' ? 'up' : 'down'
+        );
+        if (!res.ok) {
+          toast.error(res.error || `Failed to ${nextStatus === 'running' ? 'start' : 'stop'} ${app.name}`);
+          return;
+        }
         onUpdateApps((prev) =>
           prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a))
         );
@@ -92,7 +117,12 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
       label: 'Delete Project',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: () => {
+      onClick: async () => {
+        const res = await backendApi.deleteApp(app.id);
+        if (!res.ok) {
+          toast.error(res.error || `Failed to delete ${app.name}`);
+          return;
+        }
         onUpdateApps((prev) => prev.filter((a) => a.id !== app.id));
         toast.success(`Deleted ${app.name}`);
       },

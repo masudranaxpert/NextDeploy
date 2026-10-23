@@ -524,4 +524,3 @@ func GetComposeResources(composeBytes []byte) (int, float64, error) {
 	}
 	return totalMem, totalCPU, nil
 }
-

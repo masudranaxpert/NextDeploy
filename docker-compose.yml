@@ -14,17 +14,20 @@ services:
             - 80:80
             - 443:443/tcp
             - 443:443/udp
+            - 3000:3000
         restart: unless-stopped
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - caddy_data:/data
-            - /data/workspaces:/data/workspaces:ro
+            - ./data/workspaces:/data/workspaces:ro
     panel:
+        build: .
         container_name: panel
         depends_on:
             - caddy
         environment:
             DATA_DIR: /data
+            DOCKER_API_VERSION: "1.44"
             LISTEN_ADDR: :8080
             PANEL_PERF_LOG: "false"
             WORKSPACES_ROOT: /data/workspaces
@@ -36,7 +39,7 @@ services:
         restart: unless-stopped
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
-            - /data:/data
-            - /opt/nextdeploy/docker-compose.yml:/stack/docker-compose.yml:rw
+            - ./data:/data
+            - ./docker-compose.yml:/stack/docker-compose.yml:rw
 volumes:
     caddy_data: {}

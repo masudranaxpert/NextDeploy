@@ -26,7 +26,6 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
-	"panel/internal/handlers/utils"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
 	"panel/internal/workspace"
@@ -285,11 +284,11 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 			cfg := db.AppGitConfig{
 				AppID:         id,
 				Provider:      "git",
-				RepoURL:       utils.NormalizeRepoURL(repoURL),
-				RepoFullName:  utils.RepoFullNameFromURL(repoURL),
-				Branch:        utils.NormalizeBranch(branch),
+				RepoURL:       handlers.NormalizeRepoURL(repoURL),
+				RepoFullName:  handlers.RepoFullNameFromURL(repoURL),
+				Branch:        handlers.NormalizeBranch(branch),
 				AuthMode:      "public",
-				WebhookSecret: utils.RandomSecret(),
+				WebhookSecret: handlers.RandomSecret(),
 				AutoDeploy:    true,
 			}
 			_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
@@ -1032,12 +1031,12 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 	// Dry-run mode: return simulated plan without making disk changes.
 	if dryRun {
 		return jsonResult(map[string]interface{}{
-			"app_id":   appID,
-			"dry_run":  true,
-			"valid":    true,
-			"writes":   writePreviews,
-			"deletes":  deletes,
-			"message":  fmt.Sprintf("Dry run validated: %d file(s) would be written, %d item(s) would be deleted.", len(writes), len(deletes)),
+			"app_id":  appID,
+			"dry_run": true,
+			"valid":   true,
+			"writes":  writePreviews,
+			"deletes": deletes,
+			"message": fmt.Sprintf("Dry run validated: %d file(s) would be written, %d item(s) would be deleted.", len(writes), len(deletes)),
 		})
 	}
 
@@ -1381,20 +1380,32 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		}
 	}
 
-	if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
-		return errorResult(fmt.Errorf("caddy sync failed: %w", err))
+	targetSlot := "blue"
+	if app.ActiveSlot == "blue" {
+		targetSlot = "green"
 	}
+
+	if action == "Deploy" || action == "Redeploy (pull + up)" {
+		if _, err := h.p.SyncAppSlotComposeCtx(ctx, appID, targetSlot); err != nil {
+			return errorResult(fmt.Errorf("caddy slot compose sync failed: %w", err))
+		}
+	} else {
+		if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
+			return errorResult(fmt.Errorf("caddy sync failed: %w", err))
+		}
+	}
+
 	projCtx, projCancel := context.WithTimeout(ctx, 30*time.Second)
 	project := h.p.ActiveComposeProjectName(projCtx, app, appID)
 	projCancel()
+	paths := h.p.EffectiveComposePaths(ctx, app, appID)
 
 	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
-		h.p.StopOtherComposeStacks(stopCtx, app, appID, project)
-		stopCancel()
+		project = h.p.SlotProjectName(app, appID, targetSlot)
+		paths = h.p.EffectiveComposePathsForSlot(ctx, app, appID, targetSlot)
 	}
 
-	jobID, err := h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(ctx, app, appID), action, fn, gitSyncOut)
+	jobID, err := h.p.StartComposeJob(appID, project, paths, action, fn, gitSyncOut)
 	if err != nil {
 		return errorResult(fmt.Errorf("failed to start %s job: %w", action, err))
 	}
@@ -2398,7 +2409,7 @@ func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[stri
 		"vendor":       true,
 		".venv":        true,
 		"venv":         true,
-		"__pycache__":   true,
+		"__pycache__":  true,
 		"dist":         true,
 		"build":        true,
 		".next":        true,

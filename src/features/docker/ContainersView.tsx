@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Play,
   Square,
+  Repeat,
   RotateCw,
   Search,
   ExternalLink,
@@ -10,11 +11,13 @@ import {
   Network,
   FileCode2,
   Info,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, ContainerService } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
-import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatters';
+import { formatCompactImage, formatCompactPort, formatCompactUptime } from '../../lib/dockerFormatters';
+import { backendApi } from '../../lib/backendApi';
 
 interface ContainersViewProps {
   apps: AppStack[];
@@ -55,20 +58,29 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     return true;
   });
 
-  const toggleContainerState = (appId: string, containerId: string) => {
+  const toggleContainerState = async (appId: string, containerId: string) => {
     const targetApp = apps.find((a) => a.id === appId);
     if (!targetApp) return;
-    const updatedServices = targetApp.services.map((s) => {
-      if (s.id !== containerId) return s;
-      const nextState = s.state === 'running' ? ('exited' as const) : ('running' as const);
-      toast.success(`${nextState === 'running' ? 'Started' : 'Stopped'} ${s.name}`);
-      return {
-        ...s,
-        state: nextState,
-        uptime: nextState === 'running' ? 'Just started' : 'Exited (0)',
-        cpuPct: nextState === 'running' ? 4.2 : 0,
-      };
-    });
+    const svc = targetApp.services.find((s) => s.id === containerId);
+    if (!svc) return;
+    const action = svc.state === 'running' ? 'stop' : 'start';
+    const res = await backendApi.appContainerAction(appId, svc.name, action);
+    if (!res.ok) {
+      toast.error(res.error || `Failed to ${action} ${svc.name}`);
+      return;
+    }
+    const nextState = svc.state === 'running' ? ('exited' as const) : ('running' as const);
+    toast.success(`${nextState === 'running' ? 'Started' : 'Stopped'} ${svc.name}`);
+    const updatedServices = targetApp.services.map((s) =>
+      s.id !== containerId
+        ? s
+        : {
+            ...s,
+            state: nextState,
+            uptime: nextState === 'running' ? 'Just started' : 'Exited (0)',
+            cpuPct: nextState === 'running' ? 4.2 : 0,
+          }
+    );
     onUpdateApp({ ...targetApp, services: updatedServices });
   };
 
@@ -177,11 +189,16 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                       </div>
                     </td>
 
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={c.state} />
-                        <span className="font-mono text-[11px] text-zinc-500 truncate">
-                          {c.uptime.replace('Up ', '')}
+                    <td className="px-4 py-3 min-w-0">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center">
+                          <StatusBadge status={c.state} />
+                        </div>
+                        <span
+                          className="font-mono text-[11px] text-zinc-400 truncate"
+                          title={c.uptime}
+                        >
+                          {formatCompactUptime(c.uptime)}
                         </span>
                       </div>
                     </td>
@@ -234,7 +251,38 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                           {
                             label: 'Restart Container',
                             icon: <RotateCw className="h-3.5 w-3.5" />,
-                            onClick: () => toast.success(`Restarted ${c.name}`),
+                            onClick: async () => {
+                              const res = await backendApi.appContainerAction(
+                                c.appId,
+                                c.name,
+                                'restart'
+                              );
+                              if (!res.ok) {
+                                toast.error(res.error || `Failed to restart ${c.name}`);
+                                return;
+                              }
+                              toast.success(`Restarted ${c.name}`);
+                            },
+                          },
+                          {
+                            label: 'Delete Container',
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            variant: 'danger' as const,
+                            onClick: async () => {
+                              const res = await backendApi.globalContainerAction(c.name, 'remove');
+                              if (!res.ok) {
+                                toast.error(res.error || `Failed to remove ${c.name}`);
+                                return;
+                              }
+                              const targetApp = apps.find((a) => a.id === c.appId);
+                              if (targetApp) {
+                                onUpdateApp({
+                                  ...targetApp,
+                                  services: targetApp.services.filter((s) => s.id !== c.id),
+                                });
+                              }
+                              toast.success(`Removed container ${c.name}`);
+                            },
                           },
                         ]}
                       />

@@ -1,0 +1,350 @@
+package handlers
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"panel/internal/dockerapi"
+	"panel/internal/dockerx"
+	"panel/internal/volumex"
+	"panel/internal/workspace"
+
+	"github.com/gofiber/fiber/v2"
+)
+
+func deleteAppHtmxErrorHTML(msg string) string {
+	return `<div class="rounded-lg border border-rose-500/30 bg-rose-950/40 px-3 py-2 text-sm text-rose-200 whitespace-pre-wrap">` + html.EscapeString(msg) + `</div>`
+}
+
+func isHtmxRequest(c *fiber.Ctx) bool {
+	return strings.EqualFold(c.Get("HX-Request"), "true")
+}
+
+func (p *Panel) AppExec(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).JSON(fiber.Map{"ok": false, "error": "not found"})
+	}
+	name := strings.TrimPrefix(strings.TrimSpace(c.FormValue("container")), "/")
+	cmd := c.FormValue("command")
+	if !p.ContainerBelongsToApp(c.UserContext(), id, name) {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid container for this app"})
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 3*time.Minute)
+	defer cancel()
+	res := dockerx.DockerExec(ctx, name, cmd)
+	out := res.Output
+	if strings.TrimSpace(out) == "" {
+		out = "(no output — either the command produced nothing or the container has no such path)"
+	} else if !res.OK {
+		out = out + "\n[non-zero exit: " + res.Output + "]"
+	}
+	return c.JSON(fiber.Map{
+		"ok":     res.OK,
+		"output": out,
+	})
+}
+
+func (p *Panel) ClearDeployLogs(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
+	if err := p.DB.ClearDeployLogs(c.UserContext(), id); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+}
+
+func (p *Panel) DeployLogGet(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
+	if err != nil || logID < 1 {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid log id"})
+	}
+	d, err := p.DB.GetDeployLog(c.UserContext(), id, logID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.Status(404).JSON(fiber.Map{"error": "log not found"})
+		}
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{
+		"action":        d.Action,
+		"ok":            d.OK,
+		"output":        d.Output,
+		"created_label": d.CreatedAt.Format("Jan 02, 2006 15:04:05"),
+	})
+}
+
+func (p *Panel) DeployLogDelete(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"ok": false, "error": "app not found"})
+	}
+	logID, err := strconv.ParseInt(c.Params("logId"), 10, 64)
+	if err != nil || logID < 1 {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid log id"})
+	}
+	deleted, err := p.DB.DeleteDeployLog(c.UserContext(), id, logID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	if !deleted {
+		return c.Status(404).JSON(fiber.Map{"ok": false, "error": "log not found"})
+	}
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true})
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+}
+
+func (p *Panel) DeleteApp(c *fiber.Ctx) error {
+	htmx := isHtmxRequest(c)
+	wantJSON := WantsJSON(c)
+	id := c.Params("id")
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err != nil {
+		if htmx {
+			c.Set("Content-Type", "text/html; charset=utf-8")
+			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML("App not found."))
+		}
+		if wantJSON {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"ok": false, "error": "app not found"})
+		}
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
+	confirm := strings.TrimSpace(c.FormValue("confirm_name"))
+	if !wantJSON && confirm != strings.TrimSpace(app.Name) {
+		if htmx {
+			c.Set("Content-Type", "text/html; charset=utf-8")
+			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML("Type the app name exactly in the confirmation field to delete this app."))
+		}
+		return c.Status(400).SendString("Type the app name exactly in the confirmation field to delete this app.")
+	}
+	ctx, cancel := context.WithTimeout(c.UserContext(), 15*time.Minute)
+	defer cancel()
+
+	if err := p.DeleteAppResources(ctx, id); err != nil {
+		if htmx {
+			c.Set("Content-Type", "text/html; charset=utf-8")
+			return c.Status(fiber.StatusOK).SendString(deleteAppHtmxErrorHTML(err.Error()))
+		}
+		if wantJSON {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.Status(500).SendString(err.Error())
+	}
+	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	if wantJSON {
+		return c.JSON(fiber.Map{"ok": true})
+	}
+	if htmx {
+		c.Set("HX-Redirect", "/apps")
+		return c.SendStatus(fiber.StatusOK)
+	}
+	return c.Redirect("/apps")
+}
+
+// DeleteAppResources cleans up all docker containers, images, volumes, workspace, and DB record for an app.
+func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
+	app, err := p.DB.GetApp(ctx, id)
+	if err != nil {
+		return fmt.Errorf("app not found: %w", err)
+	}
+	dir := p.AppSourcePath(ctx, id)
+	cp := p.ComposeFilePath(ctx, app, id)
+	candidates := p.ComposeProjectCandidates(ctx, app, id)
+	paths := p.EffectiveComposePaths(ctx, app, id)
+	envFiles := p.ComposeEnvFiles(ctx, id)
+
+	safeCandidates := make([]string, 0, len(candidates))
+	for _, project := range candidates {
+		rows, res := dockerx.ComposePS(ctx, dir, paths, project, envFiles)
+		if res.OK && len(rows) > 0 {
+			if p.ComposeRowsBelongToApp(id, rows) {
+				safeCandidates = append(safeCandidates, project)
+			}
+			continue
+		}
+		if !p.ProjectNameSharedWithOtherApp(ctx, id, project) {
+			safeCandidates = append(safeCandidates, project)
+		}
+	}
+	candidates = safeCandidates
+
+	var cleanupErrs []string
+	composeAvailable := false
+	if _, err := os.Stat(cp); err == nil {
+		composeAvailable = true
+	} else if len(paths) > 0 {
+		if _, err := os.Stat(paths[0]); err == nil {
+			composeAvailable = true
+		}
+	}
+	if composeAvailable {
+		for _, project := range candidates {
+			if res := dockerx.ComposeDownDeleteProject(ctx, dir, paths, project, nil, envFiles); !res.OK && strings.TrimSpace(res.Output) != "" && !strings.Contains(strings.ToLower(res.Output), "no resource found") {
+				cleanupErrs = append(cleanupErrs, res.Output)
+			}
+		}
+	}
+	allProjects := p.AllPanelComposeProjects(ctx)
+	for _, project := range candidates {
+		if errs := dockerapi.RemoveContainersByComposeProject(ctx, project); len(errs) > 0 {
+			cleanupErrs = append(cleanupErrs, errs...)
+		}
+		if errs := dockerapi.RemoveAppContainers(ctx, project, allProjects); len(errs) > 0 {
+			cleanupErrs = append(cleanupErrs, errs...)
+		}
+		if errs := dockerapi.RemoveAppImages(ctx, project); len(errs) > 0 {
+			cleanupErrs = append(cleanupErrs, errs...)
+		}
+		if errs := dockerapi.RemoveAppNetworks(ctx, project); len(errs) > 0 {
+			cleanupErrs = append(cleanupErrs, errs...)
+		}
+	}
+	if msg := volumex.RemoveMatching(ctx, p.AppVolumeQuery(ctx, app, allProjects)); msg != "" {
+		cleanupErrs = append(cleanupErrs, msg)
+	}
+	var realCleanupErrs []string
+	for _, e := range cleanupErrs {
+		low := strings.ToLower(e)
+		if strings.Contains(low, "docker daemon is not running") ||
+			strings.Contains(low, "cannot find the file specified") ||
+			strings.Contains(low, "connection refused") ||
+			strings.Contains(low, "is the docker daemon running") {
+			continue
+		}
+		realCleanupErrs = append(realCleanupErrs, e)
+	}
+	if len(realCleanupErrs) > 0 {
+		return errors.New(strings.Join(realCleanupErrs, "\n"))
+	}
+	p.RemoveDeployRun(id)
+	if err := p.DB.DeleteApp(ctx, id); err != nil {
+		return err
+	}
+	p.InvalidateAfterAppDeployChange(id)
+	_ = os.RemoveAll(dir)
+	return nil
+}
+
+func (p *Panel) UploadZip(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
+	if p.IsGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("ZIP upload is disabled for git-backed apps")
+	}
+	app, _ := p.DB.GetApp(c.UserContext(), id)
+	fh, err := c.FormFile("archive")
+	if err != nil {
+		return c.Status(400).SendString("missing archive field (zip)")
+	}
+	src, err := fh.Open()
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	defer src.Close()
+	tmp, err := os.CreateTemp("", "panel-upload-*.zip")
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := io.Copy(tmp, src); err != nil {
+		_ = tmp.Close()
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := tmp.Close(); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	st, err := os.Stat(tmpPath)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	f, err := os.Open(tmpPath)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	defer f.Close()
+	if err := workspace.ValidateZipArchive(f, st.Size()); err != nil {
+		return c.Status(400).SendString(err.Error())
+	}
+	if err := p.Store.ClearAllUserFiles(id); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	f2, err := os.Open(tmpPath)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	defer f2.Close()
+	st2, err := f2.Stat()
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.Store.ExtractZip(id, f2, st2.Size()); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.Store.WriteMeta(id, app.Name); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if err := p.SyncAppCaddyOverride(c, id); err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	p.InvalidateAfterAppWorkspaceChange(id)
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "message": "Archive uploaded and extracted"})
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
+}
+
+func (p *Panel) UploadFile(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
+	if p.IsGitApp(c.UserContext(), id) {
+		return c.Status(400).SendString("file upload is disabled for git-backed apps")
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(400).SendString("missing file")
+	}
+	src, err := file.Open()
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	defer src.Close()
+	targetPath := file.Filename
+	if pfx := c.FormValue("path"); pfx != "" {
+		pfx = strings.Trim(strings.ReplaceAll(pfx, "\\", "/"), "/")
+		if pfx != "" {
+			targetPath = pfx + "/" + file.Filename
+		}
+	}
+	if _, err := p.Store.SaveUploadedFile(id, targetPath, src); err != nil {
+		return c.Status(400).SendString("invalid path")
+	}
+	p.InvalidateAfterAppWorkspaceChange(id)
+	if WantsJSON(c) {
+		return c.JSON(fiber.Map{"ok": true, "message": "File uploaded"})
+	}
+	return c.Redirect(fmt.Sprintf("/apps/%s?tab=files", id))
+}

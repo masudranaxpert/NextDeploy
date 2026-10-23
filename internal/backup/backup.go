@@ -31,12 +31,12 @@ const (
 )
 
 type FullBackupManifest struct {
-	Version    int                      `json:"version"`
-	Type       string                   `json:"type"`
-	AppName    string                   `json:"app_name"`
-	Timestamp  string                   `json:"timestamp"`
-	AppArchive string                   `json:"app_archive,omitempty"`
-	Volumes    []FullBackupVolumeEntry  `json:"volumes,omitempty"`
+	Version    int                     `json:"version"`
+	Type       string                  `json:"type"`
+	AppName    string                  `json:"app_name"`
+	Timestamp  string                  `json:"timestamp"`
+	AppArchive string                  `json:"app_archive,omitempty"`
+	Volumes    []FullBackupVolumeEntry `json:"volumes,omitempty"`
 }
 
 type FullBackupVolumeEntry struct {
@@ -568,10 +568,10 @@ func writeFullWrapperArchive(ctx context.Context, outPath, appArchivePath string
 			return err
 		}
 		hdr := &tar.Header{
-			Name:    memberName,
-			Mode:    0600,
-			Size:    fi.Size(),
-			ModTime: now,
+			Name:     memberName,
+			Mode:     0600,
+			Size:     fi.Size(),
+			ModTime:  now,
 			Typeflag: tar.TypeReg,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {

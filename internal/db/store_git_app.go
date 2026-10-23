@@ -130,3 +130,54 @@ func (s *Store) MarkWebhookDelivery(ctx context.Context, appID, deliveryID strin
 	}
 	return false, err
 }
+
+func (s *Store) RecordWebhookDelivery(ctx context.Context, w WebhookDelivery) error {
+	if strings.TrimSpace(w.AppID) == "" || strings.TrimSpace(w.DeliveryID) == "" {
+		return errors.New("invalid webhook delivery")
+	}
+	if w.CreatedAt == "" {
+		w.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if w.Status == "" {
+		w.Status = "200 OK"
+	}
+	if w.Provider == "" {
+		w.Provider = "github"
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO webhook_deliveries(app_id, delivery_id, provider, repo, event, sha, status, latency, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(app_id, delivery_id) DO UPDATE SET
+		   provider=excluded.provider, repo=excluded.repo, event=excluded.event,
+		   sha=excluded.sha, status=excluded.status, latency=excluded.latency, created_at=excluded.created_at`,
+		w.AppID, w.DeliveryID, w.Provider, w.Repo, w.Event, w.SHA, w.Status, w.Latency, w.CreatedAt)
+	return err
+}
+
+func (s *Store) ListWebhookDeliveries(ctx context.Context, limit int) ([]WebhookDelivery, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT app_id, delivery_id, provider, repo, event, sha, status, latency, created_at
+		 FROM webhook_deliveries
+		 ORDER BY created_at DESC
+		 LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []WebhookDelivery
+	for rows.Next() {
+		var w WebhookDelivery
+		if err := rows.Scan(&w.AppID, &w.DeliveryID, &w.Provider, &w.Repo, &w.Event, &w.SHA, &w.Status, &w.Latency, &w.CreatedAt); err != nil {
+			continue
+		}
+		list = append(list, w)
+	}
+	if list == nil {
+		list = []WebhookDelivery{}
+	}
+	return list, rows.Err()
+}

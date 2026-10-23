@@ -9,8 +9,9 @@ import (
 
 func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,app_id,domain,service,port,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),created_at
-		 FROM app_domains WHERE app_id=? ORDER BY id ASC`, appID)
+		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),created_at
+		 FROM app_domains WHERE app_id=?
+		 ORDER BY COALESCE(is_primary,0) DESC, id ASC`, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -18,12 +19,13 @@ func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, 
 	var out []AppDomain
 	for rows.Next() {
 		var d AppDomain
-		var https, www, static, media int
+		var isPrim, https, www, static, media int
 		var created string
-		if err := rows.Scan(&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port,
+		if err := rows.Scan(&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
 			&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &created); err != nil {
 			return nil, err
 		}
+		d.IsPrimary = isPrim != 0
 		d.EnableHTTPS = https != 0
 		d.EnableWWW = www != 0
 		d.ServeStatic = static != 0
@@ -37,16 +39,17 @@ func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, 
 
 func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 	var d AppDomain
-	var https, www, static, media int
+	var isPrim, https, www, static, media int
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,app_id,domain,service,port,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),created_at
+		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),created_at
 		 FROM app_domains WHERE id=?`, id).Scan(
-		&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port,
+		&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
 		&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &created)
 	if err != nil {
 		return AppDomain{}, err
 	}
+	d.IsPrimary = isPrim != 0
 	d.EnableHTTPS = https != 0
 	d.EnableWWW = www != 0
 	d.ServeStatic = static != 0
@@ -57,10 +60,14 @@ func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 }
 
 func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error) {
+	if d.IsPrimary {
+		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=?`, d.AppID)
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO app_domains(app_id,domain,service,port,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,route_rules_json,created_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO app_domains(app_id,domain,service,port,is_primary,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,route_rules_json,created_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		d.AppID, d.Domain, d.Service, d.Port,
+		boolInt(d.IsPrimary),
 		boolInt(d.EnableHTTPS), boolInt(d.EnableWWW),
 		boolInt(d.ServeStatic), d.StaticPath, d.StaticURLPrefix,
 		boolInt(d.ServeMedia), d.MediaPath, d.MediaURLPrefix, normalizeRulesJSON(d.RouteRulesJSON),
@@ -72,15 +79,34 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 }
 
 func (s *Store) UpdateAppDomain(ctx context.Context, d AppDomain) error {
+	if d.IsPrimary {
+		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=? AND id!=?`, d.AppID, d.ID)
+	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE app_domains SET domain=?,service=?,port=?,enable_https=?,enable_www=?,serve_static=?,static_path=?,static_url_prefix=?,serve_media=?,media_path=?,media_url_prefix=?,route_rules_json=?
+		`UPDATE app_domains SET domain=?,service=?,port=?,is_primary=?,enable_https=?,enable_www=?,serve_static=?,static_path=?,static_url_prefix=?,serve_media=?,media_path=?,media_url_prefix=?,route_rules_json=?
 		 WHERE id=?`,
 		d.Domain, d.Service, d.Port,
+		boolInt(d.IsPrimary),
 		boolInt(d.EnableHTTPS), boolInt(d.EnableWWW),
 		boolInt(d.ServeStatic), d.StaticPath, d.StaticURLPrefix,
 		boolInt(d.ServeMedia), d.MediaPath, d.MediaURLPrefix, normalizeRulesJSON(d.RouteRulesJSON),
 		d.ID)
 	return err
+}
+
+func (s *Store) SetPrimaryAppDomain(ctx context.Context, appID string, domainID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=?`, appID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE app_domains SET is_primary=1 WHERE app_id=? AND id=?`, appID, domainID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteAppDomain(ctx context.Context, id int64) error {

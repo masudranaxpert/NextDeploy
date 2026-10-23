@@ -1,6 +1,39 @@
 import { requestJson, toFormBody } from './http';
 
 export const gitAndRegistryApi = {
+  gitProvidersList: () =>
+    requestJson<{
+      ok: boolean;
+      providers: Array<{
+        id: number | string;
+        name: string;
+        provider: 'github' | 'gitlab';
+        token?: string;
+        notes?: string;
+        accountName?: string;
+        authMethod?: string;
+      }>;
+    }>(`/api/v1/git/providers`),
+  createProvider: (payload: { name: string; provider: 'github' | 'gitlab'; token: string; notes?: string }) =>
+    requestJson<{ ok: boolean; id: number; name: string; provider: string }>(`/api/v1/git/providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  webhookDeliveries: (limit = 10) =>
+    requestJson<
+      Array<{
+        app_id: string;
+        delivery_id: string;
+        provider: string;
+        repo: string;
+        event: string;
+        sha: string;
+        status: string;
+        latency: string;
+        created_at: string;
+      }>
+    >(`/api/v1/git/webhooks?limit=${limit}`),
   // Git Source & Providers (GitHub App + GitLab OAuth 2.0 + Git Sync)
   switchAppSource: (appId: string, sourceType: 'git' | 'files') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/switch-source`, {
@@ -57,6 +90,12 @@ export const gitAndRegistryApi = {
     }>(
       `/apps/${encodeURIComponent(appId)}/git/providers/${providerId}/branches?repo=${encodeURIComponent(repoFullName)}`
     ),
+  publicGitRemoteBranches: (appId: string, url: string) =>
+    requestJson<{
+      ok?: boolean;
+      branches?: string[];
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/git/remote-branches?url=${encodeURIComponent(url)}`),
   setGitSync: (appId: string, enabled: boolean, force = false) =>
     requestJson<{
       ok?: boolean;
@@ -197,11 +236,20 @@ export const gitAndRegistryApi = {
     }),
 
   // Collaborators & Ownership Transfer
-  addCollaborator: (appId: string, username: string, role: 'developer' | 'viewer' | 'deployer') =>
+  addCollaborator: (
+    appId: string,
+    username: string,
+    role: 'developer' | 'viewer' | 'deployer',
+    permissions: string[] = []
+  ) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/collaborators`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ username, role: role === 'deployer' ? 'developer' : role }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username,
+        role: role === 'deployer' ? 'developer' : role,
+        permissions,
+      }),
     }),
   removeCollaborator: (appId: string, userId: number | string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/collaborators/${userId}/delete`, {

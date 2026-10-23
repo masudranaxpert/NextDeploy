@@ -33,33 +33,37 @@ const (
 
 // User represents a panel user account.
 type User struct {
-	ID           int64
-	Username     string
-	PasswordHash string
-	Role         string
-	CreatedAt    time.Time
-	MaxApps      int
-	MaxMemoryMB  int
-	MaxCPUs      float64
-	MaxStorageMB           int
-	Status                 string
-	AllowDomainFileServer  bool
+	ID                    int64
+	Username              string
+	PasswordHash          string
+	Role                  string
+	CreatedAt             time.Time
+	MaxApps               int
+	MaxMemoryMB           int
+	MaxCPUs               float64
+	MaxStorageMB          int
+	Status                string
+	AllowDomainFileServer bool
 }
 
 type App struct {
-	ID          string
-	Name        string
-	CreatedAt   time.Time
-	ComposeFile string
-	OwnerID     int64
-	Status      string
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	CreatedAt   time.Time `json:"created_at"`
+	ComposeFile string    `json:"compose_file"`
+	OwnerID     int64     `json:"owner_id"`
+	Status      string    `json:"status"`
+	ActiveSlot  string    `json:"active_slot,omitempty"`
+	StandbySlot string    `json:"standby_slot,omitempty"`
+	PinnedSlot  string    `json:"pinned_slot,omitempty"`
 }
 
 type AppCollaborator struct {
-	AppID     string
-	UserID    int64
-	Role      string
-	CreatedAt time.Time
+	AppID       string
+	UserID      int64
+	Role        string
+	Permissions string
+	CreatedAt   time.Time
 }
 
 type PrivateRegistry struct {
@@ -124,21 +128,22 @@ type GitHubProviderDetail struct {
 
 // AppDomain is a domain entry attached to an app with caddy routing config.
 type AppDomain struct {
-	ID              int64
-	AppID           string
-	Domain          string
-	Service         string
-	Port            int
-	EnableHTTPS     bool
-	EnableWWW       bool
-	ServeStatic     bool
-	StaticPath      string
-	StaticURLPrefix string
-	ServeMedia      bool
-	MediaPath       string
-	MediaURLPrefix  string
-	RouteRulesJSON  string
-	CreatedAt       time.Time
+	ID              int64     `json:"id"`
+	AppID           string    `json:"app_id"`
+	Domain          string    `json:"domain"`
+	Service         string    `json:"service"`
+	Port            int       `json:"port"`
+	IsPrimary       bool      `json:"is_primary"`
+	EnableHTTPS     bool      `json:"enable_https"`
+	EnableWWW       bool      `json:"enable_www"`
+	ServeStatic     bool      `json:"serve_static"`
+	StaticPath      string    `json:"static_path"`
+	StaticURLPrefix string    `json:"static_url_prefix"`
+	ServeMedia      bool      `json:"serve_media"`
+	MediaPath       string    `json:"media_path"`
+	MediaURLPrefix  string    `json:"media_url_prefix"`
+	RouteRulesJSON  string    `json:"route_rules_json"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // NormalizeCaddyPathMatcherFromURLPrefix builds a Caddy path matcher from a user-defined public prefix (e.g. /assets, files/uploads). No defaults.
@@ -251,11 +256,25 @@ type CaddyConfig struct {
 
 // DeployLog is a single stored compose run output (last N kept per app).
 type DeployLog struct {
-	ID        int64
-	Action    string
-	OK        bool
-	Output    string
-	CreatedAt time.Time
+	ID          int64     `json:"id"`
+	Action      string    `json:"action"`
+	OK          bool      `json:"ok"`
+	Output      string    `json:"output"`
+	Slot        string    `json:"slot,omitempty"`
+	CommitSHA   string    `json:"commit_sha,omitempty"`
+	ImageDigest string    `json:"image_digest,omitempty"`
+	EnvSnapshot string    `json:"env_snapshot,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// AllocatedPort records a host port reserved by NextDeploy proxy gateway.
+type AllocatedPort struct {
+	Port      int       `json:"port"`
+	BindIP    string    `json:"bind_ip"`
+	AppID     string    `json:"app_id"`
+	Service   string    `json:"service"`
+	Protocol  string    `json:"protocol"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // BackupDestination represents a cloud storage destination for backups
@@ -326,16 +345,16 @@ func ParseRemoteCheckedAt(s string) (time.Time, error) {
 }
 
 type AuditLog struct {
-	ID         int64
-	UserID     int64
-	Username   string
-	Action     string
-	TargetType string
-	TargetID   string
-	IPAddress  string
-	UserAgent  string
-	Details    string
-	CreatedAt  time.Time
+	ID         int64     `json:"id"`
+	UserID     int64     `json:"user_id"`
+	Username   string    `json:"username"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	IPAddress  string    `json:"ip_address"`
+	UserAgent  string    `json:"user_agent"`
+	Details    string    `json:"details"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // CLISession represents an active nd CLI connection.
@@ -370,4 +389,16 @@ func (s CLISession) LastSeenHuman() string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return s.LastSeen.Format("Jan 2, 15:04")
+}
+
+type WebhookDelivery struct {
+	AppID      string `json:"app_id"`
+	DeliveryID string `json:"delivery_id"`
+	Provider   string `json:"provider"`
+	Repo       string `json:"repo"`
+	Event      string `json:"event"`
+	SHA        string `json:"sha"`
+	Status     string `json:"status"`
+	Latency    string `json:"latency"`
+	CreatedAt  string `json:"created_at"`
 }

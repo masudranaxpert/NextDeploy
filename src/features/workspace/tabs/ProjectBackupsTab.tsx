@@ -30,7 +30,6 @@ import {
   StatusBadge,
 } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
-import { INITIAL_BACKUP_DESTINATIONS } from '../../../data/initialData';
 
 interface ProjectBackupsTabProps {
   app: AppStack;
@@ -60,12 +59,10 @@ function formatBytes(sizeMB: number, sizeBytes?: number): string {
 }
 
 export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => {
-  const [destinations, setDestinations] = useState<BackupDestination[]>(INITIAL_BACKUP_DESTINATIONS);
+  const [destinations, setDestinations] = useState<BackupDestination[]>([]);
 
   // Manual Backup Runner Form State (POST /apps/:id/backup/:destid)
-  const [manualDestId, setManualDestId] = useState<string>(
-    INITIAL_BACKUP_DESTINATIONS[0]?.id || '1'
-  );
+  const [manualDestId, setManualDestId] = useState<string>('');
   const [manualType, setManualType] = useState<'full' | 'volume' | 'app'>('full');
   const [manualSelectedVols, setManualSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
@@ -74,32 +71,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
   const [isTriggeringBackup, setIsTriggeringBackup] = useState(false);
 
   // Schedules State (GET /apps/:id/backup/schedules)
-  const [schedules, setSchedules] = useState<BackupScheduleItem[]>([
-    {
-      id: 'sched-1',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      provider: 'Cloudflare R2',
-      destinationProvider: 'r2',
-      type: 'full',
-      volumeNames: app.volumes.map((v) => v.name).join(','),
-      cron: '0 */6 * * *',
-      retention: 7,
-      pauseContainers: true,
-      enabled: true,
-      lastRun: '2h ago',
-      nextRunAt: 'in 4h',
-    },
-  ]);
+  const [schedules, setSchedules] = useState<BackupScheduleItem[]>([]);
 
   // Add / Edit Schedule Modal State
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
-  const [schedDestId, setSchedDestId] = useState<string>(
-    INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu'
-  );
+  const [schedDestId, setSchedDestId] = useState<string>('');
   const [schedType, setSchedType] = useState<'full' | 'volume' | 'app'>('full');
   const [schedSelectedVols, setSchedSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
@@ -110,71 +87,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
   const [schedPauseContainers, setSchedPauseContainers] = useState<boolean>(true);
 
   // Paginated Backup History State (GET /apps/:id/backup/history?page=...&per_page=...)
-  const [historyItems, setHistoryItems] = useState<BackupArchiveRecord[]>([
-    {
-      id: '904',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      destinationProvider: 'r2',
-      provider: 'Cloudflare R2',
-      archiveName: `${app.slug}-full-20260514-060000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-full-20260514-060000.tar.gz`,
-      type: 'full',
-      backupType: 'full',
-      volumeName: app.volumes.map((v) => v.name).join(', ') || 'all',
-      sizeMB: 412.4,
-      createdAt: '2h ago',
-      status: 'completed',
-      includesVolumes: true,
-      includesEnv: true,
-      pauseContainers: true,
-      remoteMissing: false,
-    },
-    {
-      id: '901',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[1]?.id || 'dest-gdrive',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[1]?.name || 'Google Drive Vault',
-      destinationProvider: 'gdrive',
-      provider: 'Google Drive',
-      archiveName: `${app.slug}-volume-20260513-180000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-volume-20260513-180000.tar.gz`,
-      type: 'volume',
-      backupType: 'volume',
-      volumeName: app.volumes[0]?.name || `${app.slug}_data`,
-      sizeMB: 184.2,
-      createdAt: '1d ago',
-      status: 'completed',
-      includesVolumes: true,
-      includesEnv: false,
-      pauseContainers: true,
-      remoteMissing: false,
-    },
-    {
-      id: '896',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      destinationProvider: 'r2',
-      provider: 'Cloudflare R2',
-      archiveName: `${app.slug}-app-20260510-120000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-app-20260510-120000.tar.gz`,
-      type: 'app',
-      backupType: 'app',
-      volumeName: 'app',
-      sizeMB: 24.8,
-      createdAt: '4d ago',
-      status: 'completed',
-      includesVolumes: false,
-      includesEnv: true,
-      pauseContainers: false,
-      remoteMissing: false,
-    },
-  ]);
+  const [historyItems, setHistoryItems] = useState<BackupArchiveRecord[]>([]);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(5);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);

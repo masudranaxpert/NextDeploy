@@ -6,7 +6,15 @@ import { gitAndRegistryApi } from './api/gitAndRegistryApi';
 import { backupsAndMigrateApi } from './api/backupsAndMigrateApi';
 import { systemAndTokensApi } from './api/systemAndTokensApi';
 
-export type { ApiResult, BootstrapData, DomainFormPayload } from './api/http';
+export {
+  type ApiResult,
+  type BootstrapData,
+  type DomainFormPayload,
+  formatSlotPreviewDomain,
+  formatWildcardDomain,
+  getServerPublicIp,
+  setServerPublicIp,
+} from './api/http';
 
 export const backendApi = {
   ...appsAndDockerApi,

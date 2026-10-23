@@ -43,14 +43,28 @@ export const appsAndDockerApi = {
       body: toFormBody({ name }),
     });
   },
-  deleteApp: (appId: string, confirmName?: string) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ confirm_name: confirmName || appId }),
-    }),
-  composeAction: (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy') =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/compose/${action}`, { method: 'POST' }),
+  deleteApp: (appId: string) =>
+    requestJson<{ ok: boolean; message?: string; error?: string }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/delete`,
+      { method: 'POST' }
+    ),
+  composeAction: (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy', service?: string) =>
+    requestJson<{ ok: boolean; job_id?: string; action?: string; error?: string }>(
+      `/apps/${encodeURIComponent(appId)}/compose/${action}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: toFormBody({ service }),
+      }
+    ),
+  deployProgress: (appId: string) =>
+    requestJson<{
+      ok: boolean;
+      id: string;
+      output: string;
+      running: boolean;
+      action: string;
+    }>(`/apps/${encodeURIComponent(appId)}/partials/deploy-progress`),
   saveComposeFile: (appId: string, composeFile: string, content?: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/compose-file`, {
       method: 'POST',
@@ -75,6 +89,37 @@ export const appsAndDockerApi = {
       `/apps/${encodeURIComponent(appId)}/deploy-logs/${encodeURIComponent(String(logId))}/delete`,
       { method: 'POST' }
     ),
+  rollbackDeployment: (appId: string, depId: string | number) =>
+    requestJson<{
+      ok: boolean;
+      active_slot?: string;
+      pinned_slot?: string;
+      warm?: boolean;
+      message?: string;
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/deployments/${encodeURIComponent(String(depId))}/rollback`, {
+      method: 'POST',
+    }),
+  pinAppSlot: (appId: string, slot: string) =>
+    requestJson<{
+      ok: boolean;
+      pinned_slot?: string;
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/slots/pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot }),
+    }),
+  promoteAppSlot: (appId: string) =>
+    requestJson<{
+      ok: boolean;
+      active_slot?: string;
+      pinned_slot?: string;
+      message?: string;
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/slots/promote`, {
+      method: 'POST',
+    }),
   saveAppEnv: (appId: string, envContent: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/env`, {
       method: 'POST',
@@ -83,10 +128,28 @@ export const appsAndDockerApi = {
     }),
 
   // Workspace File Manager
+  filesList: (appId: string, path = '', recursive = true) =>
+    requestJson<
+      Array<{
+        name: string;
+        rel_path: string;
+        is_dir: boolean;
+        size: number;
+        mod_time: number;
+        perms: string;
+      }>
+    >(`/api/v1/apps/${encodeURIComponent(appId)}/files?path=${encodeURIComponent(path)}&recursive=${recursive ? 'true' : 'false'}`),
   filesTree: (appId: string, path = '') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/tree?path=${encodeURIComponent(path)}`),
   fileBlob: (appId: string, path: string) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/files/blob?path=${encodeURIComponent(path)}`),
+    requestJson<{
+      path: string;
+      name: string;
+      size: number;
+      text?: string;
+      binary?: boolean;
+      too_large?: boolean;
+    }>(`/apps/${encodeURIComponent(appId)}/files/blob?path=${encodeURIComponent(path)}`),
   fileSave: (appId: string, path: string, content: string) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/save?path=${encodeURIComponent(path)}`, {
       method: 'POST',
@@ -129,6 +192,15 @@ export const appsAndDockerApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths, dest }),
     }),
+  fileChmod: (appId: string, path: string, mode: string) =>
+    requestJson<{ ok?: boolean; message?: string; mode?: string }>(
+      `/apps/${encodeURIComponent(appId)}/files/chmod`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, mode }),
+      }
+    ),
   fileZip: (appId: string, paths: string | string[], name = 'archive.zip', dest = '') =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/zip`, {
       method: 'POST',
@@ -156,14 +228,39 @@ export const appsAndDockerApi = {
     );
     return { ...res, file: res.data?.file, bytes: res.data?.bytes };
   },
-  fileUpload: (appId: string, file: File, destDir = '') => {
+  fileUpload: (
+    appId: string,
+    files: File | File[],
+    destDir = '',
+    onProgress?: (pct: number) => void
+  ) => {
     const fd = new FormData();
     fd.append('path', destDir);
-    fd.append('file', file);
-    return requestJson<{ ok: boolean; message?: string }>(
-      `/apps/${encodeURIComponent(appId)}/files/upload`,
-      { method: 'POST', body: fd }
-    );
+    const fileList = Array.isArray(files) ? files : [files];
+    fileList.forEach((f) => fd.append('file', f));
+    // XHR is used because fetch cannot report upload progress.
+    return new Promise<{ ok: boolean; message?: string }>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/apps/${encodeURIComponent(appId)}/files/upload`);
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      xhr.setRequestHeader('X-NextDeploy-Client', 'spa');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onerror = () => resolve({ ok: false, message: 'Network error during upload' });
+      xhr.onload = () => {
+        let body: { message?: string; error?: string } = {};
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          // Non-JSON body: rely on status code only.
+        }
+        const ok = xhr.status >= 200 && xhr.status < 300;
+        resolve({ ok, message: body.message || body.error || (ok ? undefined : `HTTP ${xhr.status}`) });
+      };
+      xhr.send(fd);
+    });
   },
   uploadZip: (appId: string, file: File) => {
     const fd = new FormData();
@@ -242,7 +339,7 @@ export const appsAndDockerApi = {
     requestJson(`/images/remove`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ id: idOrTag }),
+      body: toFormBody({ id: idOrTag, image_id: idOrTag }),
     }),
   globalImagesPrune: () =>
     requestJson<{ ok: boolean; message?: string }>('/images/prune', { method: 'POST' }),
@@ -262,6 +359,7 @@ export const appsAndDockerApi = {
         domain: payload.domain,
         service: payload.service,
         port: payload.port,
+        is_primary: payload.is_primary ? 'on' : '',
         enable_https: payload.enable_https !== false ? 'on' : '',
         enable_www: payload.enable_www ? 'on' : '',
         serve_static: payload.serve_static ? 'on' : '',
@@ -280,6 +378,7 @@ export const appsAndDockerApi = {
         domain: payload.domain,
         service: payload.service,
         port: payload.port,
+        is_primary: payload.is_primary ? 'on' : 'false',
         enable_https: payload.enable_https !== false ? 'on' : '',
         enable_www: payload.enable_www ? 'on' : '',
         serve_static: payload.serve_static ? 'on' : '',
@@ -289,6 +388,27 @@ export const appsAndDockerApi = {
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
       }),
+    }),
+  previewSave: (
+    appId: string,
+    cfg: { provider: string; base: string; service: string; port: number }
+  ) =>
+    requestJson<{ ok: boolean; host_base?: string; error?: string }>(
+      `/apps/${encodeURIComponent(appId)}/preview`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      }
+    ),
+  domainSetPrimary: (appId: string, domainId: string | number) =>
+    requestJson<{
+      ok: boolean;
+      primary_domain?: string;
+      domains?: any[];
+      error?: string;
+    }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/primary`, {
+      method: 'POST',
     }),
   domainDelete: (appId: string, domainId: string | number) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/delete`, {
@@ -329,4 +449,15 @@ export const appsAndDockerApi = {
       snippet: res.data?.yaml || res.data?.snippet,
     };
   },
+  uploadWorkspaceArchive: async (appId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('archive', file);
+    const res = await fetch(`/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`, {
+      method: 'POST',
+      body: fd,
+    });
+    return res.json();
+  },
+  metricsHistory: () =>
+    requestJson<{ ok?: boolean; history?: any[] }>('/api/v1/metrics/history'),
 };

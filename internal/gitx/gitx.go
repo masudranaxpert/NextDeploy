@@ -121,6 +121,15 @@ func CurrentCommit(ctx context.Context, repoDir string) string {
 	return strings.TrimSpace(res.Output)
 }
 
+// Checkout checks out a specific commit or branch in the repository.
+func Checkout(ctx context.Context, repoDir, ref string) Result {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return Result{OK: false, Output: "empty ref"}
+	}
+	return run(ctx, repoDir, nil, "git", "checkout", ref)
+}
+
 // IsDirty returns true when the working tree has any tracked modifications or untracked files
 // not covered by .gitignore. Excludes .env since that is panel-managed and intentionally untracked.
 func IsDirty(ctx context.Context, repoDir string) bool {
@@ -141,7 +150,6 @@ func IsDirty(ctx context.Context, repoDir string) bool {
 	}
 	return false
 }
-
 
 // CurrentCommitSubject returns the first line of the latest commit message (git log -1 %s).
 func CurrentCommitSubject(ctx context.Context, repoDir string) string {

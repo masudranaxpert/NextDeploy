@@ -130,6 +130,7 @@ func main() {
 	// External HTTP REST API endpoints for agent workspace uploads & downloads
 	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
 	app.Get("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.DownloadWorkspaceArchive)
+	app.Get("/api/v1/metrics/history", p.APIAuthMiddleware, p.MetricsHistory)
 
 	// CLI REST API — apps, manifest, sessions
 	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
@@ -159,6 +160,8 @@ func main() {
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
+	app.Use("/users", p.RequireAdminMiddleware)
+	app.Use("/settings", p.RequireAdminMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
@@ -244,9 +247,11 @@ func main() {
 	app.Post("/apps/:id/files/move", p.BrowseMove)
 	app.Post("/apps/:id/files/copy", p.BrowseCopy)
 	app.Post("/apps/:id/files/mkdir", p.BrowseMkdir)
+	app.Post("/apps/:id/files/chmod", p.BrowseChmod)
 	app.Post("/apps/:id/files/zip", p.BrowseZip)
 	app.Post("/apps/:id/files/unzip", p.BrowseUnzip)
 	app.Get("/apps/:id/partials/deploy-progress", p.DeployProgressPartial)
+	app.Get("/apps/:id/logs", p.AppLogsREST)
 	app.Use("/apps/:id/ws/logs", p.WSUpgrade)
 	app.Get("/apps/:id/ws/logs", fws.New(p.AppLogWebSocket))
 	app.Post("/apps/:id/exec", p.AppExec)
@@ -255,6 +260,10 @@ func main() {
 	app.Post("/apps/:id/deploy-logs/clear", p.ClearDeployLogs)
 	app.Get("/apps/:id/deploy-logs/:logId", p.DeployLogGet)
 	app.Post("/apps/:id/deploy-logs/:logId/delete", p.DeployLogDelete)
+	app.Post("/apps/:id/deploy-logs/:logId/rollback", p.RollbackDeployment)
+	app.Post("/apps/:id/deployments/:depId/rollback", p.RollbackDeployment)
+	app.Post("/apps/:id/slots/pin", p.PinSlot)
+	app.Post("/apps/:id/slots/promote", p.PromoteSlot)
 	// DELETE is POST-only; GET from the address bar redirects (avoids blank / confused responses).
 	app.Get("/apps/:id/delete", func(c *fiber.Ctx) error {
 		return c.Redirect("/apps", fiber.StatusFound)
@@ -283,11 +292,16 @@ func main() {
 	app.Post("/apps/:id/domains", p.AppDomainCreate)
 	app.Post("/apps/:id/domains/:did/edit", p.AppDomainEdit)
 	app.Post("/apps/:id/domains/:did/delete", p.AppDomainDelete)
+	app.Post("/apps/:id/domains/:did/primary", p.AppDomainSetPrimary)
+	app.Post("/apps/:id/preview", p.AppPreviewSave)
 	app.Get("/apps/:id/domains/:did/labels", p.AppDomainLabels)
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
 	// Caddy global management
 	app.Get("/caddy", p.ServeSPA)
+	app.Get("/proxy", p.ServeSPA)
+	app.Get("/mcp", p.ServeSPA)
+	app.Get("/audit-logs", p.ServeSPA)
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
@@ -303,14 +317,21 @@ func main() {
 	app.Post("/git/:pid/github/refresh-installation", p.GitHubProviderRefreshInstall)
 	app.Post("/git/gitlab/start", p.GitLabOAuthStart)
 	app.Get("/git/gitlab/callback", p.GitLabOAuthCallback)
+	app.Get("/git/providers", p.APIAuthMiddleware, p.GitProvidersList)
+	app.Get("/api/v1/git/providers", p.APIAuthMiddleware, p.GitProvidersList)
+	app.Post("/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
+	app.Post("/api/v1/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
+	app.Get("/api/v1/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
+	app.Get("/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
 
 	// App source type switching
 	app.Post("/apps/:id/switch-source", p.AppSwitchSource)
 	app.Post("/apps/:id/git-sync", p.AppGitSyncToggle)
 	app.Get("/apps/:id/git/providers/:pid/repos", p.AppGitProviderRepos)
 	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
+	app.Get("/apps/:id/git/remote-branches", p.PublicGitRemoteBranches)
 
 	// User management
 	app.Get("/users", p.ServeSPA)

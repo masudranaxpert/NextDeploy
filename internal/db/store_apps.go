@@ -57,7 +57,7 @@ func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '') FROM apps ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 	for rows.Next() {
 		var a App
 		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot); err != nil {
 			return nil, err
 		}
 		t, err := time.Parse(time.RFC3339, created)
@@ -81,7 +81,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 
 func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active')
+		SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '')
 		FROM apps
 		WHERE owner_id = ? OR id IN (SELECT app_id FROM app_collaborators WHERE user_id = ?)
 		ORDER BY created_at DESC`, userID, userID)
@@ -93,7 +93,7 @@ func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error
 	for rows.Next() {
 		var a App
 		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot); err != nil {
 			return nil, err
 		}
 		t, err := time.Parse(time.RFC3339, created)
@@ -109,8 +109,8 @@ func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error
 func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	var a App
 	var created string
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active') FROM apps WHERE id = ?`, id).
-		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '') FROM apps WHERE id = ? OR name = ? LIMIT 1`, id, id).
+		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot)
 	if err != nil {
 		return App{}, err
 	}
@@ -122,6 +122,16 @@ func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
 	return a, nil
 }
 
+func (s *Store) UpdateAppSlots(ctx context.Context, id, activeSlot, standbySlot string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET active_slot = ?, standby_slot = ? WHERE id = ?`, activeSlot, standbySlot, id)
+	return err
+}
+
+func (s *Store) UpdateAppPinnedSlot(ctx context.Context, id, pinnedSlot string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET pinned_slot = ? WHERE id = ?`, strings.TrimSpace(pinnedSlot), id)
+	return err
+}
+
 func (s *Store) UpdateAppStatus(ctx context.Context, id string, status string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE apps SET status = ? WHERE id = ?`, status, id)
 	return err
@@ -131,7 +141,6 @@ func (s *Store) UpdateAppOwner(ctx context.Context, id string, ownerID int64) er
 	_, err := s.db.ExecContext(ctx, `UPDATE apps SET owner_id = ? WHERE id = ?`, ownerID, id)
 	return err
 }
-
 
 func (s *Store) UpdateComposeFile(ctx context.Context, id, composeFile string) error {
 	composeFile = strings.TrimSpace(composeFile)

@@ -83,6 +83,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
 
   const [expanded, setExpanded] = useState(false);
   const [serviceMenuOpen, setServiceMenuOpen] = useState(false);
+  const [wsConnectedState, setWsConnectedState] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -381,9 +382,58 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       initialBanner.forEach((line) => term.writeln(line));
     }
     currentLineRef.current = '';
-    writeNewPromptLine(term, false);
+
+    // Connect to live backend PTY WebSocket (/apps/:id/ws/terminal or /terminal/ws)
+    let ws: WebSocket | null = null;
+    let wsConnected = false;
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const containerParam = activeServiceObj?.name || activeServiceObj?.service || '';
+      const wsPath = appSlug
+        ? `/apps/${encodeURIComponent(appSlug)}/ws/terminal${
+            containerParam ? `?container=${encodeURIComponent(containerParam)}` : ''
+          }`
+        : `/terminal/ws`;
+      ws = new WebSocket(`${proto}//${window.location.host}${wsPath}`);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        wsConnected = true;
+        setWsConnectedState(true);
+        term.focus();
+      };
+      ws.onmessage = (ev) => {
+        wsConnected = true;
+        setWsConnectedState(true);
+        if (typeof ev.data === 'string') {
+          term.write(ev.data);
+        } else if (ev.data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(ev.data));
+        }
+      };
+      ws.onerror = () => {
+        setWsConnectedState(false);
+        if (!wsConnected) {
+          writeNewPromptLine(term, false);
+        }
+      };
+      ws.onclose = () => {
+        setWsConnectedState(false);
+        if (!wsConnected) {
+          writeNewPromptLine(term, false);
+        }
+        wsConnected = false;
+      };
+    } catch {
+      setWsConnectedState(false);
+      writeNewPromptLine(term, false);
+    }
 
     term.onData((data) => {
+      if (ws && wsConnected && ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+        return;
+      }
+
       const code = data.charCodeAt(0);
 
       if (data === '\t' || data === '\x1b[C') {
@@ -462,9 +512,16 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+      }
       term.dispose();
     };
-  }, [activeServiceObj?.service]);
+  }, [activeServiceObj?.service, activeServiceObj?.name, appSlug]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -568,7 +625,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5">
-          <StatusBadge status="connected" label="PTY Connected" />
+          <StatusBadge
+            status={wsConnectedState ? 'connected' : 'idle'}
+            label={wsConnectedState ? 'Connected' : 'Connecting...'}
+          />
           <button
             type="button"
             onClick={handleClearTerminal}
@@ -603,8 +663,9 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       {/* XTerm.js Viewport */}
       <div
         ref={containerRef}
+        onClick={() => xtermRef.current?.focus()}
         style={{ height: expanded ? 540 : height }}
-        className="w-full px-3 py-2"
+        className="w-full px-3 py-2 cursor-text"
       />
     </div>
   );

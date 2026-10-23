@@ -248,4 +248,3 @@ services:
 		t.Errorf("Expected 2.0 CPUs, got %.2f", cpu)
 	}
 }
-

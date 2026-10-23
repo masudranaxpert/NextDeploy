@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   RefreshCw,
   Copy,
+  Check,
   Trash2,
   Plus,
   CheckCircle2,
@@ -26,6 +27,18 @@ import {
   StatusBadge,
 } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import { gitAndRegistryApi } from '../../lib/api/gitAndRegistryApi';
+
+export interface WebhookDeliveryItem {
+  id: string;
+  provider: 'GitHub' | 'GitLab';
+  repo: string;
+  event: string;
+  sha: string;
+  status: string;
+  latency: string;
+  time: string;
+}
 
 const GitLabIcon: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -55,6 +68,10 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [repoProviderFilter, setRepoProviderFilter] = useState<'all' | 'GitHub' | 'GitLab'>('all');
   const [gitSubTab, setGitSubTab] = useState<'repos' | 'webhooks'>('repos');
 
+  useEffect(() => {
+    setProviders(gitProviders);
+  }, [gitProviders]);
+
   // GitHub Modal State (matches POST /git/github/start & /git/:pid/update)
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [ghAuthMethod, setGhAuthMethod] = useState<'GitHub App' | 'Fine-Grained PAT'>('GitHub App');
@@ -69,8 +86,10 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [glAuthMethod, setGlAuthMethod] = useState<'OAuth 2.0' | 'Deploy Token'>('OAuth 2.0');
   const [glAccountInput, setGlAccountInput] = useState('nextdeploy-internal');
   const [glInstanceUrl, setGlInstanceUrl] = useState('https://gitlab.com');
+  const [glTokenInput, setGlTokenInput] = useState('');
   const [glClientId, setGlClientId] = useState('');
   const [glClientSecret, setGlClientSecret] = useState('');
+  const [copiedUri, setCopiedUri] = useState(false);
 
   // Container Registries State (matches POST /settings/registries with is_global)
   const [registryModalOpen, setRegistryModalOpen] = useState(false);
@@ -109,50 +128,99 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
   const handleConnectGitHub = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ghAccountInput.trim()) return;
     if (ghAuthMethod === 'GitHub App') {
-      await backendApi.startGitHubApp(ghAppName.trim());
+      // 1-Click GitHub App Manifest Flow: auto-redirects to GitHub to approve permissions
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/git/github/start';
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'name';
+      input.value = ghAppName.trim();
+      form.appendChild(input);
+      document.body.appendChild(form);
+      form.submit();
+      return;
     }
-    const created: GitProviderConnection = {
-      id: `git-gh-${Date.now()}`,
-      provider: 'GitHub',
-      authMethod: ghAuthMethod,
-      accountName: ghAccountInput.trim(),
-      instanceUrl: 'https://github.com',
-      status: 'connected',
-      reposAccessible: 16,
-      webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/github',
-      lastSynced: 'Just now',
-    };
-    setProviders((prev) => [...prev, created]);
-    setGhTokenInput('');
-    setGithubModalOpen(false);
-    toast.success(`Connected GitHub @${created.accountName} (${ghAuthMethod})`);
+
+    if (!ghAccountInput.trim() || !ghTokenInput.trim()) {
+      toast.error('Please enter account name and Personal Access Token');
+      return;
+    }
+
+    try {
+      const res = await gitAndRegistryApi.createProvider({
+        name: ghAccountInput.trim(),
+        provider: 'github',
+        token: ghTokenInput.trim(),
+        notes: 'Personal Access Token',
+      });
+      if (res && res.id) {
+        const created: GitProviderConnection = {
+          id: String(res.id),
+          provider: 'GitHub',
+          authMethod: 'Fine-Grained PAT',
+          accountName: res.name || ghAccountInput.trim(),
+          instanceUrl: 'https://github.com',
+          status: 'connected',
+          reposAccessible: 0,
+          webhookDeliveryRate: '100%',
+          webhookUrl: '',
+          lastSynced: 'Just now',
+        };
+        setProviders((prev) => [...prev, created]);
+        setGhTokenInput('');
+        setGithubModalOpen(false);
+        toast.success(`Connected GitHub @${created.accountName} via Personal Access Token`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save GitHub provider');
+    }
   };
 
   const handleConnectGitLab = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!glAccountInput.trim()) return;
-    if (glAuthMethod === 'OAuth 2.0' && glClientId.trim() && glClientSecret.trim()) {
-      await backendApi.startGitLabOAuth(glClientId.trim(), glClientSecret.trim());
+    if (glAuthMethod === 'OAuth 2.0') {
+      if (glClientId.trim() && glClientSecret.trim()) {
+        await backendApi.startGitLabOAuth(glClientId.trim(), glClientSecret.trim());
+      }
+      return;
     }
-    const created: GitProviderConnection = {
-      id: `git-gl-${Date.now()}`,
-      provider: 'GitLab',
-      authMethod: glAuthMethod,
-      accountName: glAccountInput.trim(),
-      instanceUrl: glInstanceUrl.trim() || 'https://gitlab.com',
-      status: 'connected',
-      reposAccessible: 12,
-      webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/gitlab',
-      lastSynced: 'Just now',
-    };
-    setProviders((prev) => [...prev, created]);
-    setGlClientSecret('');
-    setGitlabModalOpen(false);
-    toast.success(`Connected GitLab @${created.accountName}`);
+
+    // Deploy Token / PAT connection
+    if (!glAccountInput.trim() || !glTokenInput.trim()) {
+      toast.error('Please enter group/account name and deploy token');
+      return;
+    }
+
+    try {
+      const res = await gitAndRegistryApi.createProvider({
+        name: glAccountInput.trim(),
+        provider: 'gitlab',
+        token: glTokenInput.trim(),
+        notes: glInstanceUrl.trim() !== 'https://gitlab.com' ? `Deploy Token (${glInstanceUrl.trim()})` : 'Deploy Token',
+      });
+      if (res && res.id) {
+        const created: GitProviderConnection = {
+          id: String(res.id),
+          provider: 'GitLab',
+          authMethod: 'Deploy Token',
+          accountName: res.name || glAccountInput.trim(),
+          instanceUrl: glInstanceUrl.trim() || 'https://gitlab.com',
+          status: 'connected',
+          reposAccessible: 0,
+          webhookDeliveryRate: '100%',
+          webhookUrl: '',
+          lastSynced: 'Just now',
+        };
+        setProviders((prev) => [...prev, created]);
+        setGlTokenInput('');
+        setGitlabModalOpen(false);
+        toast.success(`Connected GitLab @${created.accountName} via Deploy Token`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save GitLab provider');
+    }
   };
 
   const filteredRepos = repos.filter(
@@ -163,38 +231,50 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
     (r) => regScopeFilter === 'all' || r.scope === regScopeFilter
   );
 
-  const webhookEvents = [
-    {
-      id: 'wh-901',
-      provider: 'GitHub' as const,
-      repo: 'masudranaxpert/commerce-core-api',
-      event: 'push (refs/heads/main)',
-      sha: '8c4f19a',
-      status: '200 OK',
-      latency: '112ms',
-      time: '4m ago',
-    },
-    {
-      id: 'wh-900',
-      provider: 'GitLab' as const,
-      repo: 'nextdeploy-internal/temporal-worker-queue',
-      event: 'Push Hook (main)',
-      sha: '19d04e2',
-      status: '200 OK',
-      latency: '148ms',
-      time: '12m ago',
-    },
-    {
-      id: 'wh-899',
-      provider: 'GitHub' as const,
-      repo: 'masudranaxpert/studio-web-dashboard',
-      event: 'push (refs/heads/production)',
-      sha: 'f42a90c',
-      status: '200 OK',
-      latency: '96ms',
-      time: '38m ago',
-    },
-  ];
+  const [webhookEvents, setWebhookEvents] = useState<WebhookDeliveryItem[]>([]);
+  const [webhooksLoading, setWebhooksLoading] = useState(false);
+
+  const loadWebhookDeliveries = async () => {
+    setWebhooksLoading(true);
+    try {
+      const res = await gitAndRegistryApi.webhookDeliveries(10);
+      if (Array.isArray(res.data)) {
+        const formatted: WebhookDeliveryItem[] = res.data.map((item) => {
+          let timeAgo = 'Just now';
+          if (item.created_at) {
+            const diffMs = Date.now() - new Date(item.created_at).getTime();
+            const mins = Math.floor(diffMs / 60000);
+            if (mins < 1) timeAgo = 'Just now';
+            else if (mins < 60) timeAgo = `${mins}m ago`;
+            else {
+              const hours = Math.floor(mins / 60);
+              if (hours < 24) timeAgo = `${hours}h ago`;
+              else timeAgo = `${Math.floor(hours / 24)}d ago`;
+            }
+          }
+          return {
+            id: item.delivery_id,
+            provider: (item.provider?.toLowerCase() === 'gitlab' ? 'GitLab' : 'GitHub') as 'GitHub' | 'GitLab',
+            repo: item.repo || 'Repository',
+            event: item.event || 'push',
+            sha: item.sha || '—',
+            status: item.status || '200 OK',
+            latency: item.latency || '—',
+            time: timeAgo,
+          };
+        });
+        setWebhookEvents(formatted.slice(0, 10));
+      }
+    } catch {
+      // ignore network errors
+    } finally {
+      setWebhooksLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadWebhookDeliveries();
+  }, [gitSubTab]);
 
   if (mode === 'git') {
     return (
@@ -450,27 +530,37 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
-                    {webhookEvents.map((ev) => (
-                      <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {ev.provider === 'GitLab' ? (
-                              <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                            ) : (
-                              <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
-                            )}
-                            <span className="truncate text-zinc-100">{ev.repo}</span>
-                          </div>
+                    {webhookEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-zinc-500 font-sans">
+                          {webhooksLoading
+                            ? 'Loading webhook deliveries...'
+                            : 'No webhook deliveries yet. Inbound push events from GitHub and GitLab will be recorded here.'}
                         </td>
-                        <td className="px-4 py-3 text-zinc-300 truncate">
-                          {ev.event} · <span className="text-orange-400">{ev.sha}</span>
-                        </td>
-                        <td className="px-4 py-3 text-emerald-400">
-                          {ev.status} ({ev.latency})
-                        </td>
-                        <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      webhookEvents.map((ev) => (
+                        <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {ev.provider === 'GitLab' ? (
+                                <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                              ) : (
+                                <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
+                              )}
+                              <span className="truncate text-zinc-100">{ev.repo}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-300 truncate">
+                            {ev.event} · <span className="text-orange-400">{ev.sha}</span>
+                          </td>
+                          <td className="px-4 py-3 text-emerald-400">
+                            {ev.status} ({ev.latency})
+                          </td>
+                          <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -502,74 +592,62 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  GitHub Account or Organization
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={ghAccountInput}
-                  onChange={(e) => setGhAccountInput(e.target.value)}
-                  placeholder="masudranaxpert"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-              {ghAuthMethod === 'GitHub App' && (
+
+            {ghAuthMethod === 'GitHub App' ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.05] p-3 text-xs text-zinc-300">
+                  <p className="font-medium text-orange-300 mb-1">1-Click GitHub App Manifest Flow</p>
+                  <p className="text-zinc-400 text-[11px] leading-relaxed">
+                    NextDeploy will automatically configure permissions, webhook URLs, and secrets directly through GitHub. No App ID or manual installation ID required.
+                  </p>
+                </div>
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    GitHub App Name (app_name)
+                    GitHub App Name (Optional)
                   </label>
                   <input
                     type="text"
                     value={ghAppName}
                     onChange={(e) => setGhAppName(e.target.value)}
-                    placeholder="nextdeploy-prod"
+                    placeholder="NextDeploy-App (leave blank for auto-generated)"
                     className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                   />
-                </div>
-              )}
-            </div>
-
-            {ghAuthMethod === 'GitHub App' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    App ID (Optional Override)
-                  </label>
-                  <input
-                    type="text"
-                    value={ghAppId}
-                    onChange={(e) => setGhAppId(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Installation ID
-                  </label>
-                  <input
-                    type="text"
-                    value={ghInstallationId}
-                    onChange={(e) => setGhInstallationId(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
+                  <p className="text-[10px] text-zinc-500 mt-1">
+                    You can specify any name for the GitHub App or leave empty.
+                  </p>
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Personal Access Token
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={ghTokenInput}
-                  onChange={(e) => setGhTokenInput(e.target.value)}
-                  placeholder="github_pat_..."
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    GitHub Account or Organization
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={ghAccountInput}
+                    onChange={(e) => setGhAccountInput(e.target.value)}
+                    placeholder="masudranaxpert"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Personal Access Token (PAT)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={ghTokenInput}
+                    onChange={(e) => setGhTokenInput(e.target.value)}
+                    placeholder="github_pat_... or ghp_..."
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  />
+                  <p className="text-[10px] text-zinc-500 mt-1">
+                    Requires <code className="text-orange-400">repo</code> (or repository contents read permission).
+                  </p>
+                </div>
               </div>
             )}
 
@@ -585,7 +663,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 type="submit"
                 className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
               >
-                {ghAuthMethod === 'GitHub App' ? 'Register GitHub App' : 'Connect GitHub'}
+                {ghAuthMethod === 'GitHub App' ? 'Connect GitHub App' : 'Connect Personal Access Token'}
               </button>
             </div>
           </form>
@@ -595,7 +673,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         <ShadcnDialog
           open={gitlabModalOpen}
           onClose={() => setGitlabModalOpen(false)}
-          title="Connect GitLab (OAuth 2.0)"
+          title="Connect GitLab (OAuth 2.0 or Deploy Token)"
           icon={<GitLabIcon className="h-4 w-4 text-orange-400" />}
         >
           <form onSubmit={handleConnectGitLab} className="space-y-4">
@@ -617,21 +695,58 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             </div>
 
             {glAuthMethod === 'OAuth 2.0' && (
-              <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.05] p-2.5 font-mono text-[11px] text-zinc-300">
-                <div className="flex items-center justify-between text-[10px] text-orange-300 font-sans font-semibold mb-1">
-                  <span>GitLab OAuth Redirect URI (Scopes: api, read_user, read_repository)</span>
+              <div className="rounded-xl border border-white/[0.08] bg-[#0c0c0e] p-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+                    <span>GitLab OAuth Redirect URI</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-zinc-500 font-mono">Scopes:</span>
+                    {['api', 'read_user', 'read_repository'].map((scope) => (
+                      <span
+                        key={scope}
+                        className="rounded bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 text-[10px] font-mono font-medium text-orange-400"
+                      >
+                        {scope}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-black/60 px-3 py-2 transition-colors focus-within:border-orange-500/50">
+                  <span className="flex-1 font-mono text-[11px] text-zinc-300 truncate select-all">
+                    {gitlabRedirectUri}
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
                       navigator.clipboard?.writeText(gitlabRedirectUri);
+                      setCopiedUri(true);
+                      setTimeout(() => setCopiedUri(false), 2000);
                       toast.success('Copied GitLab Redirect URI');
                     }}
-                    className="underline cursor-pointer"
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer shrink-0 ${
+                      copiedUri
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                        : 'border-white/[0.1] bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-white hover:border-white/[0.2]'
+                    }`}
                   >
-                    Copy
+                    {copiedUri ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-400" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3 text-zinc-400" />
+                        <span>Copy</span>
+                      </>
+                    )}
                   </button>
                 </div>
-                <div className="truncate">{gitlabRedirectUri}</div>
+                <p className="text-[10px] text-zinc-500 leading-normal">
+                  Add this URI to your GitLab Application (<span className="text-zinc-400">Settings → Applications</span>) and grant the scopes above.
+                </p>
               </div>
             )}
 
@@ -696,16 +811,19 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             ) : (
               <div>
                 <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  GitLab Deploy Token
+                  GitLab Deploy Token or PAT
                 </label>
                 <input
                   type="password"
                   required
-                  value={glClientSecret}
-                  onChange={(e) => setGlClientSecret(e.target.value)}
-                  placeholder="glpat-••••••••••••"
+                  value={glTokenInput}
+                  onChange={(e) => setGlTokenInput(e.target.value)}
+                  placeholder="glpat-... or gldt-..."
                   className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                 />
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  Requires <code className="text-orange-400">read_repository</code> scope.
+                </p>
               </div>
             )}
 
@@ -721,7 +839,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 type="submit"
                 className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
               >
-                Connect GitLab
+                {glAuthMethod === 'OAuth 2.0' ? 'Start GitLab OAuth' : 'Connect Deploy Token'}
               </button>
             </div>
           </form>
