@@ -73,37 +73,37 @@ type PrivateRegistry struct {
 }
 
 type AppGitConfig struct {
-	AppID          string
-	GitProviderID  int64
-	Provider       string
-	RepoURL        string
-	RepoFullName   string
-	Branch         string
-	AuthMode       string
-	Token          string
-	AppGitID       string
-	InstallationID string
-	PrivateKeyPEM  string
-	WebhookSecret  string
-	AutoDeploy     bool
-	SyncPaused     bool // keeps the repo config but makes the workspace the deploy source
-	LastDeployRef  string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	AppID          string    `json:"app_id"`
+	GitProviderID  int64     `json:"git_provider_id"`
+	Provider       string    `json:"provider"`
+	RepoURL        string    `json:"repo_url"`
+	RepoFullName   string    `json:"repo_full_name"`
+	Branch         string    `json:"branch"`
+	AuthMode       string    `json:"auth_mode"`
+	Token          string    `json:"token,omitempty"`
+	AppGitID       string    `json:"app_git_id,omitempty"`
+	InstallationID string    `json:"installation_id,omitempty"`
+	PrivateKeyPEM  string    `json:"private_key_pem,omitempty"`
+	WebhookSecret  string    `json:"webhook_secret"`
+	AutoDeploy     bool      `json:"auto_deploy"`
+	SyncPaused     bool      `json:"sync_paused"`
+	LastDeployRef  string    `json:"last_deploy_ref,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // GitProvider holds a named global Git credential (token) for a provider.
 type GitProvider struct {
-	ID           int64
-	UserID       *int64
-	Name         string
-	Provider     string
-	Token        string
-	RefreshToken string
-	ExpiresAt    int64 // Unix timestamp
-	Notes        string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           int64     `json:"id"`
+	UserID       *int64    `json:"user_id,omitempty"`
+	Name         string    `json:"name"`
+	Provider     string    `json:"provider"`
+	Token        string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	ExpiresAt    int64     `json:"expires_at,omitempty"`
+	Notes        string    `json:"notes,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type GitHubProviderDetail struct {

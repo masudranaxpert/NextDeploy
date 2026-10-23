@@ -143,6 +143,7 @@ export interface AppStack {
   gitCommitSha?: string;
   gitCommitMessage?: string;
   webhookAutoDeploy: boolean;
+  webhookSecret?: string;
   status: AppStatus;
   primaryDomain?: string;
   composeFilePath: string;

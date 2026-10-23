@@ -119,6 +119,8 @@ func main() {
 	app.Post("/logout", p.Logout)
 	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
 	app.Post("/webhooks/github/:id", p.GitHubWebhook)
+	app.Post("/webhooks/gitlab/:id", p.GitHubWebhook)
+	app.Post("/webhooks/:id", p.GitHubWebhook)
 	app.Get("/migrate/download/:token", p.MigrateDownload)
 
 	// Model Context Protocol (MCP) server endpoints for external AI coding agents

@@ -146,6 +146,8 @@ export interface BootstrapData {
       repo_url?: string;
       branch?: string;
       auth_mode?: string;
+      git_provider_id?: number;
+      webhook_secret?: string;
       auto_deploy?: boolean;
       git_sync?: boolean;
       last_commit_sha?: string;
