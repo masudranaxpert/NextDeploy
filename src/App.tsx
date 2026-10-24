@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   Box,
   ChevronRight,
+  FileCode2,
   FileText,
   FolderGit2,
   Globe,
@@ -54,6 +55,8 @@ import { MigrationView } from './features/migration/MigrationView';
 import { McpAndCliView } from './features/automation/McpAndCliView';
 import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
 import { AuthView } from './features/auth/AuthView';
+import { PhpSitesView } from './features/php/PhpSitesView';
+import { PhpInstanceView } from './features/php/PhpInstanceView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
 
@@ -89,6 +92,8 @@ export default function App() {
       'settings',
       'audit-logs',
       'users',
+      'php-sites',
+      'php-instance',
     ];
 
     if (path === 'caddy') return { nav: 'proxy', appId: null };
@@ -171,6 +176,15 @@ export default function App() {
   const [syncedRepos, setSyncedRepos] = useState<SyncedGitRepository[]>([]);
   const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
+  const [phpEnabled, setPhpEnabled] = useState(false);
+  const [myQuota, setMyQuota] = useState<any>(null);
+  React.useEffect(() => {
+    const adminOnly = ['monitor', 'terminal', 'proxy', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
+    if (currentUser && currentUser.role !== 'admin' && !selectedAppId && adminOnly.includes(activeNav)) {
+      setActiveNav('overview');
+      window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
+    }
+  }, [currentUser, activeNav, selectedAppId]);
   const [cgroupInfo, setCgroupInfo] = useState<{ mode?: string; supported?: boolean }>({ mode: 'systemd', supported: true });
   const [caddyInfo, setCaddyInfo] = useState<{ up: boolean; status: string; config?: Record<string, string> } | null>(null);
 
@@ -267,7 +281,11 @@ export default function App() {
       (c: any) => (c.State || '').toLowerCase() === 'running'
     );
     const latestDeploy = Array.isArray(a.deploy_logs) ? a.deploy_logs[0] : null;
-    const computedStatus: AppStack['status'] = hasRunningContainer
+    const computedStatus: AppStack['status'] = a.php
+      ? a.php.state === 'running'
+        ? 'running'
+        : 'stopped'
+      : hasRunningContainer
       ? 'running'
       : latestDeploy && latestDeploy.ok === false
       ? 'failed'
@@ -275,6 +293,14 @@ export default function App() {
 
     return {
       id: a.id,
+      php: a.php
+        ? {
+            siteType: a.php.site_type,
+            phpVersion: a.php.php_version || '',
+            rootDir: a.php.root_dir || '',
+            uid: a.php.uid || 0,
+          }
+        : undefined,
       name: a.name,
       slug: a.name,
       description: a.description || '',
@@ -465,6 +491,9 @@ export default function App() {
         });
       }
 
+      setPhpEnabled(Boolean((data as any).php?.enabled));
+      setMyQuota((data as any).quota && !(data as any).quota.unlimited ? (data as any).quota : null);
+
       const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
       const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
 
@@ -572,12 +601,28 @@ export default function App() {
           }))
         );
       }
+      if (Array.isArray(data.cli_sessions)) {
+        setCliSessions(
+          data.cli_sessions.map((cs: any) => ({
+            id: String(cs.id || cs.ID),
+            tokenName: cs.token_name || cs.TokenName || 'CLI Token',
+            prefix: cs.token_prefix || cs.TokenPrefix || 'nd_cli_...',
+            fullToken: '',
+            deviceHost: cs.hostname || cs.Hostname || 'workstation',
+            osArch: `${cs.os || cs.OS || 'linux'}/${cs.arch || cs.Arch || 'amd64'}`,
+            cliVersion: cs.version || cs.Version || 'nd v1.8.4',
+            lastCommand: 'nd login',
+            lastActiveAt: cs.last_seen || cs.LastSeen ? new Date(cs.last_seen || cs.LastSeen).toLocaleString() : 'Recently',
+            ipAddress: getServerPublicIp() || '127.0.0.1',
+          }))
+        );
+      }
       if (Array.isArray(data.audit_logs)) {
         setAuditLogs(
           data.audit_logs.map((al: any) => ({
             id: String(al.id ?? al.ID),
             actor: al.username || al.Username || 'system',
-            actorRole: al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'admin'),
+            actorRole: al.role || al.Role || (al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'user')),
             action: al.action || al.Action || 'system.event',
             target: (al.target_id || al.TargetID)
               ? `${al.target_type || al.TargetType || 'resource'}: ${al.target_id || al.TargetID}`
@@ -750,11 +795,29 @@ export default function App() {
           id: 'apps',
           label: 'Projects',
           icon: <Layers className="h-3.5 w-3.5" />,
-          badge: { text: String(apps.length), tone: 'count' },
+          badge: { text: String(apps.filter((a) => !a.php).length), tone: 'count' },
         },
         { id: 'monitor', label: 'Monitoring', icon: <Activity className="h-3.5 w-3.5" /> },
       ],
     },
+    ...(phpEnabled || currentUser?.role === 'admin'
+      ? [
+          {
+            group: 'PHP Hosting',
+            items: [
+              {
+                id: 'php-sites' as NavigationSection,
+                label: 'PHP Sites',
+                icon: <FileCode2 className="h-3.5 w-3.5" />,
+                badge: { text: String(apps.filter((a) => a.php).length), tone: 'count' as const },
+              },
+              ...(currentUser?.role === 'admin'
+                ? [{ id: 'php-instance' as NavigationSection, label: 'Instance', icon: <Server className="h-3.5 w-3.5" /> }]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
       group: 'Docker Engine',
       items: [
@@ -801,8 +864,24 @@ export default function App() {
     },
   ];
 
+  // Pages that only make sense for (and are only allowed to) administrators.
+  const ADMIN_ONLY_NAV: NavigationSection[] = [
+    'monitor',
+    'terminal',
+    'proxy',
+    'migrate',
+    'users',
+    'settings',
+    'cli-sessions',
+    'php-instance',
+  ];
+  const isAdminUser = currentUser?.role === 'admin';
+  const visibleNavGroups = navGroups
+    .map((g) => ({ ...g, items: g.items.filter((i) => isAdminUser || !ADMIN_ONLY_NAV.includes(i.id)) }))
+    .filter((g) => g.items.length > 0);
+
   const currentNavLabel =
-    navGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
+    visibleNavGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
 
   if (authMode) {
     return (
@@ -897,7 +976,7 @@ export default function App() {
 
         {/* Navigation Links */}
         <nav className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar px-3 py-2 space-y-4">
-          {navGroups.map((grp) => (
+          {visibleNavGroups.map((grp) => (
             <div key={grp.group} className="space-y-0.5">
               <p className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                 {grp.group}
@@ -905,7 +984,7 @@ export default function App() {
               {grp.items.map((item) => {
                 const isActive =
                   (!selectedAppId && activeNav === item.id) ||
-                  (selectedAppId && item.id === 'apps');
+                  (selectedAppId && item.id === (selectedApp?.php ? 'php-sites' : 'apps'));
                 return (
                   <button
                     key={item.id}
@@ -1004,11 +1083,11 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      navigateTo('apps');
+                      navigateTo(selectedApp.php ? 'php-sites' : 'apps');
                     }}
                     className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    Projects
+                    {selectedApp.php ? 'PHP Sites' : 'Projects'}
                   </button>
                   <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
                   <span className="font-mono font-semibold text-zinc-100 truncate">
@@ -1045,7 +1124,12 @@ export default function App() {
             {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
-                onBack={() => navigateTo('apps')}
+                onBack={() => navigateTo(selectedApp.php ? 'php-sites' : 'apps')}
+                quota={myQuota}
+                onRefresh={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                }}
                 onUpdateApp={(updated) =>
                   setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
                 }
@@ -1056,7 +1140,7 @@ export default function App() {
                     return;
                   }
                   setApps((prev) => prev.filter((a) => a.id !== id));
-                  navigateTo('apps');
+                  navigateTo(selectedApp.php ? 'php-sites' : 'apps');
                   toast.success('Deleted project');
                 }}
               />
@@ -1085,15 +1169,35 @@ export default function App() {
                 sys={sys}
                 apps={apps}
                 containersCount={containersCount}
+                isAdmin={isAdminUser}
+                quota={myQuota}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
-                apps={apps}
+                apps={apps.filter((a) => !a.php)}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onUpdateApps={setApps}
                 onCreateApp={() => setNewAppModalOpen(true)}
+              />
+            ) : activeNav === 'php-sites' ? (
+              <PhpSitesView
+                apps={apps}
+                isAdmin={currentUser?.role === 'admin'}
+                onOpenSite={(id) => navigateTo('apps', id)}
+                onRefresh={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                }}
+                onGoInstance={() => navigateTo('php-instance')}
+              />
+            ) : activeNav === 'php-instance' ? (
+              <PhpInstanceView
+                onChanged={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok) setPhpEnabled(Boolean((r.data as any)?.php?.enabled));
+                }}
               />
             ) : activeNav === 'monitor' ? (
               <MonitorView
@@ -1112,6 +1216,7 @@ export default function App() {
             ) : activeNav === 'images' ? (
               <ImagesView
                 images={images}
+                isAdmin={isAdminUser}
                 onDeleteImage={async (id) => {
                   try {
                     const res = await backendApi.globalImageRemove(id);
@@ -1226,6 +1331,7 @@ export default function App() {
                 mode="mcp"
                 tools={MCP_TOOLS_CATALOG}
                 cliSessions={cliSessions}
+                isAdmin={isAdminUser}
                 onGenerateCliToken={() => {}}
               />
             ) : activeNav === 'cli-sessions' ? (
@@ -1276,12 +1382,23 @@ export default function App() {
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
               />
-            ) : (
+            ) : isAdminUser && activeNav === 'settings' ? (
               <UsersAndSettingsView
                 mode="settings"
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+              />
+            ) : (
+              <OverviewDashboard
+                telemetry={telemetry}
+                sys={sys}
+                apps={apps}
+                containersCount={containersCount}
+                isAdmin={isAdminUser}
+                quota={myQuota}
+                onSelectApp={(id) => navigateTo('apps', id)}
+                onSelectNav={(nav) => navigateTo(nav)}
               />
             )}
           </main>
@@ -1296,6 +1413,7 @@ export default function App() {
         images={images}
         volumes={volumes}
         gitProviders={gitProviders}
+        isAdmin={isAdminUser}
         onSelectNav={(nav) => navigateTo(nav)}
         onSelectApp={(id, tab) => navigateTo('apps', id, false, tab)}
         onOpenNewApp={() => setNewAppModalOpen(true)}

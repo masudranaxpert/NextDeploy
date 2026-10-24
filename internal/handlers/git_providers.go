@@ -111,11 +111,8 @@ func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
 		}
 	}
 
-	var userID *int64
-	if u.Role != db.RoleAdmin {
-		uid := u.ID
-		userID = &uid
-	}
+	uid := u.ID
+	userID := &uid // owned by its creator, admins included
 
 	pid, err := p.DB.CreateGitProvider(c.UserContext(), userID, name, provider, token, notes)
 	if err != nil {
@@ -372,7 +369,7 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 
 // APIWebhookDeliveries returns the recent real webhook deliveries (last 10).
 func (p *Panel) APIWebhookDeliveries(c *fiber.Ctx) error {
-	_, ok := CurrentUser(c)
+	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
@@ -380,10 +377,7 @@ func (p *Panel) APIWebhookDeliveries(c *fiber.Ctx) error {
 	if l := c.QueryInt("limit", 10); l > 0 && l <= 50 {
 		limit = l
 	}
-	list, err := p.DB.ListWebhookDeliveries(c.UserContext(), limit)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+	list := p.visibleWebhookDeliveries(c.UserContext(), u, limit)
 	if list == nil {
 		list = []db.WebhookDelivery{}
 	}

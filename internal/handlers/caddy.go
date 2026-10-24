@@ -17,6 +17,7 @@ import (
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/phphosting"
 	"panel/internal/dockerx"
 	"panel/internal/sandbox"
 
@@ -238,6 +239,12 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 	if err != nil {
 		return err
 	}
+	if p.PHP != nil && p.DB.IsPHPSite(ctx, appID) {
+		// PHP sites have no compose project: publish their routes instead.
+		sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		return p.PHP.SyncRoutes(sctx, appID)
+	}
 	activeSlot := strings.TrimSpace(app.ActiveSlot)
 	if activeSlot == "" {
 		activeSlot = "blue"
@@ -395,6 +402,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
 	}
+	if p.PHP != nil && p.DB.IsPHPSite(c.UserContext(), id) && !phphosting.ValidHost(d.Domain) {
+		return c.Status(400).SendString("invalid domain name")
+	}
 	if !p.userCanDomainFileServer(c) {
 		stripDomainFileServing(&d)
 	}
@@ -474,6 +484,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	}
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
+	}
+	if p.PHP != nil && p.DB.IsPHPSite(c.UserContext(), id) && !phphosting.ValidHost(d.Domain) {
+		return c.Status(400).SendString("invalid domain name")
 	}
 	if !p.userCanDomainFileServer(c) {
 		stripDomainFileServing(&d)

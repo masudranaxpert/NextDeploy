@@ -2,6 +2,10 @@
 
 > স্ট্যাটাস: প্রস্তাব (draft) · তারিখ: 2026-10-24 · ব্রাঞ্চ বেস: `feat/react-ui-v2`
 
+> **Status note:** this is the original, generic plugin-system research. The PHP hosting feature that motivated it was
+> built as a **built-in module** instead (see [php-hosting.md](php-hosting.md)). The container-plugin framework described
+> below is still a valid design for third-party extensions, but nothing in it is implemented yet.
+
 ## 0. সংক্ষেপে সিদ্ধান্ত (TL;DR)
 
 | প্রশ্ন | সিদ্ধান্ত |

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"io"
+	"log"
 	"strconv"
 	"strings"
 
@@ -77,6 +78,15 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 		SetFlashError(c, "Username already taken")
 		return c.Redirect("/users")
 	}
+	if role != db.RoleAdmin {
+		// the database defaults (2 GB, 2 CPUs, 5 GB) may exceed a small VPS
+		if nu, gerr := p.DB.GetUserByID(c.UserContext(), createdUser); gerr == nil {
+			mem, cpus, storage := clampLimitsToHost(c.UserContext(), nu.MaxMemoryMB, nu.MaxCPUs, nu.MaxStorageMB)
+			if mem != nu.MaxMemoryMB || cpus != nu.MaxCPUs || storage != nu.MaxStorageMB {
+				_ = p.DB.UpdateUserLimits(c.UserContext(), nu.ID, nu.MaxApps, mem, cpus, storage, nu.BandwidthLimitMbps, nu.AllowDomainFileServer)
+			}
+		}
+	}
 	p.InvalidateAfterUserChange()
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true, "user": createdUser})
@@ -139,6 +149,17 @@ func (p *Panel) UserDelete(c *fiber.Ctx) error {
 		}
 		SetFlashError(c, "Cannot delete the last admin")
 		return c.Redirect("/users")
+	}
+
+	if p.PHP != nil {
+		// PHP sites of the deleted account move to the admin performing the deletion.
+		if err := p.PHP.ReassignOwner(ctx, id, current.ID); err != nil {
+			if WantsJSON(c) {
+				return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Could not hand over the user's PHP sites: " + err.Error()})
+			}
+			SetFlashError(c, "Could not hand over the user's PHP sites")
+			return c.Redirect("/users")
+		}
 	}
 
 	if err := p.DB.DeleteUser(ctx, id); err != nil {
@@ -369,6 +390,13 @@ func (p *Panel) UserChangeStatus(c *fiber.Ctx) error {
 		}
 	}
 
+	if p.PHP != nil {
+		// suspended accounts go offline, reactivated ones come back
+		if err := p.PHP.SyncOwner(c.UserContext(), id); err != nil {
+			log.Printf("php sync owner %d: %v", id, err)
+		}
+	}
+
 	p.InvalidateAfterUserChange()
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true, "status": status})
@@ -455,6 +483,14 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
+	if msg := hostLimitError(c.UserContext(), maxMemory, maxCPUs, maxStorage); msg != "" {
+		if WantsJSON(c) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": msg})
+		}
+		SetFlashError(c, msg)
+		return c.Redirect("/users/" + idStr + "/edit")
+	}
+
 	allowFileServer := c.FormValue("allow_domain_file_server") == "on"
 	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs, maxStorage, bandwidthLimit, allowFileServer); err != nil {
 		if WantsJSON(c) {
@@ -477,7 +513,11 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	}
 
 	p.InvalidateAfterUserChange()
+	warning := p.overcommitWarning(c.UserContext())
 	if WantsJSON(c) {
+		if warning != "" {
+			return c.JSON(fiber.Map{"ok": true, "warning": warning})
+		}
 		return c.JSON(fiber.Map{"ok": true})
 	}
 	SetFlash(c, "Limits updated")

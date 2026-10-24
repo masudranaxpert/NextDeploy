@@ -26,6 +26,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
+	"panel/internal/quota"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
 	"panel/internal/workspace"
@@ -242,11 +243,8 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 		return errorResult(fmt.Errorf("an app with the name %q already exists", slug))
 	}
 
-	if u.Role != db.RoleAdmin {
-		count, err := h.p.DB.CountAppsOwnedByUser(ctx, u.ID)
-		if err == nil && u.MaxApps > 0 && count >= u.MaxApps {
-			return errorResult(fmt.Errorf("maximum app limit reached (%d)", u.MaxApps))
-		}
+	if err := quota.CheckAppSlot(ctx, h.p.DB, u); err != nil {
+		return errorResult(err)
 	}
 
 	var id string
@@ -266,7 +264,7 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 		_ = os.RemoveAll(wsPath)
 		return errorResult(fmt.Errorf("failed writing meta: %w", err))
 	}
-	if err := h.p.DB.CreateApp(ctx, id, slug, u.ID); err != nil {
+	if err := quota.CreateApp(ctx, h.p.DB, u, id, slug); err != nil {
 		_ = os.RemoveAll(wsPath)
 		return errorResult(fmt.Errorf("failed creating app record: %w", err))
 	}

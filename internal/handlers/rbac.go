@@ -67,12 +67,11 @@ func (p *Panel) AppAccessMiddleware(c *fiber.Ctx) error {
 		return c.Status(401).SendString("unauthorized")
 	}
 
+	path := strings.ToLower(c.Path())
 	requiredRole := db.CollabRoleViewer
-	if c.Method() != "GET" {
+	if c.Method() != "GET" || strings.Contains(path, "/ws/terminal") || strings.Contains(path, "/terminal") {
 		requiredRole = db.CollabRoleDeveloper
 	}
-
-	path := strings.ToLower(c.Path())
 	if strings.HasSuffix(path, "/delete") && !strings.Contains(path, "/domains/") && !strings.Contains(path, "/files/") && !strings.Contains(path, "/deploy-logs/") {
 		if path == "/apps/"+strings.ToLower(id)+"/delete" || path == "/apps/"+strings.ToLower(id) {
 			requiredRole = "admin"

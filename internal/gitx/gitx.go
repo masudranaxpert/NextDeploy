@@ -69,7 +69,7 @@ func Clone(ctx context.Context, destDir, repoURL, branch, authMode, token string
 		return Result{OK: false, Output: err.Error()}
 	}
 	res := run(ctx, parent, []string{"GIT_TERMINAL_PROMPT=0"},
-		"git", "clone", "--depth", "1", "--branch", branch, repoURL, filepath.Base(destDir))
+		"git", "-c", "core.symlinks=false", "clone", "--depth", "1", "--branch", branch, repoURL, filepath.Base(destDir))
 	if !res.OK && repoURL != safeURL {
 		res.Output = strings.ReplaceAll(res.Output, repoURL, safeURL)
 	}
@@ -95,7 +95,7 @@ func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
 		}
 		return fetch
 	}
-	checkout := run(ctx, repoDir, env, "git", "checkout", "-f", "-B", branch, "FETCH_HEAD")
+	checkout := run(ctx, repoDir, env, "git", "-c", "core.symlinks=false", "checkout", "-f", "-B", branch, "FETCH_HEAD")
 	if !checkout.OK {
 		if authURL != "" && authURL != safeURL {
 			checkout.Output = strings.ReplaceAll(checkout.Output, authURL, safeURL)

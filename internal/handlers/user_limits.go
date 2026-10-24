@@ -14,9 +14,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/dockerapi"
+	"panel/internal/phphosting"
+	"panel/internal/sysinfo"
 	"panel/internal/workspace"
 )
 
@@ -298,3 +302,109 @@ func humanStorage(b int64) string { return workspace.FormatByteSize(b) }
 
 // HumanStorage is the exported variant used by handlers/templates.
 func HumanStorage(b int64) string { return workspace.FormatByteSize(b) }
+
+// hostLimitError rejects per-user limits that the server cannot possibly honour, for example
+// a 2 GB memory quota on a machine with 1 GB of RAM. It returns "" when the limits fit.
+func hostLimitError(ctx context.Context, maxMemoryMB int, maxCPUs float64, maxStorageMB int) string {
+	snap := sysinfo.Collect(ctx)
+	if snap.MemTotalGB > 0 {
+		hostMB := int(snap.MemTotalGB * 1024)
+		if maxMemoryMB > hostMB {
+			return fmt.Sprintf("Memory limit %d MB is more than this server has (%d MB RAM)", maxMemoryMB, hostMB)
+		}
+	}
+	if snap.NumCPU > 0 && maxCPUs > float64(snap.NumCPU) {
+		return fmt.Sprintf("CPU limit %.2f is more than this server has (%d CPUs)", maxCPUs, snap.NumCPU)
+	}
+	if snap.DiskTotalGB > 0 {
+		hostMB := int(snap.DiskTotalGB * 1024)
+		if maxStorageMB > hostMB {
+			return fmt.Sprintf("Storage limit %d MB is more than this server's disk (%d MB)", maxStorageMB, hostMB)
+		}
+	}
+	return ""
+}
+
+// clampLimitsToHost lowers limits to what the server really has (used for new accounts, whose
+// database defaults may be larger than a small VPS).
+func clampLimitsToHost(ctx context.Context, memMB int, cpus float64, storageMB int) (int, float64, int) {
+	snap := sysinfo.Collect(ctx)
+	if snap.MemTotalGB > 0 && memMB > int(snap.MemTotalGB*1024) {
+		memMB = int(snap.MemTotalGB * 1024)
+	}
+	if snap.NumCPU > 0 && cpus > float64(snap.NumCPU) {
+		cpus = float64(snap.NumCPU)
+	}
+	if snap.DiskTotalGB > 0 && storageMB > int(snap.DiskTotalGB*1024) {
+		storageMB = int(snap.DiskTotalGB * 1024)
+	}
+	return memMB, cpus, storageMB
+}
+
+type quotaUsage struct {
+	MemoryMB int64
+	CPUCores float64
+	At       time.Time
+}
+
+var quotaUsageCache sync.Map // user id -> quotaUsage
+
+// userLiveUsage sums live memory and CPU of the user's own containers (cached briefly because
+// it asks Docker for stats).
+func (p *Panel) userLiveUsage(ctx context.Context, u db.User) (int64, float64) {
+	if v, ok := quotaUsageCache.Load(u.ID); ok {
+		if q := v.(quotaUsage); time.Since(q.At) < 15*time.Second {
+			return q.MemoryMB, q.CPUCores
+		}
+	}
+	apps := p.userApps(ctx, u)
+	projects := map[string]bool{}
+	for _, proj := range p.composeProjectsForApps(ctx, apps) {
+		projects[proj] = true
+	}
+	phpNames := map[string]bool{}
+	if p.PHP != nil {
+		for _, a := range apps {
+			if site, err := p.DB.GetPHPSite(ctx, a.ID); err == nil && site.OwnerID == u.ID && site.PHPVersion != "" {
+				phpNames[phphosting.RuntimeContainer(u.ID, site.PHPVersion)] = true
+			}
+		}
+	}
+	rows, _ := dockerapi.ListContainerUsageMatching(ctx, func(name, project string) bool {
+		return (project != "" && projects[project]) || phpNames[name]
+	})
+	var mem uint64
+	var cpu float64
+	for _, r := range rows {
+		mem += r.MemUsage
+		cpu += r.CPUPercent
+	}
+	q := quotaUsage{MemoryMB: int64(mem / (1024 * 1024)), CPUCores: cpu / 100, At: time.Now()}
+	quotaUsageCache.Store(u.ID, q)
+	return q.MemoryMB, q.CPUCores
+}
+
+// overcommitWarning tells the admin when the memory limits of all users together exceed the
+// server's RAM. That is allowed (limits are ceilings, not reservations), but then the users
+// cannot all use their full limit at the same time.
+func (p *Panel) overcommitWarning(ctx context.Context) string {
+	snap := sysinfo.Collect(ctx)
+	if snap.MemTotalGB <= 0 {
+		return ""
+	}
+	users, err := p.DB.ListUsers(ctx)
+	if err != nil {
+		return ""
+	}
+	total := 0
+	for _, u := range users {
+		if u.Role != db.RoleAdmin && u.Status == db.UserStatusActive {
+			total += u.MaxMemoryMB
+		}
+	}
+	host := int(snap.MemTotalGB * 1024)
+	if total > host {
+		return fmt.Sprintf("Limits saved. The memory limits of all users add up to %d MB, more than this server's %d MB of RAM, so they cannot all use their full limit at the same time.", total, host)
+	}
+	return ""
+}

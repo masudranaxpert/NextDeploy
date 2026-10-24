@@ -66,7 +66,7 @@ func (p *Panel) VolumeDownload(c *fiber.Ctx) error {
 	if !volumex.ValidVolumeName(name) {
 		return c.Status(400).SendString("invalid volume")
 	}
-	allowed, err := p.isVolumeAccessAllowed(c, name)
+	allowed, err := p.isVolumeWriteAllowed(c, name)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}

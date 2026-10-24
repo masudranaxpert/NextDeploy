@@ -12,7 +12,6 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
-	"panel/internal/resmatch"
 	"panel/internal/runutil"
 	"panel/internal/volumex"
 
@@ -43,7 +42,7 @@ func (p *Panel) GlobalImageRemove(c *fiber.Ctx) error {
 	if imageID == "" {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "image_id required"})
 	}
-	allowed, err := p.isImageAccessAllowed(c, imageID)
+	allowed, err := p.isImageWriteAllowed(c, imageID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
@@ -66,7 +65,7 @@ func (p *Panel) GlobalContainerRemove(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "name required"})
 	}
-	allowed, err := p.isContainerAccessAllowed(c, name)
+	allowed, err := p.isContainerWriteAllowed(c, name)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
@@ -99,7 +98,7 @@ func (p *Panel) GlobalContainerRemoveSelected(c *fiber.Ctx) error {
 	}
 	ctx := c.UserContext()
 	for _, name := range names {
-		allowed, err := p.isContainerAccessAllowed(c, name)
+		allowed, err := p.isContainerWriteAllowed(c, name)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
@@ -123,7 +122,7 @@ func (p *Panel) GlobalContainerRestart(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "name required"})
 	}
-	allowed, err := p.isContainerAccessAllowed(c, name)
+	allowed, err := p.isContainerWriteAllowed(c, name)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
@@ -146,7 +145,7 @@ func (p *Panel) GlobalVolumeRemove(c *fiber.Ctx) error {
 	if name == "" {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "name required"})
 	}
-	allowed, err := p.isVolumeAccessAllowed(c, name)
+	allowed, err := p.isVolumeWriteAllowed(c, name)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
@@ -205,16 +204,29 @@ func (p *Panel) isContainerAccessAllowed(c *fiber.Ctx, containerName string) (bo
 	if u.Role == db.RoleAdmin {
 		return true, nil
 	}
-	project, _, err := dockerapi.ContainerComposeLabels(ctx, containerName)
-	if err != nil || project == "" {
+	name := strings.TrimPrefix(strings.TrimSpace(containerName), "/")
+	rows, _ := dockerapi.ListContainers(ctx)
+	for _, r := range p.visibleContainers(ctx, u, rows) {
+		if strings.TrimPrefix(r.Name, "/") == name || r.ID == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *Panel) isContainerWriteAllowed(c *fiber.Ctx, containerName string) (bool, error) {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
 		return false, nil
 	}
-	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
-	if err != nil {
-		return false, err
+	if u.Role == db.RoleAdmin {
+		return true, nil
 	}
-	for _, app := range apps {
-		if app.ID == project {
+	name := strings.TrimPrefix(strings.TrimSpace(containerName), "/")
+	rows, _ := dockerapi.ListContainers(ctx)
+	for _, r := range p.writeableContainers(ctx, u, rows) {
+		if strings.TrimPrefix(r.Name, "/") == name || r.ID == name {
 			return true, nil
 		}
 	}
@@ -230,56 +242,29 @@ func (p *Panel) isImageAccessAllowed(c *fiber.Ctx, imageID string) (bool, error)
 	if u.Role == db.RoleAdmin {
 		return true, nil
 	}
-	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
-	if err != nil {
-		return false, err
-	}
 	allContainers, _ := dockerapi.ListContainers(ctx)
-	allowedProjectIDs := make(map[string]bool)
-	usedImageNames := make(map[string]bool)
-	for _, app := range apps {
-		allowedProjectIDs[app.ID] = true
-	}
-	for _, cRow := range allContainers {
-		if allowedProjectIDs[cRow.ComposeProject] {
-			usedImageNames[strings.TrimSpace(cRow.Image)] = true
-		}
-	}
 	images, _ := dockerapi.ListImages(ctx)
-	var targetImg *dockerapi.ImageRow
-	for _, img := range images {
+	for _, img := range p.visibleImages(ctx, u, images, allContainers) {
 		if img.ID == imageID {
-			targetImg = &img
-			break
-		}
-	}
-	if targetImg == nil {
-		return false, nil
-	}
-	for tag := range usedImageNames {
-		if strings.Contains(targetImg.Tags, tag) {
 			return true, nil
 		}
 	}
-	var allUserProjects []string
-	for _, app := range apps {
-		allUserProjects = append(allUserProjects, app.ID)
-		allUserProjects = append(allUserProjects, strings.ReplaceAll(app.ID, "-", "_"))
-		for _, cand := range p.ComposeProjectCandidates(ctx, app, app.ID) {
-			allUserProjects = append(allUserProjects, cand)
-		}
-	}
-	for _, proj := range apps {
-		for _, t := range targetImg.RepoTags {
-			if t == "" || t == "<none>" {
-				continue
-			}
-			if resmatch.MatchesImageRepo(imageRepoBase(t), proj.ID, allUserProjects) {
-				return true, nil
-			}
-		}
-	}
 	return false, nil
+}
+
+func (p *Panel) isImageWriteAllowed(c *fiber.Ctx, imageID string) (bool, error) {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return false, nil
+	}
+	if u.Role == db.RoleAdmin {
+		return true, nil
+	}
+	if len(p.developerApps(ctx, u)) == 0 {
+		return false, nil
+	}
+	return p.isImageAccessAllowed(c, imageID)
 }
 
 func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, error) {
@@ -291,24 +276,34 @@ func (p *Panel) isVolumeAccessAllowed(c *fiber.Ctx, volumeName string) (bool, er
 	if u.Role == db.RoleAdmin {
 		return true, nil
 	}
-	apps, err := p.DB.ListAppsForUser(ctx, u.ID)
-	if err != nil {
-		return false, err
+	allVolNames, listErr := volumex.List(ctx)
+	if listErr != "" {
+		return false, fmt.Errorf("%s", listErr)
+	}
+	for _, v := range p.visibleVolumes(ctx, u, allVolNames) {
+		if v == volumeName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *Panel) isVolumeWriteAllowed(c *fiber.Ctx, volumeName string) (bool, error) {
+	ctx := c.UserContext()
+	u, ok := c.Locals("auth_user").(db.User)
+	if !ok {
+		return false, nil
+	}
+	if u.Role == db.RoleAdmin {
+		return true, nil
 	}
 	allVolNames, listErr := volumex.List(ctx)
 	if listErr != "" {
 		return false, fmt.Errorf("%s", listErr)
 	}
-	allProjects := p.AllPanelComposeProjects(ctx)
-	matcher := volumex.SharedMatcher(ctx)
-	for _, app := range apps {
-		projCandidates := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-		q := p.AppVolumeQuery(ctx, app, allProjects, projCandidates...)
-		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
-		for _, v := range appVols {
-			if v == volumeName {
-				return true, nil
-			}
+	for _, v := range p.writeableVolumes(ctx, u, allVolNames) {
+		if v == volumeName {
+			return true, nil
 		}
 	}
 	return false, nil

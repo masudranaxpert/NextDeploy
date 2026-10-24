@@ -101,11 +101,8 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
 	}
-	var userID *int64
-	if u.Role != db.RoleAdmin {
-		val := u.ID
-		userID = &val
-	}
+	val := u.ID
+	userID := &val // every destination is owned by its creator, admins included
 	provider := strings.TrimSpace(c.FormValue("provider"))
 	name := strings.TrimSpace(c.FormValue("name"))
 
@@ -285,7 +282,7 @@ func (p *Panel) BackupGDriveCallback(c *fiber.Ctx) error {
 	name := fmt.Sprintf("Google Drive %s", RandomState()[:6])
 	u, ok := CurrentUser(c)
 	var userID *int64
-	if ok && u.Role != db.RoleAdmin {
+	if ok {
 		val := u.ID
 		userID = &val
 	}

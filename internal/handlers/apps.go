@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/quota"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
@@ -53,11 +55,8 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	if exists {
 		return c.Status(400).SendString("an app with this name already exists")
 	}
-	if u.Role != db.RoleAdmin {
-		count, err := p.DB.CountAppsOwnedByUser(ctx, u.ID)
-		if err == nil && u.MaxApps > 0 && count >= u.MaxApps {
-			return c.Status(400).SendString("maximum app limit reached")
-		}
+	if err := quota.CheckAppSlot(ctx, p.DB, u); err != nil {
+		return c.Status(400).SendString("maximum app limit reached")
 	}
 	var id string
 	for {
@@ -83,8 +82,11 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	}
 	_ = os.WriteFile(composePath, []byte(composeContent+"\n"), 0644)
 
-	if err := p.DB.CreateApp(ctx, id, name, u.ID); err != nil {
+	if err := quota.CreateApp(ctx, p.DB, u, id, name); err != nil {
 		_ = os.RemoveAll(p.Store.Path(id))
+		if errors.Is(err, db.ErrAppLimitReached) || strings.Contains(strings.ToLower(err.Error()), "app limit reached") {
+			return c.Status(400).SendString("maximum app limit reached")
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return c.Status(400).SendString(err.Error())
 		}
@@ -368,6 +370,16 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 	}
 
 	_ = p.DB.RemoveCollaborator(ctx, appID, targetUser.ID)
+
+	if p.PHP != nil && p.DB.IsPHPSite(ctx, appID) {
+		// Re-home the PHP runtime so the new owner's quota applies.
+		if err := p.PHP.TransferSite(ctx, appID, targetUser.ID); err != nil {
+			log.Printf("php transfer %s: %v", appID, err)
+			if WantsJSON(c) {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": "ownership changed, but the PHP runtime could not be moved: " + err.Error()})
+			}
+		}
+	}
 
 	p.RecordAuditLog(c, "transfer_ownership", "app", appID, fmt.Sprintf("Transferred ownership of app %s to %s", appID, newOwnerUsername))
 	if WantsJSON(c) {

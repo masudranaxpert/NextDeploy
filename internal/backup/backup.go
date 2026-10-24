@@ -201,7 +201,20 @@ func writeDockerVolumeArchive(ctx context.Context, volumeName, outPath string) e
 	return nil
 }
 
+type keepVendorKey struct{}
+
+// WithKeepVendor makes app archives include vendor/ directories. They are normally skipped as
+// reproducible build output, but PHP sites ship Composer dependencies that cannot be rebuilt
+// from the backup alone.
+func WithKeepVendor(ctx context.Context) context.Context {
+	return context.WithValue(ctx, keepVendorKey{}, true)
+}
+
 func shouldSkipFullAppEntry(rel string, d fs.DirEntry) bool {
+	return shouldSkipFullAppEntryOpts(rel, d, false)
+}
+
+func shouldSkipFullAppEntryOpts(rel string, d fs.DirEntry, keepVendor bool) bool {
 	rel = filepath.ToSlash(strings.TrimSpace(rel))
 	if rel == "" || rel == "." {
 		return false
@@ -209,8 +222,12 @@ func shouldSkipFullAppEntry(rel string, d fs.DirEntry) bool {
 	parts := strings.Split(rel, "/")
 	for _, p := range parts {
 		switch p {
-		case ".git", "tmp", "node_modules", "vendor":
+		case ".git", "tmp", "node_modules":
 			return true
+		case "vendor":
+			if !keepVendor {
+				return true
+			}
 		}
 	}
 	base := parts[len(parts)-1]
@@ -240,6 +257,7 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 	defer tw.Close()
 
 	buf := make([]byte, streamCopyBufferBytes)
+	keepVendor := ctx.Value(keepVendorKey{}) != nil
 
 	return filepath.WalkDir(sourceDir, func(p string, d fs.DirEntry, walkErr error) error {
 		select {
@@ -262,7 +280,7 @@ func writeFullAppArchive(ctx context.Context, sourceDir, outPath string) error {
 		if rel == "." {
 			return nil
 		}
-		if shouldSkipFullAppEntry(rel, d) {
+		if shouldSkipFullAppEntryOpts(rel, d, keepVendor) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -737,6 +755,27 @@ func RestoreVolume(ctx context.Context, volumeName, backupPath string, force boo
 
 	if msg := volumex.ExtractTarGzForBackupRestore(ctx, volumeName, backupPath); msg != "" {
 		return fmt.Errorf("restore failed: %s", msg)
+	}
+	return nil
+}
+
+// RestoreWorkspaceOnly validates a workspace archive and extracts it over restoreDir without
+// touching Docker Compose. It is used for apps that have no compose project (PHP sites).
+func RestoreWorkspaceOnly(ctx context.Context, restoreDir, backupPath string) error {
+	if !filepath.IsAbs(restoreDir) || !filepath.IsAbs(backupPath) {
+		return fmt.Errorf("restore paths must be absolute")
+	}
+	if err := volumex.ValidateTarGzPaths(backupPath); err != nil {
+		return fmt.Errorf("backup validation failed: %w", err)
+	}
+	if err := os.MkdirAll(restoreDir, 0750); err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "tar", "xzf", backupPath, "-C", restoreDir)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("extract failed: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
 	return nil
 }

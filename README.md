@@ -23,6 +23,7 @@
 | **HTTPS & Domains** | Caddy reverse proxy with Let's Encrypt / ZeroSSL; per-app domain routing; no Caddyfile needed |
 | **Files & Logs** | In-browser file manager; real-time deploy logs; container log tailing with filters |
 | **Docker Resources** | Browse and remove containers, images, and volumes; scheduled auto-prune |
+| **PHP Hosting** | CloudPanel-style PHP, WordPress and static sites in Docker: per-site databases (MariaDB), cron jobs, web terminal, backups with databases, multiple PHP versions — see [docs/php-hosting.md](docs/php-hosting.md) |
 | **Multi-user** | Admin + user roles; per-user resource limits; audit log |
 | **MCP Server** | Native [Model Context Protocol](skills/nextdeploy-mcp/SKILL.md) server — let Cursor, Claude Code or Windsurf edit, deploy, and inspect apps directly over your local API token |
 | **NextDeploy CLI (`nd`)** | Native CLI to push local projects, stream logs, manage apps and tokens |

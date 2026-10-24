@@ -10,7 +10,7 @@ func (s *Store) ListGitProviders(ctx context.Context, userID *int64) ([]GitProvi
 	var query string
 	var args []interface{}
 	if userID != nil {
-		query = `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE user_id IS NULL OR user_id = ? ORDER BY id ASC`
+		query = `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers WHERE user_id = ? ORDER BY id ASC`
 		args = append(args, *userID)
 	} else {
 		query = `SELECT id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at FROM git_providers ORDER BY id ASC`

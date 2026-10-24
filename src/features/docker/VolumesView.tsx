@@ -46,7 +46,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({
   const [search, setSearch] = useState('');
   const [createVolOpen, setCreateVolOpen] = useState(false);
   const [newVolName, setNewVolName] = useState('');
-  const [newVolApp, setNewVolApp] = useState('commerce-core-api');
+  const [newVolApp, setNewVolApp] = useState('');
 
   // Multipart Volume Restore Modal & Live Progress State (POST /volumes/restore + GET /volumes/restore/status)
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
@@ -541,18 +541,11 @@ export const VolumesView: React.FC<VolumesViewProps> = ({
                     ))
                   )
                 ) : (
-                  selectedVolume.sampleFiles.map((f, idx) => (
-                    <tr key={idx} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                        <span>{f.path}</span>
-                      </td>
-                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{f.modified}</td>
-                      <td className="px-4 py-2.5 text-right text-zinc-200 tabular-nums">
-                        {f.size}
-                      </td>
-                    </tr>
-                  ))
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-xs text-zinc-500 font-mono">
+                      No files found in this directory.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

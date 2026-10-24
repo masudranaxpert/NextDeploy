@@ -731,8 +731,8 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		if cfg.RepoFullName != "" && repoName != "" && !strings.EqualFold(cfg.RepoFullName, repoName) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
-		if NormalizeBranch(eventDesc) != NormalizeBranch(cfg.Branch) && !strings.Contains(eventDesc, cfg.Branch) {
-			// ref branch check
+		if cfg.Branch != "" && NormalizeBranch(eventDesc) != NormalizeBranch(cfg.Branch) && !strings.Contains(eventDesc, cfg.Branch) {
+			return c.SendStatus(fiber.StatusAccepted)
 		}
 	} else {
 		provName = "GitLab"
@@ -756,6 +756,9 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 			return c.SendStatus(fiber.StatusOK)
 		}
 		if cfg.RepoFullName != "" && repoName != "" && !strings.EqualFold(cfg.RepoFullName, repoName) {
+			return c.SendStatus(fiber.StatusAccepted)
+		}
+		if cfg.Branch != "" && NormalizeBranch(eventDesc) != NormalizeBranch(cfg.Branch) && !strings.Contains(eventDesc, cfg.Branch) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
 	}

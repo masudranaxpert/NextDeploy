@@ -1100,3 +1100,11 @@ func InspectContainerReadiness(ctx context.Context, containerName string) (Conta
 		IPAddress: ipAddr,
 	}, nil
 }
+
+// ListContainerUsageMatching returns live stats for the containers keep() accepts.
+// keep receives the container name (without the leading slash) and its compose project.
+func ListContainerUsageMatching(ctx context.Context, keep func(name, project string) bool) ([]ContainerUsageRow, string) {
+	return listContainerUsageFiltered(ctx, func(c types.Container) bool {
+		return keep(strings.TrimPrefix(containerName(c), "/"), c.Labels[composeProjectLabel])
+	})
+}

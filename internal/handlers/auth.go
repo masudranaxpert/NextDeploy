@@ -131,7 +131,17 @@ func CurrentUser(c *fiber.Ctx) (db.User, bool) {
 
 func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
-	if !ok || u.Role != db.RoleAdmin {
+	if !ok {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+		}
+		return c.Redirect("/login")
+	}
+	// Allow authenticated users to change their own password via /users/:id/password (handled by UserChangePassword)
+	if strings.HasPrefix(c.Path(), "/users/") && strings.HasSuffix(c.Path(), "/password") {
+		return c.Next()
+	}
+	if u.Role != db.RoleAdmin {
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin role required"})
 		}

@@ -669,5 +669,9 @@ CREATE TABLE IF NOT EXISTS allocated_ports (
 		return err
 	}
 
+	if err := s.migratePHPHosting(); err != nil {
+		return err
+	}
+
 	return nil
 }

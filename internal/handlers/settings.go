@@ -741,11 +741,28 @@ func (p *Panel) AuditLogsPageOrJSON(c *fiber.Ctx) error {
 		perPage = 200
 	}
 	offset := (page - 1) * perPage
-	logs, err := p.DB.ListAuditLogs(ctx, perPage, offset)
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+	}
+	var logs []db.AuditLog
+	var total int
+	var err error
+	if u.Role == db.RoleAdmin {
+		logs, err = p.DB.ListAuditLogs(ctx, perPage, offset)
+		total, _ = p.DB.CountAuditLogs(ctx)
+	} else {
+		// everyone else sees only their own trail (plus events on their own apps)
+		var appIDs []string
+		for _, a := range p.userApps(ctx, u) {
+			appIDs = append(appIDs, a.ID)
+		}
+		logs, err = p.DB.ListAuditLogsForUser(ctx, u.ID, appIDs, perPage, offset)
+		total, _ = p.DB.CountAuditLogsForUser(ctx, u.ID, appIDs)
+	}
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
-	total, _ := p.DB.CountAuditLogs(ctx)
 	totalPages := (total + perPage - 1) / perPage
 	if totalPages < 1 {
 		totalPages = 1
@@ -1158,10 +1175,9 @@ func (p *Panel) AddRegistry(c *fiber.Ctx) error {
 		PasswordEncrypted: encPassword,
 	}
 
-	isGlobal := c.FormValue("is_global") == "on" && u.Role == db.RoleAdmin
-	if !isGlobal {
-		reg.UserID = &u.ID
-	}
+	// Registries belong to the account that adds them (admins included); they are never shared.
+	isGlobal := false
+	reg.UserID = &u.ID
 
 	regID, err := p.DB.AddPrivateRegistry(ctx, reg)
 	if err != nil {

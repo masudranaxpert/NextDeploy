@@ -17,6 +17,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
+	"panel/internal/phphosting"
 	"panel/internal/qos"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
@@ -59,6 +60,9 @@ type Panel struct {
 	loginFails  map[string]loginFailEntry
 
 	monitorCache monitorCache
+
+	// PHP hosting module (PHP sites, databases, cron). Nil until initialised in main.
+	PHP *phphosting.Manager
 }
 
 func (p *Panel) MarkSetupComplete() {

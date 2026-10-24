@@ -633,6 +633,8 @@ interface CommandPaletteProps {
   images?: DockerImageItem[];
   volumes?: DockerVolumeItem[];
   gitProviders?: GitProviderConnection[];
+  /** Non-admins do not get host-level actions and pages in the palette. */
+  isAdmin?: boolean;
   onSelectNav: (nav: NavigationSection, tab?: string) => void;
   onSelectApp: (appId: string, tab?: string) => void;
   onOpenNewApp: () => void;
@@ -659,6 +661,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
   images = [],
   volumes = [],
   gitProviders = [],
+  isAdmin = true,
   onSelectNav,
   onSelectApp,
   onOpenNewApp,
@@ -966,8 +969,20 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
       });
     });
 
-    return list;
-  }, [apps, images, volumes, gitProviders, onClose, onOpenNewApp, onSelectApp, onSelectNav]);
+    if (isAdmin) return list;
+    const adminOnly = new Set([
+      'act-terminal',
+      'act-prune-images',
+      'act-prune-containers',
+      'act-restart-caddy',
+      'act-migrate',
+      'nav-terminal',
+      'nav-proxy',
+      'nav-migrate',
+      'nav-settings',
+    ]);
+    return list.filter((it) => !adminOnly.has(it.id));
+  }, [apps, images, volumes, gitProviders, isAdmin, onClose, onOpenNewApp, onSelectApp, onSelectNav]);
 
   // Multi-term fuzzy filter
   const filteredItems = React.useMemo(() => {

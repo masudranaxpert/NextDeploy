@@ -100,7 +100,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [regHost, setRegHost] = useState('ghcr.io');
   const [regUsername, setRegUsername] = useState('');
   const [regToken, setRegToken] = useState('');
-  const [regScope, setRegScope] = useState<'global' | 'personal'>('global');
+  const [regScope, setRegScope] = useState<'global' | 'personal'>('personal');
 
   const gitlabRedirectUri =
     typeof window !== 'undefined'
@@ -1046,7 +1046,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               server: regHost.trim(),
               username: regUsername.trim(),
               password: regToken.trim(),
-              is_global: regScope === 'global',
+              is_global: false, // registries are never shared between accounts
             });
             onAddRegistry({
               id: `reg-${Date.now()}`,
@@ -1070,8 +1070,8 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
           }}
           className="space-y-4"
         >
-          {/* Scope Selector: Global vs Personal (Matches Go backend is_global="on") */}
-          <div>
+          {/* Registries belong to the account that creates them; sharing across accounts is not offered. */}
+          <div className="hidden">
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
               Credential Scope (is_global)
             </label>

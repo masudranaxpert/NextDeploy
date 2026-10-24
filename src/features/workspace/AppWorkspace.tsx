@@ -78,6 +78,11 @@ import {
   formatCompactUptime,
 } from '../../lib/dockerFormatters';
 import { XTermConsole } from '../../components/ui/XTermConsole';
+import { PhpSettingsTab } from '../php/PhpSettingsTab';
+import { PhpDomainsTab } from '../php/PhpDomainsTab';
+import { PhpDatabasesTab } from '../php/PhpDatabasesTab';
+import { PhpCronTab } from '../php/PhpCronTab';
+import { PhpLogsTab } from '../php/PhpLogsTab';
 import { CodeEditorBox, DevFileIcon, detectLanguageFromFilename } from '../../components/ui/CodeEditorBox';
 import {
   backendApi,
@@ -94,6 +99,19 @@ interface AppWorkspaceProps {
   onBack: () => void;
   onUpdateApp: (updated: AppStack) => void;
   onDeleteApp: (appId: string) => void;
+  /** Reloads app data from the backend (used by PHP site tabs after changes). */
+  onRefresh?: () => void | Promise<void>;
+  /** The signed-in user's own limits and usage (null for admins). */
+  quota?: {
+    max_apps: number;
+    apps_used: number;
+    max_memory_mb: number;
+    memory_used_mb: number;
+    max_cpus: number;
+    cpu_used_cores: number;
+    max_storage_mb: number;
+    storage_used_mb: number;
+  } | null;
 }
 
 interface DetectedGitBranch {
@@ -148,6 +166,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   onBack,
   onUpdateApp,
   onDeleteApp,
+  onRefresh,
+  quota = null,
 }) => {
   const [activeTab, setActiveTab] = useState<AppWorkspaceTab>(() => {
     if (typeof window !== 'undefined') {
@@ -164,12 +184,17 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         'backups',
         'git',
         'advanced',
+        'php-settings',
+        'php-databases',
+        'php-cron',
+        'php-logs',
+        'collaborators',
       ];
       if (tabParam && validTabs.includes(tabParam as AppWorkspaceTab)) {
         return tabParam as AppWorkspaceTab;
       }
     }
-    return 'overview';
+    return app.php ? 'php-settings' : 'overview';
   });
 
   useEffect(() => {
@@ -385,6 +410,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     }
   }, [liveDeployState.output, isBuildLogExpanded]);
   useEffect(() => {
+    if (app.php) return;
     let active = true;
     let wasRunning = false;
     const checkProgress = async () => {
@@ -410,7 +436,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       active = false;
       window.clearInterval(timer);
     };
-  }, [app.id]);
+  }, [app.id, app.php]);
 
   // Enhance deployments with environment metadata
   const defaultWildcardHost = useMemo(() => {
@@ -617,7 +643,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       .filter((f) => !deletedFilePaths.includes(f.path));
   }, [liveFileList, app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths]);
 
-  const [currentDir, setCurrentDir] = useState<string>('');
+  const [currentDir, setCurrentDir] = useState<string>(app.php ? 'htdocs' : '');
   const [editingFilePath, setEditingFilePath] = useState<string | null>(null);
   const [openEditorTabs, setOpenEditorTabs] = useState<string[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
@@ -1779,7 +1805,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   }, [hasGitConnection, activeTab]);
 
   // Tabs
-  const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
+  const phpTabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
+    { id: 'php-settings', label: 'Settings' },
+    { id: 'domains', label: 'Domains', count: app.domains.length },
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-databases' as AppWorkspaceTab, label: 'Databases' }] : []),
+    { id: 'files', label: 'File Manager' },
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-cron' as AppWorkspaceTab, label: 'Cron Jobs' }] : []),
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-logs' as AppWorkspaceTab, label: 'Logs' }] : []),
+    ...(app.php?.siteType !== 'static' ? [{ id: 'terminal' as AppWorkspaceTab, label: 'Terminal' }] : []),
+    { id: 'backups', label: 'Backups', count: projectBackups.length },
+    { id: 'collaborators', label: 'Access' },
+  ];
+  const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = app.php ? phpTabs : [
     { id: 'overview', label: 'General' },
     { id: 'containers', label: 'Containers', count: app.services.length },
     { id: 'deployments', label: 'Deployments', count: app.deployments.length },
@@ -1818,7 +1855,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const isStandbyContainerRunning = app.services.some(
     (s) => s.state === 'running' && (s.name || '').toLowerCase().includes(`-${standbySlotName}-`)
   );
-  const productionUrl = defaultWildcardHost ? `https://${defaultWildcardHost}` : '';
+  const productionUrl = app.php
+    ? app.primaryDomain
+      ? `${app.domains.find((d) => d.domain === app.primaryDomain)?.forceHttps === false ? 'http' : 'https'}://${app.primaryDomain}`
+      : ''
+    : defaultWildcardHost
+    ? `https://${defaultWildcardHost}`
+    : '';
   const previewHost = previewBaseHost ? formatSlotPreviewDomain(previewBaseHost, standbySlotName) : '';
   const previewUrl = previewHost ? `https://${previewHost}` : '';
 
@@ -1995,16 +2038,25 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </h1>
                 <StatusBadge
                   status={
-                    runningContainersCount > 0
+                    app.php
+                      ? app.status
+                      : runningContainersCount > 0
                       ? 'running'
                       : app.status === 'failed' || app.status === 'building'
                       ? app.status
                       : 'stopped'
                   }
                 />
-                <span className="rounded-md border border-white/[0.1] bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
-                  production · {activeSlotLower.toUpperCase()}
-                </span>
+                {app.php ? (
+                  <span className="rounded-md border border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-300">
+                    {app.php.siteType === 'wordpress' ? 'WordPress' : app.php.siteType === 'static' ? 'Static' : 'PHP'}
+                    {app.php.phpVersion ? ` ${app.php.phpVersion}` : ''}
+                  </span>
+                ) : (
+                  <span className="rounded-md border border-white/[0.1] bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
+                    production · {activeSlotLower.toUpperCase()}
+                  </span>
+                )}
                 {isPinnedProduction && (
                   <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
                     <Pin className="h-2.5 w-2.5" />
@@ -2036,15 +2088,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     )}
                   </button>
                 )}
-                <span className="font-mono text-[11px] text-zinc-500">
-                  {runningContainersCount}/{app.services.length} containers · {app.cpuPct}% CPU ·{' '}
-                  {app.memMB} MB
-                </span>
+                {!app.php && (
+                  <span className="font-mono text-[11px] text-zinc-500">
+                    {runningContainersCount}/{app.services.length} containers · {app.cpuPct}% CPU ·{' '}
+                    {app.memMB} MB
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {!app.php && (
             <button
               type="button"
               onClick={() => triggerDeploy()}
@@ -2053,7 +2108,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               <Play className="h-3.5 w-3.5 fill-current" />
               Deploy
             </button>
+            )}
 
+            {!app.php && (
             <button
               type="button"
               onClick={async () => {
@@ -2070,6 +2127,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
               Restart
             </button>
+            )}
 
             <ActionMenu
               items={[
@@ -2089,7 +2147,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   onClick: () => triggerDeploy({ noCache: true }),
                 },
                 {
-                  label: 'Container Limits',
+                  label: 'Resource Limits',
                   icon: <Sliders className="h-3.5 w-3.5" />,
                   onClick: () => setLimitsModalOpen(true),
                 },
@@ -2107,7 +2165,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   variant: 'danger',
                   onClick: () => setDeleteDialogOpen(true),
                 },
-              ]}
+              ].filter((it) => !app.php || it.label === 'Copy Project ID' || it.label === 'Delete Project')}
             />
           </div>
         </div>
@@ -3365,9 +3423,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {/* TAB 3: DOMAINS (Clean Header + Auto-Port Detection + Preview Routing) */}
       {/* ===================================================================== */}
-      {activeTab === 'domains' && (
+      {activeTab === 'domains' && !app.php && (
         <ProjectDomainsTab app={app} onUpdateApp={onUpdateApp} />
       )}
+      {activeTab === 'domains' && app.php && (
+        <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} />
+      )}
+      {activeTab === 'php-settings' && app.php && (
+        <PhpSettingsTab app={app} onChanged={() => onRefresh?.()} />
+      )}
+      {activeTab === 'php-databases' && app.php && <PhpDatabasesTab app={app} />}
+      {activeTab === 'php-cron' && app.php && <PhpCronTab app={app} />}
+      {activeTab === 'php-logs' && app.php && <PhpLogsTab app={app} />}
 
       {/* ===================================================================== */}
       {/* TAB 4: ENVIRONMENT VARIABLES                                          */}
@@ -5098,8 +5165,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'terminal' && (
         <XTermConsole
-          hostLabel={`root@${app.slug}`}
-          promptPrefix={`root@${app.slug}:/app# `}
+          hostLabel={app.php ? `site@${app.slug}` : `root@${app.slug}`}
+          promptPrefix={app.php ? `site@${app.slug}:~$ ` : `root@${app.slug}:/app# `}
           services={app.services}
           appSlug={app.id}
           initialService={terminalService || app.services[0]?.service}
@@ -7050,90 +7117,48 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       <ShadcnDialog
         open={limitsModalOpen}
         onClose={() => setLimitsModalOpen(false)}
-        title="Container Resource Limits"
+        title="Your Resource Limits"
         icon={<Sliders className="h-4 w-4" />}
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setLimitsModalOpen(false);
-            if (unlimitedResources || cpuQuota === '0' || memQuota === '0') {
-              toast.success('Removed container resource limits (Unlimited CPU & Memory)');
-            } else {
-              toast.success(`Updated container limits (${cpuQuota} vCPU / ${memQuota} MB)`);
-            }
-          }}
-          className="space-y-4"
-        >
-          <div className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-[#09090b] px-3.5 py-2.5">
-            <div>
-              <div className="text-xs font-semibold text-zinc-100">
-                No Resource Limit (Unlimited)
+        <div className="space-y-4 text-xs">
+          {quota ? (
+            <>
+              <p className="text-zinc-400">
+                All your containers share the limits your administrator set for your account. They are enforced by the
+                kernel, so a container can never use more than this, and you cannot raise them here.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Memory', used: `${quota.memory_used_mb} MB`, max: `${quota.max_memory_mb} MB` },
+                  { label: 'CPU', used: `${quota.cpu_used_cores.toFixed(2)} cores`, max: `${quota.max_cpus} cores` },
+                  { label: 'Storage', used: `${quota.storage_used_mb} MB`, max: `${quota.max_storage_mb} MB` },
+                  { label: 'Projects', used: String(quota.apps_used), max: String(quota.max_apps) },
+                ].map((r) => (
+                  <div key={r.label} className="rounded-lg border border-white/[0.08] bg-[#09090b] px-3.5 py-2.5">
+                    <div className="text-[11px] text-zinc-500">{r.label}</div>
+                    <div className="mt-1 font-mono text-zinc-100">
+                      {r.used} <span className="text-zinc-500">/ {r.max}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Allow containers to use all available host CPU and memory
-              </div>
-            </div>
-            <ShadcnSwitch
-              checked={unlimitedResources}
-              onChange={(next) => {
-                setUnlimitedResources(next);
-                if (next) {
-                  setCpuQuota('0');
-                  setMemQuota('0');
-                } else {
-                  if (cpuQuota === '0') setCpuQuota('2.0');
-                  if (memQuota === '0') setMemQuota('2048');
-                }
-              }}
-            />
-          </div>
-
-          {!unlimitedResources && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Max CPU (vCPU)
-                </label>
-                <input
-                  type="text"
-                  value={cpuQuota}
-                  onChange={(e) => setCpuQuota(e.target.value)}
-                  placeholder="2.0"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Max Memory (MB)
-                </label>
-                <input
-                  type="text"
-                  value={memQuota}
-                  onChange={(e) => setMemQuota(e.target.value)}
-                  placeholder="2048"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-            </div>
+            </>
+          ) : (
+            <p className="text-zinc-400">
+              Administrator accounts are not limited, and per-container limits are defined in the compose file
+              (<code className="font-mono">deploy.resources.limits</code>).
+            </p>
           )}
-
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+          <div className="flex justify-end border-t border-white/[0.07] pt-3">
             <button
               type="button"
               onClick={() => setLimitsModalOpen(false)}
               className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-            >
-              Save Limits
+              Close
             </button>
           </div>
-        </form>
+        </div>
       </ShadcnDialog>
 
       {/* 9. Delete Project Confirmation Modal */}

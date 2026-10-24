@@ -321,7 +321,7 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 
 	var userID *int64
 	u, ok := CurrentUser(c)
-	if ok && u.Role != db.RoleAdmin {
+	if ok {
 		val := u.ID
 		userID = &val
 	}

@@ -31,6 +31,7 @@ interface McpAndCliViewProps {
   cliSessions: CliSessionItem[];
   onGenerateCliToken: (name: string) => void;
   onRevokeCliSession?: (id: string) => void;
+  isAdmin?: boolean;
 }
 
 export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
@@ -39,6 +40,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   cliSessions,
   onGenerateCliToken,
   onRevokeCliSession,
+  isAdmin = true,
 }) => {
   const [mcpServerEnabled, setMcpServerEnabled] = useState(true);
   const [mcpTab, setMcpTab] = useState<'tools' | 'rpc-logs'>('tools');
@@ -75,44 +77,15 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     >
   >({});
 
-  const mcpRpcLogs = [
-    {
-      id: 'rpc-1',
-      client: 'Claude Code CLI',
-      tool: 'deploy',
-      args: '{"app_id": "commerce-core-api"}',
-      status: '200 OK',
-      duration: '840ms',
-      time: '4m ago',
-    },
-    {
-      id: 'rpc-2',
-      client: 'Cursor IDE',
-      tool: 'container_logs',
-      args: '{"app_id": "commerce-core-api", "tail": 50}',
-      status: '200 OK',
-      duration: '64ms',
-      time: '9m ago',
-    },
-    {
-      id: 'rpc-3',
-      client: 'Claude Desktop',
-      tool: 'monitor_snapshot',
-      args: '{}',
-      status: '200 OK',
-      duration: '19ms',
-      time: '21m ago',
-    },
-    {
-      id: 'rpc-4',
-      client: 'Cursor IDE',
-      tool: 'env_set',
-      args: '{"app_id": "studio-web-dashboard"}',
-      status: '200 OK',
-      duration: '112ms',
-      time: '38m ago',
-    },
-  ];
+  const mcpRpcLogs: Array<{
+    id: string;
+    client: string;
+    tool: string;
+    args: string;
+    status: string;
+    duration: string;
+    time: string;
+  }> = [];
 
   const handleRegenerateMcpToken = async () => {
     const res = await backendApi.createApiToken({ name: 'mcp-default', kind: 'mcp' });
@@ -128,9 +101,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   };
 
   if (mode === 'mcp') {
-    const filteredTools = tools.filter(
-      (t) => mcpCategory === 'all' || t.category === mcpCategory
-    );
+    const filteredTools = tools
+      .filter((t) => isAdmin || t.name !== 'server_exec')
+      .filter((t) => mcpCategory === 'all' || t.category === mcpCategory);
 
     const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "https://panel.nextdeploy.sh/mcp/sse",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
 
@@ -261,7 +234,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                 [
                   { key: 'allow_env_reveal', label: 'env:reveal' },
                   { key: 'allow_container_exec', label: 'container:exec' },
-                  { key: 'allow_server_exec', label: 'host:exec' },
+                  ...(isAdmin ? [{ key: 'allow_server_exec' as const, label: 'host:exec' }] : []),
                   { key: 'allow_app_delete', label: 'app:delete' },
                 ] as const
               ).map((sc) => {
@@ -412,17 +385,25 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {mcpRpcLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
-                      <td className="px-4 py-3 text-orange-400">{log.tool}</td>
-                      <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
-                      <td className="px-4 py-3 text-emerald-400">
-                        {log.status} ({log.duration})
+                  {mcpRpcLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-500 font-mono">
+                        No MCP RPC requests yet. Connect Cursor or Claude Code to stream tool calls.
                       </td>
-                      <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    mcpRpcLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-white/[0.03]">
+                        <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
+                        <td className="px-4 py-3 text-orange-400">{log.tool}</td>
+                        <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
+                        <td className="px-4 py-3 text-emerald-400">
+                          {log.status} ({log.duration})
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

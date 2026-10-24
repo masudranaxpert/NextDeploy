@@ -105,6 +105,9 @@ func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64)
 		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("illegal zip path: %s", f.Name)
 		}
+		if f.FileInfo().Mode()&os.ModeSymlink != 0 {
+			continue // ignore symlinks inside uploaded archives to prevent traversal attacks
+		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(dest, 0750); err != nil {
 				return err
@@ -167,6 +170,9 @@ func ValidateZipArchive(r io.ReaderAt, size int64) error {
 		relToBase, err := filepath.Rel(filepath.Clean(fakeBase), filepath.Clean(dest))
 		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("illegal zip path: %s", f.Name)
+		}
+		if f.FileInfo().Mode()&os.ModeSymlink != 0 {
+			continue // ignore symlinks inside uploaded archives to prevent traversal attacks
 		}
 		if f.FileInfo().IsDir() {
 			continue

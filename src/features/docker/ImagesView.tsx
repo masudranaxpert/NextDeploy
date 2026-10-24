@@ -19,6 +19,7 @@ interface ImagesViewProps {
   onDeleteImage: (id: string) => void;
   onPruneUnused: () => void;
   onPullImage?: (repo: string, tag: string) => void;
+  isAdmin?: boolean;
 }
 
 export const ImagesView: React.FC<ImagesViewProps> = ({
@@ -26,6 +27,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
   onDeleteImage,
   onPruneUnused,
   onPullImage,
+  isAdmin = true,
 }) => {
   const [search, setSearch] = useState('');
   const [usageFilter, setUsageFilter] = useState<'all' | 'in-use' | 'unused'>('all');
@@ -112,25 +114,29 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setPullModalOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Pull Image
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setPullModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Pull Image
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={onPruneUnused}
-            disabled={unusedCount === 0}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 cursor-pointer whitespace-nowrap"
-            title="Remove all unused and dangling Docker images"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete Unused ({unusedCount})
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={onPruneUnused}
+              disabled={unusedCount === 0}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+              title="Remove all unused and dangling Docker images"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete Unused ({unusedCount})
+            </button>
+          )}
         </div>
       </div>
 

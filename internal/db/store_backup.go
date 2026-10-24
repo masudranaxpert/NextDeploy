@@ -23,7 +23,7 @@ func (s *Store) ListBackupDestinations(ctx context.Context, userID *int64) ([]Ba
 	var query string
 	var args []interface{}
 	if userID != nil {
-		query = `SELECT id, user_id, name, provider, config, created_at FROM backup_destinations WHERE user_id IS NULL OR user_id = ? ORDER BY created_at DESC`
+		query = `SELECT id, user_id, name, provider, config, created_at FROM backup_destinations WHERE user_id = ? ORDER BY created_at DESC`
 		args = append(args, *userID)
 	} else {
 		query = `SELECT id, user_id, name, provider, config, created_at FROM backup_destinations ORDER BY created_at DESC`

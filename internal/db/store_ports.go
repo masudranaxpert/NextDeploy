@@ -9,10 +9,21 @@ import (
 	"time"
 )
 
-// AllocatePort registers a host port for an app. Fails if another app holds the port.
+var reservedSystemPorts = map[int]string{
+	22:   "SSH",
+	80:   "HTTP edge proxy (Caddy)",
+	443:  "HTTPS edge proxy (Caddy)",
+	2019: "Caddy internal admin API",
+	8080: "NextDeploy panel",
+}
+
+// AllocatePort registers a host port for an app. Fails if another app holds the port or if port is reserved.
 func (s *Store) AllocatePort(ctx context.Context, port int, bindIP, appID, service, protocol string) error {
 	if port <= 0 || port > 65535 {
 		return fmt.Errorf("invalid port number: %d", port)
+	}
+	if desc, reserved := reservedSystemPorts[port]; reserved {
+		return fmt.Errorf("port %d is reserved for %s and cannot be allocated", port, desc)
 	}
 	appID = strings.TrimSpace(appID)
 	if appID == "" {

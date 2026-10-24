@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -16,6 +17,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/phphosting"
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
@@ -95,8 +97,32 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
+	if u, uOk := c.Locals(contextUserKey).(db.User); uOk {
+		allowed, aerr := p.CanAccessApp(chkCtx, u.ID, u.Role, app.ID, db.CollabRoleDeveloper)
+		if aerr != nil || !allowed {
+			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: developer access required for terminal"))
+			return
+		}
+	}
 	var targetContainer string
-	if container != "" && container != "all" {
+	var phpPTY *dockerapi.PTYOptions
+	if p.PHP != nil {
+		if site, serr := p.DB.GetPHPSite(chkCtx, app.ID); serr == nil {
+			if site.SiteType == "static" {
+				_ = c.WriteMessage(websocket.TextMessage, []byte("static sites have no PHP runtime to open a shell in"))
+				return
+			}
+			targetContainer = p.PHP.RuntimeName(site)
+			phpPTY = &dockerapi.PTYOptions{
+				User:       fmt.Sprintf("%d:%d", site.UID, site.UID),
+				WorkingDir: p.PHP.DocRootFor(site),
+				Env: append(phphosting.SiteEnv(site),
+					"USER=site", "LOGNAME=site",
+					`PS1=\[\033[01;32m\]site@`+app.Name+`\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ `),
+			}
+		}
+	}
+	if targetContainer == "" && container != "" && container != "all" {
 		if p.ContainerBelongsToApp(chkCtx, app.ID, container) {
 			targetContainer = container
 		}
@@ -132,7 +158,12 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	sess, err := dockerapi.ExecPTYAutoShell(ctx, targetContainer, rows, cols)
+	var sess *dockerapi.PTYExecSession
+	if phpPTY != nil {
+		sess, err = dockerapi.ExecPTYWithOptions(ctx, targetContainer, []string{"/bin/bash"}, rows, cols, *phpPTY)
+	} else {
+		sess, err = dockerapi.ExecPTYAutoShell(ctx, targetContainer, rows, cols)
+	}
 	if err != nil {
 		log.Printf("terminal exec: %v", err)
 		_ = c.WriteMessage(websocket.TextMessage, []byte("could not start shell: "+err.Error()))

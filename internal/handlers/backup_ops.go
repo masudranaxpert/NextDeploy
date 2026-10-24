@@ -23,8 +23,8 @@ import (
 )
 
 // canUseBackupDestination reports whether the current user may target dest.
-// Global destinations (UserID == nil) are shared; private ones are usable only
-// by their owner or an admin. Prevents IDOR via guessed destination IDs.
+// A destination is usable only by its owner or an admin (legacy rows without an owner are
+// admin-only). Prevents IDOR via guessed destination IDs.
 func canUseBackupDestination(c *fiber.Ctx, dest db.BackupDestination) bool {
 	u, ok := CurrentUser(c)
 	if !ok {
@@ -33,7 +33,7 @@ func canUseBackupDestination(c *fiber.Ctx, dest db.BackupDestination) bool {
 	if u.Role == db.RoleAdmin {
 		return true
 	}
-	return dest.UserID == nil || *dest.UserID == u.ID
+	return dest.UserID != nil && *dest.UserID == u.ID
 }
 
 func validateBackupDestinationConfig(provider string, m map[string]string) error {
@@ -161,6 +161,15 @@ func validBackupType(t string) bool {
 	return false
 }
 
+// phpBackupTypeError rejects volume/full backups for PHP sites: they have no Docker volumes,
+// their data is the workspace files plus the site databases ("app" backups).
+func (p *Panel) phpBackupTypeError(ctx context.Context, appID, backupType string) string {
+	if p.PHP != nil && backupType != "app" && p.DB.IsPHPSite(ctx, appID) {
+		return "PHP sites support only 'app' backups (site files and databases)"
+	}
+	return ""
+}
+
 func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	app, err := p.DB.GetApp(c.UserContext(), appID)
@@ -176,6 +185,9 @@ func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	backupType := strings.TrimSpace(c.FormValue("type"))
 	if !validBackupType(backupType) {
 		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	if msg := p.phpBackupTypeError(c.UserContext(), app.ID, backupType); msg != "" {
+		return c.Status(400).JSON(fiber.Map{"error": msg})
 	}
 	rawVolumes := c.FormValue("volume_names")
 	var volumeField string
@@ -328,7 +340,13 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 	case "app":
 		appendLog("app workspace " + app.Name)
 		workspaceRoot := p.ComposeWorkspaceRoot(ctx, appID)
-		tarPath, err = backup.BackupFullApp(ctx, app.Name, workspaceRoot)
+		backupCtx, cleanupDumps, prepErr := p.phpBackupPrepare(ctx, appID, appendLog)
+		if prepErr != nil {
+			fail(prepErr)
+			return
+		}
+		tarPath, err = backup.BackupFullApp(backupCtx, app.Name, workspaceRoot)
+		cleanupDumps()
 		if err != nil {
 			fail(err)
 			return
@@ -352,7 +370,13 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 			appendLog("consistent mode: containers will be paused per volume during snapshot")
 		}
 		workspaceRoot := p.ComposeWorkspaceRoot(ctx, appID)
-		tarPath, err = backup.BackupFullWithVolumesOptions(ctx, app.Name, workspaceRoot, volumeNames, pauseContainers, progressLog)
+		backupCtx, cleanupDumps, prepErr := p.phpBackupPrepare(ctx, appID, appendLog)
+		if prepErr != nil {
+			fail(prepErr)
+			return
+		}
+		tarPath, err = backup.BackupFullWithVolumesOptions(backupCtx, app.Name, workspaceRoot, volumeNames, pauseContainers, progressLog)
+		cleanupDumps()
 		if err != nil {
 			fail(err)
 			return
@@ -620,6 +644,14 @@ func (p *Panel) runRestoreJob(ctx context.Context, app db.App, dest db.BackupDes
 	case "app":
 		fullComposePath := p.ComposeFilePath(ctx, app, app.ID)
 		workspaceRoot := p.ComposeWorkspaceRoot(ctx, app.ID)
+		if p.PHP != nil && p.DB.IsPHPSite(ctx, app.ID) {
+			// PHP sites have no compose file: extract the files, reload databases, restart the pool.
+			if err := backup.RestoreWorkspaceOnly(ctx, workspaceRoot, localPath); err != nil {
+				log.Printf("restore: php workspace: %v", err)
+				return err.Error()
+			}
+			return p.phpAfterRestore(ctx, app.ID)
+		}
 		if err := backup.RestoreFullApp(ctx, app.Name, fullComposePath, workspaceRoot, localPath); err != nil {
 			log.Printf("restore: app workspace: %v", err)
 			return err.Error()
@@ -652,6 +684,9 @@ func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 	backupType := strings.TrimSpace(c.FormValue("type"))
 	if !validBackupType(backupType) {
 		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	if msg := p.phpBackupTypeError(c.UserContext(), c.Params("id"), backupType); msg != "" {
+		return c.Status(400).JSON(fiber.Map{"error": msg})
 	}
 	volumeField, err := normalizeScheduleVolumeField(backupType, c.FormValue("volume_names"))
 	if err != nil {
@@ -742,6 +777,9 @@ func (p *Panel) AppBackupScheduleUpdate(c *fiber.Ctx) error {
 	backupType := strings.TrimSpace(c.FormValue("type"))
 	if !validBackupType(backupType) {
 		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	if msg := p.phpBackupTypeError(c.UserContext(), c.Params("id"), backupType); msg != "" {
+		return c.Status(400).JSON(fiber.Map{"error": msg})
 	}
 	volumeField, err := normalizeScheduleVolumeField(backupType, c.FormValue("volume_names"))
 	if err != nil {
@@ -891,6 +929,11 @@ func (p *Panel) AppBackupDriveLink(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	if u, ok := currentUser(c); ok {
+		if allowed, _ := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleDeveloper); !allowed {
+			return c.Status(403).JSON(fiber.Map{"error": "forbidden: developer access required"})
+		}
 	}
 	historyID, err := c.ParamsInt("historyid")
 	if err != nil {

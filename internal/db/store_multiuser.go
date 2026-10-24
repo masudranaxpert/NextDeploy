@@ -142,7 +142,7 @@ func (s *Store) ListPrivateRegistries(ctx context.Context, userID *int64) ([]Pri
 	var args []interface{}
 	if userID != nil {
 		query = `SELECT id, user_id, name, server_address, username, password_encrypted, created_at 
-		         FROM private_registries WHERE user_id IS NULL OR user_id = ? ORDER BY id ASC`
+		         FROM private_registries WHERE user_id = ? ORDER BY id ASC`
 		args = append(args, *userID)
 	} else {
 		query = `SELECT id, user_id, name, server_address, username, password_encrypted, created_at 
@@ -193,5 +193,14 @@ func (s *Store) GetGlobalAllocatedResources(ctx context.Context) (totalMemoryMB 
 
 func (s *Store) TransferAppOwnership(ctx context.Context, appID string, newOwnerID int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE apps SET owner_id = ? WHERE id = ?`, newOwnerID, appID)
+	return err
+}
+
+// ClaimOrphanedRegistries gives registries created before ownership was strict (no owner,
+// i.e. "global") to the first admin, so they stop being visible to every user.
+func (s *Store) ClaimOrphanedRegistries(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE private_registries
+		SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1)
+		WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users WHERE role = 'admin')`)
 	return err
 }

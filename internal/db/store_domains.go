@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -60,6 +61,15 @@ func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 }
 
 func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error) {
+	cleanDomain := strings.TrimSpace(strings.ToLower(d.Domain))
+	if cleanDomain != "" {
+		var existingAppID string
+		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? LIMIT 1`, cleanDomain).Scan(&existingAppID)
+		if err == nil && existingAppID != d.AppID {
+			return 0, fmt.Errorf("domain %q is already in use by another app", d.Domain)
+		}
+	}
+
 	if d.IsPrimary {
 		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=?`, d.AppID)
 	}
@@ -79,6 +89,15 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 }
 
 func (s *Store) UpdateAppDomain(ctx context.Context, d AppDomain) error {
+	cleanDomain := strings.TrimSpace(strings.ToLower(d.Domain))
+	if cleanDomain != "" {
+		var existingAppID string
+		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? AND id != ? LIMIT 1`, cleanDomain, d.ID).Scan(&existingAppID)
+		if err == nil && existingAppID != d.AppID {
+			return fmt.Errorf("domain %q is already in use by another app", d.Domain)
+		}
+	}
+
 	if d.IsPrimary {
 		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=? AND id!=?`, d.AppID, d.ID)
 	}

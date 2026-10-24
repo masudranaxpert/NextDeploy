@@ -68,6 +68,9 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 	}
 
 	if token == "" {
+		if c.Method() == "GET" && (path == "/mcp" || path == "/mcp/") && strings.Contains(c.Get("Accept"), "text/html") {
+			return s.p.ServeSPA(c)
+		}
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"jsonrpc": "2.0",
 			"error": fiber.Map{

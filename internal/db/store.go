@@ -18,7 +18,7 @@ func Open(path string) (*Store, error) {
 		"&_pragma=temp_store(MEMORY)" +
 		"&_pragma=mmap_size(67108864)" +
 		"&_pragma=cache_size(-32000)" +
-		"&_busy_timeout=5000"
+		"&_pragma=busy_timeout(5000)"
 	d, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, err

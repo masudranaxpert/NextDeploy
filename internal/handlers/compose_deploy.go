@@ -166,6 +166,9 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("app not found: %w", err)
 	}
+	if p.PHP != nil && p.DB.IsPHPSite(ctx, id) {
+		return p.deletePHPSiteResources(ctx, id)
+	}
 	dir := p.AppSourcePath(ctx, id)
 	cp := p.ComposeFilePath(ctx, app, id)
 	candidates := p.ComposeProjectCandidates(ctx, app, id)

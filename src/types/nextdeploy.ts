@@ -15,7 +15,9 @@ export type NavigationSection =
   | 'proxy'
   | 'settings'
   | 'audit-logs'
-  | 'users';
+  | 'users'
+  | 'php-sites'
+  | 'php-instance';
 
 export type AppWorkspaceTab =
   | 'overview'
@@ -29,7 +31,11 @@ export type AppWorkspaceTab =
   | 'terminal'
   | 'volumes'
   | 'backups'
-  | 'collaborators';
+  | 'collaborators'
+  | 'php-settings'
+  | 'php-databases'
+  | 'php-cron'
+  | 'php-logs';
 
 export type AppSourceType = 'git' | 'zip' | 'compose';
 export type AppStatus = 'running' | 'building' | 'stopped' | 'failed';
@@ -147,8 +153,17 @@ export interface AppVolumeMount {
   lastBackupAt?: string;
 }
 
+export interface PhpAppInfo {
+  siteType: 'php' | 'wordpress' | 'static';
+  phpVersion: string;
+  rootDir: string;
+  uid: number;
+}
+
 export interface AppStack {
   id: string;
+  /** Present only for PHP hosting sites. */
+  php?: PhpAppInfo;
   name: string;
   slug: string;
   description: string;

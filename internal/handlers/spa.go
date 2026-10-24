@@ -9,6 +9,7 @@ import (
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
 
@@ -65,6 +66,20 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		Preview       PreviewConfig           `json:"preview"`
 		PreviewBase   string                  `json:"preview_host_base"`
 		Ports         []db.AllocatedPort      `json:"ports"`
+		PHP           *phpAppInfo             `json:"php,omitempty"`
+	}
+
+	phpByApp := map[string]db.PHPSite{}
+	phpRunning := map[string]bool{}
+	if p.PHP != nil {
+		if sites, err := p.DB.ListPHPSites(ctx); err == nil && len(sites) > 0 {
+			for _, s := range sites {
+				phpByApp[s.AppID] = s
+			}
+			for _, ct := range p.PHP.ListContainers(ctx) {
+				phpRunning[ct.Name] = ct.State == "running"
+			}
+		}
 	}
 
 	allVolNames, _ := volumex.List(ctx)
@@ -77,6 +92,16 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		svcs := p.LoadComposeServices(ctx, a.ID)
 		var gitPtr *db.AppGitConfig
 		if gcfg, err := p.DB.GetAppGitConfig(ctx, a.ID); err == nil {
+			if !isAdmin {
+				// credentials never leave the server for non-admin sessions
+				gcfg.Token = ""
+				gcfg.PrivateKeyPEM = ""
+				if a.OwnerID != u.ID {
+					if collab, err := p.DB.GetCollaborator(ctx, a.ID, u.ID); err != nil || collab.Role != db.CollabRoleDeveloper {
+						gcfg.WebhookSecret = ""
+					}
+				}
+			}
 			gitPtr = &gcfg
 		}
 		dlogs, _ := p.DB.ListDeployLogs(ctx, a.ID, 10)
@@ -84,11 +109,30 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		projCands := append([]string{a.ID, strings.ReplaceAll(a.ID, "-", "_"), a.Name}, p.ComposeProjectCandidates(ctx, a, a.ID)...)
 		q := p.AppVolumeQuery(ctx, a, allProjects, projCands...)
 		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
+		if _, isPHP := phpByApp[a.ID]; isPHP {
+			appVols = []string{} // PHP sites do not use Docker volumes
+		}
 		bHist, _ := p.DB.ListBackupHistory(ctx, a.ID, 25)
 		bSched, _ := p.DB.ListBackupSchedules(ctx, a.ID)
 		envStr, _ := p.DB.GetPanelEnv(ctx, a.ID)
 		pvCfg := p.previewConfig(ctx, a.ID)
 		appPorts, _ := p.DB.GetAppAllocatedPorts(ctx, a.ID)
+
+		var phpInfo *phpAppInfo
+		if s, ok := phpByApp[a.ID]; ok {
+			state := "none"
+			if s.SiteType == "static" {
+				state = "stopped"
+				if phpRunning[phphosting.RouteContainer(s.AppID)] {
+					state = "running"
+				}
+			} else if phpRunning[phphosting.RuntimeContainer(s.OwnerID, s.PHPVersion)] {
+				state = "running"
+			} else {
+				state = "stopped"
+			}
+			phpInfo = &phpAppInfo{SiteType: s.SiteType, PHPVersion: s.PHPVersion, RootDir: s.RootDir, UID: s.UID, State: state}
+		}
 
 		appList = append(appList, appSummary{
 			App:           a,
@@ -104,11 +148,14 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			Preview:       pvCfg,
 			PreviewBase:   previewHostBase(a, pvCfg, sys.PublicIP),
 			Ports:         appPorts,
+			PHP:           phpInfo,
 		})
 	}
 
-	containers, dockerErr := dockerapi.ListContainers(ctx)
-	images, _ := dockerapi.ListImages(ctx)
+	allContainers, dockerErr := dockerapi.ListContainers(ctx)
+	allImages, _ := dockerapi.ListImages(ctx)
+	containers := p.visibleContainers(ctx, u, allContainers)
+	images := p.visibleImages(ctx, u, allImages, allContainers)
 	var ownerPtr *int64
 	if !isAdmin {
 		ownerPtr = &u.ID
@@ -159,11 +206,15 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		if !it.NeedsInstall {
 			it.ReposAccessible = p.fetchAccessibleReposCount(ctx, gp, d)
 		}
+		it.Token, it.RefreshToken = "", "" // provider credentials stay server-side
 		enrichedGitProviders = append(enrichedGitProviders, it)
 	}
-	webhookDeliveries, _ := p.DB.ListWebhookDeliveries(ctx, 10)
+	webhookDeliveries := p.visibleWebhookDeliveries(ctx, u, 10)
 	registries, _ := p.DB.ListPrivateRegistries(ctx, ownerPtr)
 	backupDests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
+	for i := range backupDests {
+		backupDests[i].Config = "{}" // access keys / OAuth tokens stay server-side
+	}
 	apiTokens, _ := p.DB.ListAPITokensForUser(ctx, u.ID)
 
 	var users []db.User
@@ -192,12 +243,53 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			}
 		}
 		migrateExports, _ = p.DB.ListRecentMigrateExports(ctx, 8)
+	} else {
+		ids := make([]string, 0, len(apps))
+		for _, a := range apps {
+			ids = append(ids, a.ID)
+		}
+		auditLogs, _ = p.DB.ListAuditLogsForUser(ctx, u.ID, ids, 100, 0)
 	}
 
 	usedStorage := p.UserStorageBytes(ctx, u.ID)
 
+	// Host-level telemetry and the raw volume list are admin territory; everyone else sees
+	// only their own resources (plus the public IP, needed for DNS instructions).
+	visibleVolNames := p.visibleVolumes(ctx, u, allVolNames)
+	var telemetry any = sysinfo.GetTelemetryHistory()
+	respSys := any(sys)
+	if !isAdmin {
+		telemetry = []any{}
+		respSys = sysinfo.Snapshot{PublicIP: sys.PublicIP}
+	}
+	for i := range registries {
+		registries[i].PasswordEncrypted = "" // ciphertext is not for browsers
+	}
+
+	quotaMemUsed, quotaCPUUsed := int64(0), 0.0
+	if !isAdmin {
+		quotaMemUsed, quotaCPUUsed = p.userLiveUsage(ctx, u)
+	}
+	ownedApps := 0
+	for _, a := range apps {
+		if a.OwnerID == u.ID {
+			ownedApps++
+		}
+	}
+
 	return c.JSON(fiber.Map{
 		"ok": true,
+		"quota": fiber.Map{
+			"unlimited":       isAdmin,
+			"max_apps":        u.MaxApps,
+			"apps_used":       ownedApps,
+			"max_memory_mb":   u.MaxMemoryMB,
+			"memory_used_mb":  quotaMemUsed,
+			"max_cpus":        u.MaxCPUs,
+			"cpu_used_cores":  quotaCPUUsed,
+			"max_storage_mb":  u.MaxStorageMB,
+			"storage_used_mb": usedStorage / (1024 * 1024),
+		},
 		"user": fiber.Map{
 			"id":                       u.ID,
 			"username":                 u.Username,
@@ -212,12 +304,12 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			"storage_used_bytes":       usedStorage,
 			"storage_used_human":       HumanStorage(usedStorage),
 		},
-		"sys":                 sys,
+		"sys":                 respSys,
 		"docker_error":        dockerErr,
 		"apps":                appList,
 		"containers":          containers,
 		"images":              images,
-		"volumes":             allVolNames,
+		"volumes":             visibleVolNames,
 		"git_providers":       enrichedGitProviders,
 		"webhook_deliveries":  webhookDeliveries,
 		"registries":          registries,
@@ -246,8 +338,9 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			}(),
 			"enabled": p.QoS != nil,
 		},
+		"php":               p.phpBootstrap(ctx),
 		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") != "0",
-		"telemetry_history": sysinfo.GetTelemetryHistory(),
+		"telemetry_history": telemetry,
 		"public_ip":         sys.PublicIP,
 		"server_time":       time.Now().UTC().Format(time.RFC3339),
 	})
@@ -256,6 +349,9 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 // MetricsHistory returns the time-series ring buffer of CPU, RAM, Disk and Net metrics.
 // GET /api/v1/metrics/history
 func (p *Panel) MetricsHistory(c *fiber.Ctx) error {
+	if u, ok := currentUser(c); !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin role required"})
+	}
 	history := sysinfo.GetTelemetryHistory()
 	return c.JSON(fiber.Map{
 		"ok":      true,

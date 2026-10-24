@@ -278,7 +278,7 @@ export const systemAndTokensApi = {
       page: number;
       per_page: number;
       total_pages: number;
-    }>(`/settings/audit-logs?format=json&page=${page}&per_page=${perPage}`),
+    }>(`/api/audit-logs?format=json&page=${page}&per_page=${perPage}`),
   saveSettings: (payload: {
     cleanup_enabled: boolean;
     cleanup_interval: string;

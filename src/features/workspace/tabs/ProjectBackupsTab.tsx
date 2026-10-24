@@ -63,7 +63,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
 
   // Manual Backup Runner Form State (POST /apps/:id/backup/:destid)
   const [manualDestId, setManualDestId] = useState<string>('');
-  const [manualType, setManualType] = useState<'full' | 'volume' | 'app'>('full');
+  const [manualType, setManualType] = useState<'full' | 'volume' | 'app'>(app.php ? 'app' : 'full');
   const [manualSelectedVols, setManualSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
   );
@@ -77,7 +77,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [schedDestId, setSchedDestId] = useState<string>('');
-  const [schedType, setSchedType] = useState<'full' | 'volume' | 'app'>('full');
+  const [schedType, setSchedType] = useState<'full' | 'volume' | 'app'>(app.php ? 'app' : 'full');
   const [schedSelectedVols, setSchedSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
   );
@@ -511,13 +511,20 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 onChange={(e) => setManualType(e.target.value as 'full' | 'volume' | 'app')}
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               >
-                <option value="full">Full Backup (App Files + All Volumes)</option>
-                <option value="volume">Docker Volume(s) Only</option>
-                <option value="app">App Files Only (Compose &amp; .env)</option>
+                {app.php ? (
+                  <option value="app">Site files + databases</option>
+                ) : (
+                  <>
+                    <option value="full">Full Backup (App Files + All Volumes)</option>
+                    <option value="volume">Docker Volume(s) Only</option>
+                    <option value="app">App Files Only (Compose &amp; .env)</option>
+                  </>
+                )}
               </select>
             </div>
 
-            {/* Pause Containers Toggle */}
+            {/* Pause Containers Toggle (compose apps only: PHP sites have nothing to pause) */}
+            {!app.php && (
             <div className="flex flex-col justify-end">
               <div className="flex h-9 items-center justify-between rounded-lg border border-white/[0.08] bg-[#09090b] px-3">
                 <span className="text-xs text-zinc-200 truncate mr-2">
@@ -529,6 +536,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 />
               </div>
             </div>
+            )}
           </div>
 
           {/* Multi-Volume Selector when type === 'volume' */}
@@ -624,7 +632,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
               <thead>
                 <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
                   <th className="px-4 py-2.5 font-medium">Storage Destination</th>
-                  <th className="px-4 py-2.5 font-medium">Backup Scope & Volumes</th>
+                  <th className="px-4 py-2.5 font-medium">{app.php ? 'Backup Scope' : 'Backup Scope & Volumes'}</th>
                   <th className="px-4 py-2.5 font-medium">Schedule & Next Run</th>
                   <th className="px-4 py-2.5 font-medium">Retention Policy</th>
                   <th className="px-4 py-2.5 font-medium">Active</th>
@@ -778,7 +786,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             <thead>
               <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
                 <th className="px-4 py-2.5 font-medium">Snapshot Archive</th>
-                <th className="px-4 py-2.5 font-medium">Scope & Volumes</th>
+                <th className="px-4 py-2.5 font-medium">{app.php ? 'Scope' : 'Scope & Volumes'}</th>
                 <th className="px-4 py-2.5 font-medium">Storage Destination</th>
                 <th className="px-4 py-2.5 font-medium">Created</th>
                 <th className="px-4 py-2.5 font-medium text-right">Size</th>
@@ -1123,9 +1131,15 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 onChange={(e) => setSchedType(e.target.value as 'full' | 'volume' | 'app')}
                 className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
               >
-                <option value="full">Full Backup (App + All Volumes)</option>
-                <option value="volume">Docker Volume(s) Only</option>
-                <option value="app">App Files Only</option>
+                {app.php ? (
+                  <option value="app">Site files + databases</option>
+                ) : (
+                  <>
+                    <option value="full">Full Backup (App + All Volumes)</option>
+                    <option value="volume">Docker Volume(s) Only</option>
+                    <option value="app">App Files Only</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
@@ -1209,12 +1223,14 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             </div>
           )}
 
+          {!app.php && (
           <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
             <span className="text-xs text-zinc-200">
               Pause containers during scheduled backup
             </span>
             <ShadcnSwitch checked={schedPauseContainers} onChange={setSchedPauseContainers} />
           </div>
+          )}
 
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
