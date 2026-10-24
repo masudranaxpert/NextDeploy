@@ -16,12 +16,14 @@ import { toast } from 'sonner';
 import { CliSessionItem, McpToolItem } from '../../types/nextdeploy';
 import {
   ActionMenu,
+  CopyButton,
   ShadcnDialog,
   ShadcnSwitch,
   StatusBadge,
 } from '../../components/ui/Primitives';
 import { CodeEditorBox } from '../../components/ui/CodeEditorBox';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface McpAndCliViewProps {
   mode: 'mcp' | 'cli';
@@ -44,9 +46,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   const [mcpCategory, setMcpCategory] = useState<string>('all');
   const [clientConfigOpen, setClientConfigOpen] = useState(false);
   const [revealMcpToken, setRevealMcpToken] = useState(false);
-  const [mcpToken, setMcpToken] = useState(
-    'nd_mcp_live_98f1a2c4e6b80192f4d8e1a3c5b79012'
-  );
+  const [mcpToken, setMcpToken] = useState('');
   const [mcpScopes, setMcpScopes] = useState({
     allow_env_reveal: true,
     allow_container_exec: true,
@@ -88,7 +88,8 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
       (t) => mcpCategory === 'all' || t.category === mcpCategory
     );
 
-    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "https://panel.nextdeploy.sh/mcp/sse",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
+    const mcpUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/mcp/sse`;
+    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "${mcpUrl}",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
 
     return (
       <div className="space-y-4">
@@ -136,7 +137,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   SSE Endpoint
                 </span>
                 <span className="font-mono text-xs text-zinc-100 truncate block mt-0.5">
-                  https://panel.nextdeploy.sh/mcp/sse
+                  {mcpUrl}
                 </span>
               </div>
               <button
@@ -171,16 +172,12 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                 >
                   {revealMcpToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(mcpToken);
-                    toast.success('Copied full MCP token');
-                  }}
-                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
-                >
-                  Copy
-                </button>
+                <CopyButton
+                  value={mcpToken}
+                  label="Copy"
+                  toastMessage="Copied full MCP token"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
+                />
                 <button
                   type="button"
                   onClick={() => void handleRegenerateMcpToken()}
@@ -377,8 +374,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {cliSessions.map((s) => {
-                const fullTokenValue =
-                  s.fullToken || s.prefix.replace('...', '9f8e7d6c5b4a3210e4c8a1b2');
+                const fullTokenValue = s.fullToken || s.prefix;
                 const isRevealed = Boolean(revealedCliTokens[s.id]);
                 const p = tokenPerms[s.id] || {
                   allow_env_reveal: true,
@@ -425,17 +421,13 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                             <Eye className="h-3 w-3" />
                           )}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard?.writeText(fullTokenValue);
-                            toast.success(`Copied full CLI token for ${s.tokenName}`);
-                          }}
+                        <CopyButton
+                          value={fullTokenValue}
                           title="Copy full CLI token"
-                          className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
-                        >
-                          <Copy className="h-3 w-3" />
-                        </button>
+                          toastMessage={`Copied full CLI token for ${s.tokenName}`}
+                          className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer inline-flex items-center"
+                          iconClassName="h-3 w-3"
+                        />
                         <span className="text-zinc-600">·</span>
                         <span className="text-zinc-500">{s.ipAddress}</span>
                       </div>
@@ -481,9 +473,13 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                           {
                             label: 'Copy Full Token',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(fullTokenValue);
-                              toast.success(`Copied full token for ${s.tokenName}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(fullTokenValue);
+                              if (ok) {
+                                toast.success(`Copied full token for ${s.tokenName}`);
+                              } else {
+                                toast.error('Failed to copy token');
+                              }
                             },
                           },
                           {
@@ -516,21 +512,17 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
             <span className="text-zinc-200 truncate">
               curl -fsSL https://nextdeploy.sh/install.sh | sh
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText('curl -fsSL https://nextdeploy.sh/install.sh | sh');
-                toast.success('Copied install script');
-              }}
-              className="text-orange-400 hover:underline cursor-pointer shrink-0 ml-2"
-            >
-              Copy
-            </button>
+            <CopyButton
+              value="curl -fsSL https://nextdeploy.sh/install.sh | sh"
+              label="Copy"
+              toastMessage="Copied install script"
+              className="text-orange-400 hover:underline cursor-pointer shrink-0 ml-2 inline-flex items-center gap-1 font-mono text-xs"
+            />
           </div>
           <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-1 text-[11px] text-zinc-400">
-            <div>$ nd login https://panel.nextdeploy.sh</div>
-            <div>$ nd push --app commerce-core-api --deploy</div>
-            <div>$ nd logs commerce-core-api --follow</div>
+            <div>$ nd login {typeof window !== 'undefined' ? window.location.origin : 'https://panel.yourdomain.com'}</div>
+            <div>$ nd push --app my-app --deploy</div>
+            <div>$ nd logs my-app --follow</div>
           </div>
         </div>
       </ShadcnDialog>

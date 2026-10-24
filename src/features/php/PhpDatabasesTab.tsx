@@ -255,7 +255,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </table>
           </div>
         )}
-        <input ref={fileRef} type="file" accept=".sql,.gz" className="hidden" onChange={onFile} />
+        <input ref={fileRef} aria-label="Import SQL file" type="file" accept=".sql,.gz" className="hidden" onChange={onFile} />
       </Card>
 
       <Card

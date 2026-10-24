@@ -38,6 +38,16 @@ func SQLString(s string) string {
 // SQLIdent quotes an identifier with backticks.
 func SQLIdent(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
 
+// GrantIdent quotes a database name for GRANT/REVOKE. In those statements `_` and `%` are
+// wildcards even inside backticks, so a grant on u2__x would also reach u21_x (another user's
+// database). Escaping makes the grant match this one database only.
+func GrantIdent(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	return SQLIdent(s)
+}
+
 const passAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 
 // RandomPassword returns a random password made of unambiguous alphanumerics.
@@ -276,7 +286,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, dbName, dbUser, password s
 		}
 		return err
 	}
-	if _, err := m.sql(ctx, fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s@'%%'; FLUSH PRIVILEGES;", SQLIdent(dbName), SQLString(dbUser))); err != nil {
+	if _, err := m.sql(ctx, fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s@'%%'; FLUSH PRIVILEGES;", GrantIdent(dbName), SQLString(dbUser))); err != nil {
 		_, _ = m.sql(context.Background(), fmt.Sprintf("DROP USER IF EXISTS %s@'%%'; DROP DATABASE IF EXISTS %s;", SQLString(dbUser), SQLIdent(dbName)))
 		return err
 	}
@@ -404,7 +414,7 @@ func (m *Manager) ImportDatabase(ctx context.Context, dbName string, r io.Reader
 	tmpUser := "imp_" + hex.EncodeToString(suffix)
 	tmpPass := RandomPassword(24)
 	setup := fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s;\nGRANT ALL PRIVILEGES ON %s.* TO %s@'%%';\n",
-		SQLString(tmpUser), SQLString(tmpPass), SQLIdent(dbName), SQLString(tmpUser))
+		SQLString(tmpUser), SQLString(tmpPass), GrantIdent(dbName), SQLString(tmpUser))
 	if _, err := m.sql(ctx, setup); err != nil {
 		return err
 	}
@@ -503,7 +513,7 @@ func (m *Manager) GrantAccess(ctx context.Context, dbName, user, access string) 
 		return fmt.Errorf("access must be \"all\" or \"read\"")
 	}
 	_ = m.RevokeAccess(ctx, dbName, user) // switching read<->all must not leave the old grant behind
-	_, err := m.sql(ctx, fmt.Sprintf("GRANT %s ON %s.* TO %s@'%%'; FLUSH PRIVILEGES;", privs, SQLIdent(dbName), SQLString(user)))
+	_, err := m.sql(ctx, fmt.Sprintf("GRANT %s ON %s.* TO %s@'%%'; FLUSH PRIVILEGES;", privs, GrantIdent(dbName), SQLString(user)))
 	return err
 }
 
@@ -512,9 +522,53 @@ func (m *Manager) RevokeAccess(ctx context.Context, dbName, user string) error {
 	if !ValidIdent(dbName) || !ValidIdent(user) {
 		return fmt.Errorf("invalid database or user name")
 	}
-	_, err := m.sql(ctx, fmt.Sprintf("REVOKE ALL PRIVILEGES ON %s.* FROM %s@'%%'; FLUSH PRIVILEGES;", SQLIdent(dbName), SQLString(user)))
+	// Older versions granted on the unescaped pattern; drop that wildcard grant too.
+	_, _ = m.sql(ctx, fmt.Sprintf("REVOKE ALL PRIVILEGES ON %s.* FROM %s@'%%'; FLUSH PRIVILEGES;", SQLIdent(dbName), SQLString(user)))
+	_, err := m.sql(ctx, fmt.Sprintf("REVOKE ALL PRIVILEGES ON %s.* FROM %s@'%%'; FLUSH PRIVILEGES;", GrantIdent(dbName), SQLString(user)))
 	if err != nil && (strings.Contains(strings.ToLower(err.Error()), "no such grant") || strings.Contains(strings.ToLower(err.Error()), "there is no such grant")) {
 		return nil
 	}
 	return err
+}
+
+// RepairGrants re-issues every database grant once with escaped names, removing the wildcard
+// grants older versions created. It is safe to run again; a setting records that it finished.
+func (m *Manager) RepairGrants(ctx context.Context) {
+	const key = "php_grants_escaped"
+	if m.DB.GetSetting(ctx, key) == "1" || !m.MySQLEnabled(ctx) || !m.MySQLStatus(ctx).Ready {
+		return
+	}
+	sites, err := m.DB.ListPHPSites(ctx)
+	if err != nil {
+		return
+	}
+	failed := false
+	for _, site := range sites {
+		dbs, _ := m.DB.ListPHPDatabases(ctx, site.AppID)
+		users, _ := m.DB.ListPHPDBUsers(ctx, site.AppID)
+		grants, _ := m.DB.ListPHPGrants(ctx, site.AppID)
+		name := map[int64]string{}
+		for _, u := range users {
+			name[u.ID] = u.UserName
+		}
+		byID := map[int64]string{}
+		for _, d := range dbs {
+			byID[d.ID] = d.DBName
+			if d.DBUser != "" && ValidIdent(d.DBUser) {
+				if err := m.GrantAccess(ctx, d.DBName, d.DBUser, "all"); err != nil {
+					failed = true
+				}
+			}
+		}
+		for _, g := range grants {
+			if u, ok := name[g.UserID]; ok && byID[g.DBID] != "" {
+				if err := m.GrantAccess(ctx, byID[g.DBID], u, g.Access); err != nil {
+					failed = true
+				}
+			}
+		}
+	}
+	if !failed {
+		_ = m.DB.SetSetting(ctx, key, "1")
+	}
 }

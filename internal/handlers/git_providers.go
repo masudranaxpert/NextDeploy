@@ -43,20 +43,17 @@ func (p *Panel) fetchAccessibleReposCount(ctx context.Context, gp db.GitProvider
 		return e.n
 	}
 	flag := new(int32)
-	done := make(chan int, 1)
+	atomic.StoreInt32(flag, 1)
+	// Seed with 0 and fetch asynchronously in background to ensure instant page bootstrap.
+	repoCountCache.Store(gp.ID, repoCountEntry{n: 0, at: time.Now(), refreshing: flag})
 	go func() {
+		defer atomic.StoreInt32(flag, 0)
 		bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		n := p.fetchAccessibleReposCountLive(bg, gp, d)
 		repoCountCache.Store(gp.ID, repoCountEntry{n: n, at: time.Now(), refreshing: flag})
-		done <- n
 	}()
-	select {
-	case n := <-done:
-		return n
-	case <-time.After(700 * time.Millisecond):
-		return 0 // arrives in the cache for the next load
-	}
+	return 0
 }
 
 func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
@@ -309,6 +306,15 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 		SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
+
+	installID := strings.TrimSpace(c.FormValue("installation_id"))
+	if installID != "" && (existing.Provider == "github" || provider == "github") {
+		if detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), id); derr == nil {
+			detail.InstallationID = installID
+			_ = p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail)
+		}
+	}
+
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true})
 	}

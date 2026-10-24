@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"panel/internal/runutil"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func syncKeyToHost(pubKey string) {
 	// Try up to 3 times to install the public key to host
 	for i := 0; i < 3; i++ {
 		cmdStr := fmt.Sprintf(`mkdir -p /root/.ssh && chmod 700 /root/.ssh && touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && grep -qF "%s" /root/.ssh/authorized_keys || echo "%s" >> /root/.ssh/authorized_keys`, pubKey, pubKey)
-		cmd := exec.Command("docker", "run", "--rm", "--entrypoint", "nsenter", "--privileged", "--pid=host", "mrformula/nextdeploy:latest", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", cmdStr)
+		cmd := exec.Command("docker", "run", "--rm", "--entrypoint", "nsenter", "--privileged", "--pid=host", runutil.HelperImage(), "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", cmdStr)
 		if err := cmd.Run(); err == nil {
 			break
 		}

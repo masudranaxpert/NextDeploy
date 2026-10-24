@@ -481,18 +481,11 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
                     ))
                   )
                 ) : (
-                  selectedVolume.sampleFiles.map((f, idx) => (
-                    <tr key={idx} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                        <span>{f.path}</span>
-                      </td>
-                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{f.modified}</td>
-                      <td className="px-4 py-2.5 text-right text-zinc-200 tabular-nums">
-                        {f.size}
-                      </td>
-                    </tr>
-                  ))
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-xs text-zinc-500">
+                      No files or directories found in this volume path.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -520,7 +513,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
               list="existing-docker-volumes"
               value={restoreVolName}
               onChange={(e) => setRestoreVolName(e.target.value)}
-              placeholder="e.g. commerce_pg_data"
+              placeholder="e.g. postgres_data"
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
             <datalist id="existing-docker-volumes">

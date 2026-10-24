@@ -449,6 +449,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 Storage Destination
               </label>
               <select
+                aria-label="Storage destination"
                 value={manualDestId}
                 onChange={(e) => setManualDestId(e.target.value)}
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
@@ -467,6 +468,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 Backup Scope
               </label>
               <select
+                aria-label="Backup scope"
                 value={manualType}
                 onChange={(e) => setManualType(e.target.value as 'full' | 'volume' | 'app')}
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
@@ -1029,6 +1031,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
               <strong className="text-zinc-200">{computedTotalPages}</strong> ({totalCount} total)
             </span>
             <select
+              aria-label="Rows per page"
               value={perPage}
               onChange={(e) => {
                 setPerPage(Number(e.target.value));

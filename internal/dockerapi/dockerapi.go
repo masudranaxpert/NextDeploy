@@ -149,7 +149,39 @@ type statsJSON struct {
 	} `json:"pids_stats"`
 }
 
+var (
+	containersCacheMu   sync.RWMutex
+	containersCacheList []ContainerRow
+	containersCacheAt   time.Time
+	containersCacheTTL  = 3 * time.Second
+
+	imagesCacheMu   sync.RWMutex
+	imagesCacheList []ImageRow
+	imagesCacheAt   time.Time
+	imagesCacheTTL  = 10 * time.Second
+)
+
+func InvalidateContainerCache() {
+	containersCacheMu.Lock()
+	containersCacheAt = time.Time{}
+	containersCacheMu.Unlock()
+}
+
+func InvalidateImageCache() {
+	imagesCacheMu.Lock()
+	imagesCacheAt = time.Time{}
+	imagesCacheMu.Unlock()
+}
+
 func ListContainers(ctx context.Context) ([]ContainerRow, string) {
+	containersCacheMu.RLock()
+	if time.Since(containersCacheAt) < containersCacheTTL && len(containersCacheList) > 0 {
+		cached := append([]ContainerRow(nil), containersCacheList...)
+		containersCacheMu.RUnlock()
+		return cached, ""
+	}
+	containersCacheMu.RUnlock()
+
 	cli, err := apiClient()
 	if err != nil {
 		return nil, err.Error()
@@ -174,6 +206,12 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 			ComposeService: c.Labels["com.docker.compose.service"],
 		})
 	}
+
+	containersCacheMu.Lock()
+	containersCacheList = out
+	containersCacheAt = time.Now()
+	containersCacheMu.Unlock()
+
 	return out, ""
 }
 
@@ -374,12 +412,20 @@ func cpuPercentSingleSample(cur statsJSON) float64 {
 }
 
 func ListImages(ctx context.Context) ([]ImageRow, string) {
+	imagesCacheMu.RLock()
+	if time.Since(imagesCacheAt) < imagesCacheTTL && len(imagesCacheList) > 0 {
+		cached := append([]ImageRow(nil), imagesCacheList...)
+		imagesCacheMu.RUnlock()
+		return cached, ""
+	}
+	imagesCacheMu.RUnlock()
+
 	cli, err := apiClient()
 	if err != nil {
 		return nil, err.Error()
 	}
 
-	list, err := cli.ImageList(ctx, types.ImageListOptions{All: true})
+	list, err := cli.ImageList(ctx, types.ImageListOptions{All: false})
 	if err != nil {
 		return nil, err.Error()
 	}
@@ -405,6 +451,12 @@ func ListImages(ctx context.Context) ([]ImageRow, string) {
 			RepoTags:  im.RepoTags,
 		})
 	}
+
+	imagesCacheMu.Lock()
+	imagesCacheList = out
+	imagesCacheAt = time.Now()
+	imagesCacheMu.Unlock()
+
 	return out, ""
 }
 

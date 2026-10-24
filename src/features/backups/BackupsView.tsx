@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   RotateCw,
@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   Terminal,
   Box,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -26,6 +27,7 @@ import {
   ShadcnDialog,
   StatusBadge,
 } from '../../components/ui/Primitives';
+import { PhpIcon, SiteTypeBadge } from '../../components/ui/BrandIcons';
 import { backendApi } from '../../lib/backendApi';
 
 interface BackupsViewProps {
@@ -87,12 +89,20 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Project Backups Table Pagination (10 per page)
+  // Project Backups Table Pagination (Only projects with active backup schedules)
+  const scheduledApps = useMemo(() => {
+    return apps.filter(
+      (app) =>
+        (Array.isArray(app.backupSchedules) && app.backupSchedules.length > 0) ||
+        Boolean(app.hasSchedule)
+    );
+  }, [apps]);
+
   const [projectsPage, setProjectsPage] = useState(1);
   const projectsPerPage = 10;
-  const totalProjectPages = Math.max(1, Math.ceil(apps.length / projectsPerPage));
+  const totalProjectPages = Math.max(1, Math.ceil(scheduledApps.length / projectsPerPage));
   const safeProjectsPage = Math.min(projectsPage, totalProjectPages);
-  const paginatedApps = apps.slice(
+  const paginatedApps = scheduledApps.slice(
     (safeProjectsPage - 1) * projectsPerPage,
     safeProjectsPage * projectsPerPage
   );
@@ -591,7 +601,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       )}
 
       {/* Project Backups Directory Table with Pagination (> 10 projects) */}
-      {apps.length > 0 && onSelectApp && (
+      {onSelectApp && (
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/[0.07] bg-[#09090b]/50 px-4 py-3">
             <div className="flex items-center gap-2">
@@ -601,87 +611,134 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               </h2>
             </div>
             <span className="font-mono text-[11px] text-zinc-500">
-              {apps.length} project{apps.length === 1 ? '' : 's'}
+              {scheduledApps.length} project{scheduledApps.length === 1 ? '' : 's'} with schedule
             </span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[540px] text-left text-xs">
-              <thead>
-                <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-400">
-                  <th className="px-4 py-2.5 font-medium">Project</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Volumes</th>
-                  <th className="px-4 py-2.5 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {paginatedApps.map((app) => (
-                  <tr key={app.id} className="hover:bg-white/[0.02]">
-                    <td className="px-4 py-2.5">
-                      <div className="font-semibold text-zinc-100">{app.name}</div>
-                      <div className="font-mono text-[11px] text-zinc-500">{app.id}</div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <StatusBadge status={app.status} />
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-zinc-300">
-                      {app.volumes.length} volume{app.volumes.length === 1 ? '' : 's'}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onSelectApp(app.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:border-orange-500/40 hover:text-orange-300 cursor-pointer"
-                      >
-                        <span>Manage Backups</span>
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
 
-          {apps.length > projectsPerPage && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-[#09090b]/50 px-4 py-2.5 text-xs text-zinc-400">
-              <span className="font-mono text-[11px]">
-                Showing {(safeProjectsPage - 1) * projectsPerPage + 1}–
-                {Math.min(apps.length, safeProjectsPage * projectsPerPage)} of {apps.length}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={safeProjectsPage <= 1}
-                  onClick={() => setProjectsPage((p) => Math.max(1, p - 1))}
-                  className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
-                >
-                  Prev
-                </button>
-                {Array.from({ length: totalProjectPages }, (_, i) => i + 1).map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setProjectsPage(num)}
-                    className={`h-7 min-w-[28px] rounded-md px-2 font-mono text-xs cursor-pointer ${
-                      num === safeProjectsPage
-                        ? 'bg-orange-500 text-zinc-950 font-semibold'
-                        : 'border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  disabled={safeProjectsPage >= totalProjectPages}
-                  onClick={() => setProjectsPage((p) => Math.min(totalProjectPages, p + 1))}
-                  className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
-                >
-                  Next
-                </button>
+          {scheduledApps.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/60 text-zinc-500">
+                <Clock className="h-5 w-5" />
               </div>
+              <p className="mt-3 text-sm font-medium text-zinc-300">No scheduled project backups</p>
+              <p className="mt-1 max-w-sm text-xs text-zinc-500">
+                Only projects with active backup schedules appear here. Configure automated backup schedules inside the project settings to display them.
+              </p>
             </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[540px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-400">
+                      <th className="px-4 py-2.5 font-medium">Project</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5 font-medium">Schedule</th>
+                      <th className="px-4 py-2.5 font-medium">Volumes</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {paginatedApps.map((app) => {
+                      const isPhp = Boolean(app.php || app.sourceType === 'php');
+                      return (
+                        <tr key={app.id} className="hover:bg-white/[0.02]">
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-zinc-100">{app.name}</span>
+                              {isPhp && (
+                                <SiteTypeBadge
+                                  type={app.php?.siteType || 'php'}
+                                  phpVersion={app.php?.phpVersion}
+                                />
+                              )}
+                            </div>
+                            <div className="font-mono text-[11px] text-zinc-500">{app.id}</div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <StatusBadge status={app.status} />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {app.backupSchedules && app.backupSchedules.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {app.backupSchedules.map((s, idx) => (
+                                  <span
+                                    key={s.id || idx}
+                                    className="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-400"
+                                  >
+                                    <Clock className="h-3 w-3 text-emerald-400" />
+                                    {s.cronExpression || 'Scheduled'}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
+                                <Clock className="h-3 w-3 text-emerald-400" />
+                                Active Schedule
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-zinc-300">
+                            {app.volumes.length} volume{app.volumes.length === 1 ? '' : 's'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => onSelectApp(app.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:border-orange-500/40 hover:text-orange-300 cursor-pointer"
+                            >
+                              <span>Manage Backups</span>
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {scheduledApps.length > projectsPerPage && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-[#09090b]/50 px-4 py-2.5 text-xs text-zinc-400">
+                  <span className="font-mono text-[11px]">
+                    Showing {(safeProjectsPage - 1) * projectsPerPage + 1}–
+                    {Math.min(scheduledApps.length, safeProjectsPage * projectsPerPage)} of {scheduledApps.length}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={safeProjectsPage <= 1}
+                      onClick={() => setProjectsPage((p) => Math.max(1, p - 1))}
+                      className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
+                    >
+                      Prev
+                    </button>
+                    {Array.from({ length: totalProjectPages }, (_, i) => i + 1).map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setProjectsPage(num)}
+                        className={`h-7 min-w-[28px] rounded-md px-2 font-mono text-xs cursor-pointer ${
+                          num === safeProjectsPage
+                            ? 'bg-orange-500 text-zinc-950 font-semibold'
+                            : 'border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={safeProjectsPage >= totalProjectPages}
+                      onClick={() => setProjectsPage((p) => Math.min(totalProjectPages, p + 1))}
+                      className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

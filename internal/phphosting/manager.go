@@ -370,6 +370,7 @@ func (m *Manager) PrepareSiteDirs(site db.PHPSite) error {
 // the panel (file manager, uploads, archive extraction) are created by the panel user and
 // would otherwise be unreadable/unwritable for the FPM pool.
 func (m *Manager) FixOwnership(site db.PHPSite) {
+	m.SweepSymlinks(site.AppID)
 	base := m.SitePath(site.AppID)
 	for _, d := range []string{"htdocs", "logs", "tmp"} {
 		root := filepath.Join(base, d)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/runutil"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -340,7 +341,7 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 sleep 0.3
 `
-		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "--entrypoint", "nsenter", "mrformula/nextdeploy:latest", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
+		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "--entrypoint", "nsenter", runutil.HelperImage(), "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
 		cancel()
 
 		// Attempt to start or restart the existing container first

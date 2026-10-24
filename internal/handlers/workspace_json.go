@@ -362,9 +362,12 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 }
 
 func zipAddFile(zw *zip.Writer, absPath, nameInZip string, budget int64) (written int64, err error) {
-	st, err := os.Stat(absPath)
+	st, err := os.Lstat(absPath)
 	if err != nil {
 		return 0, err
+	}
+	if !st.Mode().IsRegular() {
+		return 0, nil // symlinks and devices are never packed: they could point anywhere on the host
 	}
 	if st.Size() > budget {
 		return 0, errWorkspaceZipTooLarge

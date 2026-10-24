@@ -36,12 +36,40 @@ interface UsersAndSettingsViewProps {
   users: PanelUser[];
   auditLogs: AuditLogEntry[];
   cgroupInfo?: { mode?: string; supported?: boolean };
+  /** The signed-in user: they cannot demote, suspend or delete themselves. */
+  currentUserId?: string;
 }
+
+const LimitField: React.FC<{
+  label: string;
+  unit: string;
+  value: string;
+  onChange: (v: string) => void;
+  hint: string;
+  step?: string;
+}> = ({ label, unit, value, onChange, hint, step = '1' }) => (
+  <label className="block">
+    <span className="mb-1.5 block text-[11px] font-medium text-zinc-300">{label}</span>
+    <div className="relative">
+      <input
+        type="number"
+        min={0}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] pl-3 pr-14 font-mono text-xs tabular-nums text-zinc-100 outline-none focus:border-orange-500/50"
+      />
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center font-mono text-[11px] text-zinc-500">{unit}</span>
+    </div>
+    <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>
+  </label>
+);
 
 export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   mode,
   users: initialUsers,
   auditLogs: initialAuditLogs,
+  currentUserId,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialAuditLogs);
@@ -77,7 +105,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [auditSearch, setAuditSearch] = useState('');
   const [auditCategory, setAuditCategory] = useState<string>('all');
   const [auditPage, setAuditPage] = useState(1);
-  const [auditPerPage, setAuditPerPage] = useState(5);
+  const [auditPerPage, setAuditPerPage] = useState(10);
   const [auditLoading, setAuditLoading] = useState(false);
 
   // System Settings State (matches POST /settings & /settings/cleanup/run & /settings/tmp/*)
@@ -85,14 +113,21 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [cleanupInterval, setCleanupInterval] = useState<'1h' | '6h' | '12h' | '24h' | '168h'>('24h');
   const [cleanupIncludeBuildCache, setCleanupIncludeBuildCache] = useState(false);
   const [cleanupRunning, setCleanupRunning] = useState(false);
-  const [cleanupLastRunAt, setCleanupLastRunAt] = useState('2025-05-15 03:00:00 UTC');
+  const [cleanupLastRunAt, setCleanupLastRunAt] = useState('Never');
   const [cleanupLastStatus, setCleanupLastStatus] = useState<'ok' | 'error'>('ok');
-  const [cleanupLastLog, setCleanupLastLog] = useState(
-    '--- docker container prune -f ---\nTotal reclaimed space: 0B\n--- docker image prune -af ---\nDeleted Images:\nuntagged: ghcr.io/masud/Billing-Service:old-sha\nTotal reclaimed space: 412.6MB\n--- docker network prune -f ---\nTotal reclaimed space: 0B'
-  );
+  const [cleanupLastLog, setCleanupLastLog] = useState('No cleanup log recorded yet.');
   const [showCleanupLogModal, setShowCleanupLogModal] = useState(false);
-  const [tmpCount, setTmpCount] = useState(4);
-  const [tmpTotalSize, setTmpTotalSize] = useState('128.4 MB');
+  const [tmpCount, setTmpCount] = useState(0);
+  const [tmpTotalSize, setTmpTotalSize] = useState('0 B');
+
+  useEffect(() => {
+    if (mode === 'settings') {
+      void backendApi.getTmpCleanupInfo().then((info) => {
+        if (typeof info?.count === 'number') setTmpCount(info.count);
+        if (info?.total_size) setTmpTotalSize(info.total_size);
+      });
+    }
+  }, [mode]);
 
   const openLimitsModal = (user: PanelUser) => {
     setLimitsModalUser(user);
@@ -489,7 +524,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                                   ? 'Demote to Standard User'
                                   : 'Promote to Admin',
                               icon: <Shield className="h-3.5 w-3.5" />,
-                              disabled: u.username === 'masud',
+                              disabled: String(u.id) === currentUserId,
                               onClick: () => void handleToggleUserRole(u),
                             },
                             {
@@ -498,14 +533,14 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                                   ? 'Activate Account'
                                   : 'Suspend Account & Stop Apps',
                               icon: <Ban className="h-3.5 w-3.5" />,
-                              disabled: u.username === 'masud',
+                              disabled: String(u.id) === currentUserId,
                               onClick: () => void handleToggleUserStatus(u),
                             },
                             {
                               label: 'Delete User',
                               icon: <Trash2 className="h-3.5 w-3.5" />,
                               variant: 'danger',
-                              disabled: u.username === 'masud',
+                              disabled: String(u.id) === currentUserId,
                               onClick: async () => {
                                 try {
                                   await backendApi.deleteUser(u.id);
@@ -631,124 +666,79 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           icon={<Sliders className="h-4 w-4 text-orange-400" />}
         >
           {limitsModalUser && (
-            <form onSubmit={handleSaveLimits} className="space-y-4">
+            <form onSubmit={handleSaveLimits} className="space-y-5">
               {limitsModalUser.role === 'admin' && (
-                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-200">
-                  <strong>Admin Account:</strong> Administrator accounts have unlimited resources
-                  by default unless demoted to a standard <code className="font-mono">user</code>{' '}
-                  role.
+                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+                  Administrators are never limited. These values apply if this account is demoted to a standard user.
                 </div>
               )}
 
-              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 font-mono text-[11px] text-zinc-400">
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 font-semibold">systemd cgroup v2 Slice:</span>
-                  <span className="text-orange-400">
-                    nextdeploy-user-{limitsModalUser.id}.slice
-                  </span>
-                </div>
-                <div className="mt-1 text-[10px] text-zinc-500">
-                  Set any value to <code className="text-zinc-300">0</code> for unlimited. Saving
-                  immediately updates Linux systemd slice properties (<code className="text-zinc-300">CPUQuota</code> &amp;{' '}
-                  <code className="text-zinc-300">MemoryMax</code>).
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Max Apps (max_apps, 0 = Unlimited)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={limitMaxApps}
-                    onChange={(e) => setLimitMaxApps(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Max CPU Cores (max_cpus, e.g. 2.5)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min={0}
-                    value={limitMaxCpus}
-                    onChange={(e) => setLimitMaxCpus(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Max Memory MB (max_memory_mb)
-                  </label>
-                  <input
-                    type="number"
-                    step={256}
-                    min={0}
-                    value={limitMaxMemoryMb}
-                    onChange={(e) => setLimitMaxMemoryMb(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                  <span className="mt-1 block text-[10px] text-zinc-500">
-                    {Number(limitMaxMemoryMb) > 0
-                      ? `≈ ${(Number(limitMaxMemoryMb) / 1024).toFixed(1)} GB RAM`
-                      : 'Unlimited RAM'}
-                  </span>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Max Storage MB (max_storage_mb)
-                  </label>
-                  <input
-                    type="number"
-                    step={1024}
-                    min={0}
-                    value={limitMaxStorageMb}
-                    onChange={(e) => setLimitMaxStorageMb(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                  <span className="mt-1 block text-[10px] text-zinc-500">
-                    {Number(limitMaxStorageMb) > 0
-                      ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB Disk`
-                      : 'Unlimited Disk'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
-                <div>
-                  <div className="text-xs font-medium text-zinc-200">
-                    Allow Domain Static/Media File Server
-                  </div>
-                  <div className="text-[11px] text-zinc-500">
-                    Permits user domains to serve static/media volume paths directly via Caddy (allow_domain_file_server)
-                  </div>
-                </div>
-                <ShadcnSwitch
-                  checked={limitAllowDomainFileServer}
-                  onChange={setLimitAllowDomainFileServer}
+              <div className="grid grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2">
+                <LimitField
+                  label="Projects"
+                  unit="apps"
+                  value={limitMaxApps}
+                  onChange={setLimitMaxApps}
+                  hint={Number(limitMaxApps) > 0 ? `${limitMaxApps} projects at most` : 'Unlimited'}
+                />
+                <LimitField
+                  label="CPU"
+                  unit="cores"
+                  step="0.5"
+                  value={limitMaxCpus}
+                  onChange={setLimitMaxCpus}
+                  hint={Number(limitMaxCpus) > 0 ? `${Number(limitMaxCpus)} cores at most` : 'Unlimited'}
+                />
+                <LimitField
+                  label="Memory"
+                  unit="MB"
+                  step="256"
+                  value={limitMaxMemoryMb}
+                  onChange={setLimitMaxMemoryMb}
+                  hint={Number(limitMaxMemoryMb) > 0 ? `≈ ${(Number(limitMaxMemoryMb) / 1024).toFixed(1)} GB RAM` : 'Unlimited'}
+                />
+                <LimitField
+                  label="Storage"
+                  unit="MB"
+                  step="1024"
+                  value={limitMaxStorageMb}
+                  onChange={setLimitMaxStorageMb}
+                  hint={Number(limitMaxStorageMb) > 0 ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB disk` : 'Unlimited'}
                 />
               </div>
+              <p className="-mt-1 text-[11px] text-zinc-500">
+                0 means unlimited. Limits are applied to the user's systemd slice{' '}
+                <code className="font-mono text-zinc-400">nextdeploy-user-{limitsModalUser.id}.slice</code> and cannot exceed this server's real capacity.
+              </p>
 
-              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-200">Static and media file server</div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    Lets this user's domains serve static or media paths directly through Caddy.
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  <ShadcnSwitch
+                    checked={limitAllowDomainFileServer}
+                    onChange={setLimitAllowDomainFileServer}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-4">
                 <button
                   type="button"
                   onClick={() => setLimitsModalUser(null)}
-                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                  className="h-8 rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                  className="h-8 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-600 cursor-pointer"
                 >
-                  Save Quotas & Apply Slice
+                  Save limits
                 </button>
               </div>
             </form>

@@ -49,7 +49,8 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	labels[prefix+".header.X-Content-Type-Options"] = "nosniff"
 	labels[prefix+".header.Referrer-Policy"] = "strict-origin-when-cross-origin"
 	// Never serve VCS metadata or dotenv files, but keep /.well-known reachable.
-	labels[prefix+".@hidden.path"] = "/.git/* /.svn/* /.hg/* /.env /.env.* /.ht*"
+	// (any depth, so a link or subfolder cannot expose them)
+	labels[prefix+".@hidden.path_regexp"] = `(^|/)\.(git|svn|hg|env|nextdeploy-db|ht[a-z]*)(/|$|\.)`
 	labels[prefix+".respond"] = "@hidden 404"
 	if socket != "" {
 		labels[prefix+".php_fastcgi"] = "unix/" + socket

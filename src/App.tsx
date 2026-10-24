@@ -142,6 +142,7 @@ export default function App() {
     }
     return null;
   });
+  const [loadError, setLoadError] = useState('');
   const [isBootstrapping, setIsBootstrapping] = useState(() => {
     if (typeof window !== 'undefined') {
       if (window.location.pathname === '/setup' || window.location.pathname === '/login') {
@@ -219,6 +220,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      sessionStorage.removeItem('nextdeploy_bootstrap_cache_v1');
       await backendApi.logout();
     } catch {
       // ignore
@@ -494,253 +496,349 @@ export default function App() {
     setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages)));
   };
 
-  // Hydrate live Go Fiber backend state when running inside the embedded NextDeploy binary
-  React.useEffect(() => {
-    void backendApi.bootstrap().then((res) => {
-      setIsBootstrapping(false);
-      if (res.status === 401 || !res.ok) {
-        if (res.data?.needs_setup || window.location.pathname === '/setup') {
-          setAuthMode('setup');
-        } else {
-          setAuthMode('login');
+  const applyBootstrapData = React.useCallback((data: any) => {
+    if (!data || typeof data !== 'object') return;
+    if (data.public_ip) {
+      setServerPublicIp(data.public_ip);
+    }
+    if (data.user) {
+      setCurrentUser({
+        id: data.user.id,
+        username: data.user.username || 'admin',
+        role: data.user.role || 'admin',
+      });
+    }
+
+    setPhpEnabled(Boolean((data as any).php?.enabled));
+    setMyQuota((data as any).quota && !(data as any).quota.unlimited ? (data as any).quota : null);
+
+    const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
+    const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
+
+    // 1. Live Apps
+    if (Array.isArray(data.apps)) {
+      loadLiveApps(data.apps, liveContainers, liveImages);
+    }
+
+    // 2. Live Docker Images with Live Container Usage
+    if (Array.isArray(data.images)) {
+      setImages(
+        data.images.map((img: any) => {
+          const tagStr =
+            Array.isArray(img.RepoTags) && img.RepoTags.length > 0
+              ? img.RepoTags[0]
+              : img.Tags || img.ID.slice(0, 12);
+          const parts = tagStr.split(':');
+          const repo = parts[0] || tagStr;
+          const tag = parts[1] || 'latest';
+          const shortId = img.ID.slice(0, 12);
+
+          const inUseBy = liveContainers
+            .filter((c: any) => {
+              const cImg = c.Image || '';
+              return (
+                cImg === tagStr ||
+                cImg === repo ||
+                cImg.startsWith(repo + ':') ||
+                cImg.includes(shortId)
+              );
+            })
+            .map((c: any) => c.Name || c.ID);
+
+          return {
+            id: shortId,
+            repository: repo,
+            tag: tag,
+            sizeMB: Math.round((img.Size || 0) / (1024 * 1024)),
+            created: img.Created ? new Date(img.Created).toLocaleDateString() : 'Recently',
+            inUseBy,
+          };
+        })
+      );
+    }
+
+    // 3. Live Host Telemetry & Historical Series
+    if (Array.isArray(data.telemetry_history) && data.telemetry_history.length > 0) {
+      setTelemetry(data.telemetry_history);
+    } else if (data.sys) {
+      const sys = data.sys;
+      const currentCpu = Math.round(sys.CPUPercent || 0);
+      const currentMem = Math.round(sys.MemUsedPct || 0);
+      const currentPoint: TelemetryPoint = {
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        cpu: currentCpu,
+        memory: currentMem,
+        diskIo: Math.round(sys.DiskUsedPct || 0),
+        netInMbps: 0,
+        netOutMbps: 0,
+        requests: 0,
+      };
+      setTelemetry((prev) => [...prev.slice(1), currentPoint]);
+    }
+    if (data.sys) {
+      setSys(data.sys);
+    }
+    if (data.cgroup) {
+      setCgroupInfo(data.cgroup);
+    }
+
+    // 5. Live Volumes
+    if (Array.isArray(data.volumes)) {
+      setVolumes(
+        data.volumes.map((v: string) => ({
+          name: v,
+          appSlug: v.split('_')[0] || 'system',
+          mountPoint: `/var/lib/docker/volumes/${v}/_data`,
+          driver: 'local',
+          sizeMB: 0,
+          createdAt: 'Active',
+          filesCount: 0,
+          sampleFiles: [],
+        }))
+      );
+    }
+
+    // 6. Live Users & Audit Logs
+    if (Array.isArray(data.users)) {
+      setUsers(
+        data.users.map((u: any) => ({
+          id: String(u.ID || u.id),
+          username: u.Username || u.username,
+          email: u.Email || u.email || `${u.Username || u.username}@nextdeploy.local`,
+          role: (u.Role || u.role || 'user') as any,
+          status: (u.Status || u.status || 'active') as any,
+          appsCount: 0,
+          maxApps: u.MaxApps || u.max_apps || 5,
+          cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
+          memUsedGB: 0,
+          memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
+          maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
+          diskUsedGB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024 * 1024)),
+          diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
+          maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
+          bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
+          allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
+          twoFactorEnabled: false,
+          lastLoginAt: 'Recently',
+        }))
+      );
+    }
+    const apiTokensMap = new Map<string, string>();
+    if (Array.isArray(data.api_tokens)) {
+      for (const t of data.api_tokens) {
+        const full = String(t.token || t.Token || '').trim();
+        if (full) {
+          if (t.token_prefix) apiTokensMap.set(String(t.token_prefix), full);
+          if (t.TokenPrefix) apiTokensMap.set(String(t.TokenPrefix), full);
+          if (t.name) apiTokensMap.set(String(t.name), full);
+          if (t.Name) apiTokensMap.set(String(t.Name), full);
+          if (t.id) apiTokensMap.set(String(t.id), full);
+          if (t.ID) apiTokensMap.set(String(t.ID), full);
         }
-        return;
       }
-      setAuthMode(null);
-      const data = res.data;
-      if (!data) return;
-      if (data.public_ip) {
-        setServerPublicIp(data.public_ip);
-      }
-      if (data.user) {
-        setCurrentUser({
-          id: data.user.id,
-          username: data.user.username || 'masud',
-          role: data.user.role || 'admin',
+    }
+
+    const sessionsList: CliSessionItem[] = [];
+    const seenTokenKeys = new Set<string>();
+
+    if (Array.isArray(data.cli_sessions)) {
+      for (const cs of data.cli_sessions) {
+        const prefix = cs.token_prefix || cs.TokenPrefix || 'nd_cli_...';
+        const name = cs.token_name || cs.TokenName || 'CLI Token';
+        const id = String(cs.id || cs.ID);
+        const fullToken =
+          cs.fullToken ||
+          cs.token ||
+          apiTokensMap.get(prefix) ||
+          apiTokensMap.get(name) ||
+          apiTokensMap.get(id) ||
+          '';
+
+        seenTokenKeys.add(prefix);
+        if (name) seenTokenKeys.add(name);
+        if (id) seenTokenKeys.add(id);
+
+        sessionsList.push({
+          id,
+          tokenName: name,
+          prefix,
+          fullToken,
+          deviceHost: cs.hostname || cs.Hostname || 'workstation',
+          osArch: `${cs.os || cs.OS || 'linux'}/${cs.arch || cs.Arch || 'amd64'}`,
+          cliVersion: cs.version || cs.Version || 'nd v1.8.4',
+          lastCommand: cs.last_command || cs.LastCommand || '-',
+          lastActiveAt:
+            cs.last_seen || cs.LastSeen
+              ? new Date(cs.last_seen || cs.LastSeen).toLocaleString()
+              : 'Recently',
+          ipAddress: getServerPublicIp() || '127.0.0.1',
         });
       }
+    }
 
-      setPhpEnabled(Boolean((data as any).php?.enabled));
-      setMyQuota((data as any).quota && !(data as any).quota.unlimited ? (data as any).quota : null);
+    if (Array.isArray(data.api_tokens)) {
+      for (const tok of data.api_tokens) {
+        const kind = String(tok.kind || tok.Kind || 'cli').toLowerCase();
+        const prefix = tok.token_prefix || tok.TokenPrefix || '';
+        const name = tok.name || tok.Name || 'CLI Token';
+        const id = String(tok.id || tok.ID);
+        if (
+          kind === 'cli' &&
+          !seenTokenKeys.has(prefix) &&
+          !seenTokenKeys.has(name) &&
+          !seenTokenKeys.has(id)
+        ) {
+          const fullToken = String(tok.token || tok.Token || '');
+          sessionsList.push({
+            id,
+            tokenName: name,
+            prefix: prefix || (fullToken ? `${fullToken.slice(0, 11)}...` : 'nd_cli_...'),
+            fullToken,
+            deviceHost: '—',
+            osArch: '—',
+            cliVersion: '—',
+            lastCommand: 'not used yet',
+            lastActiveAt:
+              tok.created_at || tok.CreatedAt
+                ? new Date(tok.created_at || tok.CreatedAt).toLocaleString()
+                : 'Never',
+            ipAddress: '—',
+          });
+        }
+      }
+    }
 
-      const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
-      const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
+    setCliSessions(sessionsList);
+    if (Array.isArray(data.audit_logs)) {
+      setAuditLogs(
+        data.audit_logs.map((al: any) => ({
+          id: String(al.id ?? al.ID),
+          actor: al.username || al.Username || 'system',
+          actorRole: al.role || al.Role || (al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'user')),
+          action: al.action || al.Action || 'system.event',
+          target: (al.target_id || al.TargetID)
+            ? `${al.target_type || al.TargetType || 'resource'}: ${al.target_id || al.TargetID}`
+            : (al.target_type || al.TargetType || 'system'),
+          details: al.details || al.Details || '',
+          ip: al.ip_address || al.IPAddress || al.ip || '127.0.0.1',
+          timestamp: al.created_at || al.CreatedAt ? new Date(al.created_at || al.CreatedAt).toLocaleString() : 'Just now',
+          status: 'success' as const,
+        }))
+      );
+    }
 
-      // 1. Live Apps
-      if (Array.isArray(data.apps)) {
-        loadLiveApps(data.apps, liveContainers, liveImages);
-      }
+    // 7. Live Registries & Git Providers
+    if (Array.isArray(data.registries)) {
+      setRegistries(
+        data.registries.map((r: any) => ({
+          id: String(r.id),
+          provider: 'Custom' as const,
+          name: r.name,
+          registryUrl: r.url || 'docker.io',
+          username: r.username || 'admin',
+          tokenPreview: '••••••••',
+          scope: 'global' as const,
+          connectedApps: 0,
+          imagesCount: 0,
+          status: 'connected' as const,
+          lastVerified: 'Recently',
+        }))
+      );
+    }
+    if (Array.isArray(data.git_providers)) {
+      setGitProviders(
+        data.git_providers.map((gp: any) => ({
+          id: String(gp.id),
+          provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
+          authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
+          accountName: gp.account_login || gp.name,
+          instanceUrl: gp.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com',
+          status: gp.needs_install ? ('error' as const) : ('connected' as const),
+          reposAccessible: typeof gp.repos_accessible === 'number' ? gp.repos_accessible : 0,
+          webhookDeliveryRate: '100%',
+          webhookUrl: '',
+          lastSynced: 'Recently',
+          needsInstall: Boolean(gp.needs_install),
+          installUrl: gp.install_url,
+          appSlug: gp.app_slug,
+          installationId: gp.installation_id,
+        }))
+      );
+    }
 
-      // 2. Live Docker Images with Live Container Usage
-      if (Array.isArray(data.images)) {
-        setImages(
-          data.images.map((img: any) => {
-            const tagStr =
-              Array.isArray(img.RepoTags) && img.RepoTags.length > 0
-                ? img.RepoTags[0]
-                : img.Tags || img.ID.slice(0, 12);
-            const parts = tagStr.split(':');
-            const repo = parts[0] || tagStr;
-            const tag = parts[1] || 'latest';
-            const shortId = img.ID.slice(0, 12);
-
-            // Match running containers referencing this image (by RepoTag, name, or ID)
-            const inUseBy = liveContainers
-              .filter((c: any) => {
-                const cImg = c.Image || '';
-                return (
-                  cImg === tagStr ||
-                  cImg === repo ||
-                  cImg.startsWith(repo + ':') ||
-                  cImg.includes(shortId)
-                );
-              })
-              .map((c: any) => c.Name || c.ID);
-
-            return {
-              id: shortId,
-              repository: repo,
-              tag: tag,
-              sizeMB: Math.round((img.Size || 0) / (1024 * 1024)),
-              created: img.Created ? new Date(img.Created).toLocaleDateString() : 'Recently',
-              inUseBy,
-            };
-          })
-        );
-      }
-
-      // 3. Live Host Telemetry & Historical Series
-      if (Array.isArray(data.telemetry_history) && data.telemetry_history.length > 0) {
-        setTelemetry(data.telemetry_history);
-      } else if (data.sys) {
-        const sys = data.sys;
-        const currentCpu = Math.round(sys.CPUPercent || 0);
-        const currentMem = Math.round(sys.MemUsedPct || 0);
-        const currentPoint: TelemetryPoint = {
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          cpu: currentCpu,
-          memory: currentMem,
-          diskIo: Math.round(sys.DiskUsedPct || 0),
-          netInMbps: 0,
-          netOutMbps: 0,
-          requests: 0,
-        };
-        setTelemetry((prev) => [...prev.slice(1), currentPoint]);
-      }
-      if (data.sys) {
-        setSys(data.sys);
-      }
-      if (data.cgroup) {
-        setCgroupInfo(data.cgroup);
-      }
-
-      // 5. Live Volumes
-      if (Array.isArray(data.volumes)) {
-        setVolumes(
-          data.volumes.map((v: string) => ({
-            name: v,
-            appSlug: v.split('_')[0] || 'system',
-            mountPoint: `/var/lib/docker/volumes/${v}/_data`,
-            driver: 'local',
-            sizeMB: 0,
-            createdAt: 'Active',
-            filesCount: 0,
-            sampleFiles: [],
-          }))
-        );
-      }
-
-      // 6. Live Users & Audit Logs
-      if (Array.isArray(data.users)) {
-        setUsers(
-          data.users.map((u: any) => ({
-            id: String(u.ID || u.id),
-            username: u.Username || u.username,
-            email: u.Email || u.email || `${u.Username || u.username}@nextdeploy.local`,
-            role: (u.Role || u.role || 'user') as any,
-            status: (u.Status || u.status || 'active') as any,
-            appsCount: 0,
-            maxApps: u.MaxApps || u.max_apps || 5,
-            cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
-            memUsedGB: 0,
-            memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
-            maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
-            diskUsedGB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024 * 1024)),
-            diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
-            maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
-            bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
-            allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
-            twoFactorEnabled: false,
-            lastLoginAt: 'Recently',
-          }))
-        );
-      }
-      if (Array.isArray(data.cli_sessions)) {
-        setCliSessions(
-          data.cli_sessions.map((cs: any) => ({
-            id: String(cs.id || cs.ID),
-            tokenName: cs.token_name || cs.TokenName || 'CLI Token',
-            prefix: cs.token_prefix || cs.TokenPrefix || 'nd_cli_...',
-            fullToken: '',
-            deviceHost: cs.hostname || cs.Hostname || 'workstation',
-            osArch: `${cs.os || cs.OS || 'linux'}/${cs.arch || cs.Arch || 'amd64'}`,
-            cliVersion: cs.version || cs.Version || 'nd v1.8.4',
-            lastCommand: 'nd login',
-            lastActiveAt: cs.last_seen || cs.LastSeen ? new Date(cs.last_seen || cs.LastSeen).toLocaleString() : 'Recently',
-            ipAddress: getServerPublicIp() || '127.0.0.1',
-          }))
-        );
-      }
-      if (Array.isArray(data.audit_logs)) {
-        setAuditLogs(
-          data.audit_logs.map((al: any) => ({
-            id: String(al.id ?? al.ID),
-            actor: al.username || al.Username || 'system',
-            actorRole: al.role || al.Role || (al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'user')),
-            action: al.action || al.Action || 'system.event',
-            target: (al.target_id || al.TargetID)
-              ? `${al.target_type || al.TargetType || 'resource'}: ${al.target_id || al.TargetID}`
-              : (al.target_type || al.TargetType || 'system'),
-            details: al.details || al.Details || '',
-            ip: al.ip_address || al.IPAddress || al.ip || '127.0.0.1',
-            timestamp: al.created_at || al.CreatedAt ? new Date(al.created_at || al.CreatedAt).toLocaleString() : 'Just now',
-            status: 'success' as const,
-          }))
-        );
-      }
-
-      // 7. Live Registries & Git Providers
-      if (Array.isArray(data.registries)) {
-        setRegistries(
-          data.registries.map((r: any) => ({
-            id: String(r.id),
-            provider: 'Custom' as const,
-            name: r.name,
-            registryUrl: r.url || 'docker.io',
-            username: r.username || 'admin',
-            tokenPreview: '••••••••',
-            scope: 'global' as const,
-            connectedApps: 0,
-            imagesCount: 0,
-            status: 'connected' as const,
-            lastVerified: 'Recently',
-          }))
-        );
-      }
-      if (Array.isArray(data.git_providers)) {
-        setGitProviders(
-          data.git_providers.map((gp: any) => ({
-            id: String(gp.id),
-            provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
-            authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
-            accountName: gp.account_login || gp.name,
-            instanceUrl: gp.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com',
-            status: gp.needs_install ? ('error' as const) : ('connected' as const),
-            reposAccessible: typeof gp.repos_accessible === 'number' ? gp.repos_accessible : 0,
-            webhookDeliveryRate: '100%',
-            webhookUrl: '',
-            lastSynced: 'Recently',
-            needsInstall: Boolean(gp.needs_install),
-            installUrl: gp.install_url,
-            appSlug: gp.app_slug,
-            installationId: gp.installation_id,
-          }))
-        );
-      }
-
-      // 8. Live Backup Destinations & Migration Exports
-      if (Array.isArray(data.backup_destinations)) {
-        setBackupDestinations(
-          data.backup_destinations.map((bd: any) => ({
-            id: String(bd.id),
-            name: bd.name,
-            provider: bd.provider === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
-            providerCode: (bd.provider || 'r2') as 'r2' | 'gdrive',
-            bucket: bd.bucket || '',
-            endpoint: '',
-            region: 'auto',
-            status: 'connected' as const,
-            scheduleCron: '0 2 * * *',
-            retentionDays: 7,
-            usedGB: 0,
-            quotaGB: 100,
-            lastBackupAt: 'Never',
-          }))
-        );
-      }
-      if (Array.isArray(data.migrate_exports)) {
-        setMigrationBundles(mapMigrateExports(data.migrate_exports));
-      }
-      if (data.caddy) {
-        setCaddyInfo(data.caddy);
-      }
-      setDockerVersion(typeof data.docker_version === 'string' ? data.docker_version : '');
-    });
+    // 8. Live Backup Destinations & Migration Exports
+    if (Array.isArray(data.backup_destinations)) {
+      setBackupDestinations(
+        data.backup_destinations.map((bd: any) => ({
+          id: String(bd.id),
+          name: bd.name,
+          provider: bd.provider === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
+          providerCode: (bd.provider || 'r2') as 'r2' | 'gdrive',
+          bucket: bd.bucket || '',
+          endpoint: '',
+          region: 'auto',
+          status: 'connected' as const,
+          scheduleCron: '0 2 * * *',
+          retentionDays: 7,
+          usedGB: 0,
+          quotaGB: 100,
+          lastBackupAt: 'Never',
+        }))
+      );
+    }
+    if (Array.isArray(data.migrate_exports)) {
+      setMigrationBundles(mapMigrateExports(data.migrate_exports));
+    }
+    if (data.caddy) {
+      setCaddyInfo(data.caddy);
+    }
+    setDockerVersion(typeof data.docker_version === 'string' ? data.docker_version : '');
   }, []);
+
+  // First page data. Only a 401 means "not signed in". A slow or failed request is retried and, if
+  // it keeps failing, shown as an error: it must never put a signed-in user on the login page.
+  const loadBootstrap = React.useCallback(
+    async (attempt = 0): Promise<void> => {
+      const res = await backendApi.bootstrap();
+      if (res.status === 401 || res.data?.needs_setup) {
+        setIsBootstrapping(false);
+        setAuthMode(res.data?.needs_setup || window.location.pathname === '/setup' ? 'setup' : 'login');
+        return;
+      }
+      if (!res.ok || !res.data) {
+        if (attempt < 4) {
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+          return loadBootstrap(attempt + 1);
+        }
+        setIsBootstrapping(false);
+        setLoadError(res.error || 'Cannot reach the server');
+        return;
+      }
+      setLoadError('');
+      setAuthMode(null);
+      applyBootstrapData(res.data);
+      if (window.location.pathname === '/login' || window.location.pathname === '/setup') {
+        window.history.replaceState(null, '', '/overview');
+        setActiveNav('overview');
+      }
+      setIsBootstrapping(false);
+    },
+    [applyBootstrapData]
+  );
+
+  React.useEffect(() => {
+    try {
+      // an older version kept the whole first-page data (including secrets) in sessionStorage
+      sessionStorage.removeItem('nextdeploy_bootstrap_cache_v1');
+    } catch {
+      // ignore
+    }
+    void loadBootstrap();
+  }, [loadBootstrap]);
 
   // A running export finishes on the server: refresh until none is running.
   const exportRunning = migrationBundles.some((b) => b.status === 'running');
-  useEffect(() => {
+  React.useEffect(() => {
     if (!exportRunning) return;
     const t = window.setInterval(async () => {
       const r = await backendApi.bootstrap();
@@ -923,10 +1021,34 @@ export default function App() {
       <AuthView
         mode={authMode}
         onSuccess={() => {
-          setAuthMode(null);
-          window.location.href = '/overview';
+          // no page reload: the sign-in screen stays until the data for the new session has
+          // arrived, then the dashboard replaces it (no spinner in between)
+          setSelectedAppId(null);
+          setActiveNav('overview');
+          window.history.replaceState(null, '', '/overview');
+          void loadBootstrap();
         }}
       />
+    );
+  }
+
+  if (loadError && !isBootstrapping) {
+    return (
+      <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-sm font-semibold">Cannot load NextDeploy</p>
+        <p className="font-mono text-xs text-zinc-400">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadError('');
+            setIsBootstrapping(true);
+            void loadBootstrap();
+          }}
+          className="h-8 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-600 cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
     );
   }
 
@@ -1066,11 +1188,11 @@ export default function App() {
           <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/15 font-mono text-[10px] font-bold text-orange-400 uppercase ring-1 ring-orange-500/30">
-                {(currentUser?.username || 'masud').slice(0, 2).toUpperCase()}
+                {(currentUser?.username || 'admin').slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <span className="block truncate text-xs font-medium text-zinc-200">
-                  {currentUser?.username || 'masud'}
+                  {currentUser?.username || 'admin'}
                 </span>
               </div>
             </div>
@@ -1408,6 +1530,7 @@ export default function App() {
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+                currentUserId={currentUser ? String(currentUser.id) : undefined}
               />
             ) : activeNav === 'audit-logs' ? (
               <UsersAndSettingsView
@@ -1415,6 +1538,7 @@ export default function App() {
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+                currentUserId={currentUser ? String(currentUser.id) : undefined}
               />
             ) : isAdminUser && activeNav === 'settings' ? (
               <UsersAndSettingsView
@@ -1422,6 +1546,7 @@ export default function App() {
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+                currentUserId={currentUser ? String(currentUser.id) : undefined}
               />
             ) : (
               <OverviewDashboard

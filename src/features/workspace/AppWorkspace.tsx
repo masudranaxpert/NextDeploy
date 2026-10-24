@@ -222,6 +222,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     return () => window.removeEventListener('popstate', handleUrlTab);
   }, []);
 
+  // Keep the open tab in the address (?tab=), so a reload or a copied link opens the same tab.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }, [activeTab]);
+
   // =========================================================================
   // 1. Environment Variables State
   // =========================================================================
@@ -963,9 +972,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   // 5. Git Auto-Detected Branches State
   // =========================================================================
   const [gitModalOpen, setGitModalOpen] = useState(false);
-  const [gitRepoInput, setGitRepoInput] = useState(
-    app.gitRepo || `https://github.com/masudranaxpert/${app.slug}`
-  );
+  const [gitRepoInput, setGitRepoInput] = useState(app.gitRepo || '');
   const [gitBranchInput, setGitBranchInput] = useState(app.gitBranch || 'main');
   const [composePathInput, setComposePathInput] = useState(
     app.composeFilePath || 'docker-compose.yml'
@@ -2236,9 +2243,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </span>
               )}
 
-              {isGitSyncActive && (
+              {isGitSyncActive && app.gitRepo && (
                 <span className="font-mono text-xs text-zinc-400 break-all">
-                  {app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`} ({app.gitBranch || 'main'})
+                  {app.gitRepo} ({app.gitBranch || 'main'})
                 </span>
               )}
             </div>
@@ -2544,7 +2551,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       type="text"
                       value={gitRepoInput}
                       onChange={(e) => setGitRepoInput(e.target.value)}
-                      placeholder={`https://github.com/masudranaxpert/${app.slug}`}
+                      placeholder="https://github.com/org/repo"
                       className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                     />
                   </div>
@@ -2575,14 +2582,17 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   type="button"
                   onClick={async () => {
                     const targetSource = hasGitConnection ? 'files' : 'git';
+                    if (targetSource === 'git' && !gitRepoInput.trim()) {
+                      toast.error('Please enter a Git repository URL');
+                      return;
+                    }
                     const res = await backendApi.switchAppSource(app.id, targetSource);
                     if (!res.ok && !res.offlineFallback) {
                       toast.error(res.error || 'Failed to switch deploy source');
                       return;
                     }
                     if (targetSource === 'git') {
-                      const nextRepo =
-                        gitRepoInput.trim() || `https://github.com/masudranaxpert/${app.slug}`;
+                      const nextRepo = gitRepoInput.trim();
                       const nextBranch = gitBranchInput.trim() || 'main';
                       onUpdateApp({
                         ...app,
@@ -4222,6 +4232,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         <th className="w-10 px-3.5 py-2.5">
                           <input
                             type="checkbox"
+                            aria-label="Select all files"
                             checked={
                               currentSubfolders.length + currentDirFiles.length > 0 &&
                               selectedEntries.length ===
@@ -4308,6 +4319,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             >
                               <input
                                 type="checkbox"
+                                aria-label={`Select ${entryKey}`}
                                 checked={isChecked}
                                 onChange={() => toggleSelectEntry(entryKey)}
                                 className="h-3.5 w-3.5 rounded border-white/20 bg-zinc-900 accent-orange-500 cursor-pointer"
@@ -5884,120 +5896,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         </form>
       </ShadcnDialog>
 
-      {/* 6. Create Backup Snapshot Modal */}
-      <ShadcnDialog
-        open={backupModalOpen}
-        onClose={() => setBackupModalOpen(false)}
-        title="Create Snapshot"
-        icon={<Archive className="h-4 w-4" />}
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void backendApi.backupNow(app.id, backupScope);
-            const created: ProjectBackupItem = {
-              id: `snap-${Math.floor(910 + Math.random() * 80)}`,
-              name: `${app.slug}_${backupScope}_${new Date().toISOString().slice(0, 10)}.nd-backup.tar.gz`,
-              type: 'Manual',
-              destination: backupDest,
-              provider: backupDest.includes('Google') ? 'Google Drive' : 'Cloudflare R2',
-              sizeMB: backupScope === 'app' ? 84.5 : 1424.8,
-              createdAt: 'Just now',
-              commitSha: app.gitCommitSha?.slice(0, 7) || '8c4f19a',
-              includes: [
-                'Compose',
-                ...(backupIncludeEnv ? ['.env (AES-256)'] : []),
-                ...(backupScope !== 'app' && backupIncludeVols
-                  ? app.volumes.map((v) => v.name)
-                  : []),
-              ],
-              checksum: `sha256:${Math.random().toString(16).slice(2, 12)}`,
-              status: 'completed',
-            };
-            setProjectBackups((prev) => [created, ...prev]);
-            setBackupModalOpen(false);
-            toast.success(`Snapshot (${backupScope}) uploaded to ${backupDest}`);
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Snapshot Scope
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { id: 'full', label: 'Full Stack' },
-                  { id: 'volume', label: 'Volumes Only' },
-                  { id: 'app', label: 'App Code Only' },
-                ] as const
-              ).map((sc) => (
-                <button
-                  key={sc.id}
-                  type="button"
-                  onClick={() => setBackupScope(sc.id)}
-                  className={`rounded-lg border py-1.5 text-xs font-medium cursor-pointer ${
-                    backupScope === sc.id
-                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
-                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {sc.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Rclone Cloud Destination
-            </label>
-            <select
-              value={backupDest}
-              onChange={(e) => setBackupDest(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 text-xs text-zinc-100"
-            >
-              <option>Cloudflare R2 Primary (EU-Central)</option>
-              <option>Google Drive Team Vault</option>
-            </select>
-          </div>
-          <div className="space-y-2 rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-200">
-                Pause Containers for Consistent Snapshot (pause_containers)
-              </span>
-              <ShadcnSwitch
-                checked={backupPauseContainers}
-                onChange={setBackupPauseContainers}
-              />
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-white/[0.05]">
-              <span className="text-xs text-zinc-200">
-                Include Persistent Volumes ({app.volumes.length})
-              </span>
-              <ShadcnSwitch checked={backupIncludeVols} onChange={setBackupIncludeVols} />
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-white/[0.05]">
-              <span className="text-xs text-zinc-200">Include .env Secrets (AES-256-GCM)</span>
-              <ShadcnSwitch checked={backupIncludeEnv} onChange={setBackupIncludeEnv} />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
-            <button
-              type="button"
-              onClick={() => setBackupModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-            >
-              Start Snapshot
-            </button>
-          </div>
-        </form>
-      </ShadcnDialog>
 
       {/* 6a-2. Rclone Backup Log Modal */}
       <ShadcnDialog

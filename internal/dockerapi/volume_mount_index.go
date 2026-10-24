@@ -4,13 +4,9 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/docker/docker/api/types"
-	"golang.org/x/sync/errgroup"
 )
-
-const volumeInspectWorkers = 6
 
 type VolumeMountRef struct {
 	VolumeName     string
@@ -70,58 +66,26 @@ func BuildVolumeMountIndex(ctx context.Context) (*VolumeMountIndex, error) {
 	}
 
 	index := &VolumeMountIndex{refsByVolume: make(map[string][]VolumeMountRef, len(list))}
-	sem := make(chan struct{}, volumeInspectWorkers)
-	g, gctx := errgroup.WithContext(ctx)
-	var mu sync.Mutex
 
-	for i := range list {
-		c := list[i]
-		g.Go(func() error {
-			select {
-			case sem <- struct{}{}:
-			case <-gctx.Done():
-				return gctx.Err()
+	for _, c := range list {
+		cname := containerName(c)
+		proj := strings.TrimSpace(c.Labels[composeProjectLabel])
+		workDir := strings.TrimSpace(c.Labels["com.docker.compose.project.working_dir"])
+		for _, m := range c.Mounts {
+			if m.Type != "volume" {
+				continue
 			}
-			defer func() { <-sem }()
-
-			insp, err := cli.ContainerInspect(gctx, c.ID)
-			if err != nil {
-				return nil
+			vn := strings.TrimSpace(m.Name)
+			if vn == "" {
+				continue
 			}
-			cname := containerName(c)
-			proj := ""
-			workDir := ""
-			if insp.Config != nil {
-				proj = strings.TrimSpace(insp.Config.Labels[composeProjectLabel])
-				workDir = strings.TrimSpace(insp.Config.Labels["com.docker.compose.project.working_dir"])
-			}
-			var batch []VolumeMountRef
-			for _, m := range insp.Mounts {
-				if m.Type != "volume" {
-					continue
-				}
-				vn := strings.TrimSpace(m.Name)
-				if vn == "" {
-					continue
-				}
-				batch = append(batch, VolumeMountRef{
-					VolumeName:     vn,
-					ContainerName:  cname,
-					ComposeProject: proj,
-					WorkingDir:     workDir,
-				})
-			}
-			if len(batch) == 0 {
-				return nil
-			}
-			mu.Lock()
-			for _, ref := range batch {
-				index.refsByVolume[ref.VolumeName] = append(index.refsByVolume[ref.VolumeName], ref)
-			}
-			mu.Unlock()
-			return nil
-		})
+			index.refsByVolume[vn] = append(index.refsByVolume[vn], VolumeMountRef{
+				VolumeName:     vn,
+				ContainerName:  cname,
+				ComposeProject: proj,
+				WorkingDir:     workDir,
+			})
+		}
 	}
-	_ = g.Wait()
 	return index, nil
 }

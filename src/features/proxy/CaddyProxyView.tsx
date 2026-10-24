@@ -20,7 +20,8 @@ import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShadcnSwitch, StatusBadge } from '../../components/ui/Primitives';
 import { CodeEditorBox } from '../../components/ui/CodeEditorBox';
-import { backendApi } from '../../lib/backendApi';
+import { backendApi, getServerPublicIp } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface CaddyLogLine {
   raw: string;
@@ -85,9 +86,17 @@ export const CaddyProxyView: React.FC<{
   apps: AppStack[];
   caddyInfo?: any;
   onRefreshCaddy?: () => Promise<void>;
-}> = ({ apps }) => {
+}> = ({ apps, caddyInfo }) => {
+  const serverIp = useMemo(() => {
+    return getServerPublicIp() || (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
+  }, []);
+
   // 1. Panel Domain card (POST /nextdeploy/panel + GET /nextdeploy/apply-status)
-  const [panelDomain, setPanelDomain] = useState('panel.nextdeploy.sh');
+  const [panelDomain, setPanelDomain] = useState<string>(caddyInfo?.panel_domain ?? '');
+  // the saved value arrives with the first page data, which may be after this view mounted
+  useEffect(() => {
+    if (typeof caddyInfo?.panel_domain === 'string') setPanelDomain(caddyInfo.panel_domain);
+  }, [caddyInfo?.panel_domain]);
   const [panelEnableHttps, setPanelEnableHttps] = useState(true);
   const [panelEnableWww, setPanelEnableWww] = useState(false);
   const [applyBanner, setApplyBanner] = useState<{
@@ -100,25 +109,16 @@ export const CaddyProxyView: React.FC<{
   // 2. Caddy Shared Volumes card (POST /nextdeploy/shared-volumes)
   const [sharedMountPrefix, setSharedMountPrefix] = useState('/mnt/shared');
   const allDockerVolumes = useMemo(() => {
-    const set = new Set<string>([
-      'commerce_core_staticfiles',
-      'commerce_core_media',
-      'studio_web_assets',
-      'postgres_primary_data',
-      'redis_session_data',
-    ]);
+    const set = new Set<string>();
     apps.forEach((a) => a.volumes.forEach((v) => set.add(v.name)));
     return Array.from(set);
   }, [apps]);
-  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>([
-    'commerce_core_staticfiles',
-    'commerce_core_media',
-  ]);
+  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>([]);
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)
   const [caddyAdminApi, setCaddyAdminApi] = useState('http://caddy:2019');
-  const [acmeEmail, setAcmeEmail] = useState('masud132213@gmail.com');
+  const [acmeEmail, setAcmeEmail] = useState('');
   const [caddyImage, setCaddyImage] = useState('lucaslorentz/caddy-docker-proxy:ci-alpine');
   const [caddyContainerRunning, setCaddyContainerRunning] = useState(true);
 
@@ -126,13 +126,7 @@ export const CaddyProxyView: React.FC<{
   const [codeTab, setCodeTab] = useState<'root_compose' | 'live_config'>('root_compose');
 
   // 5. Caddy Container Logs (GET /caddy/logs?tail=300)
-  const [logLines, setLogLines] = useState<string[]>([
-    '{"level":"info","ts":1747240800,"logger":"admin","msg":"admin endpoint started","address":"tcp/0.0.0.0:2019"}',
-    '{"level":"info","ts":1747240801,"logger":"tls.cache.maintenance","msg":"started background certificate maintenance"}',
-    '{"level":"info","ts":1747240802,"logger":"http.auto_https","msg":"enabling automatic HTTP->HTTPS redirects","server_name":"srv0"}',
-    '{"level":"info","ts":1747240804,"logger":"docker-proxy","msg":"Running caddy proxy server"}',
-    '{"level":"warn","ts":1747240812,"logger":"tls","msg":"stapling OCSP: no OCSP stapling for [staging.nextdeploy.sh]"}',
-  ]);
+  const [logLines, setLogLines] = useState<string[]>([]);
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
@@ -458,13 +452,34 @@ ${externalVolDefs}`;
           className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 flex flex-col justify-between gap-4"
         >
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10 ring-1 ring-orange-500/20">
                   <Lock className="h-4 w-4 text-orange-400" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-zinc-100">Panel Domain</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-zinc-100">Panel Domain</h2>
+                    {serverIp && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await copyToClipboard(serverIp);
+                          if (ok) {
+                            toast.success(`Copied server IP: ${serverIp}`);
+                          } else {
+                            toast.error('Failed to copy IP address');
+                          }
+                        }}
+                        title="Click to copy server IP address"
+                        className="group inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-zinc-900/90 px-2 py-0.5 font-mono text-[11px] text-zinc-300 hover:border-orange-500/40 hover:bg-zinc-800 hover:text-orange-300 cursor-pointer transition-colors shadow-xs"
+                      >
+                        <Server className="h-3 w-3 text-orange-400" />
+                        <span>IP: {serverIp}</span>
+                        <Copy className="h-2.5 w-2.5 text-zinc-500 group-hover:text-orange-400 transition-colors" />
+                      </button>
+                    )}
+                  </div>
                   <p className="font-mono text-[11px] text-zinc-500">POST /nextdeploy/panel</p>
                 </div>
               </div>
@@ -567,30 +582,48 @@ ${externalVolDefs}`;
               />
             </div>
 
-            <div className="max-h-36 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#09090b] p-2">
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {filteredVolumes.map((vol) => {
-                  const checked = selectedSharedVolumes.includes(vol);
-                  return (
-                    <label
-                      key={vol}
-                      className={`flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
-                        checked
-                          ? 'bg-orange-500/10 text-orange-300 ring-1 ring-orange-500/25'
-                          : 'text-zinc-300 hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleVolumeSelection(vol)}
-                        className="rounded border-zinc-700 accent-orange-500"
-                      />
-                      <span className="truncate">{vol}</span>
-                    </label>
-                  );
-                })}
-              </div>
+            <div className="min-h-[100px] max-h-36 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#09090b] p-2 flex flex-col justify-center">
+              {filteredVolumes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-4 text-center">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.04] text-zinc-500 mb-2">
+                    <HardDrive className="h-3.5 w-3.5" />
+                  </div>
+                  <p className="text-xs font-medium text-zinc-300">
+                    {allDockerVolumes.length === 0
+                      ? 'No project Docker volumes found'
+                      : 'No volumes matching your filter'}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                    {allDockerVolumes.length === 0
+                      ? 'Volumes configured in project workspaces will appear here for reverse proxy mounting'
+                      : 'Try adjusting your search terms'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {filteredVolumes.map((vol) => {
+                    const checked = selectedSharedVolumes.includes(vol);
+                    return (
+                      <label
+                        key={vol}
+                        className={`flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
+                          checked
+                            ? 'bg-orange-500/10 text-orange-300 ring-1 ring-orange-500/25'
+                            : 'text-zinc-300 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleVolumeSelection(vol)}
+                          className="rounded border-zinc-700 accent-orange-500"
+                        />
+                        <span className="truncate">{vol}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

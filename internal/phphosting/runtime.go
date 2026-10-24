@@ -364,6 +364,7 @@ func (m *Manager) TeardownSite(ctx context.Context, appID string) error {
 // Reconcile restores the desired state after a panel restart. Containers have restart
 // policies, so this only repairs what is missing or stale.
 func (m *Manager) Reconcile(ctx context.Context) {
+	m.RepairGrants(ctx)
 	sites, err := m.DB.ListPHPSites(ctx)
 	if err != nil || len(sites) == 0 {
 		return

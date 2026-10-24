@@ -19,10 +19,7 @@ interface MonitorViewProps {
 }
 
 export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStreamTick }) => {
-  const [pinnedApps, setPinnedApps] = useState<string[]>([
-    'commerce-core-api',
-    'studio-web-dashboard',
-  ]);
+  const [pinnedApps, setPinnedApps] = useState<string[]>([]);
   const [monitorSearch, setMonitorSearch] = useState('');
   const [monitorStatusFilter, setMonitorStatusFilter] = useState<
     'all' | 'running' | 'building' | 'stopped'

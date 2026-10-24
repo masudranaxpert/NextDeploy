@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"panel/internal/runutil"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -42,7 +43,7 @@ func defaultHelperImage() string {
 	if img := strings.TrimSpace(os.Getenv("PANEL_IMAGE")); img != "" {
 		return img
 	}
-	return "mrformula/nextdeploy:latest"
+	return runutil.HelperImage()
 }
 
 // runHostViaDocker runs a shell script on the host network namespace via privileged nsenter helper.

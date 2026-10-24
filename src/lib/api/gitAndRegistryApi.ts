@@ -187,6 +187,7 @@ export const gitAndRegistryApi = {
     payload: {
       github_app_id?: string;
       github_installation_id?: string;
+      installation_id?: string;
       github_private_key?: string;
       github_webhook_secret?: string;
       client_id?: string;

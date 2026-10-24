@@ -69,7 +69,9 @@ func (p *Panel) AppAccessMiddleware(c *fiber.Ctx) error {
 
 	path := strings.ToLower(c.Path())
 	requiredRole := db.CollabRoleViewer
-	if c.Method() != "GET" || strings.Contains(path, "/ws/terminal") || strings.Contains(path, "/terminal") {
+	if c.Method() != "GET" || strings.Contains(path, "/ws/terminal") || strings.Contains(path, "/terminal") ||
+		strings.Contains(path, "/files") || strings.Contains(path, "/git/blob") || strings.Contains(path, "/git/tree") {
+		// Reading workspace files can expose .env and keys, so a viewer cannot do it.
 		requiredRole = db.CollabRoleDeveloper
 	}
 	if strings.HasSuffix(path, "/delete") && !strings.Contains(path, "/domains/") && !strings.Contains(path, "/files/") && !strings.Contains(path, "/deploy-logs/") {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   RefreshCw,
   Copy,
@@ -12,6 +12,8 @@ import {
   Play,
   Globe,
   User,
+  ExternalLink,
+  Settings,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -26,6 +28,7 @@ import {
   StatusBadge,
 } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 const GitLabIcon: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -42,6 +45,17 @@ interface GitAndRegistriesViewProps {
   onDeleteRegistry?: (id: string) => void;
 }
 
+export interface WebhookDeliveryItem {
+  id: string;
+  provider: 'GitHub' | 'GitLab';
+  repo: string;
+  event: string;
+  sha: string;
+  status: string;
+  latency: string;
+  time: string;
+}
+
 export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   mode,
   gitProviders,
@@ -54,20 +68,68 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [repos, setRepos] = useState<SyncedGitRepository[]>(syncedRepos);
   const [repoProviderFilter, setRepoProviderFilter] = useState<'all' | 'GitHub' | 'GitLab'>('all');
   const [gitSubTab, setGitSubTab] = useState<'repos' | 'webhooks'>('repos');
+  const [webhookEvents, setWebhookEvents] = useState<WebhookDeliveryItem[]>([]);
+  const [isLoadingWebhooks, setIsLoadingWebhooks] = useState(false);
+
+  // Manage GitHub Installation modal state
+  const [editInstallProvider, setEditInstallProvider] = useState<GitProviderConnection | null>(null);
+  const [customInstallId, setCustomInstallId] = useState('');
+  const [isSavingInstallId, setIsSavingInstallId] = useState(false);
+
+  // Sync props to state
+  useEffect(() => {
+    setProviders(gitProviders);
+  }, [gitProviders]);
+
+  useEffect(() => {
+    setRepos(syncedRepos);
+  }, [syncedRepos]);
+
+  // Load real webhook deliveries from backend
+  useEffect(() => {
+    let active = true;
+    const fetchWebhooks = async () => {
+      setIsLoadingWebhooks(true);
+      try {
+        const res = await backendApi.webhookDeliveries(20);
+        if (active && res.ok && Array.isArray(res.data)) {
+          const mapped: WebhookDeliveryItem[] = res.data.map((item: any, idx: number) => ({
+            id: item.delivery_id || item.id || `wh-${idx}`,
+            provider: item.provider?.toLowerCase() === 'gitlab' ? 'GitLab' : 'GitHub',
+            repo: item.repo || 'unknown/repo',
+            event: item.event || 'push',
+            sha: (item.sha || 'latest').slice(0, 7),
+            status: item.status || '200 OK',
+            latency: item.latency || '—',
+            time: item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+          }));
+          setWebhookEvents(mapped);
+        }
+      } catch {
+        // fail silently
+      } finally {
+        if (active) setIsLoadingWebhooks(false);
+      }
+    };
+    void fetchWebhooks();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // GitHub Modal State (matches POST /git/github/start & /git/:pid/update)
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [ghAuthMethod, setGhAuthMethod] = useState<'GitHub App' | 'Fine-Grained PAT'>('GitHub App');
-  const [ghAppName, setGhAppName] = useState('nextdeploy-prod-panel');
-  const [ghAccountInput, setGhAccountInput] = useState('masudranaxpert');
-  const [ghAppId, setGhAppId] = useState('1094821');
-  const [ghInstallationId, setGhInstallationId] = useState('54918204');
+  const [ghAppName, setGhAppName] = useState('');
+  const [ghAccountInput, setGhAccountInput] = useState('');
+  const [ghAppId, setGhAppId] = useState('');
+  const [ghInstallationId, setGhInstallationId] = useState('');
   const [ghTokenInput, setGhTokenInput] = useState('');
 
   // GitLab Modal State (matches POST /git/gitlab/start & /git/:pid/update)
   const [gitlabModalOpen, setGitlabModalOpen] = useState(false);
   const [glAuthMethod, setGlAuthMethod] = useState<'OAuth 2.0' | 'Deploy Token'>('OAuth 2.0');
-  const [glAccountInput, setGlAccountInput] = useState('nextdeploy-internal');
+  const [glAccountInput, setGlAccountInput] = useState('');
   const [glInstanceUrl, setGlInstanceUrl] = useState('https://gitlab.com');
   const [glClientId, setGlClientId] = useState('');
   const [glClientSecret, setGlClientSecret] = useState('');
@@ -163,39 +225,6 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
     (r) => regScopeFilter === 'all' || r.scope === regScopeFilter
   );
 
-  const webhookEvents = [
-    {
-      id: 'wh-901',
-      provider: 'GitHub' as const,
-      repo: 'masudranaxpert/commerce-core-api',
-      event: 'push (refs/heads/main)',
-      sha: '8c4f19a',
-      status: '200 OK',
-      latency: '112ms',
-      time: '4m ago',
-    },
-    {
-      id: 'wh-900',
-      provider: 'GitLab' as const,
-      repo: 'nextdeploy-internal/temporal-worker-queue',
-      event: 'Push Hook (main)',
-      sha: '19d04e2',
-      status: '200 OK',
-      latency: '148ms',
-      time: '12m ago',
-    },
-    {
-      id: 'wh-899',
-      provider: 'GitHub' as const,
-      repo: 'masudranaxpert/studio-web-dashboard',
-      event: 'push (refs/heads/production)',
-      sha: 'f42a90c',
-      status: '200 OK',
-      latency: '96ms',
-      time: '38m ago',
-    },
-  ];
-
   if (mode === 'git') {
     return (
       <div className="space-y-5">
@@ -267,6 +296,41 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
                   <ActionMenu
                     items={[
+                      ...(p.provider === 'GitHub'
+                        ? [
+                            {
+                              label: 'Manage Installation',
+                              icon: <ExternalLink className="h-3.5 w-3.5 text-orange-400" />,
+                              onClick: () => {
+                                const targetUrl =
+                                  p.installationId && p.installationId.trim() !== ''
+                                    ? `https://github.com/settings/installations/${p.installationId.trim()}`
+                                    : p.appSlug && p.appSlug.trim() !== ''
+                                    ? `https://github.com/apps/${p.appSlug.trim()}/installations/new`
+                                    : p.installUrl || `/git/${p.id}/github/install`;
+                                window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                              },
+                            },
+                            {
+                              label: 'Configure / Change Installation ID',
+                              icon: <Settings className="h-3.5 w-3.5 text-zinc-400" />,
+                              onClick: () => {
+                                setEditInstallProvider(p);
+                                setCustomInstallId(p.installationId || '');
+                              },
+                            },
+                            {
+                              label: 'Re-install / Add Account',
+                              icon: <Github className="h-3.5 w-3.5 text-zinc-400" />,
+                              onClick: () => {
+                                const targetUrl = p.appSlug
+                                  ? `https://github.com/apps/${p.appSlug.trim()}/installations/new`
+                                  : p.installUrl || `/git/${p.id}/github/install`;
+                                window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                              },
+                            },
+                          ]
+                        : []),
                       {
                         label: isGitLab ? 'Sync Repositories' : 'Refresh GitHub Installation ID',
                         icon: <RefreshCw className="h-3.5 w-3.5" />,
@@ -280,9 +344,16 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                       {
                         label: 'Copy Webhook URL',
                         icon: <Copy className="h-3.5 w-3.5" />,
-                        onClick: () => {
-                          navigator.clipboard?.writeText(p.webhookUrl);
-                          toast.success('Copied webhook URL');
+                        onClick: async () => {
+                          const url =
+                            p.webhookUrl ||
+                            `${window.location.origin}/webhooks/${p.provider === 'GitLab' ? 'gitlab' : 'github'}/provider`;
+                          const ok = await copyToClipboard(url);
+                          if (ok) {
+                            toast.success('Copied webhook URL');
+                          } else {
+                            toast.error('Failed to copy webhook URL');
+                          }
                         },
                       },
                       {
@@ -450,27 +521,35 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
-                    {webhookEvents.map((ev) => (
-                      <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {ev.provider === 'GitLab' ? (
-                              <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                            ) : (
-                              <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
-                            )}
-                            <span className="truncate text-zinc-100">{ev.repo}</span>
-                          </div>
+                    {webhookEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-zinc-500 font-sans">
+                          {isLoadingWebhooks ? 'Loading webhook deliveries...' : 'No webhook deliveries recorded yet.'}
                         </td>
-                        <td className="px-4 py-3 text-zinc-300 truncate">
-                          {ev.event} · <span className="text-orange-400">{ev.sha}</span>
-                        </td>
-                        <td className="px-4 py-3 text-emerald-400">
-                          {ev.status} ({ev.latency})
-                        </td>
-                        <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      webhookEvents.map((ev) => (
+                        <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {ev.provider === 'GitLab' ? (
+                                <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                              ) : (
+                                <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
+                              )}
+                              <span className="truncate text-zinc-100">{ev.repo}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-300 truncate">
+                            {ev.event} · <span className="text-orange-400">{ev.sha}</span>
+                          </td>
+                          <td className="px-4 py-3 text-emerald-400">
+                            {ev.status} ({ev.latency})
+                          </td>
+                          <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -512,7 +591,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   required
                   value={ghAccountInput}
                   onChange={(e) => setGhAccountInput(e.target.value)}
-                  placeholder="masudranaxpert"
+                  placeholder="github-username-or-org"
                   className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                 />
               </div>
@@ -525,7 +604,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     type="text"
                     value={ghAppName}
                     onChange={(e) => setGhAppName(e.target.value)}
-                    placeholder="nextdeploy-prod"
+                    placeholder="my-github-app"
                     className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                   />
                 </div>
@@ -658,7 +737,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   required
                   value={glAccountInput}
                   onChange={(e) => setGlAccountInput(e.target.value)}
-                  placeholder="nextdeploy-internal"
+                  placeholder="my-organization"
                   className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
                 />
               </div>
@@ -725,6 +804,143 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               </button>
             </div>
           </form>
+        </ShadcnDialog>
+
+        {/* Manage GitHub Installation Dialog */}
+        <ShadcnDialog
+          open={Boolean(editInstallProvider)}
+          onClose={() => setEditInstallProvider(null)}
+          title="Manage GitHub App Installation"
+          icon={<Github className="h-4 w-4" />}
+          maxWidth="md"
+        >
+          {editInstallProvider && (
+            <div className="space-y-4 text-xs">
+              <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Connected Account:</span>
+                  <span className="font-semibold text-zinc-100">{editInstallProvider.accountName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Current Installation ID:</span>
+                  <span className="font-mono text-orange-400">
+                    {editInstallProvider.installationId || 'Not set / Needs install'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-zinc-400">
+                  Quick Actions on GitHub:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetUrl = editInstallProvider.installationId
+                        ? `https://github.com/settings/installations/${editInstallProvider.installationId.trim()}`
+                        : editInstallProvider.appSlug
+                        ? `https://github.com/apps/${editInstallProvider.appSlug.trim()}/installations/new`
+                        : `/git/${editInstallProvider.id}/github/install`;
+                      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-medium text-orange-300 hover:bg-orange-500/20 cursor-pointer"
+                  >
+                    <span>Configure Repositories on GitHub</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetUrl = editInstallProvider.appSlug
+                        ? `https://github.com/apps/${editInstallProvider.appSlug.trim()}/installations/new`
+                        : `/git/${editInstallProvider.id}/github/install`;
+                      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <span>Install on Other Org / User</span>
+                    <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
+                  </button>
+                </div>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!editInstallProvider) return;
+                  setIsSavingInstallId(true);
+                  try {
+                    await backendApi.updateGitProvider(editInstallProvider.id, {
+                      installation_id: customInstallId.trim(),
+                    });
+                    setProviders((prev) =>
+                      prev.map((item) =>
+                        item.id === editInstallProvider.id
+                          ? { ...item, installationId: customInstallId.trim() }
+                          : item
+                      )
+                    );
+                    toast.success('Updated GitHub Installation ID');
+                    setEditInstallProvider(null);
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to update installation ID');
+                  } finally {
+                    setIsSavingInstallId(false);
+                  }
+                }}
+                className="space-y-3 border-t border-white/[0.07] pt-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-medium text-zinc-300">
+                      Change Installation ID Manually
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!editInstallProvider) return;
+                        await backendApi.refreshGitHubInstall(editInstallProvider.id);
+                        toast.success('Auto-detected installation from GitHub');
+                        setEditInstallProvider(null);
+                      }}
+                      className="text-[11px] text-orange-400 hover:underline cursor-pointer"
+                    >
+                      Auto-detect from GitHub
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={customInstallId}
+                    onChange={(e) => setCustomInstallId(e.target.value)}
+                    placeholder="e.g. 62819231"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Found in your GitHub URL: github.com/settings/installations/[ID]
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditInstallProvider(null)}
+                    className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingInstallId}
+                    className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingInstallId ? 'Saving...' : 'Save Installation ID'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
         </ShadcnDialog>
       </div>
     );
@@ -899,7 +1115,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               name: regName.trim(),
               registryUrl: regHost.trim(),
               username: regUsername.trim(),
-              tokenPreview: `${regToken.slice(0, 6) || 'pat_91'}••••`,
+              tokenPreview: regToken ? `${regToken.slice(0, 6)}••••` : '••••••••',
               scope: regScope,
               connectedApps: 0,
               imagesCount: 0,
@@ -1017,7 +1233,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 required
                 value={regUsername}
                 onChange={(e) => setRegUsername(e.target.value)}
-                placeholder="masudranaxpert"
+                placeholder="registry-user"
                 className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
               />
             </div>

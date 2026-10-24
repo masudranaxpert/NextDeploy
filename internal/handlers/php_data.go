@@ -25,6 +25,9 @@ func validDBInput(s string) bool {
 	if len(s) < 1 || len(s) > 24 {
 		return false
 	}
+	if s[0] < 'a' || s[0] > 'z' { // a leading digit or underscore makes the name a wider pattern
+		return false
+	}
 	for _, r := range s {
 		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
 			return false
@@ -51,7 +54,7 @@ func (p *Panel) PHPDatabaseCreate(c *fiber.Ctx) error {
 	}
 	body.Name = strings.ToLower(strings.TrimSpace(body.Name))
 	if !validDBInput(body.Name) {
-		return phpJSONErr(c, 400, "names may contain lowercase letters, numbers and underscores (max 24 characters)")
+		return phpJSONErr(c, 400, "names start with a letter and may contain lowercase letters, numbers and underscores (max 24 characters)")
 	}
 	if !p.PHP.MySQLStatus(ctx).Ready {
 		return phpJSONErr(c, 400, "the database server is not running. Ask an administrator to enable it in PHP Hosting → Instance.")
@@ -193,7 +196,7 @@ func (p *Panel) PHPDBUserCreate(c *fiber.Ctx) error {
 	}
 	body.Name = strings.ToLower(strings.TrimSpace(body.Name))
 	if !validDBInput(body.Name) {
-		return phpJSONErr(c, 400, "names may contain lowercase letters, numbers and underscores (max 24 characters)")
+		return phpJSONErr(c, 400, "names start with a letter and may contain lowercase letters, numbers and underscores (max 24 characters)")
 	}
 	if !p.PHP.MySQLStatus(ctx).Ready {
 		return phpJSONErr(c, 400, "the database server is not running. Ask an administrator to enable it in PHP Hosting → Instance.")
@@ -547,6 +550,10 @@ func (p *Panel) PHPLogs(c *fiber.Ctx) error {
 		path := filepath.Join(p.PHP.SitePath(site.AppID), "logs", "php-error.log")
 		return c.JSON(fiber.Map{"ok": true, "source": source, "text": tailFile(path, lines)})
 	case "runtime":
+		// This container serves every site of the owner, so only the owner (or an admin) may read it.
+		if u, ok := currentUser(c); !ok || (u.Role != db.RoleAdmin && u.ID != site.OwnerID) {
+			return phpJSONErr(c, 403, "only the site owner can read the runtime output")
+		}
 		if site.SiteType == phphosting.SiteTypeStatic {
 			return c.JSON(fiber.Map{"ok": true, "source": source, "text": ""})
 		}
@@ -558,6 +565,10 @@ func (p *Panel) PHPLogs(c *fiber.Ctx) error {
 
 // tailFile returns the last n lines of a file (reading at most the final 1 MiB).
 func tailFile(path string, n int) string {
+	// The log lives in a folder the site's own user can write to, so it may have been replaced by a link.
+	if st, err := os.Lstat(path); err != nil || !st.Mode().IsRegular() {
+		return ""
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return ""

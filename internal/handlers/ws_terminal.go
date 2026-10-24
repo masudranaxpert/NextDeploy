@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"panel/internal/runutil"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -340,7 +341,7 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	}
 
 	// High-performance fallback: use NextDeploy self-image with nsenter (Zero external image pull)
-	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "--entrypoint", "nsenter", "mrformula/nextdeploy:latest", "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
+	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "--entrypoint", "nsenter", runutil.HelperImage(), "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 	)

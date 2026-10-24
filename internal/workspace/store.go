@@ -48,10 +48,17 @@ func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, err
 	if !strings.HasPrefix(full, filepath.Clean(base)+string(os.PathSeparator)) && full != filepath.Clean(base) {
 		return "", os.ErrInvalid
 	}
+	if err := containedInBase(filepath.Clean(base), full); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+	// Re-check after the directories exist, then refuse to follow a link at the last step.
+	if err := containedInBase(filepath.Clean(base), full); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|noFollowFlag, 0640)
 	if err != nil {
 		return "", err
 	}
@@ -161,13 +168,8 @@ func (s *Store) SafeFilePath(wsID, rel string) (string, error) {
 	if rp == "." {
 		return "", os.ErrInvalid
 	}
-	if realBase, err := filepath.EvalSymlinks(base); err == nil {
-		if realTarget, err := filepath.EvalSymlinks(cf); err == nil {
-			relToReal, err := filepath.Rel(realBase, realTarget)
-			if err != nil || relToReal == ".." || strings.HasPrefix(relToReal, ".."+string(os.PathSeparator)) {
-				return "", os.ErrPermission
-			}
-		}
+	if err := containedInBase(base, cf); err != nil {
+		return "", err
 	}
 	return cf, nil
 }
@@ -204,13 +206,8 @@ func (s *Store) SafeGitRepoFilePath(wsID, rel string) (string, error) {
 	if rp == ".git" || strings.HasPrefix(rp, ".git"+string(os.PathSeparator)) {
 		return "", os.ErrInvalid
 	}
-	if realBase, err := filepath.EvalSymlinks(base); err == nil {
-		if realTarget, err := filepath.EvalSymlinks(cf); err == nil {
-			relToReal, err := filepath.Rel(realBase, realTarget)
-			if err != nil || relToReal == ".." || strings.HasPrefix(relToReal, ".."+string(os.PathSeparator)) {
-				return "", os.ErrPermission
-			}
-		}
+	if err := containedInBase(base, cf); err != nil {
+		return "", err
 	}
 	return cf, nil
 }
@@ -257,4 +254,39 @@ func (s *Store) ReadDotEnv(baseDir string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// containedInBase fails when target, after following symlinks, lands outside base. The path may
+// not exist yet (a file about to be created): then its deepest existing parent is resolved, so a
+// planted link such as htdocs/l -> /data/workspaces/<other app> cannot be used to write or read
+// through, even for a name that does not exist yet.
+func containedInBase(base, target string) error {
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		realBase = base
+	}
+	existing := target
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing || len(parent) < len(base) {
+			existing = base
+			break
+		}
+		existing = parent
+	}
+	realExisting, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		if existing == base {
+			return nil // the workspace folder does not exist yet, so nothing in it can be a link
+		}
+		return os.ErrPermission
+	}
+	rel, err := filepath.Rel(realBase, realExisting)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return os.ErrPermission
+	}
+	return nil
 }

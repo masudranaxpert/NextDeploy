@@ -1324,7 +1324,7 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="billing-worker-api"
+            placeholder="my-app"
             className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
           />
         </div>
@@ -1403,3 +1403,6 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
     </ShadcnDialog>
   );
 };
+
+export * from './CopyButton';
+

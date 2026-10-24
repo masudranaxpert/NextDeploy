@@ -98,6 +98,15 @@ func (p *Panel) PMAProxy(c *fiber.Ctx) error {
 	if !ok || s.UserID != u.ID {
 		return c.Status(403).SendString("This phpMyAdmin session has expired. Open phpMyAdmin again from the site's Databases tab.")
 	}
+	// Access can be taken away while a login is still valid (collaborator removed, app moved):
+	// check it again on every request, not only when the login was created.
+	if s.AppID == "" {
+		if u.Role != db.RoleAdmin {
+			return c.Status(403).SendString("forbidden")
+		}
+	} else if allowed, _ := p.CanAccessApp(c.UserContext(), u.ID, u.Role, s.AppID, db.CollabRoleDeveloper); !allowed {
+		return c.Status(403).SendString("You no longer have access to this site.")
+	}
 	addr, err := p.PHP.PMAAddr(c.UserContext())
 	if err != nil {
 		return c.Status(503).SendString("phpMyAdmin is not running")

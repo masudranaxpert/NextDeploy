@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"panel/internal/db"
@@ -94,6 +95,25 @@ func main() {
 		return c.Next()
 	})
 	app.Use(p.SecurityHeadersMiddleware)
+	// The server-wide body limit is 2 GiB for uploads and restores. Everything else, above all the
+	// routes anyone can reach without logging in, only needs a small body.
+	app.Use(func(c *fiber.Ctx) error {
+		path := c.Path()
+		public := strings.HasPrefix(path, "/webhooks/") || path == "/login" || path == "/setup"
+		cl := c.Request().Header.ContentLength()
+		if public && (cl > 5<<20 || cl < 0 && c.Method() != fiber.MethodGet && c.Method() != fiber.MethodHead) {
+			return c.SendStatus(fiber.StatusRequestEntityTooLarge)
+		}
+		if cl > 64<<20 {
+			for _, big := range []string{"upload", "restore", "archive", "import", "/migrate", "/files", "/backup", "/volumes", "workspace"} {
+				if strings.Contains(path, big) {
+					return c.Next()
+				}
+			}
+			return c.SendStatus(fiber.StatusRequestEntityTooLarge)
+		}
+		return c.Next()
+	})
 	app.Use(compress.New())
 	app.Use(logger.New(logger.Config{
 		Format: "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
@@ -128,6 +148,7 @@ func main() {
 	if p.PHP != nil {
 		p.PHP.StartCronScheduler(context.Background())
 		p.PHP.StartPMAJanitor(context.Background())
+		p.PHP.StartSymlinkSweeper(context.Background())
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()

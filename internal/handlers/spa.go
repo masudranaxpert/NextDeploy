@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"log"
 	"os"
-	"panel/internal/perflog"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,7 +79,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			defer wg.Done()
 			st := time.Now()
 			fn()
-			perflog.Logf("bootstrap part %s %s", name, perflog.FormatDur(time.Since(st)))
+			log.Printf("[bootstrap] part %s took %v", name, time.Since(st))
 		}()
 	}
 	run("sys", func() { sys = sysinfo.Collect(ctx) })
@@ -147,84 +147,99 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	phpByApp := map[string]db.PHPSite{}
 	phpRunning := map[string]bool{}
 	if p.PHP != nil {
-		if sites, err := p.DB.ListPHPSites(ctx); err == nil && len(sites) > 0 {
-			for _, s := range sites {
-				phpByApp[s.AppID] = s
+		run("php", func() {
+			if sites, err := p.DB.ListPHPSites(ctx); err == nil && len(sites) > 0 {
+				for _, s := range sites {
+					phpByApp[s.AppID] = s
+				}
+				for _, ct := range p.PHP.ListContainers(ctx) {
+					phpRunning[ct.Name] = ct.State == "running"
+				}
 			}
-			for _, ct := range p.PHP.ListContainers(ctx) {
-				phpRunning[ct.Name] = ct.State == "running"
-			}
-		}
+		})
 	}
 
 	wg.Wait()
-	perflog.Logf("bootstrap parallel total %s", perflog.FormatDur(time.Since(t0)))
+	log.Printf("[bootstrap] parallel wait took %v", time.Since(t0))
+	tLoop := time.Now()
 
-	appList := make([]appSummary, 0, len(apps))
-	for _, a := range apps {
-		doms, _ := p.DB.ListAppDomains(ctx, a.ID)
-		svcs := p.LoadComposeServices(ctx, a.ID)
-		var gitPtr *db.AppGitConfig
-		if gcfg, err := p.DB.GetAppGitConfig(ctx, a.ID); err == nil {
-			if !isAdmin {
-				// credentials never leave the server for non-admin sessions
-				gcfg.Token = ""
-				gcfg.PrivateKeyPEM = ""
-				if a.OwnerID != u.ID {
-					if collab, err := p.DB.GetCollaborator(ctx, a.ID, u.ID); err != nil || collab.Role != db.CollabRoleDeveloper {
-						gcfg.WebhookSecret = ""
+	appList := make([]appSummary, len(apps))
+	var appWg sync.WaitGroup
+	for idx, a := range apps {
+		appWg.Add(1)
+		go func(i int, app db.App) {
+			defer appWg.Done()
+			doms, _ := p.DB.ListAppDomains(ctx, app.ID)
+			svcs := p.LoadComposeServices(ctx, app.ID)
+			var gitPtr *db.AppGitConfig
+			if gcfg, err := p.DB.GetAppGitConfig(ctx, app.ID); err == nil {
+				if !isAdmin {
+					// credentials never leave the server for non-admin sessions
+					gcfg.Token = ""
+					gcfg.PrivateKeyPEM = ""
+					if app.OwnerID != u.ID {
+						if collab, err := p.DB.GetCollaborator(ctx, app.ID, u.ID); err != nil || collab.Role != db.CollabRoleDeveloper {
+							gcfg.WebhookSecret = ""
+						}
 					}
 				}
+				gitPtr = &gcfg
 			}
-			gitPtr = &gcfg
-		}
-		dlogs, _ := p.DB.ListDeployLogs(ctx, a.ID, 10)
-		collabs, _ := p.DB.ListCollaboratorsWithUsers(ctx, a.ID)
-		projCands := append([]string{a.ID, strings.ReplaceAll(a.ID, "-", "_"), a.Name}, p.ComposeProjectCandidates(ctx, a, a.ID)...)
-		q := p.AppVolumeQuery(ctx, a, allProjects, projCands...)
-		appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
-		if _, isPHP := phpByApp[a.ID]; isPHP {
-			appVols = []string{} // PHP sites do not use Docker volumes
-		}
-		bHist, _ := p.DB.ListBackupHistory(ctx, a.ID, 25)
-		bSched, _ := p.DB.ListBackupSchedules(ctx, a.ID)
-		envStr, _ := p.DB.GetPanelEnv(ctx, a.ID)
-		pvCfg := p.previewConfig(ctx, a.ID)
-		appPorts, _ := p.DB.GetAppAllocatedPorts(ctx, a.ID)
-
-		var phpInfo *phpAppInfo
-		if s, ok := phpByApp[a.ID]; ok {
-			state := "none"
-			if s.SiteType == "static" {
-				state = "stopped"
-				if phpRunning[phphosting.RouteContainer(s.AppID)] {
-					state = "running"
+			dlogs, _ := p.DB.ListDeployLogs(ctx, app.ID, 10)
+			collabs, _ := p.DB.ListCollaboratorsWithUsers(ctx, app.ID)
+			projCands := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+			q := p.AppVolumeQuery(ctx, app, allProjects, projCands...)
+			appVols, _ := matcher.ListForAppFromNames(ctx, q, allVolNames)
+			if _, isPHP := phpByApp[app.ID]; isPHP {
+				appVols = []string{} // PHP sites do not use Docker volumes
+			}
+			bHist, _ := p.DB.ListBackupHistory(ctx, app.ID, 25)
+			bSched, _ := p.DB.ListBackupSchedules(ctx, app.ID)
+			envStr, _ := p.DB.GetPanelEnv(ctx, app.ID)
+			if !isAdmin && app.OwnerID != u.ID {
+				// a viewer can see the project but not its secrets
+				if collab, err := p.DB.GetCollaborator(ctx, app.ID, u.ID); err != nil || collab.Role != db.CollabRoleDeveloper {
+					envStr = ""
 				}
-			} else if phpRunning[phphosting.RuntimeContainer(s.OwnerID, s.PHPVersion)] {
-				state = "running"
-			} else {
-				state = "stopped"
 			}
-			phpInfo = &phpAppInfo{SiteType: s.SiteType, PHPVersion: s.PHPVersion, RootDir: s.RootDir, UID: s.UID, State: state}
-		}
+			pvCfg := p.previewConfig(ctx, app.ID)
+			appPorts, _ := p.DB.GetAppAllocatedPorts(ctx, app.ID)
 
-		appList = append(appList, appSummary{
-			App:           a,
-			Domains:       doms,
-			Services:      svcs,
-			GitConfig:     gitPtr,
-			DeployLogs:    dlogs,
-			Collaborators: collabs,
-			Volumes:       appVols,
-			BackupHistory: bHist,
-			Schedules:     bSched,
-			EnvContent:    envStr,
-			Preview:       pvCfg,
-			PreviewBase:   previewHostBase(a, pvCfg, sys.PublicIP),
-			Ports:         appPorts,
-			PHP:           phpInfo,
-		})
+			var phpInfo *phpAppInfo
+			if s, ok := phpByApp[app.ID]; ok {
+				state := "none"
+				if s.SiteType == "static" {
+					state = "stopped"
+					if phpRunning[phphosting.RouteContainer(s.AppID)] {
+						state = "running"
+					}
+				} else if phpRunning[phphosting.RuntimeContainer(s.OwnerID, s.PHPVersion)] {
+					state = "running"
+				} else {
+					state = "stopped"
+				}
+				phpInfo = &phpAppInfo{SiteType: s.SiteType, PHPVersion: s.PHPVersion, RootDir: s.RootDir, UID: s.UID, State: state}
+			}
+
+			appList[i] = appSummary{
+				App:           app,
+				Domains:       doms,
+				Services:      svcs,
+				GitConfig:     gitPtr,
+				DeployLogs:    dlogs,
+				Collaborators: collabs,
+				Volumes:       appVols,
+				BackupHistory: bHist,
+				Schedules:     bSched,
+				EnvContent:    envStr,
+				Preview:       pvCfg,
+				PreviewBase:   previewHostBase(app, pvCfg, sys.PublicIP),
+				Ports:         appPorts,
+				PHP:           phpInfo,
+			}
+		}(idx, a)
 	}
+	appWg.Wait()
 
 	containers := p.visibleContainers(ctx, u, allContainers)
 	images := p.visibleImages(ctx, u, allImages, allContainers)
@@ -328,6 +343,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			ownedApps++
 		}
 	}
+	log.Printf("[bootstrap] appList loop took %v | overall took %v", time.Since(tLoop), time.Since(t0))
 
 	return c.JSON(fiber.Map{
 		"ok": true,
@@ -372,11 +388,17 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"audit_logs":          auditLogs,
 		"settings":            settings,
 		"migrate_exports":     migrateExports,
-		"docker_version": dockerVersion,
+		"docker_version":      dockerVersion,
 		"caddy": fiber.Map{
 			"up":     caddyUp,
 			"status": caddyStatus,
 			"config": caddyCfg,
+			"panel_domain": func() string {
+				if !isAdmin {
+					return ""
+				}
+				return strings.TrimSpace(p.DB.GetSetting(ctx, "panel_domain"))
+			}(),
 		},
 		"cgroup": fiber.Map{
 			"mode":      p.cgroupMode(),

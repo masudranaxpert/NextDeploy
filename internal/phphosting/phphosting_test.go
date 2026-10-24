@@ -1,6 +1,8 @@
 package phphosting
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -181,12 +183,12 @@ func TestCaddyLabels(t *testing.T) {
 	doms := []db.AppDomain{{Domain: "example.com", EnableHTTPS: true, EnableWWW: true}}
 	l := caddy.PHPSiteLabels(doms, "/data/workspaces/a-1/htdocs", "/data/workspaces/.nd-php/u1-v83/run/a-1.sock")
 	want := map[string]string{
-		"caddy":              "example.com, www.example.com",
-		"caddy.root":         "* /data/workspaces/a-1/htdocs",
-		"caddy.php_fastcgi":  "unix//data/workspaces/.nd-php/u1-v83/run/a-1.sock",
-		"caddy.file_server":  `{{""}}`,
-		"caddy.respond":      "@hidden 404",
-		"caddy.@hidden.path": "/.git/* /.svn/* /.hg/* /.env /.env.* /.ht*",
+		"caddy":                     "example.com, www.example.com",
+		"caddy.root":                "* /data/workspaces/a-1/htdocs",
+		"caddy.php_fastcgi":         "unix//data/workspaces/.nd-php/u1-v83/run/a-1.sock",
+		"caddy.file_server":         `{{""}}`,
+		"caddy.respond":             "@hidden 404",
+		"caddy.@hidden.path_regexp": `(^|/)\.(git|svn|hg|env|nextdeploy-db|ht[a-z]*)(/|$|\.)`,
 	}
 	for k, v := range want {
 		if l[k] != v {
@@ -221,6 +223,50 @@ func TestValidHost(t *testing.T) {
 	for _, bad := range []string{"", "localhost", "a b.com", "a.com {\n respond 200", "a.com,b.com", "http://a.com", "a..com", "-a.com", "a.com/x", "*.*.com", "{env.SECRET}.com"} {
 		if ValidHost(bad) {
 			t.Errorf("%q should be rejected", bad)
+		}
+	}
+}
+
+func TestGrantIdentEscapesWildcards(t *testing.T) {
+	cases := map[string]string{
+		"u2_shop": "`u2\\_shop`",
+		"u2__x":   "`u2\\_\\_x`",
+		"u1_a%b":  "`u1\\_a\\%b`",
+		"plain":   "`plain`",
+	}
+	for in, want := range cases {
+		if got := GrantIdent(in); got != want {
+			t.Errorf("GrantIdent(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestSweepSymlinksRemovesOnlyEscapingLinks(t *testing.T) {
+	root := t.TempDir()
+	site := filepath.Join(root, "app1")
+	other := filepath.Join(root, "app2")
+	for _, d := range []string{filepath.Join(site, "htdocs", "inner"), other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.WriteFile(filepath.Join(other, ".env"), []byte("SECRET=1"), 0o644)
+	good := filepath.Join(site, "htdocs", "ok")
+	bad := filepath.Join(site, "htdocs", "l")
+	relBad := filepath.Join(site, "htdocs", "inner", "up")
+	os.Symlink("inner", good)
+	os.Symlink(other, bad)
+	os.Symlink("../../../app2", relBad)
+	m := &Manager{WorkspacesRoot: root}
+	if n := m.SweepSymlinks("app1"); n != 2 {
+		t.Fatalf("removed %d links, want 2", n)
+	}
+	if _, err := os.Lstat(good); err != nil {
+		t.Error("a link inside the site was removed")
+	}
+	for _, p := range []string{bad, relBad} {
+		if _, err := os.Lstat(p); err == nil {
+			t.Errorf("%s still exists", p)
 		}
 	}
 }
