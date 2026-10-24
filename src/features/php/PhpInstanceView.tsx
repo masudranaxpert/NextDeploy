@@ -1,21 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Database, Download, Power, Server, ShieldCheck, Wrench } from 'lucide-react';
+import { Database, Download, Power, RotateCw, Server, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpInstanceData } from '../../lib/api/phpApi';
 import { ShadcnDialog, ShadcnSwitch } from '../../components/ui/Primitives';
-import { ErrorBlock, GhostButton, LoadingBlock, MetricStat } from './ui';
-import { DatabaseServerCard } from './components/DatabaseServerCard';
-import { PhpMyAdminCard } from './components/PhpMyAdminCard';
-import { PhpVersionsCard } from './components/PhpVersionsCard';
-import { PhpContainersCard } from './components/PhpContainersCard';
-import { PhpLimitsCard } from './components/PhpLimitsCard';
+import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, ValueBox, inputCls } from './ui';
 
-interface PhpInstanceViewProps {
-  onChanged: () => void | Promise<void>;
-}
-
-export const PhpInstanceView: React.FC<PhpInstanceViewProps> = ({ onChanged }) => {
+export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }> = ({ onChanged }) => {
   const [data, setData] = useState<PhpInstanceData | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -30,9 +21,7 @@ export const PhpInstanceView: React.FC<PhpInstanceViewProps> = ({ onChanged }) =
       const d = res.data as PhpInstanceData;
       setData(d);
       setError('');
-    } else {
-      setError(res.error || 'Failed to load instance configurations');
-    }
+    } else setError(res.error || 'Failed to load');
   }, []);
 
   useEffect(() => {
@@ -40,8 +29,7 @@ export const PhpInstanceView: React.FC<PhpInstanceViewProps> = ({ onChanged }) =
   }, [load]);
 
   const working =
-    !!data && (data.mysql_task?.running || (data.versions ?? []).some((v) => v.build?.running));
-
+    !!data && (data.mysql_task.running || (data.versions ?? []).some((v) => v.build?.running));
   useEffect(() => {
     const t = setInterval(() => void load(), working ? 2500 : 15000);
     return () => clearInterval(t);
@@ -50,192 +38,213 @@ export const PhpInstanceView: React.FC<PhpInstanceViewProps> = ({ onChanged }) =
   const seeded = data !== null;
   useEffect(() => {
     if (data) {
-      setMemory(data.mysql.memory_mb || 512);
-      setMinCron(data.min_cron_interval_minutes || 1);
+      setMemory(data.mysql.memory_mb);
+      setMinCron(data.min_cron_interval_minutes);
     }
   }, [seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!data) {
-    return error ? <ErrorBlock message={error} onRetry={load} /> : <LoadingBlock label="Loading PHP instance data..." />;
-  }
+  if (!data) return error ? <ErrorBlock message={error} onRetry={load} /> : <LoadingBlock />;
 
-  const act = async (
-    key: string,
-    fn: () => Promise<{ ok: boolean; error?: string }>,
-    okMsg: string
-  ) => {
+  const act = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) => {
     setBusy(key);
     const res = await fn();
     setBusy('');
-    if (res.ok) {
-      toast.success(okMsg);
-    } else {
-      toast.error(res.error || 'Operation failed');
-    }
+    if (res.ok) toast.success(okMsg);
+    else toast.error(res.error || 'Action failed');
     await load();
     await onChanged();
   };
 
-  const installedCount = (data.versions ?? []).filter((v) => v.installed).length;
-  const runningContainers = (data.containers ?? []).filter((c) => c.state === 'running').length;
+  const m = data.mysql;
+  const mysqlTone = m.ready ? 'green' : m.running ? 'amber' : data.mysql_task.running ? 'amber' : 'zinc';
+  const mysqlLabel = m.ready ? 'running' : data.mysql_task.running ? 'starting…' : m.running ? 'starting' : m.exists ? 'stopped' : 'not set up';
   const logBuild = (data.versions ?? []).find((v) => v.version === logVersion)?.build;
 
   return (
-    <div className="space-y-6">
-      {/* Top Page Header & Main Engine Toggle */}
-      <div className="flex flex-col gap-4 rounded-xl border border-white/[0.08] bg-[#111115]/90 p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-zinc-100">
-              PHP Hosting & Infrastructure
-            </h1>
-            <span
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${
-                data.enabled
-                  ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                  : 'border border-zinc-700 bg-zinc-800 text-zinc-400'
-              }`}
-            >
-              {data.enabled ? 'Active' : 'Disabled'}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-zinc-400">
-            Provision MariaDB database containers, phpMyAdmin access, and manage PHP-FPM runtimes.
-          </p>
+          <h1 className="text-lg font-semibold tracking-tight text-zinc-100">PHP Hosting · Instance</h1>
         </div>
-
-        <div className="flex items-center gap-3 self-start sm:self-auto rounded-lg border border-white/[0.08] bg-black/40 px-3.5 py-2">
-          <span className="text-xs font-medium text-zinc-300">
-            {data.enabled ? 'Hosting Engine Enabled' : 'Hosting Engine Disabled'}
-          </span>
+        <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
           <ShadcnSwitch
             checked={data.enabled}
-            onChange={(v) =>
-              void act(
-                'module',
-                () => backendApi.phpSetModule(v),
-                v ? 'PHP hosting enabled' : 'PHP hosting disabled'
-              )
-            }
+            onChange={(v) => void act('module', () => backendApi.phpSetModule(v), v ? 'PHP hosting enabled' : 'PHP hosting disabled')}
           />
-        </div>
+          {data.enabled ? 'Enabled' : 'Disabled'}
+        </label>
       </div>
 
-      {/* Top Overview KPI Metrics */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricStat
-          label="Engine State"
-          value={data.enabled ? 'Online' : 'Offline'}
-          subtext={data.enabled ? 'Accepting site traffic' : 'Engine turned off'}
-          icon={<Server className="h-4 w-4" />}
-          tone={data.enabled ? 'emerald' : 'zinc'}
-        />
-        <MetricStat
-          label="MariaDB Database"
-          value={data.mysql.ready ? 'Running' : data.mysql.running ? 'Starting' : 'Stopped'}
-          subtext={`Port 3306 · ${memory}MB limit`}
-          icon={<Database className="h-4 w-4" />}
-          tone={data.mysql.ready ? 'emerald' : data.mysql.running ? 'amber' : 'zinc'}
-        />
-        <MetricStat
-          label="phpMyAdmin"
-          value={data.pma.running ? 'Ready' : data.pma.enabled ? 'Starting' : 'Disabled'}
-          subtext="Single Sign-On Web GUI"
-          icon={<Wrench className="h-4 w-4" />}
-          tone={data.pma.running ? 'emerald' : data.pma.enabled ? 'amber' : 'zinc'}
-        />
-        <MetricStat
-          label="PHP Runtimes"
-          value={`${installedCount} / ${(data.versions ?? []).length}`}
-          subtext={`${runningContainers} active containers`}
-          icon={<Download className="h-4 w-4" />}
-          tone="violet"
-        />
-      </div>
-
-      {/* Database Server Card */}
-      <DatabaseServerCard
-        data={data}
-        memory={memory}
-        busy={busy}
-        onMemoryChange={setMemory}
-        onAct={act}
-        backendApi={backendApi}
-      />
-
-      {/* phpMyAdmin Card */}
-      <PhpMyAdminCard
-        data={data}
-        busy={busy}
-        onAct={act}
-        backendApi={backendApi}
-        setBusy={setBusy}
-      />
-
-      {/* PHP Versions Management Card */}
-      <PhpVersionsCard
-        data={data}
-        busy={busy}
-        onOpenLog={(ver) => setLogVersion(ver)}
-        onAct={act}
-        backendApi={backendApi}
-      />
-
-      {/* Running Containers Card */}
-      <PhpContainersCard
-        data={data}
-        busy={busy}
-        onAct={act}
-        backendApi={backendApi}
-      />
-
-      {/* Limits & Quotas Card */}
-      <PhpLimitsCard
-        data={data}
-        minCron={minCron}
-        limits={limits}
-        busy={busy}
-        onMinCronChange={setMinCron}
-        onLimitsChange={setLimits}
-        onSaveMinCron={() =>
-          act('cron', () => backendApi.phpInstanceSettings(minCron), 'Minimum cron interval updated')
-        }
-        onSaveUserLimit={async (userId, d, c) => {
-          await act(
-            'ul' + userId,
-            () => backendApi.phpUserLimits(userId, d, c),
-            'User quota updated'
-          );
-          setLimits((l) => {
-            const next = { ...l };
-            delete next[userId];
-            return next;
-          });
-        }}
-      />
-
-      {/* Build Log Dialog */}
-      <ShadcnDialog
-        open={logVersion !== null}
-        onClose={() => setLogVersion(null)}
-        title={`PHP ${logVersion} Container Build Log`}
-        description="Live compiler and Docker build output for this runtime."
-        icon={<Download className="h-4 w-4 text-orange-400" />}
-        maxWidth="2xl"
-        footer={
-          <div className="flex justify-end">
-            <GhostButton onClick={() => setLogVersion(null)}>Close</GhostButton>
-          </div>
-        }
+      <Card
+        title="Database server"
+        actions={<Pill tone={mysqlTone}>{mysqlLabel}</Pill>}
       >
-        {logBuild?.error && (
-          <div className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-300">
-            {logBuild.error}
-          </div>
+        {data.mysql_task.error && (
+          <div className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">{data.mysql_task.error}</div>
         )}
-        <pre className="max-h-[30rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[#09090b] p-3.5 font-mono text-[11px] leading-relaxed text-zinc-300">
-          {logBuild?.log || 'No compiler output captured yet.'}
-        </pre>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Image"><ValueBox>{m.image}</ValueBox></Field>
+          <Field label="Memory (MB)">
+            <input type="number" min={256} step={128} className={`${inputCls} !w-32`} value={memory} onChange={(e) => setMemory(Number(e.target.value))} />
+          </Field>
+          {!m.running ? (
+            <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', memory), 'Starting database server…')}>
+              <Power className="h-3.5 w-3.5" /> {m.exists ? 'Start' : 'Set up'} database
+            </PrimaryButton>
+          ) : (
+            <>
+              <GhostButton busy={busy === 'my-re' || data.mysql_task.running} onClick={() => act('my-re', () => backendApi.phpMysql('restart', memory), 'Restarting database server…')}>
+                <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Apply / restart
+              </GhostButton>
+              <GhostButton tone="danger" busy={busy === 'my-off'} onClick={() => { if (window.confirm('Stop the database server? Sites that use databases will stop working until it is started again.')) void act('my-off', () => backendApi.phpMysql('disable'), 'Database server stopped'); }}>
+                Stop
+              </GhostButton>
+            </>
+          )}
+        </div>
+      </Card>
+
+      <Card
+        title="phpMyAdmin"
+        actions={<Pill tone={data.pma.running ? 'green' : data.pma_task.running ? 'amber' : 'zinc'}>{data.pma.running ? 'running' : data.pma_task.running ? 'starting…' : 'off'}</Pill>}
+      >
+        {data.pma_task.error && (
+          <div className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">{data.pma_task.error}</div>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Image"><ValueBox>{data.pma.image}</ValueBox></Field>
+          {!data.pma.enabled ? (
+            <PrimaryButton disabled={!m.ready} busy={busy === 'pma-on' || data.pma_task.running} onClick={() => act('pma-on', () => backendApi.phpPma('enable'), 'Starting phpMyAdmin…')}>
+              <Power className="h-3.5 w-3.5" /> Enable phpMyAdmin
+            </PrimaryButton>
+          ) : (
+            <>
+              <GhostButton
+                busy={busy === 'pma-open'}
+                onClick={async () => {
+                  setBusy('pma-open');
+                  const r = await backendApi.phpPmaOpenAll();
+                  setBusy('');
+                  if (r.ok && r.data?.url) window.open(r.data.url, '_blank', 'noopener');
+                  else toast.error(r.error || 'Could not open phpMyAdmin');
+                }}
+              >
+                Open (all databases)
+              </GhostButton>
+              <GhostButton busy={busy === 'pma-re' || data.pma_task.running} onClick={() => act('pma-re', () => backendApi.phpPma('restart'), 'Restarting phpMyAdmin…')}>
+                <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart
+              </GhostButton>
+              <GhostButton tone="danger" busy={busy === 'pma-off'} onClick={() => void act('pma-off', () => backendApi.phpPma('disable'), 'phpMyAdmin stopped')}>
+                Disable
+              </GhostButton>
+            </>
+          )}
+        </div>
+        {!m.ready && <p className="mt-3 text-[11px] text-zinc-500">Start the database server first.</p>}
+      </Card>
+
+      <Card title="PHP versions">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-[11px] text-zinc-500">
+              <tr><th className="py-2 pr-4 font-medium">Version</th><th className="py-2 pr-4 font-medium">Status</th><th className="py-2 pr-4 font-medium">Sites</th><th className="py-2 text-right font-medium">Actions</th></tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {(data.versions ?? []).map((v) => {
+                const building = v.build?.running;
+                return (
+                  <tr key={v.version}>
+                    <td className="py-2.5 pr-4 font-mono text-zinc-100">PHP {v.version}</td>
+                    <td className="py-2.5 pr-4">
+                      {building ? <Pill tone="amber">building…</Pill> : v.installed ? <Pill tone="green">installed</Pill> : v.build?.error ? <Pill tone="red">build failed</Pill> : <Pill>not installed</Pill>}
+                    </td>
+                    <td className="py-2.5 pr-4 font-mono text-zinc-400">{v.sites}</td>
+                    <td className="py-2.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {v.build && <GhostButton onClick={() => setLogVersion(v.version)}>Build log</GhostButton>}
+                        {v.installed ? (
+                          <GhostButton tone="danger" disabled={v.sites > 0} title={v.sites > 0 ? 'In use by sites' : 'Remove image'} busy={busy === 'rm' + v.version}
+                            onClick={() => { if (window.confirm(`Remove the PHP ${v.version} image?`)) void act('rm' + v.version, () => backendApi.phpVersion(v.version, 'remove'), `PHP ${v.version} removed`); }}>
+                            <Trash2 className="h-3.5 w-3.5" /> Remove
+                          </GhostButton>
+                        ) : (
+                          <PrimaryButton busy={busy === 'in' + v.version || !!building} onClick={() => act('in' + v.version, () => backendApi.phpVersion(v.version, 'install'), `Building PHP ${v.version}. This takes a few minutes`)}>
+                            <Download className="h-3.5 w-3.5" /> Install
+                          </PrimaryButton>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Running services">
+        {(data.containers ?? []).length === 0 ? (
+          <EmptyState icon={<Server className="h-6 w-6" />} text="Nothing is running yet." />
+        ) : (
+          <ul className="divide-y divide-white/[0.05]">
+            {(data.containers ?? []).filter((c) => c.kind !== 'route').map((c) => (
+              <li key={c.name} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {c.kind === 'mysql' ? <Database className="h-4 w-4 text-sky-400" /> : <Server className="h-4 w-4 text-violet-400" />}
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-xs text-zinc-100">{c.name}</div>
+                    <div className="truncate text-[11px] text-zinc-500">{c.image} · {c.status}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Pill tone={c.state === 'running' ? 'green' : 'red'}>{c.state}</Pill>
+                  <GhostButton busy={busy === 'rs' + c.name} onClick={() => act('rs' + c.name, () => backendApi.phpRestartContainer(c.name), `${c.name} restarted`)}>
+                    <RotateCw className="h-3.5 w-3.5" />
+                  </GhostButton>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Limits">
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <div>
+            <Field label="Minimum cron interval (minutes)">
+              <input type="number" min={1} max={1440} className={`${inputCls} !w-32`} value={minCron} onChange={(e) => setMinCron(Number(e.target.value))} />
+            </Field>
+          </div>
+          <GhostButton busy={busy === 'cron'} onClick={() => act('cron', () => backendApi.phpInstanceSettings(minCron), 'Saved')}>Save</GhostButton>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-[11px] text-zinc-500">
+              <tr><th className="py-2 pr-4 font-medium">User</th><th className="py-2 pr-4 font-medium">Max databases <span className="text-zinc-600">(0 = ∞)</span></th><th className="py-2 pr-4 font-medium">Max cron jobs <span className="text-zinc-600">(0 = ∞)</span></th><th /></tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {(data.user_limits ?? []).map((u) => {
+                const cur = limits[u.user_id] ?? { d: u.max_databases, c: u.max_cron_jobs };
+                const dirty = cur.d !== u.max_databases || cur.c !== u.max_cron_jobs;
+                return (
+                  <tr key={u.user_id}>
+                    <td className="py-2 pr-4 text-zinc-100">{u.username} {u.role === 'admin' && <Pill tone="orange">admin · unlimited</Pill>}</td>
+                    <td className="py-2 pr-4"><input type="number" min={0} className={`${inputCls} !w-24`} value={cur.d} onChange={(e) => setLimits({ ...limits, [u.user_id]: { ...cur, d: Number(e.target.value) } })} /></td>
+                    <td className="py-2 pr-4"><input type="number" min={0} className={`${inputCls} !w-24`} value={cur.c} onChange={(e) => setLimits({ ...limits, [u.user_id]: { ...cur, c: Number(e.target.value) } })} /></td>
+                    <td className="py-2 text-right">
+                      {dirty && <PrimaryButton busy={busy === 'ul' + u.user_id} onClick={async () => { await act('ul' + u.user_id, () => backendApi.phpUserLimits(u.user_id, cur.d, cur.c), 'Limits saved'); setLimits((l) => { const n = { ...l }; delete n[u.user_id]; return n; }); }}>Save</PrimaryButton>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <ShadcnDialog open={logVersion !== null} onClose={() => setLogVersion(null)} title={`PHP ${logVersion} build log`} maxWidth="2xl" footer={<GhostButton onClick={() => setLogVersion(null)}>Close</GhostButton>}>
+        {logBuild?.error && <div className="mb-2 text-xs text-red-300">{logBuild.error}</div>}
+        <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[#09090b] p-3 font-mono text-[11px] leading-relaxed text-zinc-300">{logBuild?.log || 'No output yet.'}</pre>
       </ShadcnDialog>
     </div>
   );

@@ -1,11 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileCode2, Globe, Plus, Search, Server, Settings2, Sparkles, Database } from 'lucide-react';
+import { ArrowUpRight, FileCode2, Globe, Plus, Search, Server, Settings2, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpStatusData } from '../../lib/api/phpApi';
-import { Card, EmptyBlock, GhostButton, MetricStat, PrimaryButton, inputCls } from './ui';
-import { SiteCard } from './components/SiteCard';
-import { CreateSiteModal } from './components/CreateSiteModal';
+import { ShadcnDialog } from '../../components/ui/Primitives';
+import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls } from './ui';
+
+type SiteType = 'php' | 'wordpress' | 'static';
+
+const TYPE_CARDS: Array<{ id: SiteType; title: string; text: string; icon: React.ReactNode }> = [
+  { id: 'php', title: 'PHP', text: 'Laravel, custom code', icon: <FileCode2 className="h-4 w-4" /> },
+  { id: 'wordpress', title: 'WordPress', text: 'One-click install', icon: <Sparkles className="h-4 w-4" /> },
+  { id: 'static', title: 'Static HTML', text: 'No PHP', icon: <Globe className="h-4 w-4" /> },
+];
 
 interface Props {
   apps: AppStack[];
@@ -19,178 +27,209 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
   const sites = useMemo(() => apps.filter((a) => a.php), [apps]);
   const [status, setStatus] = useState<PhpStatusData | null>(null);
   const [search, setSearch] = useState('');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  const loadStatus = () =>
-    backendApi.phpStatus().then((r) => r.ok && r.data && setStatus(r.data));
+  const [name, setName] = useState('');
+  const [type, setType] = useState<SiteType>('php');
+  const [version, setVersion] = useState('');
+  const [title, setTitle] = useState('');
+  const [wpUser, setWpUser] = useState('admin');
+  const [wpEmail, setWpEmail] = useState('');
 
+  const loadStatus = () => backendApi.phpStatus().then((r) => r.ok && r.data && setStatus(r.data));
   useEffect(() => {
     void loadStatus();
   }, []);
 
-  const wpCount = sites.filter((s) => s.php?.siteType === 'wordpress').length;
-  const standardPhpCount = sites.filter((s) => s.php?.siteType === 'php').length;
-  const staticCount = sites.filter((s) => s.php?.siteType === 'static').length;
+  const installed = status?.installed_versions ?? [];
+  useEffect(() => {
+    if (!version && installed.length) {
+      setVersion(installed.includes(status?.default_version ?? '') ? status!.default_version : installed[0]);
+    }
+  }, [installed.join(','), status?.default_version]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = sites.filter((s) => {
-    if (!search) return true;
-    const query = search.toLowerCase();
-    const nameMatch = s.name.toLowerCase().includes(query);
-    const domainMatch = (s.primaryDomain || '').toLowerCase().includes(query);
-    const versionMatch = (s.php?.phpVersion || '').toLowerCase().includes(query);
-    return nameMatch || domainMatch || versionMatch;
-  });
+  const needsPhp = type !== 'static';
+  const blocker = !status
+    ? 'Loading…'
+    : !status.enabled
+    ? 'PHP hosting is not enabled yet.'
+    : needsPhp && installed.length === 0
+    ? 'No PHP version is installed yet.'
+    : type === 'wordpress' && !status.mysql.ready
+    ? 'The database server is not running.'
+    : '';
+
+  const create = async () => {
+    setCreating(true);
+    const res = await backendApi.phpCreateSite({
+      name: name.trim().toLowerCase(),
+      type,
+      php_version: needsPhp ? version : undefined,
+      title: title.trim() || undefined,
+      wp_admin_user: type === 'wordpress' ? wpUser.trim() || undefined : undefined,
+      wp_admin_email: type === 'wordpress' ? wpEmail.trim() || undefined : undefined,
+    });
+    setCreating(false);
+    if (!res.ok || !res.data) {
+      toast.error(res.error || 'Could not create the site');
+      return;
+    }
+    toast.success(type === 'wordpress' ? 'Site created, installing WordPress…' : 'Site created');
+    setOpen(false);
+    setName('');
+    await onRefresh();
+    onOpenSite(res.data.id);
+  };
+
+  const filtered = sites.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) || (s.primaryDomain || '').toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-5">
-      {/* Page Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-zinc-100">PHP Sites</h1>
-          <p className="mt-0.5 text-xs text-zinc-400">
-            Hosted web applications and domain management
-          </p>
+          <h1 className="text-lg font-semibold tracking-tight text-zinc-100">PHP Sites</h1>
         </div>
-
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <GhostButton onClick={onGoInstance} className="h-8.5">
-              <Settings2 className="h-3.5 w-3.5 text-zinc-400" />
-              <span>Instance Setup</span>
+            <GhostButton onClick={onGoInstance}>
+              <Settings2 className="h-3.5 w-3.5 text-zinc-400" /> Instance
             </GhostButton>
           )}
-          <PrimaryButton
-            onClick={() => setCreateModalOpen(true)}
-            disabled={status !== null && !status.enabled}
-            className="h-8.5"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>New Site</span>
+          <PrimaryButton onClick={() => setOpen(true)} disabled={status !== null && !status.enabled}>
+            <Plus className="h-3.5 w-3.5" /> New site
           </PrimaryButton>
         </div>
       </div>
 
-      {/* Metrics Summary Strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricStat
-          label="Total Sites"
-          value={sites.length}
-          subtext={`${standardPhpCount} PHP · ${wpCount} WP · ${staticCount} Static`}
-          icon={<FileCode2 className="h-4 w-4" />}
-          tone="orange"
-        />
-        <MetricStat
-          label="PHP Engine"
-          value={status?.enabled ? 'Active' : 'Disabled'}
-          subtext={
-            status?.enabled
-              ? `${status.installed_versions?.length || 0} runtimes installed`
-              : 'Requires activation'
-          }
-          icon={<Server className="h-4 w-4" />}
-          tone={status?.enabled ? 'emerald' : 'zinc'}
-        />
-        <MetricStat
-          label="Database Server"
-          value={status?.mysql.ready ? 'Running' : 'Stopped'}
-          subtext={status?.mysql.ready ? 'MariaDB 11.4' : 'Offline'}
-          icon={<Database className="h-4 w-4" />}
-          tone={status?.mysql.ready ? 'emerald' : 'amber'}
-        />
-        <MetricStat
-          label="CMS Instances"
-          value={wpCount}
-          subtext="Automated WordPress"
-          icon={<Sparkles className="h-4 w-4" />}
-          tone="violet"
-        />
-      </div>
-
-      {/* Disabled Engine Alert Banner */}
       {status && !status.enabled && (
-        <Card className="border-amber-500/30 bg-amber-500/[0.04]">
+        <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400">
-                <Server className="h-4 w-4" />
-              </div>
+              <Server className="h-5 w-5 text-orange-400" />
               <div>
-                <h3 className="text-xs font-semibold text-zinc-200">PHP Hosting Engine is Offline</h3>
-                <p className="mt-0.5 text-xs text-zinc-400">
-                  {isAdmin
-                    ? 'Enable PHP hosting in Instance Setup to provision PHP-FPM pools and MariaDB.'
-                    : 'Contact your administrator to enable PHP hosting services.'}
-                </p>
+                <div className="text-sm font-semibold text-zinc-100">PHP hosting is off</div>
+                <p className="text-xs text-zinc-400">{isAdmin ? 'Set it up on the Instance page.' : 'Ask an administrator to enable it.'}</p>
               </div>
             </div>
-            {isAdmin && (
-              <PrimaryButton onClick={onGoInstance}>
-                Open Instance Setup
-              </PrimaryButton>
-            )}
+            {isAdmin && <PrimaryButton onClick={onGoInstance}>Set up PHP hosting</PrimaryButton>}
           </div>
         </Card>
       )}
 
-      {/* Search & Filter Bar */}
-      {sites.length > 0 && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              className={`${inputCls} pl-9`}
-              placeholder="Search by site name, domain, or PHP version..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      {status?.enabled && installed.length === 0 && (
+        <Card>
+          <div className="text-xs text-amber-200">
+            No PHP version is installed yet. {isAdmin ? <button type="button" onClick={onGoInstance} className="cursor-pointer underline">Install one on the Instance page.</button> : 'Ask an administrator to install one.'}
           </div>
+        </Card>
+      )}
 
-          <div className="text-xs text-zinc-500">
-            Showing <span className="font-mono text-zinc-300 font-semibold">{filtered.length}</span> of{' '}
-            <span className="font-mono text-zinc-300">{sites.length}</span> sites
-          </div>
+      {sites.length > 0 && (
+        <div className="relative max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+          <input className={`${inputCls} pl-8`} placeholder="Search sites" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       )}
 
-      {/* Sites Grid or Empty State */}
       {sites.length === 0 ? (
-        <EmptyBlock
-          icon={<FileCode2 className="h-5 w-5 text-orange-400" />}
-          title="No PHP Sites Created Yet"
-          description="Deploy WordPress, Laravel, or custom PHP code with isolated pools and automated SSL."
-          action={
-            <PrimaryButton
-              onClick={() => setCreateModalOpen(true)}
-              disabled={status !== null && !status.enabled}
-            >
-              <Plus className="h-3.5 w-3.5" /> Create First Site
-            </PrimaryButton>
-          }
-        />
-      ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.08] bg-[#111115]/50 p-8 text-center text-xs text-zinc-400">
-          No sites match &ldquo;<span className="text-zinc-200 font-mono">{search}</span>&rdquo;.
-        </div>
+        status?.enabled && (
+          <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/[0.08] bg-[#111115]/50 px-6 py-16 text-center">
+            <FileCode2 className="h-7 w-7 text-zinc-500" />
+            <h3 className="mt-4 text-sm font-semibold text-zinc-200">No sites yet</h3>
+            <p className="mt-1.5 text-xs text-zinc-400">Create your first site.</p>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
-            <SiteCard key={s.id} site={s} onOpenSite={onOpenSite} />
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onOpenSite(s.id)}
+              className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/80 p-4 text-left shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] transition-all hover:border-white/[0.15] hover:bg-[#141419]"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-900 text-xs font-bold uppercase text-orange-400">
+                    {s.name.slice(0, 2)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-100">{s.name}</div>
+                    <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-400">{s.primaryDomain || 'no domain yet'}</div>
+                  </div>
+                </div>
+                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-600 transition-colors group-hover:text-orange-400" />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill tone="orange">{SITE_TYPE_LABEL[s.php!.siteType]}</Pill>
+                {s.php!.phpVersion && <Pill tone="violet">PHP {s.php!.phpVersion}</Pill>}
+                <Pill>{s.domains.length} domain{s.domains.length === 1 ? '' : 's'}</Pill>
+              </div>
+            </button>
           ))}
         </div>
       )}
 
-      {/* Create Site Modal */}
-      <CreateSiteModal
-        open={createModalOpen}
-        status={status}
-        isAdmin={isAdmin}
-        onClose={() => setCreateModalOpen(false)}
-        onCreated={async (newId) => {
-          await onRefresh();
-          onOpenSite(newId);
-        }}
-        onGoInstance={onGoInstance}
-      />
+      <ShadcnDialog
+        open={open}
+        onClose={() => !creating && setOpen(false)}
+        title="New site"
+        icon={<Plus className="h-4 w-4" />}
+        maxWidth="lg"
+        footer={
+          <>
+            <GhostButton onClick={() => setOpen(false)} disabled={creating}>Cancel</GhostButton>
+            <PrimaryButton busy={creating} onClick={create} disabled={!name.trim() || blocker !== ''}>Create site</PrimaryButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            {TYPE_CARDS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setType(t.id)}
+                className={`cursor-pointer rounded-xl border p-3 text-left transition-colors ${
+                  type === t.id ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/[0.08] bg-zinc-900/60 hover:bg-zinc-900'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 text-zinc-100">{t.icon}<span className="text-xs font-semibold">{t.title}</span></div>
+                <div className="mt-1 text-[11px] leading-snug text-zinc-400">{t.text}</div>
+              </button>
+            ))}
+          </div>
+
+          <Field label="Site name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="my-site" autoFocus />
+          </Field>
+
+          {needsPhp && (
+            <Field label="PHP version">
+              <select className={selectCls} value={version} onChange={(e) => setVersion(e.target.value)}>
+                {installed.map((v) => <option key={v} value={v}>PHP {v}</option>)}
+              </select>
+            </Field>
+          )}
+
+          {type === 'wordpress' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Site title"><input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={name || 'My blog'} /></Field>
+              <Field label="Admin user"><input className={inputCls} value={wpUser} onChange={(e) => setWpUser(e.target.value)} /></Field>
+              <div className="sm:col-span-2">
+                <Field label="Admin e-mail"><input type="email" className={inputCls} value={wpEmail} onChange={(e) => setWpEmail(e.target.value)} placeholder="you@example.com" /></Field>
+              </div>
+            </div>
+          )}
+
+          {blocker && blocker !== 'Loading…' && (
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              {blocker} {isAdmin ? 'Fix this on the Instance page.' : 'Ask an administrator.'}
+            </div>
+          )}
+        </div>
+      </ShadcnDialog>
     </div>
   );
 };

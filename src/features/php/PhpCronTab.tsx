@@ -7,6 +7,7 @@ import { ShadcnDialog } from '../../components/ui/Primitives';
 import type { PhpCronRow } from '../../lib/api/phpApi';
 import {
   Card,
+  EmptyState,
   ErrorBlock,
   Field,
   GhostButton,
@@ -91,7 +92,7 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
 
   const openCreate = () => {
     setEditing(null);
-    setSchedule(TEMPLATES.find((t) => t.minutes >= min)?.expr || '0 * * * *');
+    setSchedule(TEMPLATES.find((t) => t.minutes >= Math.max(min, 5))?.expr || '0 * * * *');
     const k: JobKind = detail.site.site_type === 'wordpress' ? 'wordpress' : 'file';
     setKind(k);
     setFilePath('');
@@ -154,71 +155,49 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
   return (
     <div className="space-y-5">
       <Card
-        title="Cron Jobs"
-        description="Automated scheduled background tasks"
+        title="Cron jobs"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <GhostButton onClick={() => setHelp(true)} title="Documentation & Presets" className="h-8">
-              <BookOpen className="h-3.5 w-3.5 text-zinc-400" />
-              <span>Presets</span>
+          <>
+            <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
+              <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
             </GhostButton>
-            {!limits.unlimited && (
-              <Pill tone={limitReached ? 'amber' : 'zinc'}>
-                {limits.used_cron_jobs} / {limits.max_cron_jobs || '∞'} Quota
-              </Pill>
-            )}
-            <PrimaryButton onClick={openCreate} disabled={limitReached} className="h-8">
-              <Plus className="h-3.5 w-3.5" />
-              <span>New Task</span>
+            {!limits.unlimited && <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill>}
+            <PrimaryButton onClick={openCreate} disabled={limitReached}>
+              <Plus className="h-3.5 w-3.5" /> Add cron job
             </PrimaryButton>
-          </div>
+          </>
         }
       >
-        {min > 1 && (
-          <p className="mb-3 text-[11px] text-zinc-500 font-mono">
-            Minimum allowed interval: once every {min} minutes.
-          </p>
-        )}
+        {min > 1 && <p className="mb-3 text-[11px] text-zinc-500">Minimum interval: {min} minutes.</p>}
         {(detail.cron_jobs ?? []).length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <Clock className="h-6 w-6 text-zinc-600" />
-            <p className="text-xs text-zinc-400">No scheduled cron jobs configured yet.</p>
-          </div>
+          <EmptyState icon={<Clock className="h-6 w-6" />} text="No cron jobs yet." />
         ) : (
           <ul className="divide-y divide-white/[0.05]">
             {(detail.cron_jobs ?? []).map((j) => (
               <li key={j.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <button type="button" onClick={() => openEdit(j)} className="min-w-0 flex-1 cursor-pointer text-left">
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-orange-400 border border-white/[0.06]">
-                      {j.schedule}
-                    </code>
-                    {!j.enabled && <Pill tone="amber">Paused</Pill>}
+                    <code className="rounded bg-[#09090b] px-1.5 py-0.5 font-mono text-[11px] text-orange-300">{j.schedule}</code>
+                    {!j.enabled && <Pill tone="amber">paused</Pill>}
                     {j.last_status && <Pill tone={statusTone(j.last_status)}>{j.last_status}</Pill>}
                   </div>
-                  <div className="mt-1.5 truncate font-mono text-xs text-zinc-200">{j.command}</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500 font-mono">Last executed: {formatTime(j.last_run_at)}</div>
+                  <div className="mt-1 truncate font-mono text-xs text-zinc-200">{j.command}</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">Last run: {formatTime(j.last_run_at)}</div>
                 </button>
                 <div className="flex items-center gap-1.5">
                   {j.last_output && (
-                    <GhostButton
-                      onClick={() => setOutput({ title: `Output: ${j.command}`, text: j.last_output })}
-                      title="Inspect latest execution output"
-                      className="h-7.5 px-2.5 text-[11px]"
-                    >
-                      <Terminal className="h-3 w-3" />
-                      <span className="hidden sm:inline">Output</span>
+                    <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output">
+                      <Terminal className="h-3.5 w-3.5" />
                     </GhostButton>
                   )}
-                  <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run immediately" className="h-7.5 px-2.5 text-[11px]">
-                    <Play className="h-3 w-3 text-emerald-400" />
-                    <span>Run</span>
+                  <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run now">
+                    <Play className="h-3.5 w-3.5" /> Run
                   </GhostButton>
-                  <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause job' : 'Resume job'} className="h-7.5 px-2.5 text-[11px]">
-                    {j.enabled ? <Pause className="h-3 w-3 text-amber-400" /> : <Play className="h-3 w-3 text-emerald-400" />}
+                  <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'}>
+                    {j.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   </GhostButton>
-                  <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)} className="h-7.5 px-2.5 text-[11px]">
-                    <Trash2 className="h-3 w-3" />
+                  <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)}>
+                    <Trash2 className="h-3.5 w-3.5" />
                   </GhostButton>
                 </div>
               </li>
@@ -230,20 +209,20 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
       <ShadcnDialog
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? 'Edit Scheduled Task' : 'New Scheduled Task'}
-        icon={<Clock className="h-4 w-4 text-orange-400" />}
+        title={editing ? 'Edit cron job' : 'Add cron job'}
+        icon={<Clock className="h-4 w-4" />}
         maxWidth="lg"
         footer={
-          <div className="flex items-center justify-end gap-2">
+          <>
             <GhostButton onClick={() => setOpen(false)}>Cancel</GhostButton>
             <PrimaryButton busy={busy === 'save'} onClick={save} disabled={!command.trim()}>
-              {editing ? 'Save Changes' : 'Create Task'}
+              {editing ? 'Save' : 'Add'}
             </PrimaryButton>
-          </div>
+          </>
         }
       >
-        <div className="space-y-3.5">
-          <Field label="Task Type">
+        <div className="space-y-3">
+          <Field label="What should it run?">
             <select className={selectCls} value={kind} onChange={(e) => pickKind(e.target.value as JobKind)}>
               {JOB_KINDS.map((k) => (
                 <option key={k.id} value={k.id}>{k.label}</option>
@@ -251,45 +230,42 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </select>
           </Field>
           {kind === 'file' && (
-            <Field label="PHP Script Path" hint={`Relative to site root directory (${siteDir})`}>
+            <Field label="PHP file">
               <input
                 className={`${inputCls} font-mono`}
                 value={filePath}
-                placeholder="cron.php"
+                placeholder="cron.php  or  scripts/cleanup.php"
                 onChange={(e) => { setFilePath(e.target.value); setCommand(build('file', e.target.value, urlValue)); }}
               />
             </Field>
           )}
           {kind === 'url' && (
-            <Field label="Webhook / Endpoint URL" hint="HTTP GET request invoked on schedule">
+            <Field label="Web address">
               <input
                 className={`${inputCls} font-mono`}
                 value={urlValue}
-                placeholder="https://example.com/api/cron"
+                placeholder="https://example.com/cron.php"
                 onChange={(e) => { setUrlValue(e.target.value); setCommand(build('url', filePath, e.target.value)); }}
               />
             </Field>
           )}
-          <Field label="Schedule Frequency" hint="Select preset cadence or supply standard 5-part cron expression">
+          <Field label="Schedule" hint="minute  hour  day  month  weekday">
             <select className={`${selectCls} mb-2`} value="" onChange={(e) => e.target.value && setSchedule(e.target.value)}>
-              <option value="">Select preset frequency...</option>
+              <option value="">Choose a schedule…</option>
               {TEMPLATES.filter((t) => t.minutes >= min).map((t) => (
-                <option key={t.expr} value={t.expr}>{t.label} ({t.expr})</option>
+                <option key={t.expr} value={t.expr}>{t.label}</option>
               ))}
             </select>
             <input className={`${inputCls} font-mono`} value={schedule} onChange={(e) => setSchedule(e.target.value)} />
           </Field>
-          <Field label="Command String" hint="Raw shell command executed in site container context">
+          <Field label="Command">
             <input
               className={`${inputCls} font-mono`}
               value={command}
               onChange={(e) => { setCommand(e.target.value); setKind('custom'); }}
-              placeholder="php /path/to/script.php"
+              placeholder="command to run"
             />
           </Field>
-          <button type="button" onClick={() => setHelp(true)} className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-orange-300 hover:text-orange-200">
-            <BookOpen className="h-3 w-3" /> How do cron jobs work?
-          </button>
         </div>
       </ShadcnDialog>
 
@@ -301,38 +277,62 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
         maxWidth="xl"
         footer={<GhostButton onClick={() => setHelp(false)}>Close</GhostButton>}
       >
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1 text-xs leading-relaxed text-zinc-300">
-          <p>A cron job runs a command automatically on a schedule, for example to send emails every 5 minutes or clean old files every night.</p>
-          <div>
-            <div className="mb-1 font-medium text-zinc-100">1. Where are my files?</div>
-            <p>Your site files live in <code className="font-mono text-orange-300">{siteDir}</code>. A file you uploaded as <code className="font-mono text-orange-300">cron.php</code> in the File Manager is <code className="font-mono text-orange-300">{siteDir}/cron.php</code>.</p>
-          </div>
-          <div>
-            <div className="mb-1 font-medium text-zinc-100">2. The easy way</div>
-            <p>Click <b>Add cron job</b>, choose <b>Run a PHP file from my site</b>, type the file's path (like <code className="font-mono text-orange-300">cron.php</code> or <code className="font-mono text-orange-300">scripts/cleanup.php</code>), then pick how often. The command is filled in for you.</p>
-          </div>
-          <div>
-            <div className="mb-1 font-medium text-zinc-100">3. Examples</div>
-            <ul className="space-y-1.5">
-              <li><code className="font-mono text-zinc-100">cd {siteDir} &amp;&amp; php cron.php</code> — run your own script</li>
-              <li><code className="font-mono text-zinc-100">cd {siteDir} &amp;&amp; wp cron event run --due-now</code> — WordPress scheduled posts, backups and plugin tasks</li>
-              <li><code className="font-mono text-zinc-100">cd {siteDir} &amp;&amp; php artisan schedule:run</code> — Laravel (schedule it every minute)</li>
-              <li><code className="font-mono text-zinc-100">curl -fsS -o /dev/null https://example.com/cron.php?key=secret</code> — open a web address</li>
+        <div className="max-h-[60vh] space-y-5 overflow-y-auto pr-1 text-xs leading-relaxed text-zinc-400">
+          <p>A cron job runs a command on a schedule, for example to send emails every 5 minutes or clean old files every night.</p>
+
+          <section className="space-y-1.5">
+            <h3 className="text-xs font-semibold text-zinc-100">Where your files are</h3>
+            <p>
+              Your site folder is <code className="font-mono text-orange-300">{siteDir}</code>. A file uploaded as{' '}
+              <code className="font-mono text-orange-300">cron.php</code> in the File Manager is{' '}
+              <code className="font-mono text-orange-300">{siteDir}/cron.php</code>.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h3 className="text-xs font-semibold text-zinc-100">The easy way</h3>
+            <p>
+              Click <b className="text-zinc-200">Add cron job</b>, keep <b className="text-zinc-200">Run a PHP file from my site</b>, type the
+              file's path (<code className="font-mono text-orange-300">cron.php</code> or{' '}
+              <code className="font-mono text-orange-300">scripts/cleanup.php</code>) and choose a schedule. The command is filled in for you.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h3 className="text-xs font-semibold text-zinc-100">Examples</h3>
+            <ul className="space-y-2">
+              {[
+                [`cd ${siteDir} && php cron.php`, 'your own script'],
+                [`cd ${siteDir} && wp cron event run --due-now`, 'WordPress scheduled tasks'],
+                [`cd ${siteDir} && php artisan schedule:run`, 'Laravel, every minute'],
+                ['curl -fsS -o /dev/null https://example.com/cron.php', 'open a web address'],
+              ].map(([cmd, note]) => (
+                <li key={cmd}>
+                  <code className="block break-all rounded-md bg-[#09090b] px-2 py-1.5 font-mono text-[11px] text-zinc-200">{cmd}</code>
+                  <span className="mt-0.5 block text-[11px] text-zinc-500">{note}</span>
+                </li>
+              ))}
             </ul>
-          </div>
-          <div>
-            <div className="mb-1 font-medium text-zinc-100">4. Schedule format</div>
-            <p>Five fields: <code className="font-mono text-orange-300">minute hour day-of-month month weekday</code>. <code className="font-mono text-orange-300">*/5 * * * *</code> means every 5 minutes, <code className="font-mono text-orange-300">0 4 * * *</code> means every day at 04:00. Use the “Choose how often” list if you are unsure.</p>
-          </div>
-          <div>
-            <div className="mb-1 font-medium text-zinc-100">5. Good to know</div>
+          </section>
+
+          <section className="space-y-1.5">
+            <h3 className="text-xs font-semibold text-zinc-100">Schedule</h3>
+            <p>
+              Five fields: <code className="font-mono text-orange-300">minute hour day month weekday</code>.{' '}
+              <code className="font-mono text-orange-300">*/5 * * * *</code> runs every 5 minutes and{' '}
+              <code className="font-mono text-orange-300">0 4 * * *</code> every day at 04:00. The schedule list fills it in for you.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h3 className="text-xs font-semibold text-zinc-100">Good to know</h3>
             <ul className="list-disc space-y-1 pl-4">
-              <li>Commands run as your site's own user inside your PHP container, so they can only touch your own files.</li>
-              <li>Use <b>Run</b> on a job to test it now and see its output.</li>
+              <li>Jobs run as your site's own user, so they can only reach your own files.</li>
+              <li>Commands start in the document root, so the examples first <code className="font-mono text-zinc-300">cd</code> into the site folder.</li>
+              <li><b className="text-zinc-200">Run</b> tests a job now and shows its output.</li>
               {min > 1 && <li>Jobs can run at most once every {min} minutes.</li>}
-              <li>The command starts in your document root{rootDir ? ` (${detail.doc_root})` : ''}. That is why the examples first <code className="font-mono">cd</code> into the site folder.</li>
             </ul>
-          </div>
+          </section>
         </div>
       </ShadcnDialog>
 

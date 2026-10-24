@@ -362,7 +362,7 @@ func main() {
 	app.Post("/apps/:id/php/pma/open", p.PHPPMAOpen)
 	app.Post("/api/php/instance/pma", p.RequireAdminMiddleware, p.PHPPMAAction)
 	app.Post("/api/php/instance/pma/open", p.RequireAdminMiddleware, p.PHPPMAOpenAll)
-	app.All("/phpmyadmin", func(c *fiber.Ctx) error { return c.Redirect("/phpmyadmin/") })
+	app.All("/phpmyadmin", p.PMAProxy)
 	app.All("/phpmyadmin/*", p.PMAProxy)
 	app.Post("/apps/:id/php/cron", p.PHPCronCreate)
 	app.Post("/apps/:id/php/cron/:jid", p.PHPCronUpdate)

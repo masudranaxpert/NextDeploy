@@ -80,6 +80,17 @@ import {
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { PhpSettingsTab } from '../php/PhpSettingsTab';
 import { PhpDomainsTab } from '../php/PhpDomainsTab';
+import {
+  Archive as PhpTabArchive,
+  Clock as PhpTabClock,
+  Database as PhpTabDatabase,
+  FolderOpen as PhpTabFolder,
+  Globe as PhpTabGlobe,
+  ScrollText as PhpTabLogs,
+  Settings2 as PhpTabSettings,
+  SquareTerminal as PhpTabTerminal,
+  Users as PhpTabUsers,
+} from 'lucide-react';
 import { PhpDatabasesTab } from '../php/PhpDatabasesTab';
 import { PhpCronTab } from '../php/PhpCronTab';
 import { PhpLogsTab } from '../php/PhpLogsTab';
@@ -1806,18 +1817,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   }, [hasGitConnection, activeTab]);
 
   // Tabs
-  const phpTabs: { id: AppWorkspaceTab; label: string; count?: number }[] = [
-    { id: 'php-settings', label: 'Settings' },
-    { id: 'domains', label: 'Domains', count: app.domains.length },
-    ...(app.php?.siteType !== 'static' ? [{ id: 'php-databases' as AppWorkspaceTab, label: 'Databases' }] : []),
-    { id: 'files', label: 'File Manager' },
-    ...(app.php?.siteType !== 'static' ? [{ id: 'php-cron' as AppWorkspaceTab, label: 'Cron Jobs' }] : []),
-    ...(app.php?.siteType !== 'static' ? [{ id: 'php-logs' as AppWorkspaceTab, label: 'Logs' }] : []),
-    ...(app.php?.siteType !== 'static' ? [{ id: 'terminal' as AppWorkspaceTab, label: 'Terminal' }] : []),
-    { id: 'backups', label: 'Backups', count: projectBackups.length },
-    { id: 'collaborators', label: 'Access' },
+  const phpTabs: { id: AppWorkspaceTab; label: string; count?: number; icon?: React.ReactNode }[] = [
+    { id: 'php-settings', label: 'Settings', icon: <PhpTabSettings className="h-3.5 w-3.5" /> },
+    { id: 'domains', label: 'Domains', count: app.domains.length, icon: <PhpTabGlobe className="h-3.5 w-3.5" /> },
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-databases' as AppWorkspaceTab, label: 'Databases', icon: <PhpTabDatabase className="h-3.5 w-3.5" /> }] : []),
+    { id: 'files', label: 'File Manager', icon: <PhpTabFolder className="h-3.5 w-3.5" /> },
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-cron' as AppWorkspaceTab, label: 'Cron Jobs', icon: <PhpTabClock className="h-3.5 w-3.5" /> }] : []),
+    ...(app.php?.siteType !== 'static' ? [{ id: 'php-logs' as AppWorkspaceTab, label: 'Logs', icon: <PhpTabLogs className="h-3.5 w-3.5" /> }] : []),
+    ...(app.php?.siteType !== 'static' ? [{ id: 'terminal' as AppWorkspaceTab, label: 'Terminal', icon: <PhpTabTerminal className="h-3.5 w-3.5" /> }] : []),
+    { id: 'backups', label: 'Backups', count: projectBackups.length, icon: <PhpTabArchive className="h-3.5 w-3.5" /> },
+    { id: 'collaborators', label: 'Access', icon: <PhpTabUsers className="h-3.5 w-3.5" /> },
   ];
-  const tabs: { id: AppWorkspaceTab; label: string; count?: number }[] = app.php ? phpTabs : [
+  const tabs: { id: AppWorkspaceTab; label: string; count?: number; icon?: React.ReactNode }[] = app.php ? phpTabs : [
     { id: 'overview', label: 'General' },
     { id: 'containers', label: 'Containers', count: app.services.length },
     { id: 'deployments', label: 'Deployments', count: app.deployments.length },
@@ -2206,6 +2217,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     active ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
+                  {t.icon && <span className={active ? 'text-orange-400' : 'text-zinc-500'}>{t.icon}</span>}
                   <span>{t.label}</span>
                   {typeof t.count === 'number' && (
                     <span

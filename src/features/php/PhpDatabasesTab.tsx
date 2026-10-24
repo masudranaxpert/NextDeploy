@@ -5,20 +5,7 @@ import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import type { PhpDbUserRow } from '../../lib/api/phpApi';
-import {
-  Card,
-  CopyField,
-  ErrorBlock,
-  Field,
-  GhostButton,
-  LoadingBlock,
-  Pill,
-  PrimaryButton,
-  formatBytes,
-  inputCls,
-  selectCls,
-  usePhpSite,
-} from './ui';
+import { Card, CopyField, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, formatBytes, inputCls, selectCls, usePhpSite } from './ui';
 
 type Access = 'all' | 'read';
 interface Creds {
@@ -182,105 +169,82 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
     <div className="space-y-5">
       <Card
         title="Databases"
-        description={`Connection host: ${mysql.host}:${mysql.port}`}
+        description={`${mysql.host}:${mysql.port}`}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             {!limits.unlimited && (
-              <Pill tone={limitReached ? 'amber' : 'zinc'}>
-                {limits.used_databases} / {limits.max_databases || '∞'} Quota
-              </Pill>
+              <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_databases}/{limits.max_databases || '∞'} used</Pill>
             )}
             {detail.pma?.enabled && databases.length > 0 && (
               <GhostButton
                 disabled={!mysql.ready}
                 busy={busy === 'pma'}
                 onClick={() => void openPma()}
-                className="h-8 text-orange-300"
               >
-                <ExternalLink className="h-3.5 w-3.5 text-orange-400" />
-                <span>phpMyAdmin</span>
+                <ExternalLink className="h-3.5 w-3.5 text-zinc-400" /> phpMyAdmin
               </GhostButton>
             )}
-            <PrimaryButton
-              disabled={!mysql.ready || limitReached}
-              onClick={() => setDbOpen(true)}
-              className="h-8"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>New Database</span>
+            <PrimaryButton disabled={!mysql.ready || limitReached} onClick={() => setDbOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> Add database
             </PrimaryButton>
-          </div>
+          </>
         }
       >
         {!mysql.ready && (
-          <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-200">
-            Database server container is offline. Enable it in PHP Hosting → Instance Setup.
+          <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            The database server is not running.
           </div>
         )}
         {databases.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <Database className="h-6 w-6 text-zinc-600" />
-            <p className="text-xs text-zinc-400">No databases created yet. Create a database to get started.</p>
-          </div>
+          <EmptyState icon={<Database className="h-6 w-6" />} text="No databases yet." />
         ) : (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <table className="w-full text-left text-xs min-w-[500px]">
-              <thead className="border-b border-white/[0.06] text-[11px] font-medium text-zinc-400">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[11px] text-zinc-500">
                 <tr>
-                  <th className="py-2.5 px-4 font-medium">Database Name</th>
-                  <th className="py-2.5 px-4 font-medium">Storage Size</th>
-                  <th className="py-2.5 px-4 font-medium">Authorized Users</th>
-                  <th className="py-2.5 px-4 text-right font-medium">Actions</th>
+                  <th className="py-2 pr-4 font-medium">Database</th>
+                  <th className="py-2 pr-4 font-medium">Size</th>
+                  <th className="py-2 pr-4 font-medium">Users with access</th>
+                  <th className="py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.04]">
+              <tbody className="divide-y divide-white/[0.05]">
                 {databases.map((d) => (
-                  <tr key={d.id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-3 px-4 font-mono font-semibold text-zinc-100">{d.db_name}</td>
-                    <td className="py-3 px-4 font-mono text-zinc-400">{formatBytes(d.size_bytes)}</td>
-                    <td className="py-3 px-4">
+                  <tr key={d.id}>
+                    <td className="py-2.5 pr-4 font-mono text-zinc-100">{d.db_name}</td>
+                    <td className="py-2.5 pr-4 font-mono text-zinc-400">{formatBytes(d.size_bytes)}</td>
+                    <td className="py-2.5 pr-4">
                       {(d.users ?? []).length === 0 ? (
-                        <span className="text-zinc-500">None assigned</span>
+                        <span className="text-zinc-500">none yet</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {d.users.map((u) => (
-                            <Pill key={u.user_id} tone={u.access === 'all' ? 'green' : 'zinc'}>
-                              {u.user} · {accessLabel(u.access)}
-                            </Pill>
+                            <Pill key={u.user_id} tone={u.access === 'all' ? 'green' : 'zinc'}>{u.user} · {accessLabel(u.access)}</Pill>
                           ))}
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-2.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <a
                           href={backendApi.phpDbExportUrl(app.id, d.id)}
-                          className="inline-flex h-7.5 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors"
-                          title="Export database dump (.sql.gz)"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                          title="Download .sql.gz"
                         >
-                          <Download className="h-3 w-3" />
-                          <span className="hidden sm:inline text-[11px]">Dump</span>
+                          <Download className="h-3.5 w-3.5" />
                         </a>
                         <GhostButton
                           busy={busy === 'imp' + d.id}
-                          title="Import database dump"
+                          title="Import .sql / .sql.gz"
                           onClick={() => {
                             importTarget.current = d.id;
                             fileRef.current?.click();
                           }}
-                          className="h-7.5 px-2.5"
                         >
-                          <Upload className="h-3 w-3" />
-                          <span className="hidden sm:inline text-[11px]">Import</span>
+                          <Upload className="h-3.5 w-3.5" />
                         </GhostButton>
-                        <GhostButton
-                          tone="danger"
-                          busy={busy === 'deldb' + d.id}
-                          onClick={() => removeDb(d.id, d.db_name)}
-                          title="Delete database"
-                          className="h-7.5 px-2.5"
-                        >
-                          <Trash2 className="h-3 w-3" />
+                        <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database">
+                          <Trash2 className="h-3.5 w-3.5" />
                         </GhostButton>
                       </div>
                     </td>
@@ -294,20 +258,15 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
       </Card>
 
       <Card
-        title="Database Users"
-        description="Database accounts and permissions"
+        title="Database users"
         actions={
-          <PrimaryButton disabled={!mysql.ready} onClick={openCreateUser} className="h-8">
-            <Plus className="h-3.5 w-3.5" />
-            <span>New User</span>
+          <PrimaryButton disabled={!mysql.ready} onClick={openCreateUser}>
+            <Plus className="h-3.5 w-3.5" /> Add user
           </PrimaryButton>
         }
       >
         {users.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <UserRound className="h-6 w-6 text-zinc-600" />
-            <p className="text-xs text-zinc-400">No database users yet.</p>
-          </div>
+          <EmptyState icon={<UserRound className="h-6 w-6" />} text="No users yet." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -354,52 +313,47 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </table>
           </div>
         )}
-        <p className="mt-3 text-[11px] text-zinc-500">Passwords are never stored. Reset one to get a new password, shown once.</p>
       </Card>
 
       <ShadcnDialog
         open={dbOpen}
         onClose={() => setDbOpen(false)}
-        title="Create Database"
-        description="Creates an isolated MariaDB database schema for this site."
-        icon={<Database className="h-4 w-4 text-orange-400" />}
+        title="Add database"
+        icon={<Database className="h-4 w-4" />}
         footer={
-          <div className="flex items-center justify-end gap-2">
+          <>
             <GhostButton onClick={() => setDbOpen(false)}>Cancel</GhostButton>
-            <PrimaryButton busy={busy === 'createdb'} onClick={createDb} disabled={!dbName.trim()}>
-              Create Database
-            </PrimaryButton>
-          </div>
+            <PrimaryButton busy={busy === 'createdb'} onClick={createDb} disabled={!dbName.trim()}>Create</PrimaryButton>
+          </>
         }
       >
-        <Field label="Database Name" hint="Lowercase alphanumeric and underscores (e.g. main_db)">
-          <input className={inputCls} value={dbName} onChange={(e) => setDbName(e.target.value.toLowerCase())} placeholder="app_db" autoFocus />
+        <Field label="Database name">
+          <input className={inputCls} value={dbName} onChange={(e) => setDbName(e.target.value.toLowerCase())} placeholder="shop" autoFocus />
         </Field>
       </ShadcnDialog>
 
       <ShadcnDialog
         open={userOpen}
         onClose={() => setUserOpen(false)}
-        title={editing ? `Edit Privileges for ${editing.user_name}` : 'Create Database User'}
-        description={editing ? 'Assign database schema access permissions.' : 'User credentials for connecting to databases.'}
-        icon={<UserRound className="h-4 w-4 text-orange-400" />}
+        title={editing ? `Access for ${editing.user_name}` : 'Add database user'}
+        icon={<UserRound className="h-4 w-4" />}
         footer={
-          <div className="flex items-center justify-end gap-2">
+          <>
             <GhostButton onClick={() => setUserOpen(false)}>Cancel</GhostButton>
             <PrimaryButton busy={busy === 'saveuser'} onClick={saveUser} disabled={!editing && !userName.trim()}>
-              {editing ? 'Save Access' : 'Create User'}
+              {editing ? 'Save access' : 'Create user'}
             </PrimaryButton>
-          </div>
+          </>
         }
       >
         <div className="space-y-4">
           {!editing && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="User name" hint="Lowercase letters, numbers and underscores; a prefix is added.">
+              <Field label="User name">
                 <input className={inputCls} value={userName} onChange={(e) => setUserName(e.target.value.toLowerCase())} placeholder="shop_app" autoFocus />
               </Field>
-              <Field label="Password (optional)" hint="Leave empty to generate a strong one.">
-                <input className={inputCls} type="text" value={userPass} onChange={(e) => setUserPass(e.target.value)} placeholder="auto-generate" />
+              <Field label="Password">
+                <input className={inputCls} type="text" value={userPass} onChange={(e) => setUserPass(e.target.value)} placeholder="leave empty to generate" />
               </Field>
             </div>
           )}
@@ -436,7 +390,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
         open={creds !== null}
         onClose={() => setCreds(null)}
         title={creds?.title || ''}
-        description="Save the password now, it is shown only once."
+        description="The password is shown only once."
         icon={<KeyRound className="h-4 w-4" />}
         footer={<PrimaryButton onClick={() => setCreds(null)}>I saved it</PrimaryButton>}
       >
