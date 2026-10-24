@@ -93,6 +93,7 @@ import { ProjectDomainsTab } from './tabs/ProjectDomainsTab';
 import { ProjectGitTab } from './tabs/ProjectGitTab';
 import { ProjectVolumesTab } from './tabs/ProjectVolumesTab';
 import { ProjectBackupsTab } from './tabs/ProjectBackupsTab';
+import { SiteTypeIcon, WordPressIcon, LaravelIcon, PhpIcon, StaticSiteIcon } from '../../components/ui/BrandIcons';
 
 interface AppWorkspaceProps {
   app: AppStack;
@@ -174,16 +175,16 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       const tabParam = new URLSearchParams(window.location.search).get('tab');
       const validTabs: AppWorkspaceTab[] = [
         'overview',
+        'containers',
+        'deployments',
         'terminal',
-        'compose',
-        'deploy',
         'logs',
         'env',
         'domains',
         'files',
+        'volumes',
         'backups',
         'git',
-        'advanced',
         'php-settings',
         'php-databases',
         'php-cron',
@@ -241,7 +242,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     try {
       const bootRes = await backendApi.bootstrap();
       if (!bootRes.ok || !bootRes.data?.apps) return;
-      const fresh = bootRes.data.apps.find((a: any) => a.id === app.id);
+      const fresh: any = bootRes.data.apps.find((a: any) => a.id === app.id);
       if (!fresh) return;
       const liveContainers: any[] = Array.isArray(bootRes.data.containers)
         ? bootRes.data.containers
@@ -2028,7 +2029,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </button>
 
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.09] bg-zinc-900 font-display text-xs font-bold text-orange-400 uppercase shadow-inner">
-              {app.name.slice(0, 2)}
+              {app.php ? (
+                <SiteTypeIcon type={app.php.siteType} name={app.name} className="h-5 w-5" />
+              ) : (
+                app.name.slice(0, 2)
+              )}
             </div>
 
             <div className="min-w-0">
@@ -2048,10 +2053,27 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   }
                 />
                 {app.php ? (
-                  <span className="rounded-md border border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-300">
-                    {app.php.siteType === 'wordpress' ? 'WordPress' : app.php.siteType === 'static' ? 'Static' : 'PHP'}
-                    {app.php.phpVersion ? ` ${app.php.phpVersion}` : ''}
-                  </span>
+                  app.php.siteType === 'wordpress' || app.name.toLowerCase().includes('wp') ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-[#3858E9]/30 bg-[#3858E9]/10 px-2 py-0.5 font-mono text-[10px] font-medium text-[#7C9BFF]">
+                      <WordPressIcon className="h-2.5 w-2.5 text-[#3858E9]" />
+                      WordPress
+                    </span>
+                  ) : app.name.toLowerCase().includes('laravel') ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-[#FF2D20]/30 bg-[#FF2D20]/10 px-2 py-0.5 font-mono text-[10px] font-medium text-[#FFA099]">
+                      <LaravelIcon className="h-2.5 w-2.5 text-[#FF2D20]" />
+                      Laravel {app.php.phpVersion ? `· PHP ${app.php.phpVersion}` : ''}
+                    </span>
+                  ) : app.php.siteType === 'static' ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-sky-400">
+                      <StaticSiteIcon className="h-2.5 w-2.5" />
+                      Static
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-[#777BB4]/30 bg-[#777BB4]/10 px-2 py-0.5 font-mono text-[10px] font-medium text-[#B0B4E8]">
+                      <PhpIcon className="h-2.5 w-2.5 text-[#777BB4]" />
+                      PHP {app.php.phpVersion || '8.3'}
+                    </span>
+                  )
                 ) : (
                   <span className="rounded-md border border-white/[0.1] bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
                     production · {activeSlotLower.toUpperCase()}
@@ -2162,7 +2184,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 {
                   label: 'Delete Project',
                   icon: <Trash2 className="h-3.5 w-3.5" />,
-                  variant: 'danger',
+                  variant: 'danger' as const,
                   onClick: () => setDeleteDialogOpen(true),
                 },
               ].filter((it) => !app.php || it.label === 'Copy Project ID' || it.label === 'Delete Project')}

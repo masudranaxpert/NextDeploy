@@ -116,46 +116,54 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         </Card>
       )}
 
-      <Card title="Site">
+      <Card title="Environment Overview">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <div className="text-[11px] text-zinc-500">Type</div>
-            <div className="mt-1"><Pill tone="orange">{SITE_TYPE_LABEL[detail.site.site_type]}</Pill></div>
+            <div className="text-[11px] font-medium text-zinc-400">Stack Type</div>
+            <div className="mt-1.5"><Pill tone="orange">{SITE_TYPE_LABEL[detail.site.site_type]}</Pill></div>
           </div>
           <div>
-            <div className="text-[11px] text-zinc-500">Runtime</div>
-            <div className="mt-1 flex items-center gap-1.5">
-              {isStatic ? <Pill>no PHP</Pill> : <><Pill tone="violet">PHP {detail.site.php_version}</Pill><Pill tone={runtimeTone}>{detail.runtime.state}</Pill></>}
+            <div className="text-[11px] font-medium text-zinc-400">Runtime Engine</div>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              {isStatic ? (
+                <Pill tone="sky">Static Caddy</Pill>
+              ) : (
+                <>
+                  <Pill tone="violet">PHP {detail.site.php_version}</Pill>
+                  <Pill tone={runtimeTone}>{detail.runtime.state}</Pill>
+                </>
+              )}
             </div>
           </div>
           <div>
-            <div className="text-[11px] text-zinc-500">System user (UID)</div>
-            <div className="mt-1 font-mono text-xs text-zinc-200">{detail.site.uid}</div>
+            <div className="text-[11px] font-medium text-zinc-400">System UID</div>
+            <div className="mt-1.5 font-mono text-xs text-zinc-200">UID #{detail.site.uid}</div>
           </div>
           <div>
-            <div className="text-[11px] text-zinc-500">Document root</div>
-            <div className="mt-1 truncate font-mono text-[11px] text-zinc-300" title={detail.doc_root}>{detail.doc_root}</div>
+            <div className="text-[11px] font-medium text-zinc-400">Document Root</div>
+            <div className="mt-1.5 truncate font-mono text-[11px] text-zinc-300" title={detail.doc_root}>
+              {detail.doc_root}
+            </div>
           </div>
         </div>
       </Card>
 
       <Card
-        title="PHP settings"
-        description="Changes apply without downtime (PHP-FPM is reloaded gracefully)."
-        actions={<PrimaryButton busy={saving} onClick={save}>Save changes</PrimaryButton>}
+        title="PHP Configuration"
+        actions={<PrimaryButton busy={saving} onClick={save} className="h-8.5">Save Changes</PrimaryButton>}
       >
         <div className="grid gap-4 sm:grid-cols-2">
           {!isStatic && (
-            <Field label="PHP version" hint="Switching moves the site to another runtime. Your files and databases stay untouched.">
+            <Field label="PHP Version">
               <select className={selectCls} value={version} onChange={(e) => setVersion(e.target.value)}>
                 {installed.map((v) => (
                   <option key={v} value={v}>PHP {v}</option>
                 ))}
-                {!installed.includes(version) && <option value={version}>PHP {version} (not installed)</option>}
+                {!installed.includes(version) && <option value={version}>PHP {version} (uninstalled)</option>}
               </select>
             </Field>
           )}
-          <Field label="Root directory" hint={`Relative to htdocs/, e.g. "public" for Laravel. Currently serving ${detail.doc_root}`}>
+          <Field label="Document Root" hint={`Relative to htdocs/ (e.g. public for Laravel). Serves: ${detail.doc_root}`}>
             <input className={inputCls} value={rootDir} placeholder="(htdocs)" onChange={(e) => setRootDir(e.target.value)} />
           </Field>
         </div>
@@ -164,10 +172,10 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
           <>
             <div className="my-4 border-t border-white/[0.06]" />
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="memory_limit" hint={maxMem ? `Up to ${maxMem} MB (the smaller of your quota and this server's RAM).` : undefined}>
+              <Field label="memory_limit" hint={maxMem ? `Max allocation: ${maxMem} MB` : undefined}>
                 <select className={selectCls} value={form.memory_limit} onChange={(e) => set('memory_limit', e.target.value)}>
                   {withCurrent(memOptions, form.memory_limit).map((m) => (
-                    <option key={m} value={m} disabled={!memOptions.includes(m)}>{memOptions.includes(m) ? m : `${m} (above your limit)`}</option>
+                    <option key={m} value={m} disabled={!memOptions.includes(m)}>{memOptions.includes(m) ? m : `${m} (exceeds quota)`}</option>
                   ))}
                 </select>
               </Field>
@@ -196,13 +204,13 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
                   {withCurrent(sizeOptions, form.upload_max_filesize).map((t) => <option key={t}>{t}</option>)}
                 </select>
               </Field>
-              <Field label="Max PHP workers" hint={`Parallel PHP requests for this site (pm.max_children), at most ${maxWorkers} for your memory limit.`}>
+              <Field label="Max Worker Processes" hint={`pm.max_children concurrency (max: ${maxWorkers})`}>
                 <input type="number" min={1} max={maxWorkers} className={inputCls} value={form.max_children} onChange={(e) => set('max_children', Number(e.target.value))} />
               </Field>
             </div>
             <div className="mt-4">
-              <Field label="Additional php.ini directives" hint="One per line, e.g. opcache.enable = 0. Security-relevant directives are managed by the platform and rejected here.">
-                <textarea className={textareaCls} rows={4} value={form.additional} onChange={(e) => set('additional', e.target.value)} placeholder="; key = value" />
+              <Field label="Custom php.ini Directives" hint="One directive per line (e.g. opcache.enable = 1). Core security flags are protected.">
+                <textarea className={textareaCls} rows={4} value={form.additional} onChange={(e) => set('additional', e.target.value)} placeholder="; directive = value" />
               </Field>
             </div>
           </>
@@ -210,18 +218,19 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
       </Card>
 
       {!isStatic && (
-        <Card title="Maintenance">
-          <div className="flex flex-wrap items-center gap-2">
-            <GhostButton busy={busy === 'restart'} onClick={() => run('restart', () => backendApi.phpSiteRestart(app.id), 'PHP runtime restarted')}>
-              <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart PHP runtime
+        <Card title="Runtime Operations">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <GhostButton busy={busy === 'restart'} onClick={() => run('restart', () => backendApi.phpSiteRestart(app.id), 'PHP runtime pool restarted')} className="h-8.5">
+              <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
+              <span>Restart PHP Runtime</span>
             </GhostButton>
-            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')}>
-              <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" /> Repair file permissions
+            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')} className="h-8.5">
+              <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" />
+              <span>Repair Permissions</span>
             </GhostButton>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
-            Files uploaded through the panel are handed to this site's system user automatically. Use “Repair” after
-            restoring a backup or copying files by other means. Restarting the runtime briefly restarts every site of yours on PHP {detail.site.php_version}.
+            Restart PHP-FPM service or repair file ownership.
           </p>
         </Card>
       )}

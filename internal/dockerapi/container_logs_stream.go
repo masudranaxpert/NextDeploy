@@ -30,6 +30,7 @@ func ContainerIDForComposeService(ctx context.Context, project, service string) 
 		return "", err
 	}
 
+
 	fl := filters.NewArgs(
 		filters.Arg("label", composeProjectLabel+"="+project),
 		filters.Arg("label", composeServiceLabel+"="+service),
@@ -63,7 +64,7 @@ func tailClampString(n int) string {
 }
 
 // FetchContainerLogsText returns the last tailLines of combined stdout/stderr (demuxed).
-func FetchContainerLogsText(ctx context.Context, containerRef string, tailLines int, since ...string) (string, error) {
+func FetchContainerLogsText(ctx context.Context, containerRef string, tailLines int) (string, error) {
 	containerRef = strings.TrimSpace(containerRef)
 	if containerRef == "" {
 		return "", fmt.Errorf("empty container reference")
@@ -73,13 +74,6 @@ func FetchContainerLogsText(ctx context.Context, containerRef string, tailLines 
 		return "", err
 	}
 
-	var sinceVal string
-	if len(since) > 0 {
-		sinceVal = strings.TrimSpace(since[0])
-		if sinceVal == "live" {
-			sinceVal = ""
-		}
-	}
 
 	raw, err := cli.ContainerLogs(ctx, containerRef, types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -87,7 +81,6 @@ func FetchContainerLogsText(ctx context.Context, containerRef string, tailLines 
 		Timestamps: true,
 		Follow:     false,
 		Tail:       tailClampString(tailLines),
-		Since:      sinceVal,
 	})
 	if err != nil {
 		return "", err
@@ -126,8 +119,7 @@ func (d *demuxedFollowCloser) endRaw() {
 
 // FollowContainerLogsDemuxed opens a follow log stream on the Docker Engine (no docker CLI / shell).
 // tail is passed through to the API (use "0" to mirror `docker logs -f --tail 0` live-only behavior on supported engines).
-// since is optional (e.g. "15m", "1h", "24h" or RFC3339 timestamp).
-func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail string, since ...string) (io.ReadCloser, error) {
+func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail string) (io.ReadCloser, error) {
 	containerRef = strings.TrimSpace(containerRef)
 	if containerRef == "" {
 		return nil, fmt.Errorf("empty container reference")
@@ -139,24 +131,15 @@ func FollowContainerLogsDemuxed(ctx context.Context, containerRef string, tail s
 	if err != nil {
 		return nil, err
 	}
-
-	var sinceVal string
-	if len(since) > 0 {
-		sinceVal = strings.TrimSpace(since[0])
-		if sinceVal == "live" {
-			sinceVal = ""
-		}
-	}
-
 	raw, err := cli.ContainerLogs(ctx, containerRef, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Timestamps: true,
 		Follow:     true,
 		Tail:       tail,
-		Since:      sinceVal,
 	})
 	if err != nil {
+
 		return nil, err
 	}
 

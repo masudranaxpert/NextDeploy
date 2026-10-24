@@ -141,6 +141,7 @@ export interface AppCollaborator {
   username: string;
   email: string;
   role: 'owner' | 'deployer' | 'viewer';
+  permissions?: string[];
   addedAt: string;
 }
 

@@ -125,22 +125,6 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
   const activeEstimate = liveEstimate || computedEstimate;
   const activeBundle = selectedBundleForCmd || bundles[0];
 
-  const currentOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8080';
-
-  const getBundleDownloadUrl = (b: MigrationExportBundle) => {
-    if (b.downloadUrl && b.downloadUrl.startsWith('http')) return b.downloadUrl;
-    return `${currentOrigin}/migrate/download/${b.token}`;
-  };
-
-  const getBundleMigrateCmd = (b: MigrationExportBundle) => {
-    if (b.migrateCmd && b.migrateCmd.includes('--url') && b.migrateCmd.includes('http')) {
-      return b.migrateCmd;
-    }
-    const url = getBundleDownloadUrl(b);
-    return `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${url}"`;
-  };
-
   const handleStartExport = async () => {
     if (selectedSlugs.length === 0) {
       toast.error('Select at least one project to export');
@@ -190,56 +174,6 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
         </div>
       </div>
 
-      {/* When no bundle exists: Quick 3-Step Walkthrough Banner */}
-      {!activeBundle && (
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Terminal className="h-4 w-4 text-orange-400" />
-              <span className="text-xs font-semibold text-zinc-100">
-                1-Command Full Server Migration
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setDocsModalOpen(true)}
-              className="text-[11px] text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
-            >
-              Read Complete Guide →
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 space-y-1">
-              <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500/20 text-[10px] text-orange-400 font-mono">1</span>
-                Create Bundle
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                Click &quot;Create Export Bundle&quot; to snapshot selected apps, Docker volumes, databases, and Caddy configs.
-              </p>
-            </div>
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 space-y-1">
-              <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500/20 text-[10px] text-orange-400 font-mono">2</span>
-                Run on Target VPS
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                Run the generated 1-line command on your new server. NextDeploy installs, extracts, and boots all containers.
-              </p>
-            </div>
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 space-y-1">
-              <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500/20 text-[10px] text-orange-400 font-mono">3</span>
-                Update DNS
-              </div>
-              <p className="text-[11px] text-zinc-400">
-                Point your domain DNS to the new server IP. Caddy auto-issues fresh TLS 1.3 certificates instantly.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Live Target VPS One-Liner Card (Matches Go backend migrate_cmd) */}
       {activeBundle && (
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
@@ -257,7 +191,9 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const url = getBundleDownloadUrl(activeBundle);
+                  const url =
+                    activeBundle.downloadUrl ||
+                    `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`;
                   navigator.clipboard?.writeText(url);
                   toast.success('Copied one-time download URL');
                 }}
@@ -268,7 +204,12 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const cmd = getBundleMigrateCmd(activeBundle);
+                  const cmd =
+                    activeBundle.migrateCmd ||
+                    `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
+                      activeBundle.downloadUrl ||
+                      `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`
+                    }"`;
                   navigator.clipboard?.writeText(cmd);
                   toast.success('Copied target VPS migrate.sh command');
                 }}
@@ -281,7 +222,11 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
           </div>
 
           <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 font-mono text-[11px] text-zinc-200 overflow-x-auto whitespace-nowrap">
-            {getBundleMigrateCmd(activeBundle)}
+            {activeBundle.migrateCmd ||
+              `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
+                activeBundle.downloadUrl ||
+                `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`
+              }"`}
           </div>
         </div>
       )}
@@ -301,105 +246,92 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {bundles.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center">
-                    <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                        <ArrowLeftRight className="h-4 w-4 text-orange-400" />
-                      </div>
-                      <div className="font-semibold text-zinc-200 text-xs">No Export Bundles Created</div>
-                      <p className="text-[11px] text-zinc-400">
-                        Click &quot;Create Export Bundle&quot; above to package your projects, Docker volumes, and database configs for server migration.
-                      </p>
+              {bundles.map((b) => (
+                <tr
+                  key={b.id}
+                  onClick={() => setSelectedBundleForCmd(b)}
+                  className={`hover:bg-white/[0.03] cursor-pointer transition-colors ${
+                    activeBundle?.id === b.id ? 'bg-white/[0.02]' : ''
+                  }`}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-mono font-semibold text-zinc-100">{b.id}</div>
+                    <div className="font-mono text-[10px] text-zinc-500">{b.createdAt}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-orange-400 truncate">
+                      {b.selectedApps.join(', ')}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-zinc-500">
+                      {b.selectedApps.length} project(s) ·{' '}
+                      {b.workspaceBytes
+                        ? `workspace ${formatBytesHuman(b.workspaceBytes)} + volumes ${formatBytesHuman(b.volumeBytes || 0)}`
+                        : 'full state + volumes'}
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={b.status} />
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="h-3 w-3 text-zinc-500" />
+                      {b.expiresIn}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
+                    {(b.actualSizeMB / 1024).toFixed(2)} GB
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <ActionMenu
+                      items={[
+                        {
+                          label: 'Copy Target VPS Command',
+                          icon: <Terminal className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            const cmd =
+                              b.migrateCmd ||
+                              `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
+                                b.downloadUrl ||
+                                `https://panel.nextdeploy.sh/migrate/download/${b.token}`
+                              }"`;
+                            navigator.clipboard?.writeText(cmd);
+                            toast.success('Copied target VPS migrate.sh command');
+                          },
+                        },
+                        {
+                          label: 'Copy One-Time Token',
+                          icon: <Copy className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            navigator.clipboard?.writeText(b.token);
+                            toast.success('Copied migration token');
+                          },
+                        },
+                        {
+                          label: 'View Export Log',
+                          icon: <FileText className="h-3.5 w-3.5" />,
+                          onClick: () => setLogModalBundle(b),
+                        },
+                        {
+                          label: 'Download .nd-migrate',
+                          icon: <Download className="h-3.5 w-3.5" />,
+                          onClick: () =>
+                            toast.success(`Downloading nextdeploy-${b.id}.nd-migrate`),
+                        },
+                        {
+                          label: 'Delete Bundle',
+                          icon: <Trash2 className="h-3.5 w-3.5" />,
+                          variant: 'danger',
+                          onClick: () => {
+                            void backendApi.migrateExportDelete(b.id);
+                            if (onDeleteBundle) onDeleteBundle(b.id);
+                            toast.success(`Deleted export bundle ${b.id}`);
+                          },
+                        },
+                      ]}
+                    />
+                  </td>
                 </tr>
-              ) : (
-                bundles.map((b) => (
-                  <tr
-                    key={b.id}
-                    onClick={() => setSelectedBundleForCmd(b)}
-                    className={`hover:bg-white/[0.03] cursor-pointer transition-colors ${
-                      activeBundle?.id === b.id ? 'bg-white/[0.02]' : ''
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-mono font-semibold text-zinc-100">{b.id}</div>
-                      <div className="font-mono text-[10px] text-zinc-500">{b.createdAt}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-orange-400 truncate">
-                        {b.selectedApps.join(', ')}
-                      </div>
-                      <div className="mt-0.5 font-mono text-[10px] text-zinc-500">
-                        {b.selectedApps.length} project(s) ·{' '}
-                        {b.workspaceBytes
-                          ? `workspace ${formatBytesHuman(b.workspaceBytes)} + volumes ${formatBytesHuman(b.volumeBytes || 0)}`
-                          : 'full state + volumes'}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={b.status} />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-zinc-500" />
-                        {b.expiresIn}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {(b.actualSizeMB / 1024).toFixed(2)} GB
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <ActionMenu
-                        items={[
-                          {
-                            label: 'Copy Target VPS Command',
-                            icon: <Terminal className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              const cmd = getBundleMigrateCmd(b);
-                              navigator.clipboard?.writeText(cmd);
-                              toast.success('Copied target VPS migrate.sh command');
-                            },
-                          },
-                          {
-                            label: 'Copy One-Time Token',
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(b.token);
-                              toast.success('Copied migration token');
-                            },
-                          },
-                          {
-                            label: 'View Export Log',
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () => setLogModalBundle(b),
-                          },
-                          {
-                            label: 'Download .nd-migrate',
-                            icon: <Download className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              const url = getBundleDownloadUrl(b);
-                              window.open(url, '_blank');
-                            },
-                          },
-                          {
-                            label: 'Delete Bundle',
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            variant: 'danger',
-                            onClick: () => {
-                              void backendApi.migrateExportDelete(b.id);
-                              if (onDeleteBundle) onDeleteBundle(b.id);
-                              toast.success(`Deleted export bundle ${b.id}`);
-                            },
-                          },
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
@@ -597,47 +529,39 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 </div>
                 <p className="text-zinc-400">
                   Click <strong className="text-zinc-200">Create Export Bundle</strong> and choose
-                  which projects to migrate. NextDeploy pauses containers momentarily to flush database WALs,
-                  packages workspaces and volumes into a self-contained <code className="text-orange-300">.nd-migrate</code>{' '}
-                  archive, and generates a single-use SHA-256 token.
+                  which projects to migrate. NextDeploy estimates workspace + Docker volume sizes
+                  via <code className="text-orange-300">GET /migrate/estimate</code> and packages
+                  everything into a single <code className="text-orange-300">.nd-migrate</code>{' '}
+                  archive.
                 </p>
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-[#09090b] p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-zinc-100 flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-orange-400" />
-                    Step 2 — Run 1-Line Command on Target VPS
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const sampleCmd = `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${currentOrigin}/migrate/download/<token>"`;
-                      navigator.clipboard?.writeText(sampleCmd);
-                      toast.success('Copied import command template');
-                    }}
-                    className="inline-flex items-center gap-1 text-[11px] text-orange-400 hover:text-orange-300 cursor-pointer"
-                  >
-                    <Copy className="h-3 w-3" />
-                    Copy Template
-                  </button>
+                <div className="font-semibold text-zinc-100 flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-orange-400" />
+                  Step 2 — Run the One-Line Import on Target VPS
                 </div>
                 <p className="text-zinc-400">
-                  SSH into your fresh Ubuntu or Debian server as root/sudo. Run the single command below.
-                  If NextDeploy is not installed, it automatically bootstraps Docker and Caddy, streams the bundle, restores database volumes, and boots all projects:
+                  SSH into your new Ubuntu/Debian server. If NextDeploy is not installed yet,{' '}
+                  <code className="text-orange-300">migrate.sh</code> automatically runs{' '}
+                  <code className="text-orange-300">install.sh</code> first, streams the bundle over
+                  HTTPS using your one-time token, restores volumes and workspaces, and brings up
+                  all Compose stacks:
                 </p>
                 <pre className="rounded-lg border border-white/[0.08] bg-[#060608] p-3 font-mono text-[11px] text-emerald-400 overflow-x-auto">
-                  {`curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \\\n  --url "${currentOrigin}/migrate/download/<token>"`}
+                  {`curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \\\n  --url "https://panel.yourdomain.com/migrate/download/<one-time-token>"`}
                 </pre>
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-[#09090b] p-3.5 space-y-2">
                 <div className="font-semibold text-zinc-100 flex items-center gap-2">
                   <HardDrive className="h-4 w-4 text-sky-400" />
-                  Step 3 — Switch DNS to New VPS IP
+                  Step 3 — Point DNS A/AAAA Records to New VPS IP
                 </div>
                 <p className="text-zinc-400">
-                  Once the script outputs <strong className="text-emerald-400">Migration Completed</strong>, update your domain A/AAAA records to your new server IP. Caddy automatically issues fresh zero-config TLS certificates.
+                  Once <code className="text-orange-300">migrate.sh</code> completes, update your
+                  domains&apos; DNS records to the new server IP. Caddy automatically provisions
+                  fresh TLS 1.3 certificates for every restored domain route.
                 </p>
               </div>
             </div>

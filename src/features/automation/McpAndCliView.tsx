@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Copy,
-  Check,
   Trash2,
   Plus,
   Sparkles,
@@ -14,7 +13,6 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { copyToClipboard } from '../../lib/clipboard';
 import { CliSessionItem, McpToolItem } from '../../types/nextdeploy';
 import {
   ActionMenu,
@@ -29,9 +27,9 @@ interface McpAndCliViewProps {
   mode: 'mcp' | 'cli';
   tools: McpToolItem[];
   cliSessions: CliSessionItem[];
+  isAdmin?: boolean;
   onGenerateCliToken: (name: string) => void;
   onRevokeCliSession?: (id: string) => void;
-  isAdmin?: boolean;
 }
 
 export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
@@ -40,7 +38,6 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   cliSessions,
   onGenerateCliToken,
   onRevokeCliSession,
-  isAdmin = true,
 }) => {
   const [mcpServerEnabled, setMcpServerEnabled] = useState(true);
   const [mcpTab, setMcpTab] = useState<'tools' | 'rpc-logs'>('tools');
@@ -58,8 +55,6 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     allow_server_exec: false,
     allow_app_delete: false,
   });
-  const [copiedToken, setCopiedToken] = useState(false);
-  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [installCliOpen, setInstallCliOpen] = useState(false);
@@ -77,15 +72,44 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     >
   >({});
 
-  const mcpRpcLogs: Array<{
-    id: string;
-    client: string;
-    tool: string;
-    args: string;
-    status: string;
-    duration: string;
-    time: string;
-  }> = [];
+  const mcpRpcLogs = [
+    {
+      id: 'rpc-1',
+      client: 'Claude Code CLI',
+      tool: 'deploy',
+      args: '{"app_id": "commerce-core-api"}',
+      status: '200 OK',
+      duration: '840ms',
+      time: '4m ago',
+    },
+    {
+      id: 'rpc-2',
+      client: 'Cursor IDE',
+      tool: 'container_logs',
+      args: '{"app_id": "commerce-core-api", "tail": 50}',
+      status: '200 OK',
+      duration: '64ms',
+      time: '9m ago',
+    },
+    {
+      id: 'rpc-3',
+      client: 'Claude Desktop',
+      tool: 'monitor_snapshot',
+      args: '{}',
+      status: '200 OK',
+      duration: '19ms',
+      time: '21m ago',
+    },
+    {
+      id: 'rpc-4',
+      client: 'Cursor IDE',
+      tool: 'env_set',
+      args: '{"app_id": "studio-web-dashboard"}',
+      status: '200 OK',
+      duration: '112ms',
+      time: '38m ago',
+    },
+  ];
 
   const handleRegenerateMcpToken = async () => {
     const res = await backendApi.createApiToken({ name: 'mcp-default', kind: 'mcp' });
@@ -96,14 +120,14 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     const nextToken = res.data?.token || `nd_mcp_live_${randHex.slice(0, 32)}`;
     setMcpToken(nextToken);
     setRevealMcpToken(true);
-    await copyToClipboard(nextToken);
+    navigator.clipboard?.writeText(nextToken);
     toast.success('Regenerated MCP token and copied full token to clipboard');
   };
 
   if (mode === 'mcp') {
-    const filteredTools = tools
-      .filter((t) => isAdmin || t.name !== 'server_exec')
-      .filter((t) => mcpCategory === 'all' || t.category === mcpCategory);
+    const filteredTools = tools.filter(
+      (t) => mcpCategory === 'all' || t.category === mcpCategory
+    );
 
     const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "https://panel.nextdeploy.sh/mcp/sse",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
 
@@ -160,18 +184,11 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                 type="button"
                 onClick={() => {
                   navigator.clipboard?.writeText('https://panel.nextdeploy.sh/mcp/sse');
-                  setCopiedEndpoint(true);
-                  setTimeout(() => setCopiedEndpoint(false), 2000);
                   toast.success('Copied SSE endpoint');
                 }}
-                title="Copy SSE endpoint"
-                className={`rounded-lg border p-1.5 transition-all cursor-pointer shrink-0 ml-2 ${
-                  copiedEndpoint
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-                    : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                }`}
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer shrink-0 ml-2"
               >
-                {copiedEndpoint ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                Copy
               </button>
             </div>
 
@@ -199,18 +216,11 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   type="button"
                   onClick={() => {
                     navigator.clipboard?.writeText(mcpToken);
-                    setCopiedToken(true);
-                    setTimeout(() => setCopiedToken(false), 2000);
                     toast.success('Copied full MCP token');
                   }}
-                  title="Copy full token"
-                  className={`rounded-lg border p-1.5 transition-all cursor-pointer ${
-                    copiedToken
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-                      : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                  }`}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
                 >
-                  {copiedToken ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  Copy
                 </button>
                 <button
                   type="button"
@@ -234,7 +244,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                 [
                   { key: 'allow_env_reveal', label: 'env:reveal' },
                   { key: 'allow_container_exec', label: 'container:exec' },
-                  ...(isAdmin ? [{ key: 'allow_server_exec' as const, label: 'host:exec' }] : []),
+                  { key: 'allow_server_exec', label: 'host:exec' },
                   { key: 'allow_app_delete', label: 'app:delete' },
                 ] as const
               ).map((sc) => {
@@ -385,25 +395,17 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {mcpRpcLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-500 font-mono">
-                        No MCP RPC requests yet. Connect Cursor or Claude Code to stream tool calls.
+                  {mcpRpcLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-white/[0.03]">
+                      <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
+                      <td className="px-4 py-3 text-orange-400">{log.tool}</td>
+                      <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
+                      <td className="px-4 py-3 text-emerald-400">
+                        {log.status} ({log.duration})
                       </td>
+                      <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
                     </tr>
-                  ) : (
-                    mcpRpcLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-white/[0.03]">
-                        <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
-                        <td className="px-4 py-3 text-orange-400">{log.tool}</td>
-                        <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
-                        <td className="px-4 py-3 text-emerald-400">
-                          {log.status} ({log.duration})
-                        </td>
-                        <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -559,13 +561,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={async () => {
-                            const ok = await copyToClipboard(fullTokenValue);
-                            if (ok) {
-                              toast.success(`Copied full CLI token for ${s.tokenName}`);
-                            } else {
-                              toast.error('Failed to copy token to clipboard');
-                            }
+                          onClick={() => {
+                            navigator.clipboard?.writeText(fullTokenValue);
+                            toast.success(`Copied full CLI token for ${s.tokenName}`);
                           }}
                           title="Copy full CLI token"
                           className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
@@ -617,13 +615,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                           {
                             label: 'Copy Full Token',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              const ok = await copyToClipboard(fullTokenValue);
-                              if (ok) {
-                                toast.success(`Copied full token for ${s.tokenName}`);
-                              } else {
-                                toast.error('Failed to copy token');
-                              }
+                            onClick: () => {
+                              navigator.clipboard?.writeText(fullTokenValue);
+                              toast.success(`Copied full token for ${s.tokenName}`);
                             },
                           },
                           {

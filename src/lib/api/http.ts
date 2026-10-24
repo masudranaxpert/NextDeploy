@@ -116,6 +116,7 @@ export interface DomainFormPayload {
 }
 
 export interface BootstrapData {
+  [key: string]: any;
   ok?: boolean;
   needs_setup?: boolean;
   user?: {
@@ -132,6 +133,7 @@ export interface BootstrapData {
     storage_used_human?: string;
   };
   sys?: {
+    [key: string]: any;
     os?: string;
     arch?: string;
     hostname?: string;

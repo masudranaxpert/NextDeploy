@@ -40,14 +40,9 @@ func runCompose(ctx context.Context, projectDir string, composeFiles []string, p
 	args := composeBin(projectDir, composeFiles, project, envFiles, rest...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = projectDir
-	env := os.Environ()
-	if os.Getenv("DOCKER_API_VERSION") == "" {
-		env = append(env, "DOCKER_API_VERSION=1.44")
-	}
 	if configDir, ok := ctx.Value("docker_config").(string); ok && configDir != "" {
-		env = append(env, "DOCKER_CONFIG="+configDir)
+		cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+configDir)
 	}
-	cmd.Env = env
 	var buf bytes.Buffer
 	out := io.Writer(&buf)
 	if logW != nil {
@@ -126,12 +121,6 @@ func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, pr
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
-// ComposeUpNoBuild starts existing containers/images without re-building from workspace source files.
-func ComposeUpNoBuild(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
-	fixLineEndings(projectDir)
-	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--no-build")
-}
-
 func ComposeApply(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	return ComposeApplyServices(ctx, projectDir, composeFiles, project, logW, envFiles)
 }
@@ -152,6 +141,7 @@ func ComposeRmServices(ctx context.Context, projectDir string, composeFiles []st
 func ComposeDown(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "down")
 }
+
 
 // ComposeDownDeleteProject runs compose down with volumes, orphans, and removes all service images for this project (--rmi all).
 func ComposeDownDeleteProject(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
@@ -309,6 +299,7 @@ func DefaultPruneOptions() PruneOptions {
 	return PruneOptions{Containers: true, Images: true, BuildCache: false}
 }
 
+
 func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 	if !opts.Containers && !opts.Images && !opts.BuildCache {
 		return Result{OK: true, Output: "No cleanup options selected."}
@@ -407,3 +398,4 @@ func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string)
 func DockerExec(ctx context.Context, container, shellCmd string) Result {
 	return DockerExecWorkDir(ctx, container, shellCmd, "")
 }
+

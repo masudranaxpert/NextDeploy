@@ -96,16 +96,16 @@ func getCachedOrComputeHash(appID, relPath, fullPath string, size, modNano int64
 
 // defaultExcludedDirs are system, vendor, and venv directories skipped during scans.
 var defaultExcludedDirs = map[string]bool{
-	".git":                              true,
-	".nextdeploy":                       true,
-	".panel-meta":                       true,
-	"node_modules":                      true,
-	"vendor":                            true,
-	".venv":                             true,
-	"venv":                              true,
-	"__pycache__":                       true,
-	".idea":                             true,
-	".vscode":                           true,
+	".git":                             true,
+	".nextdeploy":                      true,
+	".panel-meta":                      true,
+	"node_modules":                     true,
+	"vendor":                           true,
+	".venv":                            true,
+	"venv":                             true,
+	"__pycache__":                      true,
+	".idea":                            true,
+	".vscode":                          true,
 	".nextdeploy.generated.compose.yml": true,
 }
 
@@ -410,3 +410,4 @@ func ComputeManifestDiff(res ManifestResult, localFiles map[string]string) Manif
 		TotalLocal:  len(normLocal),
 	}
 }
+

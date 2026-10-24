@@ -263,7 +263,7 @@ func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
 	params.Set("scope", "https://www.googleapis.com/auth/drive.file")
 	params.Set("access_type", "offline")
 	params.Set("prompt", "consent")
-
+	
 	return "https://accounts.google.com/o/oauth2/v2/auth?" + params.Encode()
 }
 
@@ -274,31 +274,31 @@ func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, 
 	data.Set("code", code)
 	data.Set("redirect_uri", redirectURL)
 	data.Set("grant_type", "authorization_code")
-
+	
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://oauth2.googleapis.com/token", strings.NewReader(data.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
+	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
+	
 	body, _ := io.ReadAll(resp.Body)
-
+	
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("token exchange failed: %s", string(body))
 	}
-
+	
 	var tokenResp GoogleDriveTokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return "", err
 	}
-
+	
 	tokenJSON, err := json.Marshal(map[string]interface{}{
 		"access_token":  tokenResp.AccessToken,
 		"token_type":    tokenResp.TokenType,
@@ -308,7 +308,7 @@ func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, 
 	if err != nil {
 		return "", err
 	}
-
+	
 	return string(tokenJSON), nil
 }
 
@@ -317,73 +317,73 @@ func EnsureGoogleDriveFolder(ctx context.Context, token, folderName string) (str
 	if err := json.Unmarshal([]byte(token), &tokenData); err != nil {
 		return "", err
 	}
-
+	
 	accessToken, ok := tokenData["access_token"].(string)
 	if !ok {
 		return "", fmt.Errorf("invalid token format")
 	}
-
+	
 	searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false", folderName))
-
+	
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-
+	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
+	
 	body, _ := io.ReadAll(resp.Body)
-
+	
 	var searchResult struct {
 		Files []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"files"`
 	}
-
+	
 	if err := json.Unmarshal(body, &searchResult); err != nil {
 		return "", err
 	}
-
+	
 	if len(searchResult.Files) > 0 {
 		return searchResult.Files[0].ID, nil
 	}
-
+	
 	createData := map[string]interface{}{
 		"name":     folderName,
 		"mimeType": "application/vnd.google-apps.folder",
 	}
 	createJSON, _ := json.Marshal(createData)
-
+	
 	req, err = http.NewRequestWithContext(ctx, "POST", "https://www.googleapis.com/drive/v3/files", bytes.NewReader(createJSON))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-
+	
 	resp, err = client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
+	
 	body, _ = io.ReadAll(resp.Body)
-
+	
 	var createResult struct {
 		ID string `json:"id"`
 	}
-
+	
 	if err := json.Unmarshal(body, &createResult); err != nil {
 		return "", err
 	}
-
+	
 	return createResult.ID, nil
 }
 
@@ -738,20 +738,20 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 	if err := json.Unmarshal([]byte(token), &tokenData); err != nil {
 		return "", err
 	}
-
+	
 	accessToken, ok := tokenData["access_token"].(string)
 	if !ok {
 		return "", fmt.Errorf("invalid token format")
 	}
-
+	
 	// Split path into parts (e.g., "apps/volumes/file.tar.gz" -> ["apps", "volumes", "file.tar.gz"])
 	parts := strings.Split(filePath, "/")
 	currentFolderID := folderID
-
+	
 	// Navigate through folders
 	for i, part := range parts {
 		isLastPart := i == len(parts)-1
-
+		
 		var mimeTypeQuery string
 		if isLastPart {
 			// Last part is the file
@@ -760,16 +760,16 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 			// Intermediate parts are folders
 			mimeTypeQuery = " and mimeType='application/vnd.google-apps.folder'"
 		}
-
+		
 		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false%s", part, currentFolderID, mimeTypeQuery)
 		searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(query) + "&fields=files(id,name,webViewLink)"
-
+		
 		req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 		if err != nil {
 			return "", err
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-
+		
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -788,23 +788,24 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 				WebViewLink string `json:"webViewLink"`
 			} `json:"files"`
 		}
-
+		
 		if err := json.Unmarshal(body, &searchResult); err != nil {
 			return "", err
 		}
-
+		
 		if len(searchResult.Files) == 0 {
 			return "", fmt.Errorf("file not found: %s", part)
 		}
-
+		
 		if isLastPart {
 			// Return the webViewLink for the file
 			return searchResult.Files[0].WebViewLink, nil
 		}
-
+		
 		// Move to next folder
 		currentFolderID = searchResult.Files[0].ID
 	}
-
+	
 	return "", fmt.Errorf("file not found")
 }
+

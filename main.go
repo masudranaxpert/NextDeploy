@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -9,14 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"panel/internal/db"
 	"panel/internal/handlers"
 	"panel/internal/mcp"
 	"panel/internal/perflog"
-	"panel/internal/phphosting"
-	"panel/internal/sysinfo"
 	"panel/internal/workspace"
 
 	fws "github.com/gofiber/contrib/websocket"
@@ -50,10 +47,6 @@ func main() {
 	}
 	defer database.Close()
 
-	if err := database.ClaimOrphanedRegistries(context.Background()); err != nil {
-		log.Printf("registry ownership migration: %v", err)
-	}
-
 	root := os.Getenv("WORKSPACES_ROOT")
 	if root == "" {
 		root = filepath.Join(dataDir, "workspaces")
@@ -82,17 +75,10 @@ func main() {
 		WorkspacesRoot: root,
 		SPAIndexHTML:   spaIndex,
 	}
-	p.PHP = phphosting.NewManager(database, root)
-	p.PHP.CgroupParent = p.UserCgroupParent
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
-	go p.InitBandwidthQoS()
 
 	app.Use(perflog.Middleware())
-	app.Use(func(c *fiber.Ctx) error {
-		sysinfo.RecordRequest()
-		return c.Next()
-	})
 	app.Use(p.SecurityHeadersMiddleware)
 	app.Use(compress.New())
 	app.Use(logger.New(logger.Config{
@@ -125,15 +111,6 @@ func main() {
 	p.StartBackgroundJobs()
 	go p.ReapplyUserCgroupLimitsOnStart()
 	go p.StartBackupWorker()
-	if p.PHP != nil {
-		p.PHP.StartCronScheduler(context.Background())
-		p.PHP.StartPMAJanitor(context.Background())
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			p.PHP.Reconcile(ctx)
-		}()
-	}
 
 	// Auth routes (no session middleware)
 	app.Get("/setup", p.SetupPage)
@@ -143,22 +120,15 @@ func main() {
 	app.Post("/logout", p.Logout)
 	app.Post("/webhooks/github/provider", p.ProviderGitHubWebhook)
 	app.Post("/webhooks/github/:id", p.GitHubWebhook)
-	app.Post("/webhooks/gitlab/:id", p.GitHubWebhook)
-	app.Post("/webhooks/:id", p.GitHubWebhook)
 	app.Get("/migrate/download/:token", p.MigrateDownload)
 
 	// Model Context Protocol (MCP) server endpoints for external AI coding agents
 	mcpServer := mcp.NewServer(p)
 	mcpServer.RegisterRoutes(app)
 
-	// PHP sites: hand files written through the panel/API over to the site's UID.
-	app.Use("/api/v1/apps/:id/files", p.PHPOwnershipMiddleware)
-	app.Use("/api/v1/apps/:id/workspace/archive", p.PHPOwnershipMiddleware)
-
 	// External HTTP REST API endpoints for agent workspace uploads & downloads
 	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
 	app.Get("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.DownloadWorkspaceArchive)
-	app.Get("/api/v1/metrics/history", p.APIAuthMiddleware, p.MetricsHistory)
 
 	// CLI REST API — apps, manifest, sessions
 	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
@@ -187,15 +157,7 @@ func main() {
 	app.Use("/terminal", p.RequireAdminMiddleware)
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
-	app.Use("/proxy", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
-	app.Use("/users", p.RequireAdminMiddleware)
-	app.Use("/settings", p.RequireAdminMiddleware)
-	app.Use("/cli-sessions", p.RequireAdminMiddleware)
-	app.Use("/php-instance", p.RequireAdminMiddleware)
-	app.Use("/apps/:id/files", p.PHPOwnershipMiddleware)
-	app.Use("/apps/:id/upload", p.PHPOwnershipMiddleware)
-	app.Use("/apps/:id/upload-zip", p.PHPOwnershipMiddleware)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/overview")
@@ -227,7 +189,6 @@ func main() {
 	app.Post("/settings/tmp/clean", p.RequireAdminMiddleware, p.TempCleanupRun)
 	app.Get("/settings/tmp/info", p.RequireAdminMiddleware, p.TempCleanupInfo)
 	app.Get("/settings/audit-logs", p.RequireAdminMiddleware, p.AuditLogsPageOrJSON)
-	app.Get("/api/audit-logs", p.AuditLogsPageOrJSON) // scoped per user inside the handler
 	app.Get("/migrate", p.ServeSPA)
 	app.Post("/migrate/export", p.MigrateExportStart)
 	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
@@ -282,11 +243,9 @@ func main() {
 	app.Post("/apps/:id/files/move", p.BrowseMove)
 	app.Post("/apps/:id/files/copy", p.BrowseCopy)
 	app.Post("/apps/:id/files/mkdir", p.BrowseMkdir)
-	app.Post("/apps/:id/files/chmod", p.BrowseChmod)
 	app.Post("/apps/:id/files/zip", p.BrowseZip)
 	app.Post("/apps/:id/files/unzip", p.BrowseUnzip)
 	app.Get("/apps/:id/partials/deploy-progress", p.DeployProgressPartial)
-	app.Get("/apps/:id/logs", p.AppLogsREST)
 	app.Use("/apps/:id/ws/logs", p.WSUpgrade)
 	app.Get("/apps/:id/ws/logs", fws.New(p.AppLogWebSocket))
 	app.Post("/apps/:id/exec", p.AppExec)
@@ -295,10 +254,6 @@ func main() {
 	app.Post("/apps/:id/deploy-logs/clear", p.ClearDeployLogs)
 	app.Get("/apps/:id/deploy-logs/:logId", p.DeployLogGet)
 	app.Post("/apps/:id/deploy-logs/:logId/delete", p.DeployLogDelete)
-	app.Post("/apps/:id/deploy-logs/:logId/rollback", p.RollbackDeployment)
-	app.Post("/apps/:id/deployments/:depId/rollback", p.RollbackDeployment)
-	app.Post("/apps/:id/slots/pin", p.PinSlot)
-	app.Post("/apps/:id/slots/promote", p.PromoteSlot)
 	// DELETE is POST-only; GET from the address bar redirects (avoids blank / confused responses).
 	app.Get("/apps/:id/delete", func(c *fiber.Ctx) error {
 		return c.Redirect("/apps", fiber.StatusFound)
@@ -327,57 +282,14 @@ func main() {
 	app.Post("/apps/:id/domains", p.AppDomainCreate)
 	app.Post("/apps/:id/domains/:did/edit", p.AppDomainEdit)
 	app.Post("/apps/:id/domains/:did/delete", p.AppDomainDelete)
-	app.Post("/apps/:id/domains/:did/primary", p.AppDomainSetPrimary)
-	app.Post("/apps/:id/preview", p.AppPreviewSave)
 	app.Get("/apps/:id/domains/:did/labels", p.AppDomainLabels)
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
-	// PHP hosting
-	app.Get("/php-sites", p.ServeSPA)
-	app.Get("/php-instance", p.RequireAdminMiddleware, p.ServeSPA)
-	app.Get("/api/php/status", p.PHPStatus)
-	app.Get("/api/php/instance", p.RequireAdminMiddleware, p.PHPInstance)
-	app.Post("/api/php/instance/module", p.RequireAdminMiddleware, p.PHPSetModule)
-	app.Post("/api/php/instance/mysql", p.RequireAdminMiddleware, p.PHPMySQLAction)
-	app.Post("/api/php/instance/versions", p.RequireAdminMiddleware, p.PHPVersionAction)
-	app.Get("/api/php/instance/versions/:version/build", p.RequireAdminMiddleware, p.PHPBuildStatus)
-	app.Post("/api/php/instance/containers/restart", p.RequireAdminMiddleware, p.PHPRestartContainer)
-	app.Post("/api/php/instance/settings", p.RequireAdminMiddleware, p.PHPInstanceSettings)
-	app.Post("/api/php/instance/user-limits", p.RequireAdminMiddleware, p.PHPUserLimits)
-	app.Post("/api/php/sites", p.PHPCreateSite)
-	app.Get("/apps/:id/php", p.PHPSiteDetail)
-	app.Post("/apps/:id/php/settings", p.PHPSiteSettings)
-	app.Post("/apps/:id/php/restart", p.PHPSiteRestart)
-	app.Post("/apps/:id/php/fix-permissions", p.PHPSiteFixPermissions)
-	app.Get("/apps/:id/php/provision", p.PHPSiteProvision)
-	app.Get("/apps/:id/php/logs", p.PHPLogs)
-	app.Post("/apps/:id/php/databases", p.PHPDatabaseCreate)
-	app.Post("/apps/:id/php/db-users", p.PHPDBUserCreate)
-	app.Post("/apps/:id/php/db-users/:uid/grants", p.PHPDBUserGrants)
-	app.Post("/apps/:id/php/db-users/:uid/password", p.PHPDBUserPassword)
-	app.Post("/apps/:id/php/db-users/:uid/delete", p.PHPDBUserDelete)
-	app.Post("/apps/:id/php/databases/:dbid/delete", p.PHPDatabaseDelete)
-	app.Get("/apps/:id/php/databases/:dbid/export", p.PHPDatabaseExport)
-	app.Post("/apps/:id/php/databases/:dbid/import", p.PHPDatabaseImport)
-	app.Post("/apps/:id/php/pma/open", p.PHPPMAOpen)
-	app.Post("/api/php/instance/pma", p.RequireAdminMiddleware, p.PHPPMAAction)
-	app.Post("/api/php/instance/pma/open", p.RequireAdminMiddleware, p.PHPPMAOpenAll)
-	app.All("/phpmyadmin", func(c *fiber.Ctx) error { return c.Redirect("/phpmyadmin/") })
-	app.All("/phpmyadmin/*", p.PMAProxy)
-	app.Post("/apps/:id/php/cron", p.PHPCronCreate)
-	app.Post("/apps/:id/php/cron/:jid", p.PHPCronUpdate)
-	app.Post("/apps/:id/php/cron/:jid/delete", p.PHPCronDelete)
-	app.Post("/apps/:id/php/cron/:jid/run", p.PHPCronRun)
-
 	// Caddy global management
 	app.Get("/caddy", p.ServeSPA)
-	app.Get("/proxy", p.ServeSPA)
-	app.Get("/mcp", p.ServeSPA)
-	app.Get("/audit-logs", p.ServeSPA)
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
-	app.Get("/caddy/overview", p.CaddyOverview)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 
@@ -390,21 +302,14 @@ func main() {
 	app.Post("/git/:pid/github/refresh-installation", p.GitHubProviderRefreshInstall)
 	app.Post("/git/gitlab/start", p.GitLabOAuthStart)
 	app.Get("/git/gitlab/callback", p.GitLabOAuthCallback)
-	app.Get("/git/providers", p.APIAuthMiddleware, p.GitProvidersList)
-	app.Get("/api/v1/git/providers", p.APIAuthMiddleware, p.GitProvidersList)
-	app.Post("/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
-	app.Post("/api/v1/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
-	app.Get("/api/v1/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
-	app.Get("/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
 
 	// App source type switching
 	app.Post("/apps/:id/switch-source", p.AppSwitchSource)
 	app.Post("/apps/:id/git-sync", p.AppGitSyncToggle)
 	app.Get("/apps/:id/git/providers/:pid/repos", p.AppGitProviderRepos)
 	app.Get("/apps/:id/git/providers/:pid/branches", p.AppGitProviderBranches)
-	app.Get("/apps/:id/git/remote-branches", p.PublicGitRemoteBranches)
 
 	// User management
 	app.Get("/users", p.ServeSPA)

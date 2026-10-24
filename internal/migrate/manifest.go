@@ -40,17 +40,17 @@ type UserSnapshot struct {
 }
 
 type GitProviderSnapshot struct {
-	ID           int64               `json:"id"`
-	UserID       *int64              `json:"user_id,omitempty"`
-	Name         string              `json:"name"`
-	Provider     string              `json:"provider"`
-	Token        string              `json:"token"`
-	RefreshToken string              `json:"refresh_token,omitempty"`
-	ExpiresAt    int64               `json:"expires_at,omitempty"`
-	Notes        string              `json:"notes,omitempty"`
-	CreatedAt    string              `json:"created_at"`
-	UpdatedAt    string              `json:"updated_at"`
-	GitHubDetail *GitHubProviderSnap `json:"github_detail,omitempty"`
+	ID           int64                  `json:"id"`
+	UserID       *int64                 `json:"user_id,omitempty"`
+	Name         string                 `json:"name"`
+	Provider     string                 `json:"provider"`
+	Token        string                 `json:"token"`
+	RefreshToken string                 `json:"refresh_token,omitempty"`
+	ExpiresAt    int64                  `json:"expires_at,omitempty"`
+	Notes        string                 `json:"notes,omitempty"`
+	CreatedAt    string                 `json:"created_at"`
+	UpdatedAt    string                 `json:"updated_at"`
+	GitHubDetail *GitHubProviderSnap    `json:"github_detail,omitempty"`
 }
 
 type GitHubProviderSnap struct {

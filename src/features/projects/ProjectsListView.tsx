@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ArrowUpRight,
-  Box,
   Copy,
   ExternalLink,
   GitBranch,
@@ -11,7 +10,6 @@ import {
   LayoutGrid,
   List,
   Play,
-  Plus,
   RotateCw,
   Search,
   Square,
@@ -20,7 +18,6 @@ import {
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ActionMenu, StatusBadge } from '../../components/ui/Primitives';
-import { backendApi } from '../../lib/backendApi';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
@@ -33,7 +30,6 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
   apps,
   onSelectApp,
   onUpdateApps,
-  onCreateApp,
 }) => {
   const [appsLayout, setAppsLayout] = useState<'grid' | 'board' | 'table'>('grid');
   const [appSearch, setAppSearch] = useState('');
@@ -62,16 +58,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Trigger Deploy',
       icon: <Play className="h-3.5 w-3.5" />,
-      onClick: async () => {
-        toast.info(`Starting deployment for ${app.name}...`);
-        const res = await backendApi.composeAction(app.id, 'up');
-        if (!res.ok) {
-          toast.error(res.error || `Failed to deploy ${app.name}`);
-          return;
-        }
-        toast.success(`Deployment started for ${app.name}`);
-        onSelectApp(app.id);
-      },
+      onClick: () => toast.success(`Deploying ${app.name}...`),
     },
     {
       label: 'Copy App ID',
@@ -84,14 +71,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Restart Containers',
       icon: <RotateCw className="h-3.5 w-3.5" />,
-      onClick: async () => {
-        const res = await backendApi.composeAction(app.id, 'restart');
-        if (!res.ok) {
-          toast.error(res.error || `Failed to restart ${app.name}`);
-          return;
-        }
-        toast.success(`Restarting ${app.name}`);
-      },
+      onClick: () => toast.success(`Restarted ${app.name}`),
     },
     {
       label: app.status === 'stopped' ? 'Start Stack' : 'Stop Stack',
@@ -101,16 +81,8 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
         ) : (
           <Square className="h-3.5 w-3.5" />
         ),
-      onClick: async () => {
+      onClick: () => {
         const nextStatus = app.status === 'stopped' ? ('running' as const) : ('stopped' as const);
-        const res = await backendApi.composeAction(
-          app.id,
-          nextStatus === 'running' ? 'up' : 'down'
-        );
-        if (!res.ok) {
-          toast.error(res.error || `Failed to ${nextStatus === 'running' ? 'start' : 'stop'} ${app.name}`);
-          return;
-        }
         onUpdateApps((prev) =>
           prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a))
         );
@@ -121,12 +93,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
       label: 'Delete Project',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: async () => {
-        const res = await backendApi.deleteApp(app.id);
-        if (!res.ok) {
-          toast.error(res.error || `Failed to delete ${app.name}`);
-          return;
-        }
+      onClick: () => {
         onUpdateApps((prev) => prev.filter((a) => a.id !== app.id));
         toast.success(`Deleted ${app.name}`);
       },
@@ -215,46 +182,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
           </div>
         </div>
 
-        {filteredApps.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-[#111115]/50 px-6 py-16 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-zinc-900/80 shadow-inner">
-              <Box className="h-7 w-7 text-zinc-500" />
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-zinc-200">
-              {apps.length === 0 ? 'No projects deployed yet' : 'No matching projects'}
-            </h3>
-            <p className="mt-1.5 max-w-sm text-xs text-zinc-400 leading-relaxed">
-              {apps.length === 0
-                ? 'Get started by creating a new project from a Git repository, Docker Compose file, or template.'
-                : 'No projects match your current search or status filter. Try clearing filters.'}
-            </p>
-            {apps.length === 0 && onCreateApp && (
-              <button
-                type="button"
-                onClick={onCreateApp}
-                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600 transition-all cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Create Your First Project</span>
-              </button>
-            )}
-            {apps.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAppSearch('');
-                  setAppStatusFilter('all');
-                }}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-[#18181b] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
-              >
-                <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
-                <span>Reset Filters</span>
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            {appsLayout === 'grid' && (
+        {appsLayout === 'grid' && (
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
             {filteredApps.map((app) => (
               <div
@@ -335,7 +263,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
           </div>
         )}
 
-        {filteredApps.length > 0 && appsLayout === 'board' && (
+        {appsLayout === 'board' && (
           <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
             {(
               [
@@ -379,7 +307,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
           </div>
         )}
 
-        {filteredApps.length > 0 && appsLayout === 'table' && (
+        {appsLayout === 'table' && (
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/80">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] table-fixed text-left text-xs">
@@ -433,8 +361,6 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
               </table>
             </div>
           </div>
-        )}
-        </>
         )}
       </div>
     </div>

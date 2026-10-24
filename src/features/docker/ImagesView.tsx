@@ -16,10 +16,10 @@ import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primi
 
 interface ImagesViewProps {
   images: DockerImageItem[];
+  isAdmin?: boolean;
   onDeleteImage: (id: string) => void;
   onPruneUnused: () => void;
   onPullImage?: (repo: string, tag: string) => void;
-  isAdmin?: boolean;
 }
 
 export const ImagesView: React.FC<ImagesViewProps> = ({
@@ -27,7 +27,6 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
   onDeleteImage,
   onPruneUnused,
   onPullImage,
-  isAdmin = true,
 }) => {
   const [search, setSearch] = useState('');
   const [usageFilter, setUsageFilter] = useState<'all' | 'in-use' | 'unused'>('all');
@@ -114,29 +113,24 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             ))}
           </div>
 
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setPullModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Pull Image
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setPullModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Pull Image
+          </button>
 
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={onPruneUnused}
-              disabled={unusedCount === 0}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 cursor-pointer whitespace-nowrap"
-              title="Remove all unused and dangling Docker images"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete Unused ({unusedCount})
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onPruneUnused}
+            disabled={unusedCount === 0}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Prune ({unusedCount})
+          </button>
         </div>
       </div>
 
@@ -155,19 +149,9 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             <tbody className="divide-y divide-white/[0.05]">
               {filteredImages.map((img) => {
                 const useCount = img.inUseBy.length;
-                const isUntagged =
-                  !img.repository ||
-                  img.repository === '<none>' ||
-                  img.tag === '<none>' ||
-                  img.repository === 'none';
                 const segments = img.repository.split('/');
                 const shortRepo = segments[segments.length - 1];
-                const hostPrefix =
-                  segments.length > 1
-                    ? segments.slice(0, -1).join('/') + '/'
-                    : !isUntagged && !img.repository.includes('.')
-                    ? 'docker.io/'
-                    : '';
+                const hostPrefix = segments.length > 1 ? segments.slice(0, -1).join('/') : 'docker.io';
 
                 return (
                   <tr
@@ -178,28 +162,15 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                     <td className="px-4 py-3">
                       <div
                         className="flex items-center gap-2.5 min-w-0"
-                        title={
-                          isUntagged
-                            ? `Dangling Image (${img.id})`
-                            : `${img.repository}:${img.tag}`
-                        }
+                        title={`${img.repository}:${img.tag}`}
                       >
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
                           <Layers className="h-3.5 w-3.5 text-orange-400" />
                         </div>
                         <div className="min-w-0 truncate font-mono">
-                          {isUntagged ? (
-                            <>
-                              <span className="font-semibold text-zinc-400">&lt;none&gt;</span>
-                              <span className="ml-1 text-[11px] text-zinc-500">({img.id.slice(0, 8)})</span>
-                            </>
-                          ) : (
-                            <>
-                              {hostPrefix && <span className="text-zinc-500 text-[11px]">{hostPrefix}</span>}
-                              <span className="font-semibold text-zinc-100">{shortRepo}</span>
-                              <span className="text-orange-400">:{img.tag}</span>
-                            </>
-                          )}
+                          <span className="text-zinc-500 text-[11px]">{hostPrefix}/</span>
+                          <span className="font-semibold text-zinc-100">{shortRepo}</span>
+                          <span className="text-orange-400">:{img.tag}</span>
                         </div>
                       </div>
                     </td>
@@ -341,13 +312,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
       <ShadcnDialog
         open={Boolean(inspectedImage)}
         onClose={() => setInspectedImage(null)}
-        title={
-          inspectedImage
-            ? inspectedImage.repository === '<none>' || inspectedImage.tag === '<none>'
-              ? `<none> (${inspectedImage.id.slice(0, 8)})`
-              : `${inspectedImage.repository}:${inspectedImage.tag}`
-            : 'Image'
-        }
+        title={inspectedImage ? `${inspectedImage.repository}:${inspectedImage.tag}` : 'Image'}
         icon={<Layers className="h-4 w-4" />}
       >
         {inspectedImage && (

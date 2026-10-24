@@ -39,24 +39,42 @@ export const PhpLogsTab: React.FC<{ app: AppStack }> = ({ app }) => {
 
   return (
     <Card
-      title="Logs"
+      title="Site Logs"
       actions={
-        <>
-          <select className={`${selectCls} !w-44`} value={source} onChange={(e) => setSource(e.target.value as 'php' | 'runtime')}>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className={`${selectCls} !w-44 h-8`}
+            value={source}
+            onChange={(e) => setSource(e.target.value as 'php' | 'runtime')}
+          >
             <option value="php">PHP errors (php-error.log)</option>
             <option value="runtime">PHP-FPM runtime</option>
           </select>
-          <select className={`${selectCls} !w-24`} value={lines} onChange={(e) => setLines(Number(e.target.value))}>
-            {[100, 200, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n} lines</option>)}
+          <select
+            className={`${selectCls} !w-24 h-8`}
+            value={lines}
+            onChange={(e) => setLines(Number(e.target.value))}
+          >
+            {[100, 200, 500, 1000, 2000].map((n) => (
+              <option key={n} value={n}>
+                {n} lines
+              </option>
+            ))}
           </select>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-zinc-300">
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-orange-500" />
-            Live
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-zinc-300 px-1">
+            <input
+              type="checkbox"
+              checked={live}
+              onChange={(e) => setLive(e.target.checked)}
+              className="rounded border-zinc-700 bg-zinc-900 accent-orange-500"
+            />
+            <span>Live Tail</span>
           </label>
-          <GhostButton busy={busy} onClick={() => void load()}>
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          <GhostButton busy={busy} onClick={() => void load()} className="h-8">
+            <RefreshCw className="h-3 w-3 text-zinc-400" />
+            <span>Refresh</span>
           </GhostButton>
-        </>
+        </div>
       }
     >
       {error && <div className="mb-2 text-xs text-red-300">{error}</div>}

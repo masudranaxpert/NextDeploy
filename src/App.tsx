@@ -28,12 +28,18 @@ import {
 import { Toaster, toast } from 'sonner';
 import {
   AppStack,
+  AuditLogEntry,
   BackupArchiveRecord,
+  BackupDestination,
   CliSessionItem,
   DockerImageItem,
+  DockerVolumeItem,
+  GitProviderConnection,
   MigrationExportBundle,
   NavigationSection,
+  PanelUser,
   RegistryCredential,
+  SyncedGitRepository,
   TelemetryPoint,
 } from './types/nextdeploy';
 import {
@@ -213,7 +219,7 @@ export default function App() {
           defaultBranch: a.gitBranch || 'main',
           private: true,
           linkedAppSlug: a.slug || a.name,
-          lastCommitSha: a.gitCommit ? a.gitCommit.slice(0, 7) : 'latest',
+          lastCommitSha: a.gitCommitSha ? a.gitCommitSha.slice(0, 7) : 'latest',
           lastPushAt: 'Active',
           autoDeploy: a.gitSync !== false,
         };
@@ -587,17 +593,22 @@ export default function App() {
           data.users.map((u: any) => ({
             id: String(u.ID || u.id),
             username: u.Username || u.username,
+            email: u.Email || u.email || `${u.Username || u.username}@nextdeploy.local`,
             role: (u.Role || u.role || 'user') as any,
             status: (u.Status || u.status || 'active') as any,
+            appsCount: 0,
             maxApps: u.MaxApps || u.max_apps || 5,
+            cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
+            memUsedGB: 0,
+            memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
             maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
-            maxCpuCores: u.MaxCPUs || u.max_cpus || 2,
+            diskUsedGB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024 * 1024)),
+            diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
             maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
             bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
             allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
-            storageUsedMB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024)),
-            activeAppsCount: 0,
-            createdAt: u.CreatedAt || u.created_at || 'Recently',
+            twoFactorEnabled: false,
+            lastLoginAt: 'Recently',
           }))
         );
       }
@@ -640,12 +651,16 @@ export default function App() {
         setRegistries(
           data.registries.map((r: any) => ({
             id: String(r.id),
+            provider: 'Custom' as const,
             name: r.name,
-            url: r.url,
-            username: r.username,
-            imageCount: 0,
+            registryUrl: r.url || 'docker.io',
+            username: r.username || 'admin',
+            tokenPreview: '••••••••',
+            scope: 'global' as const,
+            connectedApps: 0,
+            imagesCount: 0,
             status: 'connected' as const,
-            lastChecked: 'Recently',
+            lastVerified: 'Recently',
           }))
         );
       }

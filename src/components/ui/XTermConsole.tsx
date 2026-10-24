@@ -626,7 +626,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
         {/* Right Controls */}
         <div className="flex items-center gap-1.5">
           <StatusBadge
-            status={wsConnectedState ? 'connected' : 'idle'}
+            status={wsConnectedState ? 'connected' : 'stopped'}
             label={wsConnectedState ? 'Connected' : 'Connecting...'}
           />
           <button

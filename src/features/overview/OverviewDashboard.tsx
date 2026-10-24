@@ -8,135 +8,132 @@ interface OverviewDashboardProps {
   sys?: any;
   apps?: any[];
   containersCount?: number;
-  /** Host telemetry and system daemons are shown to admins only. */
   isAdmin?: boolean;
-  /** The signed-in user's own limits and live usage (shown instead of host telemetry for non-admins). */
-  quota?: {
-    max_apps: number;
-    apps_used: number;
-    max_memory_mb: number;
-    memory_used_mb: number;
-    max_cpus: number;
-    cpu_used_cores: number;
-    max_storage_mb: number;
-    storage_used_mb: number;
-  } | null;
+  quota?: any;
   onSelectApp: (appId: string) => void;
   onSelectNav: (nav: NavigationSection) => void;
 }
 
+const RECENT_DEPLOYMENTS_FEED = [
+  {
+    id: 'dep-4920',
+    appId: 'app-9f81c2a0',
+    appName: 'commerce-core-api',
+    branch: 'main',
+    sha: '8c4f19a',
+    message: 'perf(checkout): batch inventory reservation lock in redis',
+    trigger: 'GitHub Push',
+    duration: '28s',
+    time: '4m ago',
+    status: 'ready' as const,
+  },
+  {
+    id: 'dep-4917',
+    appId: 'app-6b12f0e9',
+    appName: 'temporal-worker-queue',
+    branch: 'main',
+    sha: '19d04e2',
+    message: 'chore(ffmpeg): bump worker concurrency limit to 8 threads',
+    trigger: 'GitLab CI',
+    duration: '19s',
+    time: '12m ago',
+    status: 'building' as const,
+  },
+  {
+    id: 'dep-4915',
+    appId: 'app-7d24e8b1',
+    appName: 'studio-web-dashboard',
+    branch: 'production',
+    sha: 'f42a90c',
+    message: 'feat(billing): integrate instant SEPA & invoice PDF stream',
+    trigger: 'GitHub Push',
+    duration: '42s',
+    time: '38m ago',
+    status: 'ready' as const,
+  },
+  {
+    id: 'dep-4912',
+    appId: 'app-9f81c2a0',
+    appName: 'commerce-core-api',
+    branch: 'main',
+    sha: '3b10e4c',
+    message: 'feat(orders): add idempotency key header middleware',
+    trigger: 'nd CLI',
+    duration: '31s',
+    time: '5h ago',
+    status: 'ready' as const,
+  },
+  {
+    id: 'dep-4908',
+    appId: 'app-3c90a1f4',
+    appName: 'plausible-analytics',
+    branch: 'v2.1.4',
+    sha: 'compose',
+    message: 'ClickHouse 24.3-alpine + Plausible v2.1 rollout',
+    trigger: 'Compose',
+    duration: '16s',
+    time: '2d ago',
+    status: 'ready' as const,
+  },
+];
+
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   telemetry,
-  sys,
-  apps = [],
-  containersCount = 0,
-  isAdmin = true,
-  quota = null,
   onSelectApp,
   onSelectNav,
 }) => {
   const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
 
-  const memUsedGB = sys?.MemUsedGB != null ? sys.MemUsedGB.toFixed(1) : '0.0';
-  const memTotalGB = sys?.MemTotalGB != null ? Math.round(sys.MemTotalGB) : 0;
-  const memPct = sys?.MemUsedPct != null ? Math.round(sys.MemUsedPct) : 0;
-
-  const diskUsedGB = sys?.DiskUsedGB != null ? sys.DiskUsedGB.toFixed(1) : '0.0';
-  const diskTotalGB = sys?.DiskTotalGB != null ? Math.round(sys.DiskTotalGB) : 0;
-  const diskPct = sys?.DiskUsedPct != null ? Math.round(sys.DiskUsedPct) : 0;
-
-  const cpuPct = sys?.CPUPercent != null ? Math.round(sys.CPUPercent) : (telemetry[telemetry.length - 1]?.cpu || 0);
-  const numCPU = sys?.NumCPU || 1;
-
-  const recentDeployments = apps.flatMap((a) =>
-    (a.deployments || []).map((d: any) => ({
-      ...d,
-      appId: a.id,
-      appName: a.name,
-    }))
-  ).slice(0, 5);
-
-  const hostOnly = isAdmin ? '' : 'hidden';
-  const fmtMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${Math.round(mb)} MB`);
-  const pct = (used: number, max: number) => (max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0);
-  const myCards =
-    !isAdmin && quota
-      ? [
-          { label: 'Your memory', value: fmtMB(quota.memory_used_mb), limit: fmtMB(quota.max_memory_mb), p: pct(quota.memory_used_mb, quota.max_memory_mb) },
-          { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: `${quota.max_cpus} cores`, p: pct(quota.cpu_used_cores, quota.max_cpus) },
-          { label: 'Your storage', value: fmtMB(quota.storage_used_mb), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_mb, quota.max_storage_mb) },
-          { label: 'Your projects', value: String(quota.apps_used), limit: String(quota.max_apps), p: pct(quota.apps_used, quota.max_apps) },
-        ]
-      : [];
-
   return (
     <div className="space-y-5 xl:space-y-6">
-      {myCards.length > 0 && (
-        <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {myCards.map((c) => (
-            <div key={c.label} className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-              <p className="text-[11px] font-medium text-zinc-400">{c.label}</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {c.value} <span className="text-xs font-normal text-zinc-500">/ {c.limit}</span>
-              </p>
-              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                <div
-                  className={`h-full rounded-full ${c.p >= 90 ? 'bg-red-500' : c.p >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${c.p}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
       {/* Row 1: 4 Host Telemetry Cards */}
       <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Host Memory</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
+                15.4 <span className="text-xs font-normal text-zinc-500">/ 32 GB</span>
               </p>
             </div>
             <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-400 ring-1 ring-sky-500/20">
-              {memPct}%
+              48%
             </span>
           </div>
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
-              style={{ width: `${memPct}%` }}
+              style={{ width: '48%' }}
             />
           </div>
         </div>
 
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">Storage (/)</p>
+              <p className="text-[11px] font-medium text-zinc-400">NVMe Storage (/)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {diskUsedGB} <span className="text-xs font-normal text-zinc-500">/ {diskTotalGB} GB</span>
+                84.2 <span className="text-xs font-normal text-zinc-500">/ 320 GB</span>
               </p>
             </div>
             <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-400 ring-1 ring-orange-500/20">
-              {diskPct}%
+              27%
             </span>
           </div>
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-              style={{ width: `${diskPct}%` }}
+              style={{ width: '27%' }}
             />
           </div>
         </div>
 
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
+              <p className="text-[11px] font-medium text-zinc-400">CPU Load (16 vCPU)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {cpuPct}
+                {telemetry[telemetry.length - 1]?.cpu || 23}
                 <span className="text-xs font-normal text-zinc-500">%</span>
               </p>
             </div>
@@ -147,7 +144,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-              style={{ width: `${cpuPct}%` }}
+              style={{ width: `${telemetry[telemetry.length - 1]?.cpu || 23}%` }}
             />
           </div>
         </div>
@@ -157,20 +154,20 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div>
               <p className="text-[11px] font-medium text-zinc-400">Containers & TLS</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
+                7 <span className="text-xs font-normal text-zinc-500">running</span>
               </p>
             </div>
             <StatusBadge status="active" label="TLS 1.3" />
           </div>
           <div className="mt-3 flex items-center justify-between font-mono text-[11px] text-zinc-500">
-            <span>{apps.length} projects</span>
-            <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
+            <span>4 projects</span>
+            <span>4 SSL routes</span>
           </div>
         </div>
       </div>
 
       {/* Row 2: Telemetry Area Chart Card */}
-      <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
           <div className="flex items-center gap-2">
             <h2 className="text-xs font-semibold text-zinc-200">Host Throughput</h2>
@@ -239,7 +236,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
       {/* Row 3: Recent Deployments & System Daemons */}
       <div className="grid grid-cols-1 gap-4 xl:gap-5 lg:grid-cols-3">
-        <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between`}>
+        <div className="lg:col-span-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
               <div className="flex items-center gap-2">
@@ -256,51 +253,41 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
 
             <div className="divide-y divide-white/[0.05]">
-              {recentDeployments.length === 0 ? (
-                <div className="p-6 text-center text-xs text-zinc-500 font-mono">
-                  No deployments yet. Create and deploy a project to see releases here.
-                </div>
-              ) : (
-                recentDeployments.map((dep: any) => (
-                  <div
-                    key={dep.id}
-                    onClick={() => onSelectApp(dep.appId)}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <StatusBadge status={dep.status || 'ready'} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-zinc-100">
-                            {dep.appName}
-                          </span>
-                          <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
-                            {dep.branch || 'main'}@{dep.commitSha?.slice(0, 7) || 'latest'}
-                          </span>
-                        </div>
-                        <div className="truncate text-[11px] text-zinc-500 mt-0.5">
-                          {dep.commitMessage || 'Production deployment'}
-                        </div>
+              {RECENT_DEPLOYMENTS_FEED.map((dep) => (
+                <div
+                  key={dep.id}
+                  onClick={() => onSelectApp(dep.appId)}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <StatusBadge status={dep.status} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-zinc-100">
+                          {dep.appName}
+                        </span>
+                        <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
+                          {dep.branch}@{dep.sha}
+                        </span>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
-                      <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                        {dep.trigger || 'manual'}
-                      </span>
-                      <span>{dep.durationSec || 15}s</span>
-                      <span className="text-zinc-500 w-16 text-right">
-                        {dep.startedAt ? new Date(dep.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
-                      </span>
+                      <div className="truncate text-[11px] text-zinc-500 mt-0.5">{dep.message}</div>
                     </div>
                   </div>
-                ))
-              )}
+
+                  <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
+                    <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      {dep.trigger}
+                    </span>
+                    <span>{dep.duration}</span>
+                    <span className="text-zinc-500 w-12 text-right">{dep.time}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between ${hostOnly}`}>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
               <div className="flex items-center gap-2">
@@ -312,10 +299,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="divide-y divide-white/[0.05] font-mono text-xs">
               {[
-                { name: 'dockerd', ver: 'v27.3.1', meta: `${containersCount} containers`, status: 'running' as const },
-                { name: 'caddy-proxy', ver: 'ci-alpine', meta: 'TLS 1.3 · sslip.io', status: 'active' as const },
-                { name: 'nextdeployd', ver: 'v2.4.0', meta: 'Embedded panel', status: 'running' as const },
+                { name: 'dockerd', ver: 'v27.3.1', meta: '7 containers', status: 'running' as const },
+                { name: 'caddy-proxy', ver: 'v2.8.4', meta: 'TLS 1.3 · HTTP/3', status: 'active' as const },
+                { name: 'nextdeployd', ver: 'v2.4.0', meta: '24 MB RAM', status: 'running' as const },
                 { name: 'mcp-server', ver: 'SSE/JSON-RPC', meta: '16 tools', status: 'active' as const },
+                { name: 'rclone-cron', ver: '0 */6 * * *', meta: 'R2 + GDrive', status: 'connected' as const },
               ].map((d) => (
                 <div
                   key={d.name}
@@ -338,8 +326,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </div>
 
           <div className="flex items-center justify-between border-t border-white/[0.06] bg-[#09090b]/50 px-4 py-2.5 font-mono text-[10px] text-zinc-500">
-            <span>{sys?.HostNote || 'Linux Host'}</span>
-            <span className="text-zinc-400">{sys?.PublicIP ? `IP: ${sys.PublicIP}` : 'NextDeploy Engine'}</span>
+            <span>Ubuntu 24.04 LTS</span>
+            <span className="text-zinc-400">Uptime 42d 18h</span>
           </div>
         </div>
       </div>

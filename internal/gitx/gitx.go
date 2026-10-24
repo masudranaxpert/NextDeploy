@@ -69,7 +69,7 @@ func Clone(ctx context.Context, destDir, repoURL, branch, authMode, token string
 		return Result{OK: false, Output: err.Error()}
 	}
 	res := run(ctx, parent, []string{"GIT_TERMINAL_PROMPT=0"},
-		"git", "-c", "core.symlinks=false", "clone", "--depth", "1", "--branch", branch, repoURL, filepath.Base(destDir))
+		"git", "clone", "--depth", "1", "--branch", branch, repoURL, filepath.Base(destDir))
 	if !res.OK && repoURL != safeURL {
 		res.Output = strings.ReplaceAll(res.Output, repoURL, safeURL)
 	}
@@ -95,7 +95,7 @@ func Pull(ctx context.Context, repoDir, branch, authMode, token string) Result {
 		}
 		return fetch
 	}
-	checkout := run(ctx, repoDir, env, "git", "-c", "core.symlinks=false", "checkout", "-f", "-B", branch, "FETCH_HEAD")
+	checkout := run(ctx, repoDir, env, "git", "checkout", "-f", "-B", branch, "FETCH_HEAD")
 	if !checkout.OK {
 		if authURL != "" && authURL != safeURL {
 			checkout.Output = strings.ReplaceAll(checkout.Output, authURL, safeURL)
@@ -121,15 +121,6 @@ func CurrentCommit(ctx context.Context, repoDir string) string {
 	return strings.TrimSpace(res.Output)
 }
 
-// Checkout checks out a specific commit or branch in the repository.
-func Checkout(ctx context.Context, repoDir, ref string) Result {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return Result{OK: false, Output: "empty ref"}
-	}
-	return run(ctx, repoDir, nil, "git", "checkout", ref)
-}
-
 // IsDirty returns true when the working tree has any tracked modifications or untracked files
 // not covered by .gitignore. Excludes .env since that is panel-managed and intentionally untracked.
 func IsDirty(ctx context.Context, repoDir string) bool {
@@ -150,6 +141,7 @@ func IsDirty(ctx context.Context, repoDir string) bool {
 	}
 	return false
 }
+
 
 // CurrentCommitSubject returns the first line of the latest commit message (git log -1 %s).
 func CurrentCommitSubject(ctx context.Context, repoDir string) string {

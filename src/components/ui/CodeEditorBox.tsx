@@ -722,7 +722,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   height = 420,
   readOnly = false,
   actions,
-  permissions = '644',
+  permissions = '-rw-r--r-- (0644)',
 }) => {
   const [wordWrap, setWordWrap] = useState(true);
   const [copied, setCopied] = useState(false);

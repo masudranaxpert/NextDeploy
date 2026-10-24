@@ -154,25 +154,35 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
   return (
     <div className="space-y-5">
       <Card
-        title="Cron jobs"
-        description="Commands run inside this site's PHP container as its own system user, from the document root."
+        title="Cron Jobs"
+        description="Automated scheduled background tasks"
         actions={
-          <>
-            <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
-              <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
+          <div className="flex flex-wrap items-center gap-2">
+            <GhostButton onClick={() => setHelp(true)} title="Documentation & Presets" className="h-8">
+              <BookOpen className="h-3.5 w-3.5 text-zinc-400" />
+              <span>Presets</span>
             </GhostButton>
-            {!limits.unlimited && <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill>}
-            <PrimaryButton onClick={openCreate} disabled={limitReached}>
-              <Plus className="h-3.5 w-3.5" /> Add cron job
+            {!limits.unlimited && (
+              <Pill tone={limitReached ? 'amber' : 'zinc'}>
+                {limits.used_cron_jobs} / {limits.max_cron_jobs || '∞'} Quota
+              </Pill>
+            )}
+            <PrimaryButton onClick={openCreate} disabled={limitReached} className="h-8">
+              <Plus className="h-3.5 w-3.5" />
+              <span>New Task</span>
             </PrimaryButton>
-          </>
+          </div>
         }
       >
-        {min > 1 && <p className="mb-3 text-[11px] text-zinc-500">Jobs may run at most once every {min} minutes.</p>}
+        {min > 1 && (
+          <p className="mb-3 text-[11px] text-zinc-500 font-mono">
+            Minimum allowed interval: once every {min} minutes.
+          </p>
+        )}
         {(detail.cron_jobs ?? []).length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <Clock className="h-6 w-6 text-zinc-600" />
-            <p className="text-xs text-zinc-400">No cron jobs yet.</p>
+            <p className="text-xs text-zinc-400">No scheduled cron jobs configured yet.</p>
           </div>
         ) : (
           <ul className="divide-y divide-white/[0.05]">
@@ -180,27 +190,35 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
               <li key={j.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <button type="button" onClick={() => openEdit(j)} className="min-w-0 flex-1 cursor-pointer text-left">
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded bg-[#09090b] px-1.5 py-0.5 font-mono text-[11px] text-orange-300">{j.schedule}</code>
-                    {!j.enabled && <Pill tone="amber">paused</Pill>}
+                    <code className="rounded bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-orange-400 border border-white/[0.06]">
+                      {j.schedule}
+                    </code>
+                    {!j.enabled && <Pill tone="amber">Paused</Pill>}
                     {j.last_status && <Pill tone={statusTone(j.last_status)}>{j.last_status}</Pill>}
                   </div>
-                  <div className="mt-1 truncate font-mono text-xs text-zinc-200">{j.command}</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">Last run: {formatTime(j.last_run_at)}</div>
+                  <div className="mt-1.5 truncate font-mono text-xs text-zinc-200">{j.command}</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500 font-mono">Last executed: {formatTime(j.last_run_at)}</div>
                 </button>
                 <div className="flex items-center gap-1.5">
                   {j.last_output && (
-                    <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output">
-                      <Terminal className="h-3.5 w-3.5" />
+                    <GhostButton
+                      onClick={() => setOutput({ title: `Output: ${j.command}`, text: j.last_output })}
+                      title="Inspect latest execution output"
+                      className="h-7.5 px-2.5 text-[11px]"
+                    >
+                      <Terminal className="h-3 w-3" />
+                      <span className="hidden sm:inline">Output</span>
                     </GhostButton>
                   )}
-                  <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run now">
-                    <Play className="h-3.5 w-3.5" /> Run
+                  <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run immediately" className="h-7.5 px-2.5 text-[11px]">
+                    <Play className="h-3 w-3 text-emerald-400" />
+                    <span>Run</span>
                   </GhostButton>
-                  <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'}>
-                    {j.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause job' : 'Resume job'} className="h-7.5 px-2.5 text-[11px]">
+                    {j.enabled ? <Pause className="h-3 w-3 text-amber-400" /> : <Play className="h-3 w-3 text-emerald-400" />}
                   </GhostButton>
-                  <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)}>
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)} className="h-7.5 px-2.5 text-[11px]">
+                    <Trash2 className="h-3 w-3" />
                   </GhostButton>
                 </div>
               </li>
@@ -212,20 +230,20 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
       <ShadcnDialog
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? 'Edit cron job' : 'Add cron job'}
-        icon={<Clock className="h-4 w-4" />}
+        title={editing ? 'Edit Scheduled Task' : 'New Scheduled Task'}
+        icon={<Clock className="h-4 w-4 text-orange-400" />}
         maxWidth="lg"
         footer={
-          <>
+          <div className="flex items-center justify-end gap-2">
             <GhostButton onClick={() => setOpen(false)}>Cancel</GhostButton>
             <PrimaryButton busy={busy === 'save'} onClick={save} disabled={!command.trim()}>
-              {editing ? 'Save' : 'Add'}
+              {editing ? 'Save Changes' : 'Create Task'}
             </PrimaryButton>
-          </>
+          </div>
         }
       >
-        <div className="space-y-3">
-          <Field label="What should it run?">
+        <div className="space-y-3.5">
+          <Field label="Task Type">
             <select className={selectCls} value={kind} onChange={(e) => pickKind(e.target.value as JobKind)}>
               {JOB_KINDS.map((k) => (
                 <option key={k.id} value={k.id}>{k.label}</option>
@@ -233,7 +251,7 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </select>
           </Field>
           {kind === 'file' && (
-            <Field label="PHP file" hint={`Path inside your site folder (${siteDir}). For example cron.php or scripts/cleanup.php.`}>
+            <Field label="PHP Script Path" hint={`Relative to site root directory (${siteDir})`}>
               <input
                 className={`${inputCls} font-mono`}
                 value={filePath}
@@ -243,25 +261,25 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </Field>
           )}
           {kind === 'url' && (
-            <Field label="Web address" hint="The address is opened like a browser would, e.g. https://example.com/cron.php?key=secret.">
+            <Field label="Webhook / Endpoint URL" hint="HTTP GET request invoked on schedule">
               <input
                 className={`${inputCls} font-mono`}
                 value={urlValue}
-                placeholder="https://example.com/cron.php"
+                placeholder="https://example.com/api/cron"
                 onChange={(e) => { setUrlValue(e.target.value); setCommand(build('url', filePath, e.target.value)); }}
               />
             </Field>
           )}
-          <Field label="Schedule" hint="Pick how often it runs, or type minute hour day-of-month month weekday (or @hourly, @daily, @weekly).">
+          <Field label="Schedule Frequency" hint="Select preset cadence or supply standard 5-part cron expression">
             <select className={`${selectCls} mb-2`} value="" onChange={(e) => e.target.value && setSchedule(e.target.value)}>
-              <option value="">Choose how often…</option>
+              <option value="">Select preset frequency...</option>
               {TEMPLATES.filter((t) => t.minutes >= min).map((t) => (
-                <option key={t.expr} value={t.expr}>{t.label}</option>
+                <option key={t.expr} value={t.expr}>{t.label} ({t.expr})</option>
               ))}
             </select>
             <input className={`${inputCls} font-mono`} value={schedule} onChange={(e) => setSchedule(e.target.value)} />
           </Field>
-          <Field label="Command" hint="This is what actually runs (sh -c). You can edit it.">
+          <Field label="Command String" hint="Raw shell command executed in site container context">
             <input
               className={`${inputCls} font-mono`}
               value={command}

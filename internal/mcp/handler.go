@@ -26,7 +26,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
-	"panel/internal/quota"
+	"panel/internal/handlers/utils"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
 	"panel/internal/workspace"
@@ -243,8 +243,11 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 		return errorResult(fmt.Errorf("an app with the name %q already exists", slug))
 	}
 
-	if err := quota.CheckAppSlot(ctx, h.p.DB, u); err != nil {
-		return errorResult(err)
+	if u.Role != db.RoleAdmin {
+		count, err := h.p.DB.CountAppsOwnedByUser(ctx, u.ID)
+		if err == nil && u.MaxApps > 0 && count >= u.MaxApps {
+			return errorResult(fmt.Errorf("maximum app limit reached (%d)", u.MaxApps))
+		}
 	}
 
 	var id string
@@ -264,7 +267,7 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 		_ = os.RemoveAll(wsPath)
 		return errorResult(fmt.Errorf("failed writing meta: %w", err))
 	}
-	if err := quota.CreateApp(ctx, h.p.DB, u, id, slug); err != nil {
+	if err := h.p.DB.CreateApp(ctx, id, slug, u.ID); err != nil {
 		_ = os.RemoveAll(wsPath)
 		return errorResult(fmt.Errorf("failed creating app record: %w", err))
 	}
@@ -282,11 +285,11 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 			cfg := db.AppGitConfig{
 				AppID:         id,
 				Provider:      "git",
-				RepoURL:       handlers.NormalizeRepoURL(repoURL),
-				RepoFullName:  handlers.RepoFullNameFromURL(repoURL),
-				Branch:        handlers.NormalizeBranch(branch),
+				RepoURL:       utils.NormalizeRepoURL(repoURL),
+				RepoFullName:  utils.RepoFullNameFromURL(repoURL),
+				Branch:        utils.NormalizeBranch(branch),
 				AuthMode:      "public",
-				WebhookSecret: handlers.RandomSecret(),
+				WebhookSecret: utils.RandomSecret(),
 				AutoDeploy:    true,
 			}
 			_ = h.p.DB.UpsertAppGitConfig(ctx, cfg)
@@ -1029,12 +1032,12 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 	// Dry-run mode: return simulated plan without making disk changes.
 	if dryRun {
 		return jsonResult(map[string]interface{}{
-			"app_id":  appID,
-			"dry_run": true,
-			"valid":   true,
-			"writes":  writePreviews,
-			"deletes": deletes,
-			"message": fmt.Sprintf("Dry run validated: %d file(s) would be written, %d item(s) would be deleted.", len(writes), len(deletes)),
+			"app_id":   appID,
+			"dry_run":  true,
+			"valid":    true,
+			"writes":   writePreviews,
+			"deletes":  deletes,
+			"message":  fmt.Sprintf("Dry run validated: %d file(s) would be written, %d item(s) would be deleted.", len(writes), len(deletes)),
 		})
 	}
 
@@ -1378,32 +1381,20 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		}
 	}
 
-	targetSlot := "blue"
-	if app.ActiveSlot == "blue" {
-		targetSlot = "green"
+	if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
+		return errorResult(fmt.Errorf("caddy sync failed: %w", err))
 	}
-
-	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		if _, err := h.p.SyncAppSlotComposeCtx(ctx, appID, targetSlot); err != nil {
-			return errorResult(fmt.Errorf("caddy slot compose sync failed: %w", err))
-		}
-	} else {
-		if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
-			return errorResult(fmt.Errorf("caddy sync failed: %w", err))
-		}
-	}
-
 	projCtx, projCancel := context.WithTimeout(ctx, 30*time.Second)
 	project := h.p.ActiveComposeProjectName(projCtx, app, appID)
 	projCancel()
-	paths := h.p.EffectiveComposePaths(ctx, app, appID)
 
 	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		project = h.p.SlotProjectName(app, appID, targetSlot)
-		paths = h.p.EffectiveComposePathsForSlot(ctx, app, appID, targetSlot)
+		stopCtx, stopCancel := context.WithTimeout(ctx, 2*time.Minute)
+		h.p.StopOtherComposeStacks(stopCtx, app, appID, project)
+		stopCancel()
 	}
 
-	jobID, err := h.p.StartComposeJob(appID, project, paths, action, fn, gitSyncOut)
+	jobID, err := h.p.StartComposeJob(appID, project, h.p.EffectiveComposePaths(ctx, app, appID), action, fn, gitSyncOut)
 	if err != nil {
 		return errorResult(fmt.Errorf("failed to start %s job: %w", action, err))
 	}
@@ -2407,7 +2398,7 @@ func (h *Handler) handleFileSearch(ctx context.Context, u db.User, args map[stri
 		"vendor":       true,
 		".venv":        true,
 		"venv":         true,
-		"__pycache__":  true,
+		"__pycache__":   true,
 		"dist":         true,
 		"build":        true,
 		".next":        true,

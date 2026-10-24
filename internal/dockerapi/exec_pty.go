@@ -3,7 +3,6 @@ package dockerapi
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -19,18 +18,6 @@ type PTYExecSession struct {
 // ExecPTY starts a new shell (or cmd) with a TTY inside the container and returns a bidirectional stream.
 // container may be a name or ID. Default command is /bin/sh -i when cmd is empty (inherits container env).
 func ExecPTY(ctx context.Context, container string, cmd []string, height, width uint) (*PTYExecSession, error) {
-	return ExecPTYWithOptions(ctx, container, cmd, height, width, PTYOptions{})
-}
-
-// PTYOptions customises the exec: run as another user, in another directory, with extra env.
-type PTYOptions struct {
-	User       string
-	WorkingDir string
-	Env        []string
-}
-
-// ExecPTYWithOptions is ExecPTY with a user, working directory and extra environment.
-func ExecPTYWithOptions(ctx context.Context, container string, cmd []string, height, width uint, opts PTYOptions) (*PTYExecSession, error) {
 	if height == 0 {
 		height = 24
 	}
@@ -50,16 +37,8 @@ func ExecPTYWithOptions(ctx context.Context, container string, cmd []string, hei
 		AttachStderr: true,
 		Tty:          true,
 		Cmd:          cmd,
-		Env: []string{
-			"TERM=xterm-256color",
-			"COLORTERM=truecolor",
-			"PS1=\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ",
-		},
 		ConsoleSize:  &[2]uint{height, width},
-		User:         opts.User,
-		WorkingDir:   opts.WorkingDir,
 	}
-	execCfg.Env = mergeEnv(execCfg.Env, opts.Env)
 	cr, err := cli.ContainerExecCreate(ctx, container, execCfg)
 	if err != nil {
 
@@ -124,25 +103,4 @@ func ExecPTYAutoShell(ctx context.Context, container string, height, width uint)
 		lastErr = fmt.Errorf("no shell could be started in container")
 	}
 	return nil, lastErr
-}
-
-// mergeEnv appends extra to base; an entry in extra replaces a base entry with the same key.
-func mergeEnv(base, extra []string) []string {
-	if len(extra) == 0 {
-		return base
-	}
-	override := make(map[string]bool, len(extra))
-	for _, e := range extra {
-		if i := strings.IndexByte(e, '='); i > 0 {
-			override[e[:i]] = true
-		}
-	}
-	out := make([]string, 0, len(base)+len(extra))
-	for _, e := range base {
-		if i := strings.IndexByte(e, '='); i > 0 && override[e[:i]] {
-			continue
-		}
-		out = append(out, e)
-	}
-	return append(out, extra...)
 }

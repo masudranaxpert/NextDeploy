@@ -869,7 +869,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
             svc.image || '',
             app.name,
             svc.state || '',
-            svc.port ? String(svc.port) : '',
+            svc.ports ? String(svc.ports) : '',
             'container',
             'docker',
           ],
@@ -888,12 +888,13 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
 
     // 4. Docker Images & Volumes
     images.forEach((img) => {
+      const displayTag = img.repository ? `${img.repository}:${img.tag}` : img.id.slice(0, 16);
       list.push({
         id: `img-${img.id}`,
         category: 'Storage',
-        title: img.tags || img.id.slice(0, 16),
-        subtitle: `Docker Image · Size: ${img.size || '—'} · ID: ${img.id.slice(0, 12)}`,
-        keywords: [img.tags || '', img.id, img.size || '', 'image', 'docker'],
+        title: displayTag,
+        subtitle: `Docker Image · Size: ${img.sizeMB ? `${img.sizeMB}MB` : '—'} · ID: ${img.id.slice(0, 12)}`,
+        keywords: [img.repository || '', img.tag || '', img.id, 'image', 'docker'],
         icon: <Layers className="h-4 w-4 text-violet-400" />,
         badge: { text: 'Image', variant: 'violet' },
         onSelect: () => {
@@ -924,9 +925,9 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
       list.push({
         id: `gp-${gp.id}`,
         category: 'Storage',
-        title: `${gp.provider} · ${gp.accountName || gp.name}`,
-        subtitle: gp.notes || (gp.token ? 'Token Authentication' : 'GitHub App Integration'),
-        keywords: [gp.provider, gp.accountName || '', gp.name || '', 'git', 'provider'],
+        title: `${gp.provider} · ${gp.accountName}`,
+        subtitle: gp.authMethod || 'Git Integration',
+        keywords: [gp.provider, gp.accountName || '', 'git', 'provider'],
         icon: <FolderGit2 className="h-4 w-4 text-orange-400" />,
         badge: { text: gp.provider, variant: 'orange' },
         onSelect: () => {

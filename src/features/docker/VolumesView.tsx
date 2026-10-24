@@ -28,11 +28,7 @@ interface VolumesViewProps {
   onDeleteVolume?: (name: string) => void;
 }
 
-export const VolumesView: React.FC<VolumesViewProps> = ({
-  volumes,
-  onCreateVolume,
-  onDeleteVolume,
-}) => {
+export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolume }) => {
   const [selectedVolume, setSelectedVolume] = useState<DockerVolumeItem | null>(null);
   const [browsePath, setBrowsePath] = useState('');
   const [parentPath, setParentPath] = useState('');
@@ -46,7 +42,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({
   const [search, setSearch] = useState('');
   const [createVolOpen, setCreateVolOpen] = useState(false);
   const [newVolName, setNewVolName] = useState('');
-  const [newVolApp, setNewVolApp] = useState('');
+  const [newVolApp, setNewVolApp] = useState('commerce-core-api');
 
   // Multipart Volume Restore Modal & Live Progress State (POST /volumes/restore + GET /volumes/restore/status)
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
@@ -194,15 +190,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({
       label: 'Delete Volume',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: async () => {
-        const res = await backendApi.globalVolumeRemove(v.name);
-        if (!res.ok) {
-          toast.error(res.error || `Failed to remove volume ${v.name}`);
-          return;
-        }
-        onDeleteVolume?.(v.name);
-        toast.success(`Removed volume ${v.name}`);
-      },
+      onClick: () => toast.error(`Volume ${v.name} is mounted by ${v.appSlug}`),
     },
   ];
 
@@ -541,11 +529,18 @@ export const VolumesView: React.FC<VolumesViewProps> = ({
                     ))
                   )
                 ) : (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-xs text-zinc-500 font-mono">
-                      No files found in this directory.
-                    </td>
-                  </tr>
+                  selectedVolume.sampleFiles.map((f, idx) => (
+                    <tr key={idx} className="hover:bg-white/[0.03]">
+                      <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                        <span>{f.path}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-zinc-400 tabular-nums">{f.modified}</td>
+                      <td className="px-4 py-2.5 text-right text-zinc-200 tabular-nums">
+                        {f.size}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

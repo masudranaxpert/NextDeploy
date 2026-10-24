@@ -8,8 +8,8 @@ import (
 
 func TestMountRefMatchesAppWorkspace(t *testing.T) {
 	q := AppVolumeQuery{
-		AppID:           "ispbilling",
-		WorkspaceRoot:   "/data/workspaces/ispbilling",
+		AppID:         "ispbilling",
+		WorkspaceRoot: "/data/workspaces/ispbilling",
 		ComposeProjects: []string{"ispbilling"},
 	}
 	ref := dockerapi.VolumeMountRef{
@@ -44,18 +44,18 @@ func TestMountRefRejectsSiblingApp(t *testing.T) {
 
 func TestHybridContainerIndexPerApp(t *testing.T) {
 	index := dockerapi.NewVolumeMountIndex(map[string][]dockerapi.VolumeMountRef{
-		"diu-test_db_data": {{
-			VolumeName:     "diu-test_db_data",
-			ContainerName:  "diu-test_tracker-db",
-			ComposeProject: "diu-test",
-			WorkingDir:     "/data/workspaces/diu-test",
-		}},
-		"diu_db_data": {{
-			VolumeName:     "diu_db_data",
-			ContainerName:  "diu_web",
-			ComposeProject: "diu",
-			WorkingDir:     "/data/workspaces/diu",
-		}},
+			"diu-test_db_data": {{
+				VolumeName:     "diu-test_db_data",
+				ContainerName:  "diu-test_tracker-db",
+				ComposeProject: "diu-test",
+				WorkingDir:     "/data/workspaces/diu-test",
+			}},
+			"diu_db_data": {{
+				VolumeName:     "diu_db_data",
+				ContainerName:  "diu_web",
+				ComposeProject: "diu",
+				WorkingDir:     "/data/workspaces/diu",
+			}},
 	})
 	all := []string{"diu", "diu-test"}
 	diuQ := AppVolumeQuery{
@@ -78,12 +78,12 @@ func TestHybridContainerIndexPerApp(t *testing.T) {
 
 func TestMatchAppIDForVolumeAnonymous(t *testing.T) {
 	index := dockerapi.NewVolumeMountIndex(map[string][]dockerapi.VolumeMountRef{
-		"hashvol": {{
-			VolumeName:     "hashvol",
-			ContainerName:  "ispbilling-redis-1",
-			ComposeProject: "ispbilling",
-			WorkingDir:     "/data/workspaces/ispbilling",
-		}},
+			"hashvol": {{
+				VolumeName:     "hashvol",
+				ContainerName:  "ispbilling-redis-1",
+				ComposeProject: "ispbilling",
+				WorkingDir:     "/data/workspaces/ispbilling",
+			}},
 	})
 	queries := []AppVolumeQuery{{
 		AppID: "ispbilling", WorkspaceRoot: "/data/workspaces/ispbilling",
