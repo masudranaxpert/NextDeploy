@@ -279,8 +279,9 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		Paths []string `json:"paths" form:"paths"`
-		Dest  string   `json:"dest" form:"dest"`
+		Paths     []string `json:"paths" form:"paths"`
+		Dest      string   `json:"dest" form:"dest"`
+		Overwrite bool     `json:"overwrite" form:"overwrite"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid request format"})
@@ -311,6 +312,25 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 			continue
 		}
 
+		cleanSrc := filepath.Clean(oldFull)
+		cleanDst := filepath.Clean(newFull)
+		if cleanSrc == cleanDst {
+			continue
+		}
+		if strings.HasPrefix(cleanDst, cleanSrc+string(filepath.Separator)) {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Cannot move a directory into itself"})
+		}
+
+		// Check if destination exists
+		if _, statErr := os.Lstat(newFull); statErr == nil {
+			if !req.Overwrite {
+				// Skip if not overwriting
+				continue
+			}
+			// If overwriting, remove existing destination first (file or folder)
+			_ = os.RemoveAll(newFull)
+		}
+
 		_ = os.MkdirAll(filepath.Dir(newFull), 0750)
 		_ = os.Rename(oldFull, newFull)
 	}
@@ -329,8 +349,9 @@ func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		Paths []string `json:"paths" form:"paths"`
-		Dest  string   `json:"dest" form:"dest"`
+		Paths     []string `json:"paths" form:"paths"`
+		Dest      string   `json:"dest" form:"dest"`
+		Overwrite bool     `json:"overwrite" form:"overwrite"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "invalid request format"})
@@ -382,6 +403,14 @@ func (p *Panel) BrowseCopy(c *fiber.Ctx) error {
 		cleanDst := filepath.Clean(dstFull)
 		if cleanSrc == cleanDst || strings.HasPrefix(cleanDst, cleanSrc+string(filepath.Separator)) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Cannot copy a directory into itself"})
+		}
+
+		// Check if destination exists
+		if _, statErr := os.Lstat(dstFull); statErr == nil {
+			if !req.Overwrite {
+				continue
+			}
+			_ = os.RemoveAll(dstFull)
 		}
 
 		if err := copyRecursively(srcFull, dstFull); err != nil {

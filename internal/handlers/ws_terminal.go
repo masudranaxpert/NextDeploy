@@ -18,6 +18,7 @@ import (
 	"panel/internal/dockerapi"
 
 	"github.com/creack/pty"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
@@ -230,7 +231,85 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	cols := parseDim(c.Query("cols"), 80)
 	rows := parseDim(c.Query("rows"), 24)
 
-	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/data"
+	}
+
+	// Attempt industry-standard SSH to host first (Dokploy/Coolify approach)
+	if signer, err := EnsureLocalHostSSH(dataDir); err == nil {
+		if sshClient, err := DialHostSSH(signer); err == nil {
+			defer sshClient.Close()
+			session, err := sshClient.NewSession()
+			if err == nil {
+				defer session.Close()
+
+				modes := ssh.TerminalModes{
+					ssh.ECHO:          1,
+					ssh.TTY_OP_ISPEED: 14400,
+					ssh.TTY_OP_OSPEED: 14400,
+				}
+				if err := session.RequestPty("xterm-256color", int(rows), int(cols), modes); err == nil {
+					stdinPipe, _ := session.StdinPipe()
+					stdoutPipe, _ := session.StdoutPipe()
+					stderrPipe, _ := session.StderrPipe()
+
+					if err := session.Shell(); err == nil {
+						sshDone := make(chan struct{})
+						defer close(sshDone)
+
+						var wg sync.WaitGroup
+						wg.Add(1)
+						go func() {
+							defer wg.Done()
+							buf := make([]byte, 32*1024)
+							r := io.MultiReader(stdoutPipe, stderrPipe)
+							for {
+								n, err := r.Read(buf)
+								if n > 0 {
+									payload := make([]byte, n)
+									copy(payload, buf[:n])
+									if werr := c.WriteMessage(websocket.BinaryMessage, payload); werr != nil {
+										return
+									}
+								}
+								if err != nil {
+									_ = c.Close()
+									return
+								}
+							}
+						}()
+
+						for {
+							mt, msg, err := c.ReadMessage()
+							if err != nil {
+								break
+							}
+							if mt == websocket.TextMessage {
+								var m termClientMsg
+								if len(msg) > 0 && msg[0] == '{' && json.Unmarshal(msg, &m) == nil && m.Op == "resize" && m.Cols > 0 && m.Rows > 0 {
+									_ = session.WindowChange(int(m.Rows), int(m.Cols))
+									continue
+								}
+							}
+							if (mt == websocket.BinaryMessage || mt == websocket.TextMessage) && len(msg) > 0 {
+								if _, werr := stdinPipe.Write(msg); werr != nil {
+									break
+								}
+							}
+						}
+						_ = session.Close()
+						_ = sshClient.Close()
+						wg.Wait()
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// High-performance fallback: use NextDeploy self-image with nsenter (Zero external image pull)
+	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "--entrypoint", "nsenter", "mrformula/nextdeploy:latest", "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 	)

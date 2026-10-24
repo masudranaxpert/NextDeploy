@@ -74,6 +74,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [limitMaxCpus, setLimitMaxCpus] = useState('4');
   const [limitMaxMemoryMb, setLimitMaxMemoryMb] = useState('8192');
   const [limitMaxStorageMb, setLimitMaxStorageMb] = useState('51200');
+  const [limitBandwidthMbps, setLimitBandwidthMbps] = useState('0');
   const [limitAllowDomainFileServer, setLimitAllowDomainFileServer] = useState(true);
 
   // Change Password Modal State (matches POST /users/:id/password in users_handler.go)
@@ -85,7 +86,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [auditSearch, setAuditSearch] = useState('');
   const [auditCategory, setAuditCategory] = useState<string>('all');
   const [auditPage, setAuditPage] = useState(1);
-  const [auditPerPage, setAuditPerPage] = useState(5);
+  const [auditPerPage, setAuditPerPage] = useState(10);
   const [auditLoading, setAuditLoading] = useState(false);
 
   // System Settings State (matches POST /settings & /settings/cleanup/run & /settings/tmp/*)
@@ -108,6 +109,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setLimitMaxCpus(String(user.cpuQuotaCores ?? 0));
     setLimitMaxMemoryMb(String(user.maxMemoryMB ?? (user.memQuotaGB ? user.memQuotaGB * 1024 : 0)));
     setLimitMaxStorageMb(String(user.maxStorageMB ?? (user.diskQuotaGB ? user.diskQuotaGB * 1024 : 0)));
+    setLimitBandwidthMbps(String(user.bandwidthLimitMbps ?? 0));
     setLimitAllowDomainFileServer(user.allowDomainFileServer ?? true);
   };
 
@@ -119,6 +121,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     const maxCpus = Math.max(0, parseFloat(limitMaxCpus) || 0);
     const maxMemoryMb = Math.max(0, parseInt(limitMaxMemoryMb, 10) || 0);
     const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
+    const bandwidthLimitMbps = Math.max(0, parseInt(limitBandwidthMbps, 10) || 0);
 
     try {
       await backendApi.updateUserLimits(limitsModalUser.id, {
@@ -126,6 +129,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         max_cpus: maxCpus,
         max_memory_mb: maxMemoryMb,
         max_storage_mb: maxStorageMb,
+        bandwidth_limit_mbps: bandwidthLimitMbps,
         allow_domain_file_server: limitAllowDomainFileServer,
       });
     } catch {
@@ -143,6 +147,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               memQuotaGB: Math.round((maxMemoryMb / 1024) * 10) / 10,
               maxStorageMB: maxStorageMb,
               diskQuotaGB: Math.round((maxStorageMb / 1024) * 10) / 10,
+              bandwidthLimitMbps,
               allowDomainFileServer: limitAllowDomainFileServer,
             }
           : item
@@ -191,6 +196,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       diskUsedGB: 0,
       diskQuotaGB: newRole === 'admin' ? 0 : 50,
       maxStorageMB: newRole === 'admin' ? 0 : 51200,
+      bandwidthLimitMbps: 0,
       allowDomainFileServer: true,
       twoFactorEnabled: false,
       lastLoginAt: 'Never',
@@ -460,8 +466,10 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                               </span>
                             </div>
                             <div className="text-zinc-500">
-                              Used: {u.memUsedGB} GB RAM · Disk Quota:{' '}
-                              {diskMb > 0 ? `${diskMb} MB` : 'Unlimited'}
+                              Used: {u.memUsedGB} GB RAM · Disk: {diskMb > 0 ? `${diskMb} MB` : 'Unlimited'} · Net:{' '}
+                              <span className={u.bandwidthLimitMbps && u.bandwidthLimitMbps > 0 ? 'text-orange-400' : 'text-zinc-400'}>
+                                {u.bandwidthLimitMbps && u.bandwidthLimitMbps > 0 ? `${u.bandwidthLimitMbps} Mbps` : 'Unlimited'}
+                              </span>
                             </div>
                           </div>
                         )}
@@ -796,6 +804,50 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                       : 'Unlimited Disk'}
                   </span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  Bandwidth Limit (bandwidth_limit_mbps, 0 = Unlimited)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={limitBandwidthMbps}
+                    onChange={(e) => setLimitBandwidthMbps(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    placeholder="0 = Unlimited"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[
+                      { label: 'Max', val: 0 },
+                      { label: '10M', val: 10 },
+                      { label: '50M', val: 50 },
+                      { label: '100M', val: 100 },
+                      { label: '200M', val: 200 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        onClick={() => setLimitBandwidthMbps(String(preset.val))}
+                        className={`rounded px-2 py-1 text-[10px] font-mono transition-colors cursor-pointer ${
+                          Number(limitBandwidthMbps) === preset.val
+                            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
+                            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-white/[0.05]'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <span className="mt-1 block text-[10px] text-zinc-500">
+                  {Number(limitBandwidthMbps) > 0
+                    ? `Limits user's aggregate WAN egress to ${limitBandwidthMbps} Mbps (tc-HTB + iptables MARK). Local Caddy/DB traffic remains unthrottled.`
+                    : 'Unlimited WAN speed (full host wire speed).'}
+                </span>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">

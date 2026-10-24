@@ -133,11 +133,11 @@ services:
 	if !strings.Contains(content, ":4013") {
 		t.Errorf("missing caddy host port gateway label in:\n%s", content)
 	}
-	if !strings.Contains(content, "lb_try_duration: 30s") {
-		t.Errorf("missing lb_try_duration: 30s in:\n%s", content)
+	if !strings.Contains(content, "lb_try_duration: 5s") {
+		t.Errorf("missing lb_try_duration: 5s in:\n%s", content)
 	}
-	if !strings.Contains(content, "health_status: 2xx") {
-		t.Errorf("missing health_status: 2xx in:\n%s", content)
+	if !strings.Contains(content, "fail_duration: 5s") {
+		t.Errorf("missing fail_duration: 5s in:\n%s", content)
 	}
 	if strings.Contains(content, "green.myapp.example.com") {
 		t.Errorf("production compose must not carry preview labels:\n%s", content)

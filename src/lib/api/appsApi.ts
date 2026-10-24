@@ -180,17 +180,17 @@ export const appsAndDockerApi = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ old_path: oldPath, new_path: newPath }),
     }),
-  fileMove: (appId: string, paths: string[], dest: string) =>
+  fileMove: (appId: string, paths: string[], dest: string, overwrite = false) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths, dest }),
+      body: JSON.stringify({ paths, dest, overwrite }),
     }),
-  fileCopy: (appId: string, paths: string[], dest: string) =>
+  fileCopy: (appId: string, paths: string[], dest: string, overwrite = false) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/copy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths, dest }),
+      body: JSON.stringify({ paths, dest, overwrite }),
     }),
   fileChmod: (appId: string, path: string, mode: string) =>
     requestJson<{ ok?: boolean; message?: string; mode?: string }>(

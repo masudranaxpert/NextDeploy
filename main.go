@@ -13,6 +13,7 @@ import (
 	"panel/internal/handlers"
 	"panel/internal/mcp"
 	"panel/internal/perflog"
+	"panel/internal/sysinfo"
 	"panel/internal/workspace"
 
 	fws "github.com/gofiber/contrib/websocket"
@@ -76,8 +77,13 @@ func main() {
 	}
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
+	go p.InitBandwidthQoS()
 
 	app.Use(perflog.Middleware())
+	app.Use(func(c *fiber.Ctx) error {
+		sysinfo.RecordRequest()
+		return c.Next()
+	})
 	app.Use(p.SecurityHeadersMiddleware)
 	app.Use(compress.New())
 	app.Use(logger.New(logger.Config{
@@ -305,6 +311,7 @@ func main() {
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
+	app.Get("/caddy/overview", p.CaddyOverview)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 

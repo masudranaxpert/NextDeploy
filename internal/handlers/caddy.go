@@ -315,10 +315,32 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 		}
 	case "force_start":
 		killCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		killScript := "systemctl stop apache2 2>/dev/null || true; systemctl stop nginx 2>/dev/null || true; fuser -k 80/tcp 2>/dev/null || true; fuser -k 443/tcp 2>/dev/null || true"
-		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "alpine", "nsenter", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
+		killScript := `
+systemctl stop apache2 nginx caddy lighttpd httpd traefik 2>/dev/null || true
+systemctl disable apache2 nginx caddy lighttpd httpd traefik 2>/dev/null || true
+fuser -k -9 80/tcp 2>/dev/null || true
+fuser -k -9 443/tcp 2>/dev/null || true
+fuser -k -9 443/udp 2>/dev/null || true
+if command -v ss >/dev/null 2>&1; then
+    for pid in $(ss -lptn 'sport = :80 or sport = :443' 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    done
+fi
+if command -v lsof >/dev/null 2>&1; then
+    for pid in $(lsof -ti :80,:443 2>/dev/null); do
+        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    done
+fi
+sleep 0.3
+`
+		_ = exec.CommandContext(killCtx, "docker", "run", "--rm", "--privileged", "--pid=host", "--entrypoint", "nsenter", "mrformula/nextdeploy:latest", "-t", "1", "-m", "-u", "-n", "-i", "sh", "-c", killScript).Run()
 		cancel()
+
+		// Attempt to start or restart the existing container first
 		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+		if err != nil {
+			err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
+		}
 		if err != nil && p.nextDeployComposePath() != "" {
 			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 			err = nil
@@ -582,6 +604,51 @@ func (p *Panel) CaddyLogs(c *fiber.Ctx) error {
 	res := dockerx.DockerLogs(c.UserContext(), caddy.CaddyContainerName, tail)
 	lines := splitLogLines(res.Output)
 	return c.JSON(fiber.Map{"ok": res.OK, "lines": lines})
+}
+
+// GET /caddy/overview — return live Caddy admin config & root stack compose YAML
+func (p *Panel) CaddyOverview(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).SendString("forbidden")
+	}
+	ctx := c.UserContext()
+
+	caddyCfg, _ := p.DB.GetAllCaddyConfig(ctx)
+	adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
+	if adminAPI == "" {
+		adminAPI = "http://caddy:2019"
+	}
+
+	liveConfig, err := caddy.AdminConfigGet(ctx, adminAPI)
+	if err != nil {
+		liveConfig = fmt.Sprintf("{\n  \"error\": %q\n}", err.Error())
+	}
+
+	rootCompose := ""
+	composePath := p.nextDeployComposePath()
+	if composePath != "" {
+		if data, rerr := os.ReadFile(composePath); rerr == nil {
+			rootCompose = string(data)
+		}
+	}
+
+	panelDomain := p.DB.GetSetting(ctx, settingPanelDomain)
+	enableHTTPS := settingBool(p.DB.GetSetting(ctx, settingPanelEnableHTTPS), true)
+	enableWWW := settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false)
+	mountPrefix := normalizeCaddySharedMountPrefix(p.DB.GetSetting(ctx, settingCaddySharedMountPrefix))
+	sharedVolumes := parseCaddySharedVolumeNamesJSON(p.DB.GetSetting(ctx, settingCaddySharedVolumeNames))
+
+	return c.JSON(fiber.Map{
+		"ok":                   true,
+		"live_config":          liveConfig,
+		"root_compose":         rootCompose,
+		"panel_domain":         panelDomain,
+		"panel_enable_https":   enableHTTPS,
+		"panel_enable_www":     enableWWW,
+		"shared_mount_prefix":  mountPrefix,
+		"shared_volumes":       sharedVolumes,
+	})
 }
 
 func splitLogLines(s string) []string {

@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShadcnSwitch, StatusBadge } from '../../components/ui/Primitives';
 import { CodeEditorBox } from '../../components/ui/CodeEditorBox';
-import { backendApi } from '../../lib/backendApi';
+import { backendApi, getServerPublicIp } from '../../lib/backendApi';
 
 interface CaddyLogLine {
   raw: string;
@@ -92,7 +92,7 @@ export const CaddyProxyView: React.FC<{
   onRefreshCaddy?: () => Promise<void>;
 }> = ({ apps, caddyInfo, onRefreshCaddy }) => {
   // 1. Panel Domain card (POST /nextdeploy/panel + GET /nextdeploy/apply-status)
-  const [panelDomain, setPanelDomain] = useState('panel.nextdeploy.sh');
+  const [panelDomain, setPanelDomain] = useState('');
   const [panelEnableHttps, setPanelEnableHttps] = useState(true);
   const [panelEnableWww, setPanelEnableWww] = useState(false);
   const [applyBanner, setApplyBanner] = useState<{
@@ -105,20 +105,11 @@ export const CaddyProxyView: React.FC<{
   // 2. Caddy Shared Volumes card (POST /nextdeploy/shared-volumes)
   const [sharedMountPrefix, setSharedMountPrefix] = useState('/mnt/shared');
   const allDockerVolumes = useMemo(() => {
-    const set = new Set<string>([
-      'commerce_core_staticfiles',
-      'commerce_core_media',
-      'studio_web_assets',
-      'postgres_primary_data',
-      'redis_session_data',
-    ]);
+    const set = new Set<string>();
     apps.forEach((a) => a.volumes.forEach((v) => set.add(v.name)));
     return Array.from(set);
   }, [apps]);
-  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>([
-    'commerce_core_staticfiles',
-    'commerce_core_media',
-  ]);
+  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>([]);
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)
@@ -146,31 +137,53 @@ export const CaddyProxyView: React.FC<{
 
   // 4. Root Stack Compose & Live Config Tab
   const [codeTab, setCodeTab] = useState<'root_compose' | 'live_config'>('root_compose');
+  const [realRootCompose, setRealRootCompose] = useState('');
+  const [realLiveConfig, setRealLiveConfig] = useState('');
 
   // 5. Caddy Container Logs (GET /caddy/logs?tail=300)
-  const [logLines, setLogLines] = useState<string[]>([
-    '{"level":"info","ts":1747240800,"logger":"admin","msg":"admin endpoint started","address":"tcp/0.0.0.0:2019"}',
-    '{"level":"info","ts":1747240801,"logger":"tls.cache.maintenance","msg":"started background certificate maintenance"}',
-    '{"level":"info","ts":1747240802,"logger":"http.auto_https","msg":"enabling automatic HTTP->HTTPS redirects","server_name":"srv0"}',
-    '{"level":"info","ts":1747240804,"logger":"docker-proxy","msg":"Running caddy proxy server"}',
-    '{"level":"warn","ts":1747240812,"logger":"tls","msg":"stapling OCSP: no OCSP stapling for [staging.nextdeploy.sh]"}',
-  ]);
+  const logsContainerRef = React.useRef<HTMLDivElement>(null);
+  const [logLines, setLogLines] = useState<string[]>([]);
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  const loadCaddyOverview = async () => {
+    try {
+      const res = await backendApi.caddyOverview();
+      if (res.ok && res.data) {
+        if (res.data.root_compose) setRealRootCompose(res.data.root_compose);
+        if (res.data.live_config) setRealLiveConfig(res.data.live_config);
+        if (res.data.panel_domain !== undefined) setPanelDomain(res.data.panel_domain);
+        if (res.data.panel_enable_https !== undefined) setPanelEnableHttps(res.data.panel_enable_https);
+        if (res.data.panel_enable_www !== undefined) setPanelEnableWww(res.data.panel_enable_www);
+        if (res.data.shared_mount_prefix) setSharedMountPrefix(res.data.shared_mount_prefix);
+        if (Array.isArray(res.data.shared_volumes)) setSelectedSharedVolumes(res.data.shared_volumes);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const loadCaddyLogs = async () => {
     setIsLoadingLogs(true);
     const res = await backendApi.caddyLogs(300);
     setIsLoadingLogs(false);
-    if (res.ok && Array.isArray(res.lines) && res.lines.length > 0) {
+    if (res.ok && Array.isArray(res.lines)) {
       setLogLines(res.lines);
     }
   };
 
   useEffect(() => {
+    void loadCaddyOverview();
     void loadCaddyLogs();
   }, []);
+
+  // Auto-scroll to bottom on log updates so user always sees newest logs
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
+  }, [logLines, logLevelFilter]);
 
   const pollApplyStatus = () => {
     setApplyBanner({
@@ -217,6 +230,7 @@ export const CaddyProxyView: React.FC<{
       panel_enable_www: panelEnableWww,
     });
     pollApplyStatus();
+    await loadCaddyOverview();
     toast.success(`Saved Panel Domain (${panelDomain.trim() || 'cleared'})`);
   };
 
@@ -227,6 +241,7 @@ export const CaddyProxyView: React.FC<{
       sharedMountPrefix.trim() || '/mnt/shared'
     );
     pollApplyStatus();
+    await loadCaddyOverview();
     toast.success(
       `Mounted ${selectedSharedVolumes.length} shared volume(s) under ${sharedMountPrefix.trim() || '/mnt/shared'}`
     );
@@ -353,6 +368,12 @@ ${externalVolDefs}`;
     );
   }, [acmeEmail, apps, caddyAdminApi]);
 
+  const displayCode = useMemo(() => {
+    return codeTab === 'root_compose'
+      ? (realRootCompose || rootComposeYaml)
+      : (realLiveConfig || liveConfigJson);
+  }, [codeTab, liveConfigJson, realLiveConfig, realRootCompose, rootComposeYaml]);
+
   const parsedLogs = useMemo(
     () =>
       logLines.map(parseCaddyLogLine).filter((line) => {
@@ -395,11 +416,11 @@ ${externalVolDefs}`;
           </div>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">
-              NextDeploy &amp; Caddy Proxy
+              Caddy Proxy
             </h1>
             <StatusBadge
               status={caddyContainerRunning ? 'running' : 'stopped'}
-              label={caddyContainerRunning ? 'nextdeploy_caddy running' : 'stopped'}
+              label={caddyContainerRunning ? 'running' : 'stopped'}
             />
           </div>
         </div>
@@ -532,7 +553,14 @@ ${externalVolDefs}`;
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-zinc-100">Panel Domain</h2>
-                  <p className="font-mono text-[11px] text-zinc-500">POST /nextdeploy/panel</p>
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
+                    <span>POST /nextdeploy/panel</span>
+                    {(getServerPublicIp() || window.location.hostname) && (
+                      <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                        IP: {getServerPublicIp() || window.location.hostname}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               {panelDomain.trim() && (
@@ -634,30 +662,46 @@ ${externalVolDefs}`;
               />
             </div>
 
-            <div className="max-h-36 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#09090b] p-2">
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {filteredVolumes.map((vol) => {
-                  const checked = selectedSharedVolumes.includes(vol);
-                  return (
-                    <label
-                      key={vol}
-                      className={`flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
-                        checked
-                          ? 'bg-orange-500/10 text-orange-300 ring-1 ring-orange-500/25'
-                          : 'text-zinc-300 hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleVolumeSelection(vol)}
-                        className="rounded border-zinc-700 accent-orange-500"
-                      />
-                      <span className="truncate">{vol}</span>
-                    </label>
-                  );
-                })}
-              </div>
+            <div className="min-h-[110px] max-h-44 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#09090b] p-2 flex items-center justify-center">
+              {filteredVolumes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-4 text-center px-4">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 border border-white/[0.06] mb-1.5 text-zinc-500">
+                    <HardDrive className="h-4 w-4" />
+                  </div>
+                  <p className="text-xs font-medium text-zinc-300">
+                    {volumeFilter.trim() ? 'No volumes match your filter' : 'No volumes detected'}
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 max-w-xs leading-relaxed">
+                    {volumeFilter.trim()
+                      ? 'Try clearing or changing your search query.'
+                      : 'Volumes declared in your deployed projects will automatically appear here to be mounted.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 w-full self-start">
+                  {filteredVolumes.map((vol) => {
+                    const checked = selectedSharedVolumes.includes(vol);
+                    return (
+                      <label
+                        key={vol}
+                        className={`flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
+                          checked
+                            ? 'bg-orange-500/10 text-orange-300 ring-1 ring-orange-500/25'
+                            : 'text-zinc-300 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleVolumeSelection(vol)}
+                          className="rounded border-zinc-700 accent-orange-500"
+                        />
+                        <span className="truncate">{vol}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -770,14 +814,13 @@ ${externalVolDefs}`;
           <button
             type="button"
             onClick={() => {
-              const text = codeTab === 'root_compose' ? rootComposeYaml : liveConfigJson;
-              navigator.clipboard?.writeText(text);
-              toast.success('Copied to clipboard');
+              void loadCaddyOverview();
+              toast.success('Refreshed running config');
             }}
             className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
           >
-            <Copy className="h-3 w-3" />
-            Copy
+            <RotateCw className="h-3 w-3" />
+            Refresh
           </button>
         </div>
 
@@ -785,7 +828,7 @@ ${externalVolDefs}`;
           <CodeEditorBox
             filename={codeTab === 'root_compose' ? 'docker-compose.yml' : 'caddy-live-config.json'}
             language={codeTab === 'root_compose' ? 'yaml' : 'json'}
-            value={codeTab === 'root_compose' ? rootComposeYaml : liveConfigJson}
+            value={displayCode}
             onChange={() => {}}
             readOnly
             height={250}
@@ -854,7 +897,10 @@ ${externalVolDefs}`;
           </div>
         </div>
 
-        <div className="max-h-72 overflow-y-auto bg-[#070709] p-3.5 font-mono text-xs space-y-1">
+        <div
+          ref={logsContainerRef}
+          className="max-h-72 overflow-y-auto bg-[#070709] p-3.5 font-mono text-xs space-y-1 scroll-smooth"
+        >
           {parsedLogs.length === 0 ? (
             <div className="text-zinc-500">No log output matching filter.</div>
           ) : (

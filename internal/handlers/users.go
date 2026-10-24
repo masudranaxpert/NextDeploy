@@ -399,6 +399,37 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	maxMemory, _ := strconv.Atoi(c.FormValue("max_memory_mb"))
 	maxCPUs, _ := strconv.ParseFloat(c.FormValue("max_cpus"), 64)
 	maxStorage, _ := strconv.Atoi(c.FormValue("max_storage_mb"))
+	bandwidthLimit, _ := strconv.Atoi(c.FormValue("bandwidth_limit_mbps"))
+	if bandwidthLimit < 0 {
+		bandwidthLimit = 0
+	}
+
+	if maxApps == 0 && maxMemory == 0 && maxCPUs == 0 {
+		var req struct {
+			MaxApps            int     `json:"max_apps"`
+			MaxMemoryMB        int     `json:"max_memory_mb"`
+			MaxCPUs            float64 `json:"max_cpus"`
+			MaxStorageMB       int     `json:"max_storage_mb"`
+			BandwidthLimitMbps int     `json:"bandwidth_limit_mbps"`
+		}
+		if err := c.BodyParser(&req); err == nil {
+			if req.MaxApps > 0 {
+				maxApps = req.MaxApps
+			}
+			if req.MaxMemoryMB > 0 {
+				maxMemory = req.MaxMemoryMB
+			}
+			if req.MaxCPUs > 0 {
+				maxCPUs = req.MaxCPUs
+			}
+			if req.MaxStorageMB > 0 {
+				maxStorage = req.MaxStorageMB
+			}
+			if req.BandwidthLimitMbps >= 0 {
+				bandwidthLimit = req.BandwidthLimitMbps
+			}
+		}
+	}
 
 	target, terr := p.DB.GetUserByID(c.UserContext(), id)
 	if terr != nil {
@@ -425,7 +456,7 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	}
 
 	allowFileServer := c.FormValue("allow_domain_file_server") == "on"
-	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs, maxStorage, allowFileServer); err != nil {
+	if err := p.DB.UpdateUserLimits(c.UserContext(), id, maxApps, maxMemory, maxCPUs, maxStorage, bandwidthLimit, allowFileServer); err != nil {
 		if WantsJSON(c) {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": "Update failed"})
 		}

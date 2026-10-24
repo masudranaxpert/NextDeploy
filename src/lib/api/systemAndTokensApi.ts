@@ -43,6 +43,17 @@ export const systemAndTokensApi = {
       logs: res.data?.lines ? res.data.lines.join('\n') : undefined,
     };
   },
+  caddyOverview: () =>
+    requestJson<{
+      ok: boolean;
+      live_config: string;
+      root_compose: string;
+      panel_domain: string;
+      panel_enable_https: boolean;
+      panel_enable_www: boolean;
+      shared_mount_prefix: string;
+      shared_volumes: string[];
+    }>('/caddy/overview'),
   savePanelConfig: (
     payloadOrDomain:
       | string
@@ -232,6 +243,7 @@ export const systemAndTokensApi = {
       max_memory_mb: number;
       max_cpus: number;
       max_storage_mb: number;
+      bandwidth_limit_mbps?: number;
       allow_domain_file_server: boolean;
     }
   ) =>
@@ -243,6 +255,7 @@ export const systemAndTokensApi = {
         max_memory_mb: payload.max_memory_mb,
         max_cpus: payload.max_cpus,
         max_storage_mb: payload.max_storage_mb,
+        bandwidth_limit_mbps: payload.bandwidth_limit_mbps ?? 0,
         allow_domain_file_server: payload.allow_domain_file_server ? 'on' : '',
       }),
     }),

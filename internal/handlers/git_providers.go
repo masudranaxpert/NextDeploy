@@ -1,13 +1,73 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"panel/internal/db"
+	"panel/internal/gitx"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// fetchAccessibleReposCount returns the number of accessible repositories for a provider.
+func (p *Panel) fetchAccessibleReposCount(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
+	if gp.Provider == "github" {
+		var token string
+		var endpoint string
+		if strings.TrimSpace(gp.Token) != "" {
+			token = strings.TrimSpace(gp.Token)
+			endpoint = "https://api.github.com/user/repos?per_page=1"
+		} else if strings.TrimSpace(d.InstallationID) != "" {
+			minted, err := gitx.MintGitHubInstallationToken(ctx, d.GitHubAppID, d.InstallationID, d.PrivateKeyPEM)
+			if err != nil {
+				return 0
+			}
+			token = minted
+			endpoint = "https://api.github.com/installation/repositories?per_page=1"
+		} else {
+			return 0
+		}
+
+		body, status, err := githubAPIRequest(ctx, http.MethodGet, endpoint, token, nil)
+		if err != nil || status >= 300 {
+			return 0
+		}
+		if strings.TrimSpace(gp.Token) != "" {
+			var list []githubInstallationRepository
+			if err := json.Unmarshal(body, &list); err == nil {
+				return len(list)
+			}
+			return 0
+		}
+		var payload githubInstallationRepositoriesResponse
+		if err := json.Unmarshal(body, &payload); err == nil {
+			if payload.TotalCount > 0 {
+				return payload.TotalCount
+			}
+			return len(payload.Repositories)
+		}
+		return 0
+	} else if gp.Provider == "gitlab" {
+		token, err := p.EnsureFreshGitLabToken(ctx, gp.ID)
+		if err != nil || token == "" {
+			return 0
+		}
+		endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=1"
+		body, status, err := gitlabAPIRequest(ctx, http.MethodGet, endpoint, token)
+		if err != nil || status >= 300 {
+			return 0
+		}
+		var projects []gitlabProject
+		if err := json.Unmarshal(body, &projects); err == nil {
+			return len(projects)
+		}
+	}
+	return 0
+}
 
 // GitProviderCreate creates a new Git provider credential using a PAT or Deploy Token.
 func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
@@ -71,7 +131,7 @@ func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
 	})
 }
 
-// GitProvidersList returns all git providers for the current user or admin.
+// GitProvidersList returns all git providers with auth_method and install details.
 func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 	u, ok := CurrentUser(c)
 	if !ok {
@@ -89,9 +149,59 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 	if providers == nil {
 		providers = []db.GitProvider{}
 	}
+
+	details, _ := p.DB.ListGitHubProviderDetails(c.UserContext())
+	detailMap := make(map[int64]db.GitHubProviderDetail)
+	for _, d := range details {
+		detailMap[d.ProviderID] = d
+	}
+
+	type providerRes struct {
+		db.GitProvider
+		AuthMethod      string `json:"auth_method"`
+		InstallationID  string `json:"installation_id,omitempty"`
+		AppSlug         string `json:"app_slug,omitempty"`
+		AccountLogin    string `json:"account_login,omitempty"`
+		InstallURL      string `json:"install_url,omitempty"`
+		NeedsInstall    bool   `json:"needs_install,omitempty"`
+		ReposAccessible int    `json:"repos_accessible"`
+	}
+
+	var res []providerRes
+	for _, gp := range providers {
+		pr := providerRes{GitProvider: gp}
+		d := detailMap[gp.ID]
+		if gp.Provider == "github" {
+			if d.GitHubAppID != "" || d.AppSlug != "" {
+				pr.AuthMethod = "GitHub App"
+				pr.InstallationID = d.InstallationID
+				pr.AppSlug = d.AppSlug
+				pr.AccountLogin = d.AccountLogin
+				if strings.TrimSpace(d.InstallationID) == "" {
+					pr.NeedsInstall = true
+				}
+				pr.InstallURL = "/git/" + strconv.FormatInt(gp.ID, 10) + "/github/install"
+			} else {
+				pr.AuthMethod = "Fine-Grained PAT"
+			}
+		} else if gp.Provider == "gitlab" {
+			if gp.RefreshToken != "" || gp.ExpiresAt > 0 {
+				pr.AuthMethod = "OAuth 2.0"
+			} else {
+				pr.AuthMethod = "Deploy Token"
+			}
+		} else {
+			pr.AuthMethod = "Token"
+		}
+		if !pr.NeedsInstall {
+			pr.ReposAccessible = p.fetchAccessibleReposCount(c.UserContext(), gp, d)
+		}
+		res = append(res, pr)
+	}
+
 	return c.JSON(fiber.Map{
 		"ok":        true,
-		"providers": providers,
+		"providers": res,
 	})
 }
 

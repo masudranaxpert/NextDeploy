@@ -54,7 +54,8 @@ import { MigrationView } from './features/migration/MigrationView';
 import { McpAndCliView } from './features/automation/McpAndCliView';
 import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
 import { AuthView } from './features/auth/AuthView';
-import { backendApi, formatWildcardDomain, setServerPublicIp } from './lib/backendApi';
+import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
+import { copyToClipboard } from './lib/clipboard';
 
 
 export default function App() {
@@ -101,8 +102,21 @@ export default function App() {
   const [activeNav, setActiveNav] = useState<NavigationSection>(initialRoute.nav);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(initialRoute.appId);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'setup' | 'login' | null>(null);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [authMode, setAuthMode] = useState<'setup' | 'login' | null>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/setup') return 'setup';
+      if (window.location.pathname === '/login') return 'login';
+    }
+    return null;
+  });
+  const [isBootstrapping, setIsBootstrapping] = useState(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/setup' || window.location.pathname === '/login') {
+        return false;
+      }
+    }
+    return true;
+  });
 
   // Sync URL with state navigation
   const navigateTo = (
@@ -315,19 +329,6 @@ export default function App() {
               memLimitMB: 1024,
               ports: c.Ports || '',
             }))
-          : Array.isArray(a.services)
-          ? a.services.map((s: string, sIdx: number) => ({
-              id: `svc-${a.id}-${sIdx}`,
-              name: `${a.name}_${s}_1`,
-              service: s,
-              image: `${a.name}:latest`,
-              state: 'exited' as const,
-              uptime: 'Stopped',
-              cpuPct: 0,
-              memUsedMB: 0,
-              memLimitMB: 1024,
-              ports: '',
-            }))
           : [],
     domains: Array.isArray(a.domains)
       ? a.domains.map((d: any) => ({
@@ -420,6 +421,17 @@ export default function App() {
             };
           })
         : [],
+      hasSchedule: Array.isArray(a.backup_schedules) && a.backup_schedules.some((sc: any) => sc.enabled),
+      backupSchedules: Array.isArray(a.backup_schedules)
+        ? a.backup_schedules.map((sc: any) => ({
+            id: sc.id,
+            destinationId: sc.destination_id,
+            cronExpression: sc.cron_schedule || sc.cron_expression || '0 3 * * *',
+            retentionCount: sc.retention_count || 7,
+            backupType: sc.backup_type || 'app',
+            enabled: Boolean(sc.enabled),
+          }))
+        : [],
     };
   };
 
@@ -511,9 +523,9 @@ export default function App() {
           cpu: currentCpu,
           memory: currentMem,
           diskIo: Math.round(sys.DiskUsedPct || 0),
-          netInMbps: 5,
-          netOutMbps: 5,
-          requests: 120,
+          netInMbps: 0,
+          netOutMbps: 0,
+          requests: 0,
         };
         setTelemetry((prev) => [...prev.slice(1), currentPoint]);
       }
@@ -552,6 +564,8 @@ export default function App() {
             maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
             maxCpuCores: u.MaxCPUs || u.max_cpus || 2,
             maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
+            bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
+            allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
             storageUsedMB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024)),
             activeAppsCount: 0,
             createdAt: u.CreatedAt || u.created_at || 'Recently',
@@ -595,14 +609,18 @@ export default function App() {
           data.git_providers.map((gp: any) => ({
             id: String(gp.id),
             provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
-            authMethod: 'Fine-Grained PAT' as const,
-            accountName: gp.name,
-            instanceUrl: 'https://github.com',
-            status: 'connected' as const,
-            reposAccessible: 0,
+            authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
+            accountName: gp.account_login || gp.name,
+            instanceUrl: gp.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com',
+            status: gp.needs_install ? ('error' as const) : ('connected' as const),
+            reposAccessible: typeof gp.repos_accessible === 'number' ? gp.repos_accessible : 0,
             webhookDeliveryRate: '100%',
             webhookUrl: '',
             lastSynced: 'Recently',
+            needsInstall: Boolean(gp.needs_install),
+            installUrl: gp.install_url,
+            appSlug: gp.app_slug,
+            installationId: gp.installation_id,
           }))
         );
       }
@@ -658,17 +676,17 @@ export default function App() {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
       now.getMinutes()
     ).padStart(2, '0')}`;
-    const cpuVal = sys ? Math.round(sys.CPUPercent || 0) : 22;
-    const memVal = sys ? Math.round(sys.MemUsedPct || 0) : 48;
-    const diskVal = sys ? Math.round(sys.DiskUsedPct || 0) : 25;
+    const cpuVal = sys ? Math.round(sys.CPUPercent || 0) : 0;
+    const memVal = sys ? Math.round(sys.MemUsedPct || 0) : 0;
+    const diskVal = sys ? Math.round(sys.DiskUsedPct || 0) : 0;
     const nextPoint: TelemetryPoint = {
       time: timeStr,
       cpu: cpuVal,
       memory: memVal,
       diskIo: diskVal,
-      netInMbps: 5,
-      netOutMbps: 4,
-      requests: 120,
+      netInMbps: 0,
+      netOutMbps: 0,
+      requests: 0,
     };
     setTelemetry((prev) => [...prev.slice(1), nextPoint]);
   };
@@ -795,6 +813,20 @@ export default function App() {
           window.location.href = '/overview';
         }}
       />
+    );
+  }
+
+  if (isBootstrapping) {
+    return (
+      <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10 border border-orange-500/20">
+          <div className="font-mono text-lg font-bold text-orange-400">ND</div>
+        </div>
+        <div className="flex items-center gap-2.5 font-mono text-xs text-zinc-400">
+          <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
+          <span>Loading NextDeploy...</span>
+        </div>
+      </div>
     );
   }
 
@@ -1010,12 +1042,7 @@ export default function App() {
 
           {/* Main Viewport */}
           <main className="relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7">
-            {isBootstrapping ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Loader2 className="h-6 w-6 animate-spin text-orange-400" />
-                <span className="font-mono text-xs text-zinc-400">Loading NextDeploy...</span>
-              </div>
-            ) : selectedApp ? (
+            {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
                 onBack={() => navigateTo('apps')}
@@ -1066,6 +1093,7 @@ export default function App() {
                 apps={apps}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onUpdateApps={setApps}
+                onCreateApp={() => setNewAppModalOpen(true)}
               />
             ) : activeNav === 'monitor' ? (
               <MonitorView
@@ -1222,10 +1250,10 @@ export default function App() {
                     cliVersion: 'nd v1.8.4',
                     lastCommand: 'nd login',
                     lastActiveAt: 'Just now',
-                    ipAddress: '103.148.22.91',
+                    ipAddress: getServerPublicIp() || window.location.hostname || '127.0.0.1',
                   };
                   setCliSessions((prev) => [created, ...prev]);
-                  navigator.clipboard?.writeText(fullToken);
+                  void copyToClipboard(fullToken);
                   toast.success(`Generated CLI token for ${label} (copied full token)`);
                 }}
                 onRevokeCliSession={(id) => {

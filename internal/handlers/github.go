@@ -309,6 +309,7 @@ type githubInstallationRepository struct {
 }
 
 type githubInstallationRepositoriesResponse struct {
+	TotalCount   int                            `json:"total_count"`
 	Repositories []githubInstallationRepository `json:"repositories"`
 }
 

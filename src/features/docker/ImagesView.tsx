@@ -149,9 +149,19 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             <tbody className="divide-y divide-white/[0.05]">
               {filteredImages.map((img) => {
                 const useCount = img.inUseBy.length;
+                const isUntagged =
+                  !img.repository ||
+                  img.repository === '<none>' ||
+                  img.tag === '<none>' ||
+                  img.repository === 'none';
                 const segments = img.repository.split('/');
                 const shortRepo = segments[segments.length - 1];
-                const hostPrefix = segments.length > 1 ? segments.slice(0, -1).join('/') : 'docker.io';
+                const hostPrefix =
+                  segments.length > 1
+                    ? segments.slice(0, -1).join('/') + '/'
+                    : !isUntagged && !img.repository.includes('.')
+                    ? 'docker.io/'
+                    : '';
 
                 return (
                   <tr
@@ -162,15 +172,28 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                     <td className="px-4 py-3">
                       <div
                         className="flex items-center gap-2.5 min-w-0"
-                        title={`${img.repository}:${img.tag}`}
+                        title={
+                          isUntagged
+                            ? `Dangling Image (${img.id})`
+                            : `${img.repository}:${img.tag}`
+                        }
                       >
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
                           <Layers className="h-3.5 w-3.5 text-orange-400" />
                         </div>
                         <div className="min-w-0 truncate font-mono">
-                          <span className="text-zinc-500 text-[11px]">{hostPrefix}/</span>
-                          <span className="font-semibold text-zinc-100">{shortRepo}</span>
-                          <span className="text-orange-400">:{img.tag}</span>
+                          {isUntagged ? (
+                            <>
+                              <span className="font-semibold text-zinc-400">&lt;none&gt;</span>
+                              <span className="ml-1 text-[11px] text-zinc-500">({img.id.slice(0, 8)})</span>
+                            </>
+                          ) : (
+                            <>
+                              {hostPrefix && <span className="text-zinc-500 text-[11px]">{hostPrefix}</span>}
+                              <span className="font-semibold text-zinc-100">{shortRepo}</span>
+                              <span className="text-orange-400">:{img.tag}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -312,7 +335,13 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
       <ShadcnDialog
         open={Boolean(inspectedImage)}
         onClose={() => setInspectedImage(null)}
-        title={inspectedImage ? `${inspectedImage.repository}:${inspectedImage.tag}` : 'Image'}
+        title={
+          inspectedImage
+            ? inspectedImage.repository === '<none>' || inspectedImage.tag === '<none>'
+              ? `<none> (${inspectedImage.id.slice(0, 8)})`
+              : `${inspectedImage.repository}:${inspectedImage.tag}`
+            : 'Image'
+        }
         icon={<Layers className="h-4 w-4" />}
       >
         {inspectedImage && (

@@ -173,7 +173,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-zinc-300">CPU Load</span>
                   <span className="font-mono text-xs font-bold text-emerald-400">
-                    {latest.cpu}%
+                    {Number(latest.cpu || 0).toFixed(1)}%
                   </span>
                 </div>
                 <button
@@ -202,7 +202,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-zinc-300">Memory</span>
                   <span className="font-mono text-xs font-bold text-sky-400">
-                    {latest.memory}%
+                    {Number(latest.memory || 0).toFixed(1)}%
                   </span>
                 </div>
                 <button
@@ -335,7 +335,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                         <StatusBadge status={app.status} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                        {app.cpuPct}%
+                        {Number(app.cpuPct || 0).toFixed(1)}%
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
                         {app.memMB} MB

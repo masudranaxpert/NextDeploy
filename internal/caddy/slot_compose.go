@@ -357,11 +357,8 @@ func GenerateSlotLabels(domains []db.AppDomain, hostPorts []HostPortBinding, pre
 			labels[prefix] = siteAddr
 			upstreams := fmt.Sprintf("{{upstreams %d}}", hp.ContainerPort)
 			labels[prefix+".reverse_proxy"] = upstreams
-			labels[prefix+".reverse_proxy.lb_try_duration"] = "30s"
-			labels[prefix+".reverse_proxy.health_uri"] = "/"
-			labels[prefix+".reverse_proxy.health_status"] = "2xx"
-			labels[prefix+".reverse_proxy.health_interval"] = "2s"
-			labels[prefix+".reverse_proxy.health_timeout"] = "2s"
+			labels[prefix+".reverse_proxy.lb_try_duration"] = "5s"
+			labels[prefix+".reverse_proxy.fail_duration"] = "5s"
 		}
 	}
 
@@ -449,15 +446,13 @@ func appendSlotSiteLabels(labels map[string]string, prefix string, d db.AppDomai
 
 	if order == 1 {
 		labels[prefix+".reverse_proxy"] = upstreams
-		labels[prefix+".reverse_proxy.lb_try_duration"] = "30s"
-		labels[prefix+".reverse_proxy.health_uri"] = "/"
-		labels[prefix+".reverse_proxy.health_status"] = "2xx"
-		labels[prefix+".reverse_proxy.health_interval"] = "2s"
-		labels[prefix+".reverse_proxy.health_timeout"] = "2s"
+		labels[prefix+".reverse_proxy.lb_try_duration"] = "5s"
+		labels[prefix+".reverse_proxy.fail_duration"] = "5s"
 	} else {
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = upstreams
-		labels[base+".lb_try_duration"] = "30s"
+		labels[base+".lb_try_duration"] = "5s"
+		labels[base+".fail_duration"] = "5s"
 	}
 }
 

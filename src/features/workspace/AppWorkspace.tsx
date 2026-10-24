@@ -52,6 +52,7 @@ import {
   Rocket,
   X,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -431,7 +432,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       (d) => d.status === 'ready' && (d.slot || '').toLowerCase() === standbySlot
     )?.id;
 
-    const standbyHasImage = app.slotImages ? Boolean(app.slotImages[standbySlot]) : Boolean(app.standbySlot);
+    // A slot is only considered a valid standby if its image or container actually exists on disk.
+    // When the user deletes the standby image/container, fallback string in DB must not falsely mark it as standby.
+    const standbyHasImage = app.slotImages ? Boolean(app.slotImages[standbySlot]) : false;
 
     const list = app.deployments.map((d, idx) => {
       const slotName = (d.slot || (idx === 0 ? activeSlot : standbySlot)).toLowerCase() as 'blue' | 'green';
@@ -531,18 +534,19 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [liveFileList, setLiveFileList] = useState<ComposeFileNode[] | null>(null);
 
   // Sync real files from server disk into frontend state, preserving already loaded file contents
-  const syncWorkspaceFilesFromDisk = async () => {
+  const syncWorkspaceFilesFromDisk = async (invalidatedPaths?: string[]) => {
     try {
       const listRes = await backendApi.filesList(app.id, '', true);
       const res = listRes.data;
       if (Array.isArray(res)) {
+        const invalidatedSet = new Set(invalidatedPaths || []);
         // Build map of existing file contents from state so we don't wipe them out with empty strings
         const contentByPath = new Map<string, string>();
         (app.files || []).forEach((f) => {
-          if (f.path && f.content) contentByPath.set(f.path, f.content);
+          if (f.path && f.content && !invalidatedSet.has(f.path)) contentByPath.set(f.path, f.content);
         });
         (liveFileList || []).forEach((f) => {
-          if (f.path && f.content) contentByPath.set(f.path, f.content);
+          if (f.path && f.content && !invalidatedSet.has(f.path)) contentByPath.set(f.path, f.content);
         });
 
         const liveNodes: ComposeFileNode[] = res
@@ -579,6 +583,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           ...app,
           files: liveNodes,
         });
+
+        // If currently open file in editor was invalidated/replaced, reload its real content
+        if (editingFilePath && invalidatedSet.has(editingFilePath)) {
+          const freshNode = liveNodes.find((f) => f.path === editingFilePath);
+          if (freshNode) {
+            void openFileInEditor(freshNode);
+          }
+        }
       }
     } catch {
       // Ignore background sync errors
@@ -642,8 +654,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   });
   const [newFileModalOpen, setNewFileModalOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
+  const [newFileTargetDir, setNewFileTargetDir] = useState('');
   const [newFolderModalOpen, setNewFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderTargetDir, setNewFolderTargetDir] = useState('');
   const [renameTarget, setRenameTarget] = useState<{
     path: string;
     name: string;
@@ -675,6 +689,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [moveDestInput, setMoveDestInput] = useState('');
   const [inlineNewDestFolder, setInlineNewDestFolder] = useState('');
   const [showInlineFolderCreator, setShowInlineFolderCreator] = useState(false);
+  const [conflictModal, setConflictModal] = useState<{
+    paths: string[];
+    conflicts: string[];
+    destFolder: string;
+    mode: 'move' | 'copy';
+  } | null>(null);
   const [compressModalOpen, setCompressModalOpen] = useState(false);
   const [compressItems, setCompressItems] = useState<string[]>([]);
   const [compressArchiveName, setCompressArchiveName] = useState('archive.zip');
@@ -1358,7 +1378,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     e.preventDefault();
     const raw = newFileName.trim().replace(/^\/+/, '');
     if (!raw) return;
-    const fullPath = !raw.includes('/') && currentDir ? `${currentDir}/${raw}` : raw;
+    const baseDir = newFileTargetDir.trim().replace(/^\/+|\/+$/g, '');
+    const fullPath = baseDir ? `${baseDir}/${raw}` : raw;
     const createRes = await backendApi.fileCreate(app.id, fullPath);
     if (!createRes.ok) {
       toast.error(createRes.error || createRes.message || 'Failed to create file');
@@ -1428,7 +1449,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       .replace(/^\/+|\/+$/g, '')
       .replace(/[^a-zA-Z0-9/_.-]/g, '-');
     if (!raw) return;
-    const fullFolder = !raw.includes('/') && currentDir ? `${currentDir}/${raw}` : raw;
+    const baseDir = newFolderTargetDir.trim().replace(/^\/+|\/+$/g, '');
+    const fullFolder = baseDir ? `${baseDir}/${raw}` : raw;
     const res = await backendApi.fileCreate(app.id, fullFolder, true);
     if (!res.ok) {
       toast.error(res.error || res.message || 'Failed to create folder');
@@ -1512,31 +1534,83 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     await syncWorkspaceFilesFromDisk();
   };
 
+  // Copy / Move execution
+  const executeMoveOrCopy = async (
+    paths: string[],
+    destFolder: string,
+    mode: 'move' | 'copy',
+    overwrite: boolean
+  ) => {
+    const isMove = mode === 'move';
+    try {
+      const res = isMove
+        ? await backendApi.fileMove(app.id, paths, destFolder, overwrite)
+        : await backendApi.fileCopy(app.id, paths, destFolder, overwrite);
+      if (res && (res as any).ok === false) {
+        toast.error((res as any).message || `Failed to ${isMove ? 'move' : 'copy'}`);
+        return;
+      }
+      const targetDestPaths = paths.map((pth) => {
+        const base = pth.split('/').pop() || pth;
+        return destFolder ? `${destFolder}/${base}` : base;
+      });
+      await syncWorkspaceFilesFromDisk(targetDestPaths);
+      setSelectedEntries([]);
+      const destLabel = destFolder ? `/${destFolder}` : 'root directory';
+      toast.success(
+        `${isMove ? 'Moved' : 'Copied'} ${paths.length} item(s) to ${destLabel}`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || `Failed to ${isMove ? 'move' : 'copy'}`);
+    }
+  };
+
   // Copy / Move Submit
   const handleMoveOrCopySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!moveTarget || moveTarget.paths.length === 0) return;
     const destFolder = moveDestInput.trim().replace(/^\/+|\/+$/g, '');
-    const isMove = moveTarget.mode === 'move';
-    try {
-      const res = isMove
-        ? await backendApi.fileMove(app.id, moveTarget.paths, destFolder)
-        : await backendApi.fileCopy(app.id, moveTarget.paths, destFolder);
-      if (res && (res as any).ok === false) {
-        toast.error((res as any).message || `Failed to ${isMove ? 'move' : 'copy'}`);
-        return;
+
+    // Existing files or folders in the destination
+    const existingInDest = new Set<string>();
+    defaultRichFiles.forEach((f) => {
+      const parts = f.path.split('/');
+      const parent = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+      if (parent === destFolder) {
+        existingInDest.add(parts[parts.length - 1]);
       }
-      await syncWorkspaceFilesFromDisk();
-      setSelectedEntries([]);
-      const destLabel = destFolder ? `/${destFolder}` : 'root directory';
-      toast.success(
-        `${isMove ? 'Moved' : 'Copied'} ${moveTarget.paths.length} item(s) to ${destLabel}`
-      );
-    } catch (err: any) {
-      toast.error(err?.message || `Failed to ${isMove ? 'move' : 'copy'}`);
-    } finally {
+    });
+    allFolderPaths.forEach((dir) => {
+      const parts = dir.split('/');
+      const parent = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+      if (parent === destFolder) {
+        existingInDest.add(parts[parts.length - 1]);
+      }
+    });
+
+    // Check for naming collisions
+    const detectedConflicts = moveTarget.paths.filter((pth) => {
+      const baseName = pth.split('/').pop() || pth;
+      const oldParent = pth.includes('/') ? pth.slice(0, pth.lastIndexOf('/')) : '';
+      if (oldParent === destFolder) return false;
+      return existingInDest.has(baseName);
+    });
+
+    if (detectedConflicts.length > 0) {
+      setConflictModal({
+        paths: moveTarget.paths,
+        conflicts: detectedConflicts,
+        destFolder,
+        mode: moveTarget.mode,
+      });
       setMoveTarget(null);
+      return;
     }
+
+    const mode = moveTarget.mode;
+    const paths = moveTarget.paths;
+    setMoveTarget(null);
+    await executeMoveOrCopy(paths, destFolder, mode, false);
   };
 
   // Deletes on disk first; local hiding alone made files reappear after refresh
@@ -1739,7 +1813,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     (d) => d.status === 'ready' && (d.slot || '').toLowerCase() === standbySlotName
   );
   const standbySlotHasImage = Boolean(
-    latestStandbyDeployment && (app.slotImages ? app.slotImages[standbySlotName] : Boolean(app.standbySlot))
+    latestStandbyDeployment && (app.slotImages ? app.slotImages[standbySlotName] : false)
   );
   const isStandbyContainerRunning = app.services.some(
     (s) => s.state === 'running' && (s.name || '').toLowerCase().includes(`-${standbySlotName}-`)
@@ -2907,7 +2981,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <span>{isPinnedProduction ? 'Unpin' : 'Pin Prod'}</span>
               </button>
 
-              {(isStandbyContainerRunning || standbySlotHasImage || Boolean(app.standbySlot)) && (
+              {(isStandbyContainerRunning || standbySlotHasImage) && (
                 <button
                   type="button"
                   disabled={isPromotingSlot || liveDeployState.running}
@@ -3551,6 +3625,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 type="button"
                 onClick={() => {
                   setNewFileName('');
+                  setNewFileTargetDir(currentDir || '');
                   setNewFileModalOpen(true);
                 }}
                 className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-zinc-100 px-2.5 text-[11px] font-semibold text-zinc-950 hover:bg-white cursor-pointer"
@@ -3563,6 +3638,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 type="button"
                 onClick={() => {
                   setNewFolderName('');
+                  setNewFolderTargetDir(currentDir || '');
                   setNewFolderModalOpen(true);
                 }}
                 className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
@@ -4576,7 +4652,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       onClick={() => {
                         const targetDir = contextMenu.targetPath;
                         setCurrentDir(targetDir);
-                        setNewFileName(targetDir ? `${targetDir}/` : '');
+                        setNewFileName('');
+                        setNewFileTargetDir(targetDir || '');
                         setNewFileModalOpen(true);
                         setContextMenu(null);
                       }}
@@ -4591,7 +4668,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       onClick={() => {
                         const targetDir = contextMenu.targetPath;
                         setCurrentDir(targetDir);
-                        setNewFolderName(targetDir ? `${targetDir}/` : '');
+                        setNewFolderName('');
+                        setNewFolderTargetDir(targetDir || '');
                         setNewFolderModalOpen(true);
                         setContextMenu(null);
                       }}
@@ -5422,19 +5500,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </label>
             <div className="flex flex-wrap gap-1.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-2">
               {['', ...allFolderPaths].map((dir) => {
-                const fileBase = (newFileName.split('/').pop() || 'index.ts').trim();
-                const currentFileDir = newFileName.includes('/')
-                  ? newFileName.slice(0, newFileName.lastIndexOf('/'))
-                  : currentDir;
-                const active = currentFileDir === dir;
+                const active = newFileTargetDir === dir;
                 return (
                   <button
                     key={dir || 'root'}
                     type="button"
-                    onClick={() => setNewFileName(dir ? `${dir}/${fileBase}` : fileBase)}
+                    onClick={() => setNewFileTargetDir(dir)}
                     className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors cursor-pointer ${
                       active
-                        ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 font-semibold'
+                        ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 font-semibold ring-1 ring-amber-500/30'
                         : 'border-white/[0.06] bg-zinc-900/80 text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
@@ -5447,15 +5521,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              File Name & Path
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[11px] font-medium text-zinc-400">
+                File Name
+              </label>
+              <span className="font-mono text-[10px] text-zinc-500">
+                Target: /{app.slug}{newFileTargetDir ? `/${newFileTargetDir}` : ''}/
+              </span>
+            </div>
             <input
               type="text"
               required
               value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              placeholder={currentDir ? `${currentDir}/worker.ts` : 'worker.ts'}
+              onChange={(e) => setNewFileName(e.target.value.replace(/^\/+/, ''))}
+              placeholder="e.g. server.ts or config.json"
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
           </div>
@@ -5491,21 +5570,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </label>
             <div className="flex flex-wrap gap-1.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-2">
               {['', ...allFolderPaths].map((dir) => {
-                const leaf = (newFolderName.split('/').pop() || '').trim();
-                const parentPart = newFolderName.includes('/')
-                  ? newFolderName.slice(0, newFolderName.lastIndexOf('/'))
-                  : currentDir;
-                const active = parentPart === dir;
+                const active = newFolderTargetDir === dir;
                 return (
                   <button
                     key={dir || 'root'}
                     type="button"
-                    onClick={() =>
-                      setNewFolderName(dir ? `${dir}/${leaf || 'new-folder'}` : leaf || 'new-folder')
-                    }
+                    onClick={() => setNewFolderTargetDir(dir)}
                     className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors cursor-pointer ${
                       active
-                        ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 font-semibold'
+                        ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 font-semibold ring-1 ring-amber-500/30'
                         : 'border-white/[0.06] bg-zinc-900/80 text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
@@ -5518,15 +5591,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Folder Path
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[11px] font-medium text-zinc-400">
+                Folder Name
+              </label>
+              <span className="font-mono text-[10px] text-zinc-500">
+                Target: /{app.slug}{newFolderTargetDir ? `/${newFolderTargetDir}` : ''}/
+              </span>
+            </div>
             <input
               type="text"
               required
               value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder={currentDir ? `${currentDir}/migrations` : 'migrations or src/middleware'}
+              onChange={(e) => setNewFolderName(e.target.value.replace(/^\/+/, ''))}
+              placeholder="e.g. controllers or migrations"
               className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
           </div>
@@ -6584,6 +6662,80 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </button>
             </div>
           </form>
+        )}
+      </ShadcnDialog>
+
+      {/* Conflict Resolution Modal (Skip vs Replace) */}
+      <ShadcnDialog
+        open={Boolean(conflictModal)}
+        onClose={() => setConflictModal(null)}
+        title="File Collision Detected"
+        icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
+      >
+        {conflictModal && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.08] p-3 text-xs text-amber-200">
+              <p className="font-semibold text-amber-100">
+                The destination already contains {conflictModal.conflicts.length} item(s) with the same name:
+              </p>
+              <div className="mt-2 max-h-32 overflow-y-auto space-y-1 font-mono text-[11px] text-zinc-300">
+                {conflictModal.conflicts.map((p) => {
+                  const fname = p.split('/').pop() || p;
+                  return (
+                    <div key={p} className="flex items-center gap-2 rounded bg-black/40 px-2 py-1">
+                      <DevFileIcon filename={fname} />
+                      <span className="font-semibold text-zinc-100">{fname}</span>
+                      <span className="text-zinc-500 text-[10px]">
+                        ({conflictModal.destFolder ? `/${conflictModal.destFolder}/${fname}` : `/${fname}`})
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2.5 text-zinc-400">
+                Would you like to <strong>Replace</strong> the existing items or <strong>Skip</strong> them during the {conflictModal.mode}?
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] pt-3">
+              <button
+                type="button"
+                onClick={() => setConflictModal(null)}
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ctx = conflictModal;
+                    setConflictModal(null);
+                    const nonConflicting = ctx.paths.filter((p) => !ctx.conflicts.includes(p));
+                    if (nonConflicting.length > 0) {
+                      await executeMoveOrCopy(nonConflicting, ctx.destFolder, ctx.mode, false);
+                    } else {
+                      toast.info('Skipped all items because they already exist in the destination.');
+                    }
+                  }}
+                  className="rounded-lg border border-white/[0.12] bg-zinc-800 px-3.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 cursor-pointer"
+                >
+                  Skip Conflicting
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ctx = conflictModal;
+                    setConflictModal(null);
+                    await executeMoveOrCopy(ctx.paths, ctx.destFolder, ctx.mode, true);
+                  }}
+                  className="rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-orange-400 cursor-pointer shadow-sm"
+                >
+                  Replace Existing
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </ShadcnDialog>
 

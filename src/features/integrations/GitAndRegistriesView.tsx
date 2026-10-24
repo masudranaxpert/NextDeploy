@@ -13,6 +13,7 @@ import {
   Play,
   Globe,
   User,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -331,13 +332,18 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate font-mono text-xs font-semibold text-zinc-100">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="truncate font-mono text-xs font-semibold text-zinc-100 max-w-[140px]">
                           {p.accountName}
                         </span>
-                        <StatusBadge status={p.status} />
+                        <StatusBadge status={p.needsInstall ? 'error' : p.status} />
+                        {p.needsInstall && (
+                          <span className="rounded bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-medium text-amber-300">
+                            Setup Required
+                          </span>
+                        )}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
+                      <div className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
                         <span>{p.provider}</span>
                         <span>·</span>
                         <span className="text-orange-400">{p.authMethod}</span>
@@ -345,38 +351,69 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     </div>
                   </div>
 
-                  <ActionMenu
-                    items={[
-                      {
-                        label: isGitLab ? 'Sync Repositories' : 'Refresh GitHub Installation ID',
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: async () => {
-                          if (!isGitLab) {
-                            await backendApi.refreshGitHubInstall(p.id);
-                          }
-                          toast.success(`Synced installation & repositories for ${p.accountName}`);
+                  <div className="flex items-center gap-2 shrink-0">
+                    {p.needsInstall && (
+                      <a
+                        href={p.installUrl || `/git/${p.id}/github/install`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-orange-400 transition-colors shadow-sm cursor-pointer"
+                        title="Install this GitHub App on your GitHub account or organization"
+                      >
+                        <span>Install App</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    <ActionMenu
+                      items={[
+                        ...(p.needsInstall
+                          ? [
+                              {
+                                label: 'Install App on GitHub',
+                                icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  window.location.href = p.installUrl || `/git/${p.id}/github/install`;
+                                },
+                              },
+                            ]
+                          : [
+                              {
+                                label: 'Manage Installed Repos',
+                                icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  window.location.href = p.installUrl || `/git/${p.id}/github/install`;
+                                },
+                              },
+                            ]),
+                        {
+                          label: isGitLab ? 'Sync Repositories' : 'Refresh GitHub Installation ID',
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: async () => {
+                            if (!isGitLab) {
+                              await backendApi.refreshGitHubInstall(p.id);
+                            }
+                            toast.success(`Synced installation & repositories for ${p.accountName}`);
+                          },
                         },
-                      },
-                      {
-                        label: 'Copy Webhook URL',
-                        icon: <Copy className="h-3.5 w-3.5" />,
-                        onClick: () => {
-                          navigator.clipboard?.writeText(p.webhookUrl);
-                          toast.success('Copied webhook URL');
+                        {
+                          label: 'Copy Webhook URL',
+                          icon: <Copy className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            navigator.clipboard?.writeText(p.webhookUrl);
+                            toast.success('Copied webhook URL');
+                          },
                         },
-                      },
-                      {
-                        label: 'Disconnect Provider',
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        variant: 'danger',
-                        onClick: () => {
-                          void backendApi.deleteGitProvider(p.id);
-                          setProviders((prev) => prev.filter((item) => item.id !== p.id));
-                          toast.success(`Disconnected ${p.accountName}`);
+                        {
+                          label: 'Disconnect Provider',
+                          icon: <Trash2 className="h-3.5 w-3.5" />,
+                          variant: 'danger',
+                          onClick: () => {
+                            void backendApi.deleteGitProvider(p.id);
+                            setProviders((prev) => prev.filter((item) => item.id !== p.id));
+                            toast.success(`Disconnected ${p.accountName}`);
+                          },
                         },
-                      },
-                    ]}
-                  />
+                      ]}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 font-mono text-[11px] text-zinc-400">

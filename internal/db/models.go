@@ -33,17 +33,18 @@ const (
 
 // User represents a panel user account.
 type User struct {
-	ID                    int64
-	Username              string
-	PasswordHash          string
-	Role                  string
-	CreatedAt             time.Time
-	MaxApps               int
-	MaxMemoryMB           int
-	MaxCPUs               float64
-	MaxStorageMB          int
-	Status                string
-	AllowDomainFileServer bool
+	ID                    int64     `json:"id"`
+	Username              string    `json:"username"`
+	PasswordHash          string    `json:"-"`
+	Role                  string    `json:"role"`
+	CreatedAt             time.Time `json:"created_at"`
+	MaxApps               int       `json:"max_apps"`
+	MaxMemoryMB           int       `json:"max_memory_mb"`
+	MaxCPUs               float64   `json:"max_cpus"`
+	MaxStorageMB          int       `json:"max_storage_mb"`
+	BandwidthLimitMbps    int       `json:"bandwidth_limit_mbps"`
+	Status                string    `json:"status"`
+	AllowDomainFileServer bool      `json:"allow_domain_file_server"`
 }
 
 type App struct {

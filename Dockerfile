@@ -1,5 +1,5 @@
 FROM docker:27-cli
-RUN apk add --no-cache rclone ca-certificates
+RUN apk add --no-cache rclone ca-certificates util-linux bash
 COPY ./panel /usr/local/bin/panel
 
 ENV DATA_DIR=/data

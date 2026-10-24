@@ -302,6 +302,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] ✓ Preview slot %s is live and healthy! Production remains pinned on slot %s.", targetSlot, pinnedSlot))
 						r.Mu.Unlock()
 						_ = p.syncRootStackCompose(runCtx)
+						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 					} else {
 						_ = p.DB.UpdateAppSlots(runCtx, id, targetSlot, currentSlot)
 						r.Mu.Lock()
@@ -325,6 +326,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						}
 						p.StopOtherComposeStacks(runCtx, app, id, slotProject)
 						_ = p.syncRootStackCompose(runCtx)
+						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 					}
 				}
 			} else {

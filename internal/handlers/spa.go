@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,53 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		ownerPtr = &u.ID
 	}
 	gitProviders, _ := p.DB.ListGitProviders(ctx, ownerPtr)
+	ghDetails, _ := p.DB.ListGitHubProviderDetails(ctx)
+	ghDetailMap := make(map[int64]db.GitHubProviderDetail)
+	for _, d := range ghDetails {
+		ghDetailMap[d.ProviderID] = d
+	}
+
+	type spaGitProviderItem struct {
+		db.GitProvider
+		AuthMethod      string `json:"auth_method"`
+		InstallationID  string `json:"installation_id,omitempty"`
+		AppSlug         string `json:"app_slug,omitempty"`
+		AccountLogin    string `json:"account_login,omitempty"`
+		InstallURL      string `json:"install_url,omitempty"`
+		NeedsInstall    bool   `json:"needs_install,omitempty"`
+		ReposAccessible int    `json:"repos_accessible"`
+	}
+	var enrichedGitProviders []spaGitProviderItem
+	for _, gp := range gitProviders {
+		it := spaGitProviderItem{GitProvider: gp}
+		d := ghDetailMap[gp.ID]
+		if gp.Provider == "github" {
+			if d.GitHubAppID != "" || d.AppSlug != "" {
+				it.AuthMethod = "GitHub App"
+				it.InstallationID = d.InstallationID
+				it.AppSlug = d.AppSlug
+				it.AccountLogin = d.AccountLogin
+				if strings.TrimSpace(d.InstallationID) == "" {
+					it.NeedsInstall = true
+				}
+				it.InstallURL = "/git/" + strconv.FormatInt(gp.ID, 10) + "/github/install"
+			} else {
+				it.AuthMethod = "Fine-Grained PAT"
+			}
+		} else if gp.Provider == "gitlab" {
+			if gp.RefreshToken != "" || gp.ExpiresAt > 0 {
+				it.AuthMethod = "OAuth 2.0"
+			} else {
+				it.AuthMethod = "Deploy Token"
+			}
+		} else {
+			it.AuthMethod = "Token"
+		}
+		if !it.NeedsInstall {
+			it.ReposAccessible = p.fetchAccessibleReposCount(ctx, gp, d)
+		}
+		enrichedGitProviders = append(enrichedGitProviders, it)
+	}
 	webhookDeliveries, _ := p.DB.ListWebhookDeliveries(ctx, 10)
 	registries, _ := p.DB.ListPrivateRegistries(ctx, ownerPtr)
 	backupDests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
@@ -159,6 +207,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			"max_memory_mb":            u.MaxMemoryMB,
 			"max_cpus":                 u.MaxCPUs,
 			"max_storage_mb":           u.MaxStorageMB,
+			"bandwidth_limit_mbps":     u.BandwidthLimitMbps,
 			"allow_domain_file_server": u.AllowDomainFileServer,
 			"storage_used_bytes":       usedStorage,
 			"storage_used_human":       HumanStorage(usedStorage),
@@ -169,7 +218,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"containers":          containers,
 		"images":              images,
 		"volumes":             allVolNames,
-		"git_providers":       gitProviders,
+		"git_providers":       enrichedGitProviders,
 		"webhook_deliveries":  webhookDeliveries,
 		"registries":          registries,
 		"backup_destinations": backupDests,
@@ -187,6 +236,15 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"cgroup": fiber.Map{
 			"mode":      p.cgroupMode(),
 			"supported": p.cgroupMode() != "",
+		},
+		"qos": fiber.Map{
+			"wan_interface": func() string {
+				if p.QoS != nil {
+					return p.QoS.WANInterface()
+				}
+				return ""
+			}(),
+			"enabled": p.QoS != nil,
 		},
 		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") != "0",
 		"telemetry_history": sysinfo.GetTelemetryHistory(),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
+	"panel/internal/qos"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
 
@@ -27,6 +29,7 @@ type Panel struct {
 	Store            *workspace.Store
 	WorkspacesRoot   string
 	SPAIndexHTML     []byte
+	QoS              *qos.Manager
 	deployMu         sync.Mutex
 	deployRuns       map[string]*DeployRun
 	deployJobs       map[string]*DeployJobRecord
@@ -102,6 +105,42 @@ func (p *Panel) InitDeployRuns() {
 		p.volRestoreJobs = make(map[string]*VolumeRestoreJob)
 	}
 	p.VolRestoreMu.Unlock()
+}
+
+// InitBandwidthQoS ensures the host root HTB qdisc is ready and performs an initial reconcile.
+func (p *Panel) InitBandwidthQoS() {
+	if p.QoS == nil {
+		p.QoS = qos.NewManager("")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := p.QoS.InitHost(ctx); err != nil {
+		// Log warning only; never crash the panel if host tc/nsenter is unavailable
+		log.Printf("qos: init host failed: %v", err)
+	}
+	if err := p.QoS.Reconcile(ctx, p.DB, p.WorkspacesRoot); err != nil {
+		log.Printf("qos: startup reconcile failed: %v", err)
+	}
+}
+
+// StartBandwidthQoSLoop starts the background reconciliation ticker for container bandwidth QoS.
+func (p *Panel) StartBandwidthQoSLoop() {
+	if p.QoS == nil {
+		p.QoS = qos.NewManager("")
+	}
+	p.QoS.StartReconcileLoop(context.Background(), p.DB, p.WorkspacesRoot, 30*time.Second)
+}
+
+// TriggerBandwidthQoSReconcile triggers background bandwidth reconciliation if QoS is configured.
+func (p *Panel) TriggerBandwidthQoSReconcile() {
+	if p.QoS == nil || p.DB == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = p.QoS.Reconcile(ctx, p.DB, p.WorkspacesRoot)
+	}()
 }
 
 func (p *Panel) StartBackupRestore(appID string, historyID int64) bool {

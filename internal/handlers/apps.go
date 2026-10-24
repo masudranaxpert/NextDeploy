@@ -74,6 +74,15 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 	if err := p.Store.WriteMeta(id, name); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+
+	// Always ensure a default docker-compose.yml exists in the workspace
+	composePath := filepath.Join(p.Store.Path(id), "docker-compose.yml")
+	composeContent := strings.TrimSpace(c.FormValue("compose_content"))
+	if composeContent == "" {
+		composeContent = fmt.Sprintf("services:\n  app:\n    image: nginx:alpine\n    restart: unless-stopped\n    ports:\n      - \"80\"\n")
+	}
+	_ = os.WriteFile(composePath, []byte(composeContent+"\n"), 0644)
+
 	if err := p.DB.CreateApp(ctx, id, name, u.ID); err != nil {
 		_ = os.RemoveAll(p.Store.Path(id))
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
@@ -155,6 +164,7 @@ func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 
 func (p *Panel) InvalidateAfterUserChange() {
 	p.InvalidateMonitorResourceCache()
+	p.TriggerBandwidthQoSReconcile()
 }
 
 func (p *Panel) InvalidateAfterAppWorkspaceChange(appID string) {
@@ -168,6 +178,7 @@ func (p *Panel) InvalidateAfterDockerChange() {
 	volumex.InvalidateSharedMatcher()
 	sysinfo.InvalidateDiskCache()
 	go p.refreshMonitorSnapshot()
+	p.TriggerBandwidthQoSReconcile()
 }
 
 func (p *Panel) InvalidateAfterAppDeployChange(appID string) {

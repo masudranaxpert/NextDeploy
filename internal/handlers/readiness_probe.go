@@ -47,11 +47,11 @@ func (p *Panel) ProbeContainerReadiness(ctx context.Context, opts ReadinessProbe
 	}
 
 	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	httpClient := &http.Client{
-		Timeout: 2 * time.Second,
+		Timeout: 1 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

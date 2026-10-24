@@ -162,6 +162,7 @@ func (p *Panel) PromoteSlot(c *fiber.Ctx) error {
 	}
 	p.StopOtherComposeStacks(ctx, app, appID, slotProject)
 	_ = p.syncRootStackCompose(ctx)
+	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
 	var commitSHA string
@@ -257,6 +258,7 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		}
 		p.StopOtherComposeStacks(ctx, app, appID, slotProject)
 		_ = p.syncRootStackCompose(ctx)
+	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
 
 		p.RecordAuditLog(c, "rollback_deployment", "app", appID, fmt.Sprintf("Rolled back to release #%d (Slot %s)", logID, targetSlot))
 		_ = p.DB.InsertDeployLogWithSnapshot(ctx, appID, "Rollback", true,

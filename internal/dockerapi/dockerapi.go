@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,11 @@ func apiClient() (*client.Client, error) {
 		apiClientInst, apiClientErr = client.NewClientWithOpts(opts...)
 	})
 	return apiClientInst, apiClientErr
+}
+
+// Client returns the shared Docker API client instance.
+func Client() (*client.Client, error) {
+	return apiClient()
 }
 
 type ContainerRow struct {
@@ -297,12 +303,12 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 			out = append(out, row)
 			continue
 		}
-		row.CPUPercent = cpuPercentSingleSample(cur)
+		row.CPUPercent = math.Round(cpuPercentSingleSample(cur)*10) / 10
 		memUsage := memoryUsageLikeDockerCLI(cur)
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit
 		if row.MemLimit > 0 {
-			row.MemPercent = (float64(row.MemUsage) / float64(row.MemLimit)) * 100
+			row.MemPercent = math.Round(((float64(row.MemUsage) / float64(row.MemLimit)) * 100)*10) / 10
 		}
 		row.MemUsageHuman = formatBytes(int64(row.MemUsage))
 		row.MemLimitHuman = formatBytes(int64(row.MemLimit))
@@ -751,7 +757,8 @@ func containerIDByName(ctx context.Context, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	for _, c := range list {
 		for _, n := range c.Names {
-			if strings.TrimPrefix(n, "/") == name {
+			trimmed := strings.TrimPrefix(n, "/")
+			if trimmed == name || (name == "caddy" && (trimmed == "nextdeploy_caddy" || strings.Contains(trimmed, "caddy"))) {
 				return c.ID, nil
 			}
 		}

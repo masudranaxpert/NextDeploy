@@ -37,6 +37,11 @@ func ExecPTY(ctx context.Context, container string, cmd []string, height, width 
 		AttachStderr: true,
 		Tty:          true,
 		Cmd:          cmd,
+		Env: []string{
+			"TERM=xterm-256color",
+			"COLORTERM=truecolor",
+			"PS1=\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ",
+		},
 		ConsoleSize:  &[2]uint{height, width},
 	}
 	cr, err := cli.ContainerExecCreate(ctx, container, execCfg)

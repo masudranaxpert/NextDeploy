@@ -622,6 +622,8 @@ func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...
 		return
 	}
 	composeFile = filepath.Clean(composeFile)
+
+	// Avoid running a redundant root compose apply if the file was recently checked and unchanged
 	projectDir := filepath.Dir(composeFile)
 	project := rootStackComposeProjectName(projectDir)
 	spec := strings.Join(services, " ")
@@ -987,6 +989,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.migrateSweepLoop()
 	go p.auditLogPruneLoop()
 	go p.caddyNetworkReconcileLoop()
+	go p.StartBandwidthQoSLoop()
 	go p.StartMonitorCollector()
 	migrate.StartupSweep(p.DB)
 }

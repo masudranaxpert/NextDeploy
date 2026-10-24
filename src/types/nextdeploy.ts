@@ -186,6 +186,15 @@ export interface AppStack {
   logs: LogEntry[];
   volumes: AppVolumeMount[];
   collaborators: AppCollaborator[];
+  hasSchedule?: boolean;
+  backupSchedules?: Array<{
+    id: number;
+    destinationId?: number;
+    cronExpression: string;
+    retentionCount: number;
+    backupType: string;
+    enabled: boolean;
+  }>;
 }
 
 export interface DockerImageItem {
@@ -219,6 +228,10 @@ export interface GitProviderConnection {
   webhookDeliveryRate: string;
   webhookUrl: string;
   lastSynced: string;
+  needsInstall?: boolean;
+  installUrl?: string;
+  appSlug?: string;
+  installationId?: string;
 }
 
 export interface SyncedGitRepository {
@@ -365,6 +378,7 @@ export interface PanelUser {
   diskUsedGB: number;
   diskQuotaGB: number;
   maxStorageMB?: number;
+  bandwidthLimitMbps?: number;
   allowDomainFileServer?: boolean;
   twoFactorEnabled: boolean;
   lastLoginAt: string;

@@ -525,7 +525,7 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
               boxShadow: '0 12px 32px rgba(0,0,0,0.65)',
             }}
             formatter={(val, name) => [
-              `${val ?? 0}${unit}`,
+              `${typeof val === 'number' ? Number(val).toFixed(1) : (val ?? 0)}${unit}`,
               name === dataKey ? label || String(dataKey) : secondaryLabel || String(secondaryKey),
             ]}
           />
@@ -1240,9 +1240,8 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [sourceType, setSourceType] = useState<'git' | 'compose' | 'zip'>('git');
-  const [gitRepo, setGitRepo] = useState('https://github.com/masudranaxpert/next-saas-starter');
+  const [gitRepo, setGitRepo] = useState('');
   const [gitBranch, setGitBranch] = useState('main');
-  const [primaryDomain, setPrimaryDomain] = useState('');
   const [composeContent, setComposeContent] = useState(
     `services:\n  app:\n    build: .\n    restart: unless-stopped\n    ports:\n      - "3000:3000"\n    environment:\n      - NODE_ENV=production`
   );
@@ -1254,13 +1253,12 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
       name: name.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-'),
       description: '',
       sourceType,
-      gitRepo: sourceType === 'git' ? gitRepo : undefined,
-      gitBranch: sourceType === 'git' ? gitBranch : undefined,
-      primaryDomain: primaryDomain.trim() || undefined,
-      composeContent,
+      gitRepo: sourceType === 'git' ? gitRepo.trim() : undefined,
+      gitBranch: sourceType === 'git' ? gitBranch.trim() : undefined,
+      composeContent: sourceType === 'compose' ? composeContent : '',
     });
     setName('');
-    setPrimaryDomain('');
+    setGitRepo('');
     onClose();
   };
 
@@ -1301,54 +1299,18 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Project Slug
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="billing-worker-api"
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[11px] font-medium text-zinc-400">
-                Domain (Auto sslip.io if blank)
-              </label>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPrimaryDomain(formatWildcardDomain(name || 'app', 'sslip.io'))
-                  }
-                  className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer"
-                >
-                  sslip.io
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPrimaryDomain(formatWildcardDomain(name || 'app', 'nip.io'))
-                  }
-                  className="rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer"
-                >
-                  nip.io
-                </button>
-              </div>
-            </div>
-            <input
-              type="text"
-              value={primaryDomain}
-              onChange={(e) => setPrimaryDomain(e.target.value)}
-              placeholder={formatWildcardDomain(name || 'billing', 'sslip.io')}
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
-            />
-          </div>
+        <div>
+          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+            Project Slug
+          </label>
+          <input
+            type="text"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="billing-worker-api"
+            className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
+          />
         </div>
 
         {sourceType === 'git' && (
@@ -1359,43 +1321,51 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
               </label>
               <input
                 type="text"
+                required
                 value={gitRepo}
                 onChange={(e) => setGitRepo(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                placeholder="https://github.com/org/repo"
+                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
               />
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[11px] font-medium text-zinc-400">Branch</label>
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.2 font-mono text-[9px] text-emerald-400">
-                  Auto-detected
-                </span>
-              </div>
-              <select
+              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Branch</label>
+              <input
+                type="text"
                 value={gitBranch}
                 onChange={(e) => setGitBranch(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-orange-400 font-semibold focus:border-orange-500 focus:outline-none"
-              >
-                <option value="main">main (@8c4f19a)</option>
-                <option value="production">production (@f42a90c)</option>
-                <option value="staging">staging (@4d19b8c)</option>
-                <option value="develop">develop (@71e09b4)</option>
-              </select>
+                placeholder="main"
+                className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-orange-400 font-semibold placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
+              />
             </div>
           </div>
         )}
 
-        <div>
-          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-            docker-compose.yml
-          </label>
-          <textarea
-            rows={5}
-            value={composeContent}
-            onChange={(e) => setComposeContent(e.target.value)}
-            className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] p-3 font-mono text-xs text-zinc-200 focus:border-orange-500 focus:outline-none"
-          />
-        </div>
+        {sourceType === 'compose' && (
+          <div>
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              docker-compose.yml
+            </label>
+            <textarea
+              rows={5}
+              value={composeContent}
+              onChange={(e) => setComposeContent(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] p-3 font-mono text-xs text-zinc-200 focus:border-orange-500 focus:outline-none"
+            />
+          </div>
+        )}
+
+        {sourceType === 'zip' && (
+          <div className="rounded-xl border border-dashed border-white/[0.1] bg-zinc-900/30 p-6 text-center">
+            <Upload className="mx-auto h-7 w-7 text-zinc-500" />
+            <div className="mt-2 text-xs font-medium text-zinc-300">
+              Upload .zip or .tar.gz archive
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              You can upload your archive inside the project workspace files manager after creating.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center justify-end gap-2 border-t border-white/[0.07] pt-3">
           <button

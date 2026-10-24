@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../../lib/clipboard';
 import { CliSessionItem, McpToolItem } from '../../types/nextdeploy';
 import {
   ActionMenu,
@@ -122,7 +123,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     const nextToken = res.data?.token || `nd_mcp_live_${randHex.slice(0, 32)}`;
     setMcpToken(nextToken);
     setRevealMcpToken(true);
-    navigator.clipboard?.writeText(nextToken);
+    await copyToClipboard(nextToken);
     toast.success('Regenerated MCP token and copied full token to clipboard');
   };
 
@@ -577,9 +578,13 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            navigator.clipboard?.writeText(fullTokenValue);
-                            toast.success(`Copied full CLI token for ${s.tokenName}`);
+                          onClick={async () => {
+                            const ok = await copyToClipboard(fullTokenValue);
+                            if (ok) {
+                              toast.success(`Copied full CLI token for ${s.tokenName}`);
+                            } else {
+                              toast.error('Failed to copy token to clipboard');
+                            }
                           }}
                           title="Copy full CLI token"
                           className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
@@ -631,9 +636,13 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                           {
                             label: 'Copy Full Token',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(fullTokenValue);
-                              toast.success(`Copied full token for ${s.tokenName}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(fullTokenValue);
+                              if (ok) {
+                                toast.success(`Copied full token for ${s.tokenName}`);
+                              } else {
+                                toast.error('Failed to copy token');
+                              }
                             },
                           },
                           {
