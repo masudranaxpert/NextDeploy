@@ -324,7 +324,7 @@ export const backupsAndMigrateApi = {
       });
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        return { ok: false, offlineFallback: true };
+        return { ok: false, error: 'Cannot reach the server' };
       }
       const json = (await res.json()) as { job_id?: string; error?: string };
       if (!res.ok || json.error) {
@@ -332,7 +332,7 @@ export const backupsAndMigrateApi = {
       }
       return { ok: true, job_id: json.job_id };
     } catch {
-      return { ok: false, offlineFallback: true };
+      return { ok: false, error: 'Cannot reach the server' };
     }
   },
   volumeRestoreStatus: (jobId: string) =>

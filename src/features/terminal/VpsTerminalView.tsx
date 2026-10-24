@@ -12,12 +12,6 @@ export const VpsTerminalView: React.FC = () => {
             <Terminal className="h-4 w-4 text-orange-400" />
           </div>
           <h1 className="text-base font-semibold tracking-tight text-zinc-100">Host Terminal</h1>
-          <StatusBadge status="running" label="PTY Connected" />
-        </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-400">
-          <span className="rounded-lg border border-white/[0.07] bg-[#111115] px-2.5 py-1">
-            Ubuntu 24.04 LTS · Docker 27.3
-          </span>
         </div>
       </div>
 

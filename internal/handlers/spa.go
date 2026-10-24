@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"os"
+	"panel/internal/perflog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/caddy"
@@ -33,6 +35,13 @@ func (p *Panel) ServeSPA(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusServiceUnavailable).SendString("NextDeploy UI bundle not found. Run 'npm run build' first.")
 }
 
+var (
+	caddyStatusMu   sync.Mutex
+	caddyStatusAt   time.Time
+	caddyStatusUp   bool
+	caddyStatusText string
+)
+
 // SPABootstrap returns a unified JSON payload for the React SPA control plane.
 // GET /api/panel/bootstrap
 func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
@@ -43,7 +52,73 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	}
 
 	isAdmin := u.Role == db.RoleAdmin
-	sys := sysinfo.Collect(ctx)
+
+	// Everything below that talks to Docker, the disk or the network is independent of the rest,
+	// so it runs side by side instead of one after another.
+	var (
+		sys           sysinfo.Snapshot
+		allVolNames   []string
+		allProjects   []string
+		matcher       *volumex.Matcher
+		allContainers []dockerapi.ContainerRow
+		dockerErr     string
+		allImages     []dockerapi.ImageRow
+		usedStorage   int64
+		quotaMemUsed  int64
+		quotaCPUUsed  float64
+		dockerVersion string
+		caddyCfg      map[string]string
+		caddyUp       bool
+		caddyStatus   string
+		wg            sync.WaitGroup
+	)
+	t0 := time.Now()
+	run := func(name string, fn func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			st := time.Now()
+			fn()
+			perflog.Logf("bootstrap part %s %s", name, perflog.FormatDur(time.Since(st)))
+		}()
+	}
+	run("sys", func() { sys = sysinfo.Collect(ctx) })
+	run("volumes", func() { allVolNames, _ = volumex.List(ctx) })
+	run("projects", func() { allProjects = p.AllPanelComposeProjects(ctx) })
+	run("matcher", func() { matcher = volumex.SharedMatcher(ctx) })
+	run("containers", func() { allContainers, dockerErr = dockerapi.ListContainers(ctx) })
+	run("images", func() { allImages, _ = dockerapi.ListImages(ctx) })
+	run("storage", func() { usedStorage = p.UserStorageBytes(ctx, u.ID) })
+	if !isAdmin {
+		run("usage", func() { quotaMemUsed, quotaCPUUsed = p.userLiveUsage(ctx, u) })
+	}
+	if isAdmin {
+		run("dockerver", func() { dockerVersion = dockerapi.ServerVersion(ctx) })
+		run("caddy", func() {
+			caddyCfg, _ = p.DB.GetAllCaddyConfig(ctx)
+			// The proxy's admin API is asked at most every 10 seconds; a page load must not wait for it.
+			caddyStatusMu.Lock()
+			if time.Since(caddyStatusAt) < 10*time.Second {
+				caddyUp, caddyStatus = caddyStatusUp, caddyStatusText
+				caddyStatusMu.Unlock()
+				return
+			}
+			caddyStatusMu.Unlock()
+			adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
+			if adminAPI == "" {
+				adminAPI = "http://caddy:2019"
+			}
+			caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
+			if !caddyUp && (strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {
+				if err := dockerapi.EnsureCaddySharedNetwork(ctx); err == nil {
+					caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
+				}
+			}
+			caddyStatusMu.Lock()
+			caddyStatusUp, caddyStatusText, caddyStatusAt = caddyUp, caddyStatus, time.Now()
+			caddyStatusMu.Unlock()
+		})
+	}
 
 	var apps []db.App
 	if isAdmin {
@@ -82,9 +157,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		}
 	}
 
-	allVolNames, _ := volumex.List(ctx)
-	allProjects := p.AllPanelComposeProjects(ctx)
-	matcher := volumex.SharedMatcher(ctx)
+	wg.Wait()
+	perflog.Logf("bootstrap parallel total %s", perflog.FormatDur(time.Since(t0)))
 
 	appList := make([]appSummary, 0, len(apps))
 	for _, a := range apps {
@@ -152,8 +226,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		})
 	}
 
-	allContainers, dockerErr := dockerapi.ListContainers(ctx)
-	allImages, _ := dockerapi.ListImages(ctx)
 	containers := p.visibleContainers(ctx, u, allContainers)
 	images := p.visibleImages(ctx, u, allImages, allContainers)
 	var ownerPtr *int64
@@ -221,9 +293,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	var cliSessions []db.CLISession
 	var auditLogs []db.AuditLog
 	var settings map[string]string
-	var caddyCfg map[string]string
-	var caddyUp bool
-	var caddyStatus string
 	var migrateExports []db.MigrateExport
 
 	if isAdmin {
@@ -231,17 +300,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		cliSessions, _ = p.DB.ListCLISessions()
 		auditLogs, _ = p.DB.ListAuditLogs(ctx, 100, 0)
 		settings, _ = p.DB.GetAllSettings(ctx)
-		caddyCfg, _ = p.DB.GetAllCaddyConfig(ctx)
-		adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
-		if adminAPI == "" {
-			adminAPI = "http://caddy:2019"
-		}
-		caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
-		if !caddyUp && (strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {
-			if err := dockerapi.EnsureCaddySharedNetwork(ctx); err == nil {
-				caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
-			}
-		}
 		migrateExports, _ = p.DB.ListRecentMigrateExports(ctx, 8)
 	} else {
 		ids := make([]string, 0, len(apps))
@@ -250,8 +308,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		}
 		auditLogs, _ = p.DB.ListAuditLogsForUser(ctx, u.ID, ids, 100, 0)
 	}
-
-	usedStorage := p.UserStorageBytes(ctx, u.ID)
 
 	// Host-level telemetry and the raw volume list are admin territory; everyone else sees
 	// only their own resources (plus the public IP, needed for DNS instructions).
@@ -266,10 +322,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		registries[i].PasswordEncrypted = "" // ciphertext is not for browsers
 	}
 
-	quotaMemUsed, quotaCPUUsed := int64(0), 0.0
-	if !isAdmin {
-		quotaMemUsed, quotaCPUUsed = p.userLiveUsage(ctx, u)
-	}
 	ownedApps := 0
 	for _, a := range apps {
 		if a.OwnerID == u.ID {
@@ -320,6 +372,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"audit_logs":          auditLogs,
 		"settings":            settings,
 		"migrate_exports":     migrateExports,
+		"docker_version": dockerVersion,
 		"caddy": fiber.Map{
 			"up":     caddyUp,
 			"status": caddyStatus,

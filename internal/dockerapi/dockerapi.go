@@ -1108,3 +1108,28 @@ func ListContainerUsageMatching(ctx context.Context, keep func(name, project str
 		return keep(strings.TrimPrefix(containerName(c), "/"), c.Labels[composeProjectLabel])
 	})
 }
+
+var (
+	serverVerMu sync.Mutex
+	serverVerAt time.Time
+	serverVer   string
+)
+
+// ServerVersion returns the Docker engine version ("27.3.1"), cached for five minutes.
+func ServerVersion(ctx context.Context) string {
+	serverVerMu.Lock()
+	defer serverVerMu.Unlock()
+	if serverVer != "" && time.Since(serverVerAt) < 5*time.Minute {
+		return serverVer
+	}
+	cli, err := apiClient()
+	if err != nil {
+		return serverVer
+	}
+	v, err := cli.ServerVersion(ctx)
+	if err != nil {
+		return serverVer
+	}
+	serverVer, serverVerAt = v.Version, time.Now()
+	return serverVer
+}

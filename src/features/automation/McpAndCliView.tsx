@@ -42,9 +42,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   const [mcpServerEnabled, setMcpServerEnabled] = useState(true);
   const [mcpTab, setMcpTab] = useState<'tools' | 'rpc-logs'>('tools');
   const [mcpCategory, setMcpCategory] = useState<string>('all');
-  const [disabledTools, setDisabledTools] = useState<Record<string, boolean>>({});
   const [clientConfigOpen, setClientConfigOpen] = useState(false);
-  const [testToolTarget, setTestToolTarget] = useState<McpToolItem | null>(null);
   const [revealMcpToken, setRevealMcpToken] = useState(false);
   const [mcpToken, setMcpToken] = useState(
     'nd_mcp_live_98f1a2c4e6b80192f4d8e1a3c5b79012'
@@ -72,52 +70,13 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     >
   >({});
 
-  const mcpRpcLogs = [
-    {
-      id: 'rpc-1',
-      client: 'Claude Code CLI',
-      tool: 'deploy',
-      args: '{"app_id": "commerce-core-api"}',
-      status: '200 OK',
-      duration: '840ms',
-      time: '4m ago',
-    },
-    {
-      id: 'rpc-2',
-      client: 'Cursor IDE',
-      tool: 'container_logs',
-      args: '{"app_id": "commerce-core-api", "tail": 50}',
-      status: '200 OK',
-      duration: '64ms',
-      time: '9m ago',
-    },
-    {
-      id: 'rpc-3',
-      client: 'Claude Desktop',
-      tool: 'monitor_snapshot',
-      args: '{}',
-      status: '200 OK',
-      duration: '19ms',
-      time: '21m ago',
-    },
-    {
-      id: 'rpc-4',
-      client: 'Cursor IDE',
-      tool: 'env_set',
-      args: '{"app_id": "studio-web-dashboard"}',
-      status: '200 OK',
-      duration: '112ms',
-      time: '38m ago',
-    },
-  ];
-
   const handleRegenerateMcpToken = async () => {
     const res = await backendApi.createApiToken({ name: 'mcp-default', kind: 'mcp' });
-    const randHex =
-      Math.random().toString(16).slice(2, 14) +
-      Math.random().toString(16).slice(2, 14) +
-      Math.random().toString(16).slice(2, 10);
-    const nextToken = res.data?.token || `nd_mcp_live_${randHex.slice(0, 32)}`;
+    const nextToken = res.data?.token;
+    if (!res.ok || !nextToken) {
+      toast.error(res.error || 'Could not create the MCP token');
+      return;
+    }
     setMcpToken(nextToken);
     setRevealMcpToken(true);
     navigator.clipboard?.writeText(nextToken);
@@ -286,17 +245,6 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
             >
               Tools Catalog ({filteredTools.length})
             </button>
-            <button
-              type="button"
-              onClick={() => setMcpTab('rpc-logs')}
-              className={`rounded-md px-3 py-1 text-xs font-medium cursor-pointer ${
-                mcpTab === 'rpc-logs'
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Live RPC Stream ({mcpRpcLogs.length})
-            </button>
           </div>
 
           {mcpTab === 'tools' && (
@@ -327,22 +275,19 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           )}
         </div>
 
-        {mcpTab === 'tools' ? (
+        {mcpTab === 'tools' && (
           <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px] table-fixed text-left text-xs">
                 <thead>
                   <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                    <th className="w-[24%] px-4 py-2.5 font-medium">Tool</th>
-                    <th className="w-[40%] px-4 py-2.5 font-medium">Signature</th>
-                    <th className="w-[20%] px-4 py-2.5 font-medium">Category</th>
-                    <th className="w-[10%] px-4 py-2.5 font-medium">Enabled</th>
-                    <th className="w-16 px-3 py-2.5 font-medium text-right"></th>
+                    <th className="w-[26%] px-4 py-2.5 font-medium">Tool</th>
+                    <th className="w-[46%] px-4 py-2.5 font-medium">Signature</th>
+                    <th className="w-[28%] px-4 py-2.5 font-medium">Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
                   {filteredTools.map((t) => {
-                    const enabled = !disabledTools[t.name];
                     return (
                       <tr key={t.name} className="hover:bg-white/[0.03]">
                         <td className="px-4 py-3 font-mono font-semibold text-orange-400 truncate">
@@ -354,58 +299,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                         <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 truncate">
                           {t.category}
                         </td>
-                        <td className="px-4 py-3">
-                          <ShadcnSwitch
-                            checked={enabled}
-                            onChange={() =>
-                              setDisabledTools((prev) => ({
-                                ...prev,
-                                [t.name]: !prev[t.name],
-                              }))
-                            }
-                          />
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setTestToolTarget(t)}
-                            className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-1 font-mono text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-                          >
-                            Test
-                          </button>
-                        </td>
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] table-fixed text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400 font-sans">
-                    <th className="w-[22%] px-4 py-2.5 font-medium">Client</th>
-                    <th className="w-[20%] px-4 py-2.5 font-medium">Tool</th>
-                    <th className="w-[34%] px-4 py-2.5 font-medium">Arguments</th>
-                    <th className="w-[14%] px-4 py-2.5 font-medium">Status</th>
-                    <th className="w-[10%] px-4 py-2.5 font-medium text-right">Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.05]">
-                  {mcpRpcLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-white/[0.03]">
-                      <td className="px-4 py-3 text-zinc-100 font-sans font-medium">{log.client}</td>
-                      <td className="px-4 py-3 text-orange-400">{log.tool}</td>
-                      <td className="px-4 py-3 text-zinc-400 truncate">{log.args}</td>
-                      <td className="px-4 py-3 text-emerald-400">
-                        {log.status} ({log.duration})
-                      </td>
-                      <td className="px-4 py-3 text-right text-zinc-500">{log.time}</td>
-                    </tr>
-                  ))}
                 </tbody>
               </table>
             </div>
@@ -427,36 +323,6 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
             readOnly
             height={210}
           />
-        </ShadcnDialog>
-
-        <ShadcnDialog
-          open={Boolean(testToolTarget)}
-          onClose={() => setTestToolTarget(null)}
-          title={testToolTarget ? `Invoke Tool: ${testToolTarget.name}` : 'Test Tool'}
-          icon={<Play className="h-4 w-4 text-orange-400" />}
-        >
-          {testToolTarget && (
-            <div className="space-y-3 font-mono text-xs">
-              <div className="rounded-lg border border-white/[0.07] bg-[#070709] p-3 space-y-1.5">
-                <div className="text-zinc-500">// JSON-RPC 2.0 Response (18ms)</div>
-                <div className="text-emerald-400">
-                  {`{"jsonrpc": "2.0", "status": "ok", "tool": "${testToolTarget.name}", "host": "prod-eu-node-01"}`}
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    toast.success(`Executed ${testToolTarget.name}`);
-                    setTestToolTarget(null);
-                  }}
-                  className="rounded-lg bg-zinc-100 px-4 py-1.5 font-sans text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          )}
         </ShadcnDialog>
       </div>
     );

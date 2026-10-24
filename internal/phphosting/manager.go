@@ -74,8 +74,42 @@ func (m *Manager) lock(key string) func() {
 }
 
 func docker(ctx context.Context, args ...string) runutil.Result {
+	if len(args) > 0 {
+		switch args[0] {
+		case "run", "start", "stop", "restart", "rm", "kill", "create", "network":
+			defer status.reset()
+		}
+	}
 	return runutil.Run(ctx, "", nil, append([]string{"docker"}, args...)...)
 }
+
+// statusCache keeps the results of the status calls that every page load needs (docker ps, the
+// database ping, database sizes) for a few seconds, so opening several tabs does not run a
+// docker command each time. Any docker call that changes containers clears it.
+type statusCache struct {
+	mu      sync.Mutex
+	listAt  time.Time
+	list    []ContainerState
+	mysqlAt time.Time
+	mysql   MySQLStatus
+	sizesAt time.Time
+	sizesK  string
+	sizes   map[string]int64
+}
+
+var status statusCache
+
+func (c *statusCache) reset() {
+	c.mu.Lock()
+	c.listAt, c.mysqlAt, c.sizesAt = time.Time{}, time.Time{}, time.Time{}
+	c.mu.Unlock()
+}
+
+const (
+	listTTL  = 3 * time.Second
+	mysqlTTL = 5 * time.Second
+	sizesTTL = 30 * time.Second
+)
 
 // ---- paths ----
 
@@ -216,6 +250,21 @@ type ContainerState struct {
 
 // ListContainers returns every container the module manages.
 func (m *Manager) ListContainers(ctx context.Context) []ContainerState {
+	status.mu.Lock()
+	if time.Since(status.listAt) < listTTL {
+		cp := append([]ContainerState(nil), status.list...)
+		status.mu.Unlock()
+		return cp
+	}
+	status.mu.Unlock()
+	out := m.listContainersUncached(ctx)
+	status.mu.Lock()
+	status.list, status.listAt = append([]ContainerState(nil), out...), time.Now()
+	status.mu.Unlock()
+	return out
+}
+
+func (m *Manager) listContainersUncached(ctx context.Context) []ContainerState {
 	res := docker(ctx, "ps", "-a", "--filter", "label=nd.php", "--format",
 		`{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}|{{.Label "nd.php"}}|{{.Label "nd.php.version"}}|{{.Label "nd.php.owner"}}`)
 	out := []ContainerState{}

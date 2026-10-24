@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Activity,
   Archive,
@@ -44,7 +44,7 @@ import {
 } from './types/nextdeploy';
 import {
   MCP_TOOLS_CATALOG,
-} from './data/initialData';
+} from './data/mcpTools';
 import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
 import { OverviewDashboard } from './features/overview/OverviewDashboard';
 import { ProjectsListView } from './features/projects/ProjectsListView';
@@ -66,6 +66,28 @@ import { PhpInstanceView } from './features/php/PhpInstanceView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
 
+
+
+function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return raw.map((me: any) => ({
+    id: String(me.id),
+    createdAt: me.created_at || 'Recently',
+    selectedApps: me.apps ? me.apps.split(',') : [],
+    estimatedSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
+    actualSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
+    workspaceBytes: 0,
+    volumeBytes: me.size_bytes || 0,
+    status: me.consumed_at ? 'consumed' : me.status || 'ready',
+    token: me.token || '',
+    expiresIn: me.expires_at
+      ? `${Math.max(0, Math.round((new Date(me.expires_at).getTime() - Date.now()) / (1000 * 60)))}m`
+      : '3h',
+    downloadUrl: `${origin}/migrate/download/${me.token}`,
+    migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${origin}/migrate/download/${me.token}"`,
+    progressLog: me.log ? me.log.split('\n') : [],
+  })) as MigrationExportBundle[];
+}
 
 export default function App() {
   // Parse route from window.location.pathname on load
@@ -192,6 +214,7 @@ export default function App() {
     }
   }, [currentUser, activeNav, selectedAppId]);
   const [cgroupInfo, setCgroupInfo] = useState<{ mode?: string; supported?: boolean }>({ mode: 'systemd', supported: true });
+  const [dockerVersion, setDockerVersion] = useState('');
   const [caddyInfo, setCaddyInfo] = useState<{ up: boolean; status: string; config?: Record<string, string> } | null>(null);
 
   const handleLogout = async () => {
@@ -706,30 +729,27 @@ export default function App() {
         );
       }
       if (Array.isArray(data.migrate_exports)) {
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        setMigrationBundles(
-          data.migrate_exports.map((me: any) => ({
-            id: String(me.id),
-            createdAt: me.created_at || 'Recently',
-            selectedApps: me.apps ? me.apps.split(',') : [],
-            estimatedSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
-            actualSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
-            workspaceBytes: 0,
-            volumeBytes: me.size_bytes || 0,
-            status: me.consumed_at ? 'consumed' : (me.status || 'ready'),
-            token: me.token || '',
-            expiresIn: me.expires_at ? `${Math.max(0, Math.round((new Date(me.expires_at).getTime() - Date.now()) / (1000 * 60)))}m` : '3h',
-            downloadUrl: `${origin}/migrate/download/${me.token}`,
-            migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${origin}/migrate/download/${me.token}"`,
-            progressLog: me.log ? me.log.split('\n') : [],
-          }))
-        );
+        setMigrationBundles(mapMigrateExports(data.migrate_exports));
       }
       if (data.caddy) {
         setCaddyInfo(data.caddy);
       }
+      setDockerVersion(typeof data.docker_version === 'string' ? data.docker_version : '');
     });
   }, []);
+
+  // A running export finishes on the server: refresh until none is running.
+  const exportRunning = migrationBundles.some((b) => b.status === 'running');
+  useEffect(() => {
+    if (!exportRunning) return;
+    const t = window.setInterval(async () => {
+      const r = await backendApi.bootstrap();
+      if (r.ok && Array.isArray(r.data?.migrate_exports)) {
+        setMigrationBundles(mapMigrateExports(r.data.migrate_exports));
+      }
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [exportRunning]);
 
   const appendTelemetryTick = () => {
     const now = new Date();
@@ -1115,12 +1135,16 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden md:flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-[#111115] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
-                <Server className="h-3 w-3 text-emerald-400" />
-                <span>Docker 27.3</span>
-                <span className="text-zinc-600">·</span>
-                <span className="text-emerald-400">Caddy TLS</span>
-              </div>
+              {isAdminUser && dockerVersion && (
+                <div className="hidden md:flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-[#111115] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
+                  <Server className={`h-3 w-3 ${caddyInfo?.up === false ? 'text-amber-400' : 'text-emerald-400'}`} />
+                  <span>Docker {dockerVersion}</span>
+                  <span className="text-zinc-600">·</span>
+                  <span className={caddyInfo?.up === false ? 'text-amber-400' : 'text-emerald-400'}>
+                    {caddyInfo?.up === false ? 'Caddy down' : 'Caddy'}
+                  </span>
+                </div>
+              )}
 
               <button
                 type="button"
@@ -1186,6 +1210,11 @@ export default function App() {
                 containersCount={containersCount}
                 isAdmin={isAdminUser}
                 quota={myQuota}
+                services={[
+                  { name: 'docker', ver: dockerVersion ? `v${dockerVersion}` : '', meta: `${containersCount} containers`, ok: !!dockerVersion },
+                  { name: 'caddy-proxy', ver: '', meta: caddyInfo?.up ? 'serving' : caddyInfo?.status || 'not reachable', ok: !!caddyInfo?.up },
+                  { name: 'mcp-server', ver: 'JSON-RPC', meta: `${MCP_TOOLS_CATALOG.length} tools`, ok: true },
+                ]}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
@@ -1262,9 +1291,15 @@ export default function App() {
             ) : activeNav === 'volumes' ? (
               <VolumesView
                 volumes={volumes}
-                onDeleteVolume={(name) =>
-                  setVolumes((prev) => prev.filter((v) => v.name !== name))
-                }
+                onDeleteVolume={async (name) => {
+                  const res = await backendApi.globalVolumeRemove(name);
+                  if (!res.ok) {
+                    toast.error(res.error || `Could not delete ${name}`);
+                    return;
+                  }
+                  setVolumes((prev) => prev.filter((v) => v.name !== name));
+                  toast.success(`Deleted volume ${name}`);
+                }}
               />
             ) : activeNav === 'terminal' ? (
               <VpsTerminalView />
@@ -1314,30 +1349,14 @@ export default function App() {
               <MigrationView
                 apps={apps}
                 bundles={migrationBundles}
-                onExportBundle={(slugs) => {
-                  const nextBundle: MigrationExportBundle = {
-                    id: `mig-${Math.floor(205 + Math.random() * 90)}`,
-                    createdAt: 'Just now',
-                    selectedApps: slugs,
-                    estimatedSizeMB: 4800,
-                    actualSizeMB: 2110,
-                    workspaceBytes: 38 * 1024 * 1024,
-                    volumeBytes: 2072 * 1024 * 1024,
-                    status: 'ready',
-                    token: `ndm_live_${Math.random().toString(36).slice(2, 16)}`,
-                    expiresIn: '3h',
-                    downloadUrl: `https://panel.nextdeploy.sh/migrate/download/ndm_live_${Math.random().toString(36).slice(2, 14)}`,
-                    migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "https://panel.nextdeploy.sh/migrate/download/ndm_live_bundle"`,
-                    progressLog: [
-                      `[18:25:01] Quiescing ${slugs.join(', ')}...`,
-                      `[18:25:04] Compressed volumes...`,
-                      `[18:25:09] Bundle ready.`,
-                    ],
-                  };
-                  setMigrationBundles((prev) => [nextBundle, ...prev]);
-                  toast.success(`Export ${nextBundle.id} ready`);
+                onExportBundle={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && Array.isArray(r.data?.migrate_exports)) {
+                    setMigrationBundles(mapMigrateExports(r.data.migrate_exports));
+                  }
                 }}
                 onDeleteBundle={(id) => {
+                  void backendApi.migrateExportDelete(id);
                   setMigrationBundles((prev) => prev.filter((b) => b.id !== id));
                 }}
               />
@@ -1354,28 +1373,28 @@ export default function App() {
                 mode="cli"
                 tools={MCP_TOOLS_CATALOG}
                 cliSessions={cliSessions}
-                onGenerateCliToken={(label) => {
-                  void backendApi.createCliToken(label);
-                  const fullHex =
-                    Math.random().toString(16).slice(2, 10) +
-                    Math.random().toString(16).slice(2, 14) +
-                    Math.random().toString(16).slice(2, 14);
-                  const fullToken = `nd_cli_${fullHex.slice(0, 32)}`;
+                onGenerateCliToken={async (label) => {
+                  const res = await backendApi.createCliToken(label);
+                  const fullToken = res.data?.token;
+                  if (!res.ok || !fullToken) {
+                    toast.error(res.error || 'Could not create the token');
+                    return;
+                  }
                   const created: CliSessionItem = {
-                    id: `cli-${Date.now()}`,
+                    id: String(res.data?.id ?? Date.now()),
                     tokenName: label,
                     prefix: `${fullToken.slice(0, 11)}...`,
                     fullToken,
-                    deviceHost: 'workstation',
-                    osArch: 'darwin/arm64',
-                    cliVersion: 'nd v1.8.4',
-                    lastCommand: 'nd login',
-                    lastActiveAt: 'Just now',
-                    ipAddress: getServerPublicIp() || window.location.hostname || '127.0.0.1',
+                    deviceHost: '—',
+                    osArch: '—',
+                    cliVersion: '—',
+                    lastCommand: 'not used yet',
+                    lastActiveAt: 'Never',
+                    ipAddress: '—',
                   };
                   setCliSessions((prev) => [created, ...prev]);
                   void copyToClipboard(fullToken);
-                  toast.success(`Generated CLI token for ${label} (copied full token)`);
+                  toast.success(`Created CLI token for ${label} (copied)`);
                 }}
                 onRevokeCliSession={(id) => {
                   void backendApi.deleteCliSession(id);
@@ -1412,6 +1431,11 @@ export default function App() {
                 containersCount={containersCount}
                 isAdmin={isAdminUser}
                 quota={myQuota}
+                services={[
+                  { name: 'docker', ver: dockerVersion ? `v${dockerVersion}` : '', meta: `${containersCount} containers`, ok: !!dockerVersion },
+                  { name: 'caddy-proxy', ver: '', meta: caddyInfo?.up ? 'serving' : caddyInfo?.status || 'not reachable', ok: !!caddyInfo?.up },
+                  { name: 'mcp-server', ver: 'JSON-RPC', meta: `${MCP_TOOLS_CATALOG.length} tools`, ok: true },
+                ]}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />

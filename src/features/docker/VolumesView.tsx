@@ -24,11 +24,10 @@ import { backendApi } from '../../lib/backendApi';
 
 interface VolumesViewProps {
   volumes: DockerVolumeItem[];
-  onCreateVolume?: (vol: DockerVolumeItem) => void;
-  onDeleteVolume?: (name: string) => void;
+  onDeleteVolume?: (name: string) => void | Promise<void>;
 }
 
-export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolume }) => {
+export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolume }) => {
   const [selectedVolume, setSelectedVolume] = useState<DockerVolumeItem | null>(null);
   const [browsePath, setBrowsePath] = useState('');
   const [parentPath, setParentPath] = useState('');
@@ -40,9 +39,6 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
 
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [search, setSearch] = useState('');
-  const [createVolOpen, setCreateVolOpen] = useState(false);
-  const [newVolName, setNewVolName] = useState('');
-  const [newVolApp, setNewVolApp] = useState('commerce-core-api');
 
   // Multipart Volume Restore Modal & Live Progress State (POST /volumes/restore + GET /volumes/restore/status)
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
@@ -116,9 +112,9 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
         const st = await backendApi.volumeRestoreStatus(jobId);
         if (!st.ok || !st.data) {
           window.clearInterval(pollInterval);
-          setRestoreStatus('done');
-          setRestorePercent(100);
-          toast.success(`Restored archive into volume "${targetName}"`);
+          setRestoreStatus('error');
+          setRestoreError(st.error || 'Lost contact with the server while extracting');
+          toast.error('Lost contact with the server while extracting');
           return;
         }
         const pct = st.data.extract_percent ?? 50;
@@ -138,21 +134,9 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
       return;
     }
 
-    if (!uploadRes.offlineFallback && uploadRes.error) {
-      setRestoreStatus('error');
-      setRestoreError(uploadRes.error);
-      toast.error(uploadRes.error);
-      return;
-    }
-
-    // Smooth extraction simulation when running in preview mode
-    setTimeout(() => setRestorePercent(48), 250);
-    setTimeout(() => setRestorePercent(86), 550);
-    setTimeout(() => {
-      setRestorePercent(100);
-      setRestoreStatus('done');
-      toast.success(`Extracted ${restoreFileObj.name} into volume "${targetName}"`);
-    }, 850);
+    setRestoreStatus('error');
+    setRestoreError(uploadRes.error || 'The upload did not complete');
+    toast.error(uploadRes.error || 'The upload did not complete');
   };
 
   const filteredVolumes = volumes.filter(
@@ -190,34 +174,11 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
       label: 'Delete Volume',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: () => toast.error(`Volume ${v.name} is mounted by ${v.appSlug}`),
+      onClick: () => {
+        if (window.confirm(`Delete volume ${v.name}? Its data is lost.`)) onDeleteVolume?.(v.name);
+      },
     },
   ];
-
-  const handleCreateVolSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = newVolName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    if (!clean) return;
-    const created: DockerVolumeItem = {
-      name: clean,
-      driver: 'local',
-      mountPoint: `/var/lib/docker/volumes/${clean}/_data`,
-      appSlug: newVolApp,
-      sizeMB: 12.4,
-      createdAt: 'Just now',
-      filesCount: 2,
-      sampleFiles: [
-        { path: 'config.json', size: '1.2 KB', modified: 'Just now' },
-        { path: 'storage.db', size: '12.4 MB', modified: 'Just now' },
-      ],
-    };
-    if (onCreateVolume) {
-      onCreateVolume(created);
-    }
-    setCreateVolOpen(false);
-    setNewVolName('');
-    toast.success(`Created volume ${clean}`);
-  };
 
   const breadcrumbSegments = browsePath ? browsePath.split('/').filter(Boolean) : [];
 
@@ -282,15 +243,6 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
           >
             <Upload className="h-3.5 w-3.5 text-orange-400" />
             Restore Archive
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCreateVolOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create Volume
           </button>
         </div>
       </div>
@@ -549,54 +501,6 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onCreateVolum
       )}
 
       {/* Create Volume Dialog */}
-      <ShadcnDialog
-        open={createVolOpen}
-        onClose={() => setCreateVolOpen(false)}
-        title="Create Docker Volume"
-        icon={<HardDrive className="h-4 w-4" />}
-      >
-        <form onSubmit={handleCreateVolSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Volume Name
-            </label>
-            <input
-              type="text"
-              required
-              value={newVolName}
-              onChange={(e) => setNewVolName(e.target.value)}
-              placeholder="e.g. commerce_redis_data"
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Attach to Project
-            </label>
-            <input
-              type="text"
-              value={newVolApp}
-              onChange={(e) => setNewVolApp(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-            />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
-            <button
-              type="button"
-              onClick={() => setCreateVolOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-            >
-              Create Volume
-            </button>
-          </div>
-        </form>
-      </ShadcnDialog>
 
       {/* Multipart Volume Archive Restore Dialog (POST /volumes/restore + GET /volumes/restore/status) */}
       <ShadcnDialog

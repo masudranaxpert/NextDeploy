@@ -113,15 +113,22 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
 
     try {
-      await backendApi.updateUserLimits(limitsModalUser.id, {
+      const res = await backendApi.updateUserLimits(limitsModalUser.id, {
         max_apps: maxApps,
         max_cpus: maxCpus,
         max_memory_mb: maxMemoryMb,
         max_storage_mb: maxStorageMb,
         allow_domain_file_server: limitAllowDomainFileServer,
       });
+      if (!res.ok) {
+        // e.g. a 2 GB quota on a server with 1 GB of RAM is refused by the backend
+        toast.error(res.error || 'Could not update the limits');
+        return;
+      }
+      if ((res as { warning?: string }).warning) toast.warning((res as { warning?: string }).warning as string);
     } catch {
-      // fallback in preview
+      toast.error('Could not reach the server');
+      return;
     }
 
     setUsers((prev) =>
@@ -294,7 +301,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           id: String(raw.id ?? `aud-${idx}`),
           action: String(raw.action ?? 'system.event'),
           actor: String(raw.username ?? 'admin'),
-          actorRole: 'admin',
+          actorRole: (raw as any).role || (raw.user_id === 1 ? 'admin' : raw.username === 'system' ? 'system' : 'user'),
           target: String(raw.resource_id || raw.resource_type || 'system'),
           details: String(raw.details ?? ''),
           ip: String(raw.ip_address ?? '127.0.0.1'),
@@ -303,7 +310,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         }));
         setAuditLogs(mapped);
       }
-      toast.success('Synced audit trail with control plane SQLite database');
+      toast.success('Audit trail synced');
     } catch {
       toast.success('Refreshed audit trail');
     } finally {

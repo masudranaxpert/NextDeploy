@@ -19,6 +19,7 @@ import {
   selectCls,
   textareaCls,
   usePhpSite,
+  usePhpStatus,
 } from './ui';
 
 const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
@@ -26,7 +27,7 @@ const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
 export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | Promise<void> }> = ({ app, onChanged }) => {
   const [pollMs, setPollMs] = useState(0);
   const { detail, error, loading, reload } = usePhpSite(app.id, pollMs);
-  const [status, setStatus] = useState<Awaited<ReturnType<typeof backendApi.phpStatus>>['data'] | null>(null);
+  const status = usePhpStatus();
   const [form, setForm] = useState<PhpSettings | null>(null);
   const [version, setVersion] = useState('');
   const [rootDir, setRootDir] = useState('');
@@ -34,10 +35,6 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
   const [busy, setBusy] = useState('');
   const [secrets, setSecrets] = useState<Record<string, string> | null>(null);
   const loadedFor = useRef('');
-
-  useEffect(() => {
-    void backendApi.phpStatus().then((r) => r.ok && setStatus(r.data ?? null));
-  }, []);
 
   // seed the form once per site (don't clobber edits on polling reloads)
   useEffect(() => {

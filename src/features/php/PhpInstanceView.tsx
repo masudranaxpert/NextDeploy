@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpInstanceData } from '../../lib/api/phpApi';
 import { ShadcnDialog, ShadcnSwitch } from '../../components/ui/Primitives';
+import { MariaDbIcon, PhpIcon, PhpMyAdminIcon } from '../../components/ui/BrandIcons';
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, ValueBox, inputCls } from './ui';
 
 export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }> = ({ onChanged }) => {
@@ -76,7 +77,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
       </div>
 
       <Card
-        title="Database server"
+        title={<span className="inline-flex items-center gap-2"><MariaDbIcon className="h-4 w-4" />Database server</span>}
         actions={<Pill tone={mysqlTone}>{mysqlLabel}</Pill>}
       >
         {data.mysql_task.error && (
@@ -105,7 +106,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
       </Card>
 
       <Card
-        title="phpMyAdmin"
+        title={<span className="inline-flex items-center gap-2"><PhpMyAdminIcon className="h-4 w-4" />phpMyAdmin</span>}
         actions={<Pill tone={data.pma.running ? 'green' : data.pma_task.running ? 'amber' : 'zinc'}>{data.pma.running ? 'running' : data.pma_task.running ? 'starting…' : 'off'}</Pill>}
       >
         {data.pma_task.error && (
@@ -143,7 +144,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         {!m.ready && <p className="mt-3 text-[11px] text-zinc-500">Start the database server first.</p>}
       </Card>
 
-      <Card title="PHP versions">
+      <Card title={<span className="inline-flex items-center gap-2"><PhpIcon className="h-4 w-4" />PHP versions</span>}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] text-zinc-500">

@@ -22,7 +22,7 @@ import { backendApi } from '../../lib/backendApi';
 interface MigrationViewProps {
   apps: AppStack[];
   bundles: MigrationExportBundle[];
-  onExportBundle: (selectedSlugs: string[]) => void;
+  onExportBundle: (selectedSlugs: string[]) => void | Promise<void>;
   onDeleteBundle?: (id: string) => void;
 }
 
@@ -131,7 +131,12 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
       return;
     }
     const selectedIds = apps.filter((a) => selectedSlugs.includes(a.slug)).map((a) => a.id);
-    await backendApi.migrateExportStart(selectedIds);
+    const res = await backendApi.migrateExportStart(selectedIds);
+    if (!res.ok) {
+      toast.error(res.error || 'Could not start the export');
+      return;
+    }
+    toast.success('Export started');
     onExportBundle(selectedSlugs);
     setExportModalOpen(false);
   };

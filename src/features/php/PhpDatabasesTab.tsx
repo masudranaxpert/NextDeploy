@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { Database, Download, ExternalLink, KeyRound, Pencil, Plus, Trash2, Upload, UserRound } from 'lucide-react';
+import { Database, Download, KeyRound, Pencil, Plus, Trash2, Upload, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
+import { MariaDbIcon, PhpMyAdminIcon } from '../../components/ui/BrandIcons';
 import type { PhpDbUserRow } from '../../lib/api/phpApi';
 import { Card, CopyField, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, formatBytes, inputCls, selectCls, usePhpSite } from './ui';
 
@@ -168,7 +169,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
   return (
     <div className="space-y-5">
       <Card
-        title="Databases"
+        title={<span className="inline-flex items-center gap-2"><MariaDbIcon className="h-4 w-4" />Databases</span>}
         description={`${mysql.host}:${mysql.port}`}
         actions={
           <>
@@ -181,7 +182,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
                 busy={busy === 'pma'}
                 onClick={() => void openPma()}
               >
-                <ExternalLink className="h-3.5 w-3.5 text-zinc-400" /> phpMyAdmin
+                <PhpMyAdminIcon className="h-3.5 w-3.5" /> phpMyAdmin
               </GhostButton>
             )}
             <PrimaryButton disabled={!mysql.ready || limitReached} onClick={() => setDbOpen(true)}>

@@ -3,7 +3,7 @@ import { Check, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '../../lib/clipboard';
 import { backendApi } from '../../lib/backendApi';
-import type { PhpSiteDetail } from '../../lib/api/phpApi';
+import type { PhpSiteDetail, PhpStatusData } from '../../lib/api/phpApi';
 
 export const inputCls =
   'h-8 w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/50 disabled:opacity-50';
@@ -12,8 +12,8 @@ export const textareaCls =
   'w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 py-2 font-mono text-[11px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/50 disabled:opacity-50';
 
 export const Card: React.FC<{
-  title?: string;
-  description?: string;
+  title?: React.ReactNode;
+  description?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -31,6 +31,21 @@ export const Card: React.FC<{
     <div className="p-4">{children}</div>
   </section>
 );
+
+export const StatusDot: React.FC<{
+  status?: 'running' | 'ready' | 'starting' | 'stopped' | 'failed' | 'disabled' | 'active';
+  className?: string;
+}> = ({ status = 'stopped', className = '' }) => {
+  const color =
+    status === 'running' || status === 'ready' || status === 'active'
+      ? 'bg-emerald-400'
+      : status === 'starting'
+      ? 'bg-amber-400 animate-pulse'
+      : status === 'failed'
+      ? 'bg-rose-400'
+      : 'bg-zinc-500';
+  return <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color} ${className}`} />;
+};
 
 export const ValueBox: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="flex h-8 min-w-[11rem] items-center rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 font-mono text-xs text-zinc-300">
@@ -159,33 +174,60 @@ export function formatTime(iso: string): string {
 
 export const SITE_TYPE_LABEL: Record<string, string> = { php: 'PHP', wordpress: 'WordPress', static: 'Static HTML' };
 
+// Site details are cached per site so switching tabs shows the last known data instantly and
+// refreshes it in the background (stale-while-revalidate) instead of showing a spinner each time.
+const detailCache = new Map<string, PhpSiteDetail>();
+const detailInflight = new Map<string, Promise<PhpSiteDetail | string>>();
+
+function fetchDetail(appId: string, force = false): Promise<PhpSiteDetail | string> {
+  const running = detailInflight.get(appId);
+  if (running && !force) return running;
+  const p: Promise<PhpSiteDetail | string> = backendApi.phpSiteDetail(appId).then((res) => {
+    if (detailInflight.get(appId) === p) detailInflight.delete(appId);
+    if (res.ok && res.data) {
+      detailCache.set(appId, res.data as PhpSiteDetail);
+      return res.data as PhpSiteDetail;
+    }
+    return res.error || 'Failed to load site';
+  });
+  detailInflight.set(appId, p);
+  return p;
+}
+
+/** Starts loading a site's details early, e.g. when the site page opens. */
+export function prefetchPhpSite(appId: string) {
+  void fetchDetail(appId);
+}
+
 /** Loads the PHP detail of one site and exposes a reload function. */
 export function usePhpSite(appId: string, pollMs = 0) {
-  const [detail, setDetail] = useState<PhpSiteDetail | null>(null);
+  const [detail, setDetail] = useState<PhpSiteDetail | null>(() => detailCache.get(appId) ?? null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !detailCache.has(appId));
   const alive = useRef(true);
 
-  const reload = useCallback(async () => {
-    const res = await backendApi.phpSiteDetail(appId);
+  const reload = useCallback(async (force = true) => {
+    const res = await fetchDetail(appId, force);
     if (!alive.current) return;
-    if (res.ok && res.data) {
-      setDetail(res.data as PhpSiteDetail);
-      setError('');
+    if (typeof res === 'string') {
+      setError(res);
     } else {
-      setError(res.error || 'Failed to load site');
+      setDetail(res);
+      setError('');
     }
     setLoading(false);
   }, [appId]);
 
   useEffect(() => {
     alive.current = true;
-    setLoading(true);
-    void reload();
+    const cached = detailCache.get(appId);
+    setDetail(cached ?? null);
+    setLoading(!cached);
+    void reload(false);
     return () => {
       alive.current = false;
     };
-  }, [reload]);
+  }, [appId, reload]);
 
   useEffect(() => {
     if (!pollMs) return;
@@ -194,6 +236,25 @@ export function usePhpSite(appId: string, pollMs = 0) {
   }, [pollMs, reload]);
 
   return { detail, error, loading, reload };
+}
+
+let statusCache: PhpStatusData | null = null;
+
+/** The module status (limits, choices); cached for the session and refreshed on mount. */
+export function usePhpStatus() {
+  const [status, setStatus] = useState<PhpStatusData | null>(statusCache);
+  useEffect(() => {
+    let live = true;
+    void backendApi.phpStatus().then((r) => {
+      if (!live || !r.ok || !r.data) return;
+      statusCache = r.data;
+      setStatus(r.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return status;
 }
 
 export const LoadingBlock: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (

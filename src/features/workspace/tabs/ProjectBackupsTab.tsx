@@ -30,7 +30,6 @@ import {
   StatusBadge,
 } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
-import { INITIAL_BACKUP_DESTINATIONS } from '../../../data/initialData';
 
 interface ProjectBackupsTabProps {
   app: AppStack;
@@ -59,122 +58,46 @@ function formatBytes(sizeMB: number, sizeBytes?: number): string {
   return `${Math.max(0, Math.round(bytes))} B`;
 }
 
+// Last loaded backup data per site, so reopening the tab shows it at once and refreshes quietly.
+const backupsCache = new Map<
+  string,
+  { destinations: BackupDestination[]; schedules: BackupScheduleItem[]; history: BackupArchiveRecord[] }
+>();
+
 export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => {
-  const [destinations, setDestinations] = useState<BackupDestination[]>(INITIAL_BACKUP_DESTINATIONS);
+  // PHP sites have no Docker volumes or containers to pause: a backup is the site files plus its databases.
+  const isPhp = !!app.php;
+  const cached = backupsCache.get(app.id);
+  const [destinations, setDestinations] = useState<BackupDestination[]>(cached?.destinations ?? []);
+  const [loaded, setLoaded] = useState(!!cached);
 
   // Manual Backup Runner Form State (POST /apps/:id/backup/:destid)
-  const [manualDestId, setManualDestId] = useState<string>(
-    INITIAL_BACKUP_DESTINATIONS[0]?.id || '1'
-  );
-  const [manualType, setManualType] = useState<'full' | 'volume' | 'app'>('full');
+  const [manualDestId, setManualDestId] = useState<string>(cached?.destinations[0]?.id ?? '');
+  const [manualType, setManualType] = useState<'full' | 'volume' | 'app'>(isPhp ? 'app' : 'full');
   const [manualSelectedVols, setManualSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
   );
-  const [manualPauseContainers, setManualPauseContainers] = useState(true);
+  const [manualPauseContainers, setManualPauseContainers] = useState(!isPhp);
   const [isTriggeringBackup, setIsTriggeringBackup] = useState(false);
 
   // Schedules State (GET /apps/:id/backup/schedules)
-  const [schedules, setSchedules] = useState<BackupScheduleItem[]>([
-    {
-      id: 'sched-1',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      provider: 'Cloudflare R2',
-      destinationProvider: 'r2',
-      type: 'full',
-      volumeNames: app.volumes.map((v) => v.name).join(','),
-      cron: '0 */6 * * *',
-      retention: 7,
-      pauseContainers: true,
-      enabled: true,
-      lastRun: '2h ago',
-      nextRunAt: 'in 4h',
-    },
-  ]);
+  const [schedules, setSchedules] = useState<BackupScheduleItem[]>(cached?.schedules ?? []);
 
   // Add / Edit Schedule Modal State
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
-  const [schedDestId, setSchedDestId] = useState<string>(
-    INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu'
-  );
-  const [schedType, setSchedType] = useState<'full' | 'volume' | 'app'>('full');
+  const [schedDestId, setSchedDestId] = useState<string>(cached?.destinations[0]?.id ?? '');
+  const [schedType, setSchedType] = useState<'full' | 'volume' | 'app'>(isPhp ? 'app' : 'full');
   const [schedSelectedVols, setSchedSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
   );
   const [schedCronPreset, setSchedCronPreset] = useState<string>('0 2 * * *');
   const [schedCustomCron, setSchedCustomCron] = useState<string>('0 2 * * *');
   const [schedRetention, setSchedRetention] = useState<string>('7');
-  const [schedPauseContainers, setSchedPauseContainers] = useState<boolean>(true);
+  const [schedPauseContainers, setSchedPauseContainers] = useState<boolean>(!isPhp);
 
   // Paginated Backup History State (GET /apps/:id/backup/history?page=...&per_page=...)
-  const [historyItems, setHistoryItems] = useState<BackupArchiveRecord[]>([
-    {
-      id: '904',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      destinationProvider: 'r2',
-      provider: 'Cloudflare R2',
-      archiveName: `${app.slug}-full-20260514-060000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-full-20260514-060000.tar.gz`,
-      type: 'full',
-      backupType: 'full',
-      volumeName: app.volumes.map((v) => v.name).join(', ') || 'all',
-      sizeMB: 412.4,
-      createdAt: '2h ago',
-      status: 'completed',
-      includesVolumes: true,
-      includesEnv: true,
-      pauseContainers: true,
-      remoteMissing: false,
-    },
-    {
-      id: '901',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[1]?.id || 'dest-gdrive',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[1]?.name || 'Google Drive Vault',
-      destinationProvider: 'gdrive',
-      provider: 'Google Drive',
-      archiveName: `${app.slug}-volume-20260513-180000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-volume-20260513-180000.tar.gz`,
-      type: 'volume',
-      backupType: 'volume',
-      volumeName: app.volumes[0]?.name || `${app.slug}_data`,
-      sizeMB: 184.2,
-      createdAt: '1d ago',
-      status: 'completed',
-      includesVolumes: true,
-      includesEnv: false,
-      pauseContainers: true,
-      remoteMissing: false,
-    },
-    {
-      id: '896',
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: INITIAL_BACKUP_DESTINATIONS[0]?.id || 'dest-r2-eu',
-      destinationName: INITIAL_BACKUP_DESTINATIONS[0]?.name || 'Cloudflare R2 Primary',
-      destinationProvider: 'r2',
-      provider: 'Cloudflare R2',
-      archiveName: `${app.slug}-app-20260510-120000.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-app-20260510-120000.tar.gz`,
-      type: 'app',
-      backupType: 'app',
-      volumeName: 'app',
-      sizeMB: 24.8,
-      createdAt: '4d ago',
-      status: 'completed',
-      includesVolumes: false,
-      includesEnv: true,
-      pauseContainers: false,
-      remoteMissing: false,
-    },
-  ]);
+  const [historyItems, setHistoryItems] = useState<BackupArchiveRecord[]>(cached?.history ?? []);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(5);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);
@@ -206,7 +129,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
 
     const rawDests = destRes.data?.destinations;
     let mappedDests = destinations;
-    if (Array.isArray(rawDests) && rawDests.length > 0) {
+    if (destRes.ok && !Array.isArray(rawDests)) {
+      mappedDests = [];
+      setDestinations([]);
+    }
+    if (Array.isArray(rawDests)) {
       mappedDests = rawDests.map((d) => {
         const providerRaw = (d.Provider || d.provider || 'r2').toLowerCase();
         const isGDrive = providerRaw === 'gdrive';
@@ -228,14 +155,17 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
       });
       setDestinations(mappedDests);
       if (!mappedDests.some((d) => d.id === manualDestId)) {
-        setManualDestId(mappedDests[0].id);
+        setManualDestId(mappedDests[0]?.id ?? '');
+      }
+      if (!mappedDests.some((d) => d.id === schedDestId)) {
+        setSchedDestId(mappedDests[0]?.id ?? '');
       }
     }
 
-    const rawScheds = schedRes.data?.schedules;
+    const rawScheds = schedRes.ok ? schedRes.data?.schedules ?? [] : undefined;
+    let nextScheds: BackupScheduleItem[] | undefined;
     if (Array.isArray(rawScheds)) {
-      setSchedules(
-        rawScheds.map((s) => {
+      nextScheds = rawScheds.map((s) => {
           const destIdStr = String(s.DestinationID ?? s.destination_id ?? '');
           const matchedDest = mappedDests.find((d) => d.id === destIdStr);
           const providerCode =
@@ -259,16 +189,15 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             lastRun: s.LastRun || s.last_run || 'Never',
             nextRunAt: s.NextRunAt || s.next_run_at || '',
           };
-        })
-      );
+      });
+      setSchedules(nextScheds);
     }
 
-    const rawHist = histRes.data?.history;
+    const rawHist = histRes.ok ? histRes.data?.history ?? [] : undefined;
     if (Array.isArray(rawHist)) {
       setTotalHistoryCount(histRes.data?.total ?? rawHist.length);
       setTotalHistoryPages(histRes.data?.total_pages ?? 1);
-      setHistoryItems(
-        rawHist.map((h) => {
+      const nextHist: BackupArchiveRecord[] = rawHist.map((h) => {
           const destIdStr = String(h.DestinationID ?? h.destination_id ?? '');
           const matchedDest = mappedDests.find((d) => d.id === destIdStr);
           const bType = (h.BackupType || h.type || 'full') as 'full' | 'volume' | 'app';
@@ -308,14 +237,24 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             includesEnv: bType !== 'volume',
             remoteMissing: Boolean(h.RemoteMissing ?? h.remote_missing),
           };
-        })
-      );
+      });
+      setHistoryItems(nextHist);
+      backupsCache.set(app.id, { destinations: mappedDests, schedules: nextScheds ?? schedules, history: nextHist });
     }
+    setLoaded(true);
   };
 
   useEffect(() => {
     void fetchBackupsData(page, perPage);
   }, [app.id, page, perPage]);
+
+  // A running backup finishes on the server: follow it until it is done.
+  const hasRunning = historyItems.some((h) => h.status === 'running');
+  useEffect(() => {
+    if (!hasRunning) return;
+    const t = window.setInterval(() => void fetchBackupsData(page, perPage), 3000);
+    return () => window.clearInterval(t);
+  }, [hasRunning, app.id, page, perPage]);
 
   const toggleManualVolume = (volName: string) => {
     setManualSelectedVols((prev) =>
@@ -352,52 +291,24 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
     );
     setIsTriggeringBackup(false);
 
-    if (!res.ok && !res.offlineFallback) {
+    if (!res.ok) {
       toast.error(res.error || 'Failed to start backup job');
       return;
     }
-
-    const nowStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const created: BackupArchiveRecord = {
-      id: `${Date.now()}`,
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: targetDest.id,
-      destinationName: targetDest.name,
-      destinationProvider: targetDest.providerCode,
-      provider: targetDest.provider,
-      archiveName: `${app.slug}-${manualType}-${nowStamp}.tar.gz`,
-      remotePath: `nextdeploy_backups/${app.slug}/${app.slug}-${manualType}-${nowStamp}.tar.gz`,
-      type: manualType,
-      backupType: manualType,
-      volumeName:
-        manualType === 'volume'
-          ? volCsv
-          : manualType === 'full'
-            ? app.volumes.map((v) => v.name).join(', ') || 'full'
-            : 'app',
-      sizeMB: manualType === 'app' ? 28.4 : 386.2,
-      createdAt: 'Just now',
-      status: 'completed',
-      includesVolumes: manualType !== 'app',
-      includesEnv: manualType !== 'volume',
-      pauseContainers: manualPauseContainers,
-      remoteMissing: false,
-    };
-
-    setHistoryItems((prev) => [created, ...prev]);
-    toast.success(`Backup (${manualType}) uploaded to ${targetDest.name}`);
+    toast.success(`Backup started to ${targetDest.name}`);
+    setPage(1);
+    await fetchBackupsData(1, perPage);
   };
 
   const openCreateScheduleModal = () => {
     setEditingScheduleId(null);
-    setSchedDestId(destinations[0]?.id || '1');
-    setSchedType('full');
+    setSchedDestId(destinations[0]?.id || '');
+    setSchedType(isPhp ? 'app' : 'full');
     setSchedSelectedVols(app.volumes.map((v) => v.name));
     setSchedCronPreset('0 2 * * *');
     setSchedCustomCron('0 2 * * *');
     setSchedRetention('7');
-    setSchedPauseContainers(true);
+    setSchedPauseContainers(!isPhp);
     setScheduleModalOpen(true);
   };
 
@@ -436,28 +347,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
         retention: retentionNum,
         pause_containers: schedPauseContainers,
       });
-      if (!res.ok && !res.offlineFallback) {
+      if (!res.ok) {
         toast.error(res.error || 'Failed to update backup schedule');
         return;
       }
-      setSchedules((prev) =>
-        prev.map((item) =>
-          item.id === editingScheduleId
-            ? {
-                ...item,
-                destinationId: schedDestId,
-                destinationName: targetDest?.name || item.destinationName,
-                provider: targetDest?.provider || item.provider,
-                destinationProvider: targetDest?.providerCode || item.destinationProvider,
-                type: schedType,
-                volumeNames: volCsv,
-                cron: finalCron,
-                retention: retentionNum,
-                pauseContainers: schedPauseContainers,
-              }
-            : item
-        )
-      );
+      await fetchBackupsData(page, perPage);
       setScheduleModalOpen(false);
       toast.success('Updated backup schedule');
       return;
@@ -470,29 +364,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
       retention: retentionNum,
       pause_containers: schedPauseContainers,
     });
-    if (!res.ok && !res.offlineFallback) {
+    if (!res.ok) {
       toast.error(res.error || 'Failed to create backup schedule');
       return;
     }
-
-    const created: BackupScheduleItem = {
-      id: `sched-${Date.now()}`,
-      appId: app.id,
-      appSlug: app.slug,
-      destinationId: schedDestId,
-      destinationName: targetDest?.name || 'Cloudflare R2',
-      provider: targetDest?.provider || 'Cloudflare R2',
-      destinationProvider: targetDest?.providerCode || 'r2',
-      type: schedType,
-      volumeNames: volCsv,
-      cron: finalCron,
-      retention: retentionNum,
-      pauseContainers: schedPauseContainers,
-      enabled: true,
-      lastRun: 'Never',
-      nextRunAt: 'Scheduled',
-    };
-    setSchedules((prev) => [created, ...prev]);
+    await fetchBackupsData(page, perPage);
     setScheduleModalOpen(false);
     toast.success(`Created backup schedule (${finalCron})`);
   };
@@ -505,7 +381,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
     });
 
     const res = await backendApi.restoreBackup(app.id, restoreTarget.id);
-    if (!res.ok && !res.offlineFallback) {
+    if (!res.ok) {
       setRestoreJobState({
         status: 'failed',
         log: res.error || 'Failed to start restore job',
@@ -515,7 +391,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
       return;
     }
 
-    if (!res.offlineFallback) {
+    {
       const timer = window.setInterval(async () => {
         const st = await backendApi.backupRestoreStatus(app.id);
         if (!st.ok || !st.data) {
@@ -537,15 +413,6 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
       }, 1200);
       return;
     }
-
-    // Preview fallback progression
-    setTimeout(() => {
-      setRestoreJobState({
-        status: 'completed',
-        log: `[restore] Downloaded ${restoreTarget.archiveName} from ${restoreTarget.destinationName}\n[docker] Stopped compose stack ${app.slug}\n[tar] Extracted archive contents and volumes\n[docker] Started compose stack ${app.slug}\n[ok] Restore completed.`,
-      });
-      toast.success(`Restored ${app.slug} from ${restoreTarget.archiveName}`);
-    }, 900);
   };
 
   const computedTotalPages =
@@ -567,6 +434,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
           </div>
           <h2 className="text-sm font-semibold text-zinc-100">Run Manual Backup</h2>
         </div>
+
+        {loaded && destinations.length === 0 && (
+          <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            No storage destination is connected yet. Add one under Integrations → Backup.
+          </div>
+        )}
 
         <form onSubmit={handleRunManualBackup} className="space-y-4">
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-3">
@@ -598,13 +471,20 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 onChange={(e) => setManualType(e.target.value as 'full' | 'volume' | 'app')}
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               >
-                <option value="full">Full Backup (App Files + All Volumes)</option>
-                <option value="volume">Docker Volume(s) Only</option>
-                <option value="app">App Files Only (Compose &amp; .env)</option>
+                {isPhp ? (
+                  <option value="app">Site files + databases</option>
+                ) : (
+                  <>
+                    <option value="full">Full Backup (App Files + All Volumes)</option>
+                    <option value="volume">Docker Volume(s) Only</option>
+                    <option value="app">App Files Only (Compose &amp; .env)</option>
+                  </>
+                )}
               </select>
             </div>
 
             {/* Pause Containers Toggle */}
+            {!isPhp && (
             <div className="flex flex-col justify-end">
               <div className="flex h-9 items-center justify-between rounded-lg border border-white/[0.08] bg-[#09090b] px-3">
                 <span className="text-xs text-zinc-200 truncate mr-2">
@@ -616,6 +496,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 />
               </div>
             </div>
+            )}
           </div>
 
           {/* Multi-Volume Selector when type === 'volume' */}
@@ -672,7 +553,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={isTriggeringBackup}
+              disabled={isTriggeringBackup || destinations.length === 0}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
             >
               <Play className="h-3.5 w-3.5 fill-current" />
@@ -711,7 +592,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
               <thead>
                 <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
                   <th className="px-4 py-2.5 font-medium">Storage Destination</th>
-                  <th className="px-4 py-2.5 font-medium">Backup Scope & Volumes</th>
+                  <th className="px-4 py-2.5 font-medium">{isPhp ? 'Backup Scope' : 'Backup Scope & Volumes'}</th>
                   <th className="px-4 py-2.5 font-medium">Schedule & Next Run</th>
                   <th className="px-4 py-2.5 font-medium">Retention Policy</th>
                   <th className="px-4 py-2.5 font-medium">Active</th>
@@ -728,7 +609,9 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                     sc.provider === 'Google Drive' ||
                     sc.destinationName.toLowerCase().includes('google');
                   const scopeLabel =
-                    sc.type === 'full'
+                    isPhp
+                      ? 'Files + databases'
+                      : sc.type === 'full'
                       ? 'Full Stack'
                       : sc.type === 'volume'
                         ? 'Volumes Only'
@@ -865,7 +748,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             <thead>
               <tr className="border-b border-white/[0.06] bg-[#09090b]/50 text-zinc-400">
                 <th className="px-4 py-2.5 font-medium">Snapshot Archive</th>
-                <th className="px-4 py-2.5 font-medium">Scope & Volumes</th>
+                <th className="px-4 py-2.5 font-medium">{isPhp ? 'Scope' : 'Scope & Volumes'}</th>
                 <th className="px-4 py-2.5 font-medium">Storage Destination</th>
                 <th className="px-4 py-2.5 font-medium">Created</th>
                 <th className="px-4 py-2.5 font-medium text-right">Size</th>
@@ -881,7 +764,9 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                   bk.destinationName.toLowerCase().includes('google');
                 const rawScope = bk.backupType || bk.type || 'full';
                 const scopeLabel =
-                  rawScope === 'full'
+                  isPhp
+                    ? 'Files + databases'
+                    : rawScope === 'full'
                     ? 'Full Stack'
                     : rawScope === 'volume'
                       ? 'Volume Snapshot'
@@ -1028,6 +913,10 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             </tbody>
           </table>
         </div>
+
+        {loaded && displayedHistory.length === 0 && (
+          <div className="p-6 text-center text-xs text-zinc-500">No backups yet.</div>
+        )}
 
         {/* Mobile Responsive Cards View */}
         <div className="md:hidden divide-y divide-white/[0.06]">
@@ -1210,9 +1099,15 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
                 onChange={(e) => setSchedType(e.target.value as 'full' | 'volume' | 'app')}
                 className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
               >
-                <option value="full">Full Backup (App + All Volumes)</option>
-                <option value="volume">Docker Volume(s) Only</option>
-                <option value="app">App Files Only</option>
+                {isPhp ? (
+                  <option value="app">Site files + databases</option>
+                ) : (
+                  <>
+                    <option value="full">Full Backup (App + All Volumes)</option>
+                    <option value="volume">Docker Volume(s) Only</option>
+                    <option value="app">App Files Only</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
@@ -1296,12 +1191,14 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
             </div>
           )}
 
-          <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
-            <span className="text-xs text-zinc-200">
-              Pause containers during scheduled backup
-            </span>
-            <ShadcnSwitch checked={schedPauseContainers} onChange={setSchedPauseContainers} />
-          </div>
+          {!isPhp && (
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] p-3">
+              <span className="text-xs text-zinc-200">
+                Pause containers during scheduled backup
+              </span>
+              <ShadcnSwitch checked={schedPauseContainers} onChange={setSchedPauseContainers} />
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button

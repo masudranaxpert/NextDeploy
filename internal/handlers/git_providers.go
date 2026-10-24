@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"panel/internal/db"
 	"panel/internal/gitx"
@@ -14,7 +17,49 @@ import (
 )
 
 // fetchAccessibleReposCount returns the number of accessible repositories for a provider.
+// repoCountCache keeps the "repositories accessible" figure per provider. It is shown on every
+// page load, but asking GitHub for it takes hundreds of milliseconds, so the page gets the last
+// known value at once and a fresh one is fetched in the background when it is older than 5 minutes.
+var repoCountCache sync.Map // provider id -> repoCountEntry
+
+type repoCountEntry struct {
+	n          int
+	at         time.Time
+	refreshing *int32
+}
+
 func (p *Panel) fetchAccessibleReposCount(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
+	if v, ok := repoCountCache.Load(gp.ID); ok {
+		e := v.(repoCountEntry)
+		if time.Since(e.at) > 5*time.Minute && atomic.CompareAndSwapInt32(e.refreshing, 0, 1) {
+			go func() {
+				defer atomic.StoreInt32(e.refreshing, 0)
+				bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				n := p.fetchAccessibleReposCountLive(bg, gp, d)
+				repoCountCache.Store(gp.ID, repoCountEntry{n: n, at: time.Now(), refreshing: e.refreshing})
+			}()
+		}
+		return e.n
+	}
+	flag := new(int32)
+	done := make(chan int, 1)
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		n := p.fetchAccessibleReposCountLive(bg, gp, d)
+		repoCountCache.Store(gp.ID, repoCountEntry{n: n, at: time.Now(), refreshing: flag})
+		done <- n
+	}()
+	select {
+	case n := <-done:
+		return n
+	case <-time.After(700 * time.Millisecond):
+		return 0 // arrives in the cache for the next load
+	}
+}
+
+func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
 	if gp.Provider == "github" {
 		var token string
 		var endpoint string

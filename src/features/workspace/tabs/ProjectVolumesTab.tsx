@@ -64,24 +64,11 @@ export const ProjectVolumesTab: React.FC<ProjectVolumesTabProps> = ({
     setBrowsePath(subPath);
     try {
       const res = await backendApi.volumeBrowse(volName, subPath);
-      const entries = res.data?.entries;
-      if (Array.isArray(entries) && entries.length > 0) {
-        setBrowseEntries(entries);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to browse volume contents');
+        setBrowseEntries([]);
       } else {
-        // Offline / preview fallback directory listing
-        setBrowseEntries(
-          subPath
-            ? [
-                { name: 'PG_VERSION', rel_path: `${subPath}/PG_VERSION`, is_dir: false },
-                { name: 'postgresql.conf', rel_path: `${subPath}/postgresql.conf`, is_dir: false },
-              ]
-            : [
-                { name: 'base', rel_path: 'base', is_dir: true },
-                { name: 'global', rel_path: 'global', is_dir: true },
-                { name: 'pg_wal', rel_path: 'pg_wal', is_dir: true },
-                { name: 'postmaster.opts', rel_path: 'postmaster.opts', is_dir: false },
-              ]
-        );
+        setBrowseEntries(res.data?.entries ?? []);
       }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to browse volume contents');
@@ -204,14 +191,6 @@ export const ProjectVolumesTab: React.FC<ProjectVolumesTabProps> = ({
             {app.volumes.length}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer shrink-0"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Mount Volume
-        </button>
       </div>
 
       {/* Volumes List */}

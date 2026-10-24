@@ -102,6 +102,21 @@ func (m *Manager) MySQLEnabled(ctx context.Context) bool {
 }
 
 func (m *Manager) MySQLStatus(ctx context.Context) MySQLStatus {
+	status.mu.Lock()
+	if time.Since(status.mysqlAt) < mysqlTTL {
+		st := status.mysql
+		status.mu.Unlock()
+		return st
+	}
+	status.mu.Unlock()
+	st := m.mysqlStatusUncached(ctx)
+	status.mu.Lock()
+	status.mysql, status.mysqlAt = st, time.Now()
+	status.mu.Unlock()
+	return st
+}
+
+func (m *Manager) mysqlStatusUncached(ctx context.Context) MySQLStatus {
 	st := MySQLStatus{Enabled: m.MySQLEnabled(ctx), Image: m.mysqlImage(ctx), MemoryMB: m.mysqlMemoryMB(ctx)}
 	ci := inspectContainer(ctx, MySQLContainer)
 	st.Exists, st.Running = ci.Exists, ci.Running
@@ -286,6 +301,29 @@ func (m *Manager) SetDatabasePassword(ctx context.Context, dbUser, password stri
 
 // DatabaseSizes returns the on-disk size in bytes per schema.
 func (m *Manager) DatabaseSizes(ctx context.Context, names []string) map[string]int64 {
+	key := strings.Join(names, ",")
+	status.mu.Lock()
+	if status.sizesK == key && time.Since(status.sizesAt) < sizesTTL {
+		cp := make(map[string]int64, len(status.sizes))
+		for k, v := range status.sizes {
+			cp[k] = v
+		}
+		status.mu.Unlock()
+		return cp
+	}
+	status.mu.Unlock()
+	out := m.databaseSizesUncached(ctx, names)
+	status.mu.Lock()
+	status.sizesK, status.sizesAt, status.sizes = key, time.Now(), out
+	status.mu.Unlock()
+	cp := make(map[string]int64, len(out))
+	for k, v := range out {
+		cp[k] = v
+	}
+	return cp
+}
+
+func (m *Manager) databaseSizesUncached(ctx context.Context, names []string) map[string]int64 {
 	out := map[string]int64{}
 	if len(names) == 0 {
 		return out
@@ -349,6 +387,7 @@ func (m *Manager) ExportDatabase(ctx context.Context, dbName string, w io.Writer
 // short-lived user that can only touch that one database, so a hostile dump cannot
 // read other databases or create privileged users.
 func (m *Manager) ImportDatabase(ctx context.Context, dbName string, r io.Reader, gzipped bool) error {
+	defer status.reset()
 	if !ValidIdent(dbName) {
 		return fmt.Errorf("invalid database name")
 	}

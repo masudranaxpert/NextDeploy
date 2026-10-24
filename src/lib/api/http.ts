@@ -65,7 +65,7 @@ export async function requestJson<T = Record<string, unknown>>(
       data: json,
     } as ApiResult<T>;
   } catch {
-    return { ok: false, offlineFallback: true } as ApiResult<T>;
+    return { ok: false, error: 'Cannot reach the server' } as ApiResult<T>;
   }
 }
 
@@ -84,7 +84,7 @@ export async function requestText(path: string): Promise<ApiResult<string>> {
     }
     return { ok: true, status: res.status, data: text };
   } catch {
-    return { ok: false, offlineFallback: true };
+    return { ok: false, error: 'Cannot reach the server' };
   }
 }
 

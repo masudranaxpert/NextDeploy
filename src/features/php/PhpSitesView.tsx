@@ -1,18 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, FileCode2, Globe, Plus, Search, Server, Settings2, Sparkles } from 'lucide-react';
+import { FileCode2, Plus, Search, Server, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpStatusData } from '../../lib/api/phpApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
+import { SiteCard } from './components/SiteCard';
+import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons';
 import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls } from './ui';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
 const TYPE_CARDS: Array<{ id: SiteType; title: string; text: string; icon: React.ReactNode }> = [
-  { id: 'php', title: 'PHP', text: 'Laravel, custom code', icon: <FileCode2 className="h-4 w-4" /> },
-  { id: 'wordpress', title: 'WordPress', text: 'One-click install', icon: <Sparkles className="h-4 w-4" /> },
-  { id: 'static', title: 'Static HTML', text: 'No PHP', icon: <Globe className="h-4 w-4" /> },
+  { id: 'php', title: 'PHP', text: 'Laravel, Symfony, custom', icon: <PhpIcon className="h-4 w-4" /> },
+  { id: 'wordpress', title: 'WordPress', text: 'One-click install', icon: <WordPressIcon className="h-4 w-4" /> },
+  { id: 'static', title: 'Static HTML', text: 'No PHP', icon: <HtmlIcon className="h-4 w-4" /> },
 ];
 
 interface Props {
@@ -143,30 +145,7 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => onOpenSite(s.id)}
-              className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/80 p-4 text-left shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] transition-all hover:border-white/[0.15] hover:bg-[#141419]"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-900 text-xs font-bold uppercase text-orange-400">
-                    {s.name.slice(0, 2)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-100">{s.name}</div>
-                    <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-400">{s.primaryDomain || 'no domain yet'}</div>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-600 transition-colors group-hover:text-orange-400" />
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Pill tone="orange">{SITE_TYPE_LABEL[s.php!.siteType]}</Pill>
-                {s.php!.phpVersion && <Pill tone="violet">PHP {s.php!.phpVersion}</Pill>}
-                <Pill>{s.domains.length} domain{s.domains.length === 1 ? '' : 's'}</Pill>
-              </div>
-            </button>
+            <SiteCard key={s.id} site={s} onOpenSite={onOpenSite} />
           ))}
         </div>
       )}

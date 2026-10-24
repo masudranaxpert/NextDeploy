@@ -13,7 +13,6 @@ import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
 import { ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
-import { INITIAL_GIT_PROVIDERS, INITIAL_SYNCED_REPOS } from '../../../data/initialData';
 
 interface ProjectGitTabProps {
   app: AppStack;
@@ -33,16 +32,13 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [authMode, setAuthMode] = useState<'public' | 'github_app' | 'gitlab_token'>(
     app.gitAuthMode || 'github_app'
   );
-  const [selectedProviderId, setSelectedProviderId] = useState<string>(
-    app.gitProviderId || INITIAL_GIT_PROVIDERS[0]?.id || '1'
-  );
-  const [repoUrl, setRepoUrl] = useState<string>(
-    app.gitRepo || `https://github.com/masudranaxpert/${app.slug}.git`
-  );
+  const [providers, setProviders] = useState<
+    Array<{ id: string; provider: string; accountName: string; authMethod: string }>
+  >([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(app.gitProviderId || '');
+  const [repoUrl, setRepoUrl] = useState<string>(app.gitRepo || '');
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string>(
-    app.gitRepo
-      ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '')
-      : `masudranaxpert/${app.slug}`
+    app.gitRepo ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '') : ''
   );
   const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
@@ -52,21 +48,27 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   }, [app.gitSync, app.sourceType]);
 
   // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
-  const [providerRepos, setProviderRepos] = useState<RepoOption[]>(
-    INITIAL_SYNCED_REPOS.map((r) => ({
-      full_name: r.fullName,
-      clone_url: `https://${r.provider === 'GitLab' ? 'gitlab.com' : 'github.com'}/${r.fullName}.git`,
-      private: r.private,
-      default_branch: r.defaultBranch,
-    }))
-  );
-  const [providerBranches, setProviderBranches] = useState<string[]>([
-    'main',
-    'production',
-    'staging',
-    'develop',
-    'feat/stripe-v3',
-  ]);
+  const [providerRepos, setProviderRepos] = useState<RepoOption[]>([]);
+  const [providerBranches, setProviderBranches] = useState<string[]>(app.gitBranch ? [app.gitBranch] : []);
+
+  // The connected providers come from the server, never from sample data.
+  useEffect(() => {
+    let live = true;
+    void backendApi.gitProvidersList().then((res) => {
+      if (!live || !res.ok) return;
+      const list = (res.data?.providers ?? []).map((p) => ({
+        id: String(p.id),
+        provider: p.provider === 'gitlab' ? 'GitLab' : 'GitHub',
+        accountName: p.accountName || p.name,
+        authMethod: p.authMethod || (p.provider === 'gitlab' ? 'Token' : 'GitHub'),
+      }));
+      setProviders(list);
+      setSelectedProviderId((cur) => (cur && list.some((p) => p.id === cur) ? cur : list[0]?.id ?? ''));
+    });
+    return () => {
+      live = false;
+    };
+  }, [app.id]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
@@ -80,9 +82,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     setIsLoadingRepos(true);
     const res = await backendApi.gitProviderRepos(app.id, pid);
     setIsLoadingRepos(false);
-    if (res.ok && Array.isArray(res.data?.repos) && res.data.repos.length > 0) {
-      setProviderRepos(res.data.repos);
-    }
+    if (res.ok) setProviderRepos(res.data?.repos ?? []);
   };
 
   const loadProviderBranches = async (pid: string, repoFull: string) => {
@@ -90,9 +90,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     setIsLoadingBranches(true);
     const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
     setIsLoadingBranches(false);
-    if (res.ok && Array.isArray(res.data?.branches) && res.data.branches.length > 0) {
-      setProviderBranches(res.data.branches);
-    }
+    if (res.ok) setProviderBranches(res.data?.branches ?? []);
   };
 
   useEffect(() => {
@@ -325,7 +323,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                   }}
                   className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
                 >
-                  {INITIAL_GIT_PROVIDERS.map((p) => (
+                  {providers.length === 0 && <option value="">No provider connected</option>}
+                  {providers.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.provider} · {p.accountName} ({p.authMethod})
                     </option>
