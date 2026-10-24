@@ -212,6 +212,35 @@ func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, max
 		if _, ok := svc["sysctls"]; ok {
 			return nil, fmt.Errorf("sysctls is blocked on service %q for security reasons", svcName)
 		}
+		if _, ok := svc["pid"]; ok {
+			return nil, fmt.Errorf("custom pid mode is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["ipc"]; ok {
+			return nil, fmt.Errorf("custom ipc mode is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["uts"]; ok {
+			return nil, fmt.Errorf("custom uts mode is blocked on service %q for security reasons", svcName)
+		}
+		if _, ok := svc["userns_mode"]; ok {
+			return nil, fmt.Errorf("custom userns_mode is blocked on service %q for security reasons", svcName)
+		}
+
+		if buildRaw, ok := svc["build"]; ok {
+			switch b := buildRaw.(type) {
+			case string:
+				if isHostBindPath(b) {
+					return nil, fmt.Errorf("build path %q is blocked on service %q. Only paths inside workspace are permitted", b, svcName)
+				}
+			case map[string]interface{}:
+				if ctxPath, ok2 := b["context"].(string); ok2 && isHostBindPath(ctxPath) {
+					return nil, fmt.Errorf("build context %q is blocked on service %q. Only paths inside workspace are permitted", ctxPath, svcName)
+				}
+			case map[interface{}]interface{}:
+				if ctxPath, ok2 := b["context"].(string); ok2 && isHostBindPath(ctxPath) {
+					return nil, fmt.Errorf("build context %q is blocked on service %q. Only paths inside workspace are permitted", ctxPath, svcName)
+				}
+			}
+		}
 
 		if netMode, ok := svc["network_mode"].(string); ok && netMode != "" {
 			return nil, fmt.Errorf("custom network_mode %q is blocked on service %q", netMode, svcName)
@@ -524,4 +553,3 @@ func GetComposeResources(composeBytes []byte) (int, float64, error) {
 	}
 	return totalMem, totalCPU, nil
 }
-

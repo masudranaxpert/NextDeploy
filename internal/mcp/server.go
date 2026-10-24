@@ -14,7 +14,6 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/handlers"
-	"panel/internal/handlers/utils"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/valyala/fasthttp"
@@ -69,6 +68,9 @@ func (s *Server) AuthMiddleware(c *fiber.Ctx) error {
 	}
 
 	if token == "" {
+		if c.Method() == "GET" && (path == "/mcp" || path == "/mcp/") && strings.Contains(c.Get("Accept"), "text/html") {
+			return s.p.ServeSPA(c)
+		}
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"jsonrpc": "2.0",
 			"error": fiber.Map{
@@ -406,7 +408,7 @@ func (s *Server) CreateAPITokenPost(c *fiber.Ctx) error {
 		if handlers.WantsJSON(c) {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		utils.SetFlash(c, "Failed to create API token: "+err.Error())
+		handlers.SetFlash(c, "Failed to create API token: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -446,7 +448,7 @@ func (s *Server) ToggleAPITokenEnvRevealPost(c *fiber.Ctx) error {
 
 	enabled, err := s.p.DB.ToggleAPITokenEnvReveal(ctx, int64(id), u.ID)
 	if err != nil {
-		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		handlers.SetFlash(c, "Failed to update token permission: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -455,7 +457,7 @@ func (s *Server) ToggleAPITokenEnvRevealPost(c *fiber.Ctx) error {
 		stateStr = "enabled"
 	}
 	s.p.RecordAuditLog(c, "toggle_api_token_reveal", "api_token", fmt.Sprintf("%d", id), "Toggled env_reveal to "+stateStr)
-	utils.SetFlash(c, fmt.Sprintf("Token env_reveal permission %s.", stateStr))
+	handlers.SetFlash(c, fmt.Sprintf("Token env_reveal permission %s.", stateStr))
 	return c.Redirect("/mcp-docs")
 }
 
@@ -474,7 +476,7 @@ func (s *Server) ToggleAPITokenContainerExecPost(c *fiber.Ctx) error {
 
 	enabled, err := s.p.DB.ToggleAPITokenContainerExec(ctx, int64(id), u.ID)
 	if err != nil {
-		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		handlers.SetFlash(c, "Failed to update token permission: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -483,7 +485,7 @@ func (s *Server) ToggleAPITokenContainerExecPost(c *fiber.Ctx) error {
 		stateStr = "enabled"
 	}
 	s.p.RecordAuditLog(c, "toggle_api_token_container_exec", "api_token", fmt.Sprintf("%d", id), "Toggled container_exec to "+stateStr)
-	utils.SetFlash(c, fmt.Sprintf("Token container_exec permission %s.", stateStr))
+	handlers.SetFlash(c, fmt.Sprintf("Token container_exec permission %s.", stateStr))
 	return c.Redirect("/mcp-docs")
 }
 
@@ -502,7 +504,7 @@ func (s *Server) ToggleAPITokenServerExecPost(c *fiber.Ctx) error {
 
 	enabled, err := s.p.DB.ToggleAPITokenServerExec(ctx, int64(id), u.ID)
 	if err != nil {
-		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		handlers.SetFlash(c, "Failed to update token permission: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -511,7 +513,7 @@ func (s *Server) ToggleAPITokenServerExecPost(c *fiber.Ctx) error {
 		stateStr = "enabled"
 	}
 	s.p.RecordAuditLog(c, "toggle_api_token_server_exec", "api_token", fmt.Sprintf("%d", id), "Toggled server_exec to "+stateStr)
-	utils.SetFlash(c, fmt.Sprintf("Token server_exec permission %s.", stateStr))
+	handlers.SetFlash(c, fmt.Sprintf("Token server_exec permission %s.", stateStr))
 	return c.Redirect("/mcp-docs")
 }
 
@@ -530,7 +532,7 @@ func (s *Server) ToggleAPITokenAppDeletePost(c *fiber.Ctx) error {
 
 	enabled, err := s.p.DB.ToggleAPITokenAppDelete(ctx, int64(id), u.ID)
 	if err != nil {
-		utils.SetFlash(c, "Failed to update token permission: "+err.Error())
+		handlers.SetFlash(c, "Failed to update token permission: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -539,7 +541,7 @@ func (s *Server) ToggleAPITokenAppDeletePost(c *fiber.Ctx) error {
 		stateStr = "enabled"
 	}
 	s.p.RecordAuditLog(c, "toggle_api_token_app_delete", "api_token", fmt.Sprintf("%d", id), "Toggled app_delete to "+stateStr)
-	utils.SetFlash(c, fmt.Sprintf("Token app_delete permission %s.", stateStr))
+	handlers.SetFlash(c, fmt.Sprintf("Token app_delete permission %s.", stateStr))
 	return c.Redirect("/mcp-docs")
 }
 
@@ -557,12 +559,12 @@ func (s *Server) DeleteAPITokenPost(c *fiber.Ctx) error {
 	}
 
 	if err := s.p.DB.DeleteAPIToken(ctx, int64(id), u.ID); err != nil {
-		utils.SetFlash(c, "Failed to delete token: "+err.Error())
+		handlers.SetFlash(c, "Failed to delete token: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
 	s.p.RecordAuditLog(c, "delete_api_token", "api_token", fmt.Sprintf("%d", id), "Revoked API token")
-	utils.SetFlash(c, "API Token revoked successfully.")
+	handlers.SetFlash(c, "API Token revoked successfully.")
 	return c.Redirect("/mcp-docs")
 }
 
@@ -575,7 +577,7 @@ func (s *Server) ToggleMCPStatusPost(c *fiber.Ctx) error {
 	}
 
 	if u.Role != db.RoleAdmin {
-		utils.SetFlash(c, "Permission denied: Only administrators can toggle global MCP server availability.")
+		handlers.SetFlash(c, "Permission denied: Only administrators can toggle global MCP server availability.")
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -591,7 +593,7 @@ func (s *Server) ToggleMCPStatusPost(c *fiber.Ctx) error {
 		if handlers.WantsJSON(c) {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-		utils.SetFlash(c, "Failed to update MCP server status: "+err.Error())
+		handlers.SetFlash(c, "Failed to update MCP server status: "+err.Error())
 		return c.Redirect("/mcp-docs")
 	}
 
@@ -599,6 +601,6 @@ func (s *Server) ToggleMCPStatusPost(c *fiber.Ctx) error {
 	if handlers.WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true, "enabled": newVal == "1"})
 	}
-	utils.SetFlash(c, fmt.Sprintf("MCP Server successfully %s.", statusText))
+	handlers.SetFlash(c, fmt.Sprintf("MCP Server successfully %s.", statusText))
 	return c.Redirect("/mcp-docs")
 }

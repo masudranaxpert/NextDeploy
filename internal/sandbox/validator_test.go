@@ -249,3 +249,44 @@ services:
 	}
 }
 
+func TestValidateAndClampCompose_NamespaceEscapesBlocked(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"pid_host", "services:\n  app:\n    image: alpine\n    pid: host\n"},
+		{"ipc_host", "services:\n  app:\n    image: alpine\n    ipc: host\n"},
+		{"uts_host", "services:\n  app:\n    image: alpine\n    uts: host\n"},
+		{"userns_host", "services:\n  app:\n    image: alpine\n    userns_mode: host\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ValidateAndClampCompose([]byte(tc.yaml), 2.0, 1024)
+			if err == nil {
+				t.Fatalf("expected error blocking %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
+func TestValidateAndClampCompose_BuildContextEscapeBlocked(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"build_root", "services:\n  app:\n    build: /\n"},
+		{"build_traversal", "services:\n  app:\n    build: ../../etc\n"},
+		{"build_context_abs", "services:\n  app:\n    build:\n      context: /var/run\n"},
+		{"build_context_traversal", "services:\n  app:\n    build:\n      context: ../root\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ValidateAndClampCompose([]byte(tc.yaml), 2.0, 1024)
+			if err == nil {
+				t.Fatalf("expected error blocking %s, got nil", tc.name)
+			}
+		})
+	}
+}

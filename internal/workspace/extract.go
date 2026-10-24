@@ -55,7 +55,26 @@ func DeclaredUncompressedZipBytes(r io.ReaderAt, size int64) (int64, error) {
 }
 
 func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
+	return s.ExtractZipTo(wsID, "", r, size)
+}
+
+func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64) error {
 	base := s.Path(wsID)
+	destSubdir = filepath.ToSlash(strings.TrimSpace(destSubdir))
+	destSubdir = strings.Trim(destSubdir, "/")
+	if destSubdir != "" {
+		parts := strings.Split(destSubdir, "/")
+		var safe []string
+		for _, p := range parts {
+			if p == "" || p == "." || p == ".." {
+				continue
+			}
+			safe = append(safe, p)
+		}
+		if len(safe) > 0 {
+			base = filepath.Join(append([]string{base}, safe...)...)
+		}
+	}
 	if err := os.MkdirAll(base, 0750); err != nil {
 		return err
 	}
@@ -85,6 +104,9 @@ func (s *Store) ExtractZip(wsID string, r io.ReaderAt, size int64) error {
 		relToBase, err := filepath.Rel(filepath.Clean(base), filepath.Clean(dest))
 		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("illegal zip path: %s", f.Name)
+		}
+		if f.FileInfo().Mode()&os.ModeSymlink != 0 {
+			continue // ignore symlinks inside uploaded archives to prevent traversal attacks
 		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(dest, 0750); err != nil {
@@ -148,6 +170,9 @@ func ValidateZipArchive(r io.ReaderAt, size int64) error {
 		relToBase, err := filepath.Rel(filepath.Clean(fakeBase), filepath.Clean(dest))
 		if err != nil || relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("illegal zip path: %s", f.Name)
+		}
+		if f.FileInfo().Mode()&os.ModeSymlink != 0 {
+			continue // ignore symlinks inside uploaded archives to prevent traversal attacks
 		}
 		if f.FileInfo().IsDir() {
 			continue
@@ -219,7 +244,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 			Size:    info.Size(),
 			ModTime: info.ModTime(),
 			IsDir:   e.IsDir(),
-			Perms:   info.Mode().Perm().String(),
+			Perms:   fmt.Sprintf("%03o", info.Mode().Perm()),
 		})
 	}
 	sort.Slice(list, func(i, j int) bool {
@@ -299,7 +324,7 @@ func (s *Store) ListGitRepoChildren(wsID, rel string) ([]FileEntry, error) {
 			Size:    info.Size(),
 			ModTime: info.ModTime(),
 			IsDir:   e.IsDir(),
-			Perms:   info.Mode().Perm().String(),
+			Perms:   fmt.Sprintf("%03o", info.Mode().Perm()),
 		})
 	}
 	sort.Slice(list, func(i, j int) bool {

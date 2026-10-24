@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -15,8 +17,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/shirou/gopsutil/v3/mem"
 	"golang.org/x/sync/errgroup"
@@ -46,17 +48,21 @@ var (
 func apiClient() (*client.Client, error) {
 	apiClientOnce.Do(func() {
 		ver := strings.TrimSpace(os.Getenv("DOCKER_API_VERSION"))
+		if ver == "" {
+			ver = "1.44"
+		}
 		opts := []client.Opt{
 			client.FromEnv,
-		}
-		if ver != "" {
-			opts = append(opts, client.WithVersion(ver))
-		} else {
-			opts = append(opts, client.WithAPIVersionNegotiation())
+			client.WithVersion(ver),
 		}
 		apiClientInst, apiClientErr = client.NewClientWithOpts(opts...)
 	})
 	return apiClientInst, apiClientErr
+}
+
+// Client returns the shared Docker API client instance.
+func Client() (*client.Client, error) {
+	return apiClient()
 }
 
 type ContainerRow struct {
@@ -68,6 +74,7 @@ type ContainerRow struct {
 	Ports          string
 	Created        time.Time
 	ComposeProject string
+	ComposeService string
 }
 
 type ImageRow struct {
@@ -80,29 +87,30 @@ type ImageRow struct {
 }
 
 type ContainerUsageRow struct {
-	ID             string
-	Name           string
-	Image          string
-	State          string
-	Status         string
-	ComposeProject string
-	CPUPercent    float64
-	MemUsage      uint64
-	MemLimit      uint64
-	MemPercent    float64
-	NetInput      uint64
-	NetOutput     uint64
-	BlockRead     uint64
-	BlockWrite    uint64
-	Pids          uint64
-	MemUsageHuman string
-	MemLimitHuman string
-	NetInputHuman  string
-	NetOutputHuman string
-	BlockReadHuman string
+	ID              string
+	Name            string
+	Image           string
+	State           string
+	Status          string
+	ComposeProject  string
+	ComposeService  string
+	CPUPercent      float64
+	MemUsage        uint64
+	MemLimit        uint64
+	MemPercent      float64
+	NetInput        uint64
+	NetOutput       uint64
+	BlockRead       uint64
+	BlockWrite      uint64
+	Pids            uint64
+	MemUsageHuman   string
+	MemLimitHuman   string
+	NetInputHuman   string
+	NetOutputHuman  string
+	BlockReadHuman  string
 	BlockWriteHuman string
-	NetDLRateHuman string
-	NetULRateHuman string
+	NetDLRateHuman  string
+	NetULRateHuman  string
 }
 
 type statsJSON struct {
@@ -115,15 +123,15 @@ type statsJSON struct {
 	} `json:"precpu_stats"`
 	CPUStats struct {
 		CPUUsage struct {
-			TotalUsage uint64 `json:"total_usage"`
+			TotalUsage  uint64   `json:"total_usage"`
 			PercpuUsage []uint64 `json:"percpu_usage"`
 		} `json:"cpu_usage"`
 		SystemUsage uint64 `json:"system_cpu_usage"`
 		OnlineCPUs  uint32 `json:"online_cpus"`
 	} `json:"cpu_stats"`
 	MemoryStats struct {
-		Usage uint64 `json:"usage"`
-		Limit uint64 `json:"limit"`
+		Usage uint64            `json:"usage"`
+		Limit uint64            `json:"limit"`
 		Stats map[string]uint64 `json:"stats"`
 	} `json:"memory_stats"`
 	Networks map[string]struct {
@@ -163,6 +171,7 @@ func ListContainers(ctx context.Context) ([]ContainerRow, string) {
 			Ports:          ports,
 			Created:        time.Unix(c.Created, 0).UTC(),
 			ComposeProject: c.Labels[composeProjectLabel],
+			ComposeService: c.Labels["com.docker.compose.service"],
 		})
 	}
 	return out, ""
@@ -210,7 +219,6 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 		return "", "", err
 	}
 
-
 	insp, err := cli.ContainerInspect(ctx, strings.TrimSpace(containerName))
 	if err != nil {
 		return "", "", err
@@ -249,7 +257,6 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 		return nil, err.Error()
 	}
 
-
 	all, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err.Error()
@@ -282,6 +289,7 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 			State:          c.State,
 			Status:         c.Status,
 			ComposeProject: c.Labels[composeProjectLabel],
+			ComposeService: c.Labels["com.docker.compose.service"],
 		}
 
 		cur, ok := statsMap[c.ID]
@@ -295,12 +303,12 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 			out = append(out, row)
 			continue
 		}
-		row.CPUPercent = cpuPercentSingleSample(cur)
+		row.CPUPercent = math.Round(cpuPercentSingleSample(cur)*10) / 10
 		memUsage := memoryUsageLikeDockerCLI(cur)
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit
 		if row.MemLimit > 0 {
-			row.MemPercent = (float64(row.MemUsage) / float64(row.MemLimit)) * 100
+			row.MemPercent = math.Round(((float64(row.MemUsage) / float64(row.MemLimit)) * 100)*10) / 10
 		}
 		row.MemUsageHuman = formatBytes(int64(row.MemUsage))
 		row.MemLimitHuman = formatBytes(int64(row.MemLimit))
@@ -749,7 +757,8 @@ func containerIDByName(ctx context.Context, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	for _, c := range list {
 		for _, n := range c.Names {
-			if strings.TrimPrefix(n, "/") == name {
+			trimmed := strings.TrimPrefix(n, "/")
+			if trimmed == name || (name == "caddy" && (trimmed == "nextdeploy_caddy" || strings.Contains(trimmed, "caddy"))) {
 				return c.ID, nil
 			}
 		}
@@ -796,6 +805,64 @@ func RestartContainerByName(ctx context.Context, name string) error {
 
 	timeout := 10
 	return cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
+}
+
+// EnsureContainerNetwork verifies if containerName is attached to networkName.
+// If not attached, it connects the container dynamically.
+func EnsureContainerNetwork(ctx context.Context, containerName, networkName string) error {
+	containerName = strings.TrimSpace(containerName)
+	networkName = strings.TrimSpace(networkName)
+	if containerName == "" || networkName == "" {
+		return nil
+	}
+	cli, err := apiClient()
+	if err != nil {
+		return err
+	}
+	insp, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return err
+	}
+	if insp.NetworkSettings != nil && insp.NetworkSettings.Networks != nil {
+		if _, ok := insp.NetworkSettings.Networks[networkName]; ok {
+			return nil // already connected
+		}
+	}
+	if err := cli.NetworkConnect(ctx, networkName, containerName, nil); err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "already exists") || strings.Contains(lower, "already connected") {
+			return nil
+		}
+		out, cliErr := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerName).CombinedOutput()
+		if cliErr != nil && !strings.Contains(strings.ToLower(string(out)), "already exists") {
+			return fmt.Errorf("connect %s to %s: %s (%w)", containerName, networkName, strings.TrimSpace(string(out)), cliErr)
+		}
+	}
+	return nil
+}
+
+// EnsureCaddySharedNetwork ensures that the Caddy container shares the same Docker network
+// as the NextDeploy panel container (default "NextDeploy").
+func EnsureCaddySharedNetwork(ctx context.Context) error {
+	panelNet := "NextDeploy"
+	if cli, err := apiClient(); err == nil {
+		candNames := []string{"panel", os.Getenv("HOSTNAME")}
+		for _, name := range candNames {
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+			if insp, err := cli.ContainerInspect(ctx, name); err == nil && insp.NetworkSettings != nil {
+				for netName := range insp.NetworkSettings.Networks {
+					if netName != "bridge" && netName != "host" && netName != "none" {
+						panelNet = netName
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+	return EnsureContainerNetwork(ctx, "caddy", panelNet)
 }
 
 func RemoveContainerByName(ctx context.Context, name string) error {
@@ -877,7 +944,6 @@ func ComposePS(ctx context.Context, project string) ([]ComposePsRow, error) {
 		return nil, err
 	}
 
-
 	fl := filters.NewArgs(filters.Arg("label", composeProjectLabel+"="+project))
 	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true, Filters: fl})
 	if err != nil {
@@ -928,7 +994,6 @@ func ContainerComposeLabels(ctx context.Context, containerName string) (project,
 		return "", "", err
 	}
 
-
 	insp, err := cli.ContainerInspect(ctx, containerName)
 	if err != nil {
 		return "", "", err
@@ -937,4 +1002,109 @@ func ContainerComposeLabels(ctx context.Context, containerName string) (project,
 		return "", "", nil
 	}
 	return insp.Config.Labels[composeProjectLabel], insp.Config.Labels["com.docker.compose.project.working_dir"], nil
+}
+
+// ContainerReadinessInfo returns state, health status, IP address, and exposed TCP ports for readiness probing.
+type ContainerReadinessInfo struct {
+	Running      bool
+	Status       string
+	ExitCode     int
+	Health       string
+	IPAddress    string
+	ExposedPorts []int
+}
+
+// InspectContainerReadiness retrieves live status, network address, and exposed ports for a container.
+func InspectContainerReadiness(ctx context.Context, containerName string) (ContainerReadinessInfo, error) {
+	containerName = strings.TrimSpace(containerName)
+	if containerName == "" {
+		return ContainerReadinessInfo{}, fmt.Errorf("empty container name")
+	}
+
+	cli, err := apiClient()
+	if err == nil {
+		insp, err := cli.ContainerInspect(ctx, containerName)
+		if err == nil {
+			info := ContainerReadinessInfo{
+				Running: insp.State.Running,
+				Status:  insp.State.Status,
+			}
+			if insp.State != nil {
+				info.ExitCode = insp.State.ExitCode
+				if insp.State.Health != nil {
+					info.Health = insp.State.Health.Status
+				}
+			}
+			if insp.Config != nil && len(insp.Config.ExposedPorts) > 0 {
+				seen := make(map[int]bool)
+				for p := range insp.Config.ExposedPorts {
+					portNum := p.Int()
+					if portNum > 0 && !seen[portNum] {
+						seen[portNum] = true
+						info.ExposedPorts = append(info.ExposedPorts, portNum)
+					}
+				}
+				sort.Ints(info.ExposedPorts)
+			}
+			if insp.NetworkSettings != nil {
+				if len(info.ExposedPorts) == 0 && len(insp.NetworkSettings.Ports) > 0 {
+					seen := make(map[int]bool)
+					for p := range insp.NetworkSettings.Ports {
+						portNum := p.Int()
+						if portNum > 0 && !seen[portNum] {
+							seen[portNum] = true
+							info.ExposedPorts = append(info.ExposedPorts, portNum)
+						}
+					}
+					sort.Ints(info.ExposedPorts)
+				}
+				if insp.NetworkSettings.IPAddress != "" {
+					info.IPAddress = insp.NetworkSettings.IPAddress
+				}
+				for _, netw := range insp.NetworkSettings.Networks {
+					if netw != nil && netw.IPAddress != "" {
+						info.IPAddress = netw.IPAddress
+						break
+					}
+				}
+			}
+			return info, nil
+		}
+	}
+
+	// CLI fallback: docker inspect
+	out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", `{{json .State}}`, containerName).Output()
+	if err != nil {
+		return ContainerReadinessInfo{}, err
+	}
+	var state struct {
+		Running  bool   `json:"Running"`
+		Status   string `json:"Status"`
+		ExitCode int    `json:"ExitCode"`
+		Health   struct {
+			Status string `json:"Status"`
+		} `json:"Health"`
+	}
+	if err := json.Unmarshal(out, &state); err != nil {
+		return ContainerReadinessInfo{}, err
+	}
+
+	ipOut, _ := exec.CommandContext(ctx, "docker", "inspect", "--format", `{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}`, containerName).Output()
+	ipAddr := strings.TrimSpace(string(ipOut))
+
+	return ContainerReadinessInfo{
+		Running:   state.Running,
+		Status:    state.Status,
+		ExitCode:  state.ExitCode,
+		Health:    state.Health.Status,
+		IPAddress: ipAddr,
+	}, nil
+}
+
+// ListContainerUsageMatching returns live stats for the containers keep() accepts.
+// keep receives the container name (without the leading slash) and its compose project.
+func ListContainerUsageMatching(ctx context.Context, keep func(name, project string) bool) ([]ContainerUsageRow, string) {
+	return listContainerUsageFiltered(ctx, func(c types.Container) bool {
+		return keep(strings.TrimPrefix(containerName(c), "/"), c.Labels[composeProjectLabel])
+	})
 }

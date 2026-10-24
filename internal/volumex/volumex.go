@@ -375,20 +375,20 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 	if err != nil {
 		return nil, err.Error()
 	}
-	
+
 	// Use POSIX paths for paths inside the Linux container (Windows hosts must not use filepath.Join).
 	targetPath := "/vol"
 	if sub != "." && sub != "" {
 		targetPath = path.Join("/vol", sub)
 	}
-	
+
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", vol+":/vol:ro",
 		"alpine:3.20", "ls", "-1Ap", targetPath)
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
-	
+
 	if err := cmd.Run(); err != nil {
 		errMsg := strings.TrimSpace(errBuf.String())
 		if errMsg == "" {
@@ -396,7 +396,7 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 		}
 		return nil, fmt.Sprintf("failed to read directory: %v", errMsg)
 	}
-	
+
 	var list []Entry
 	for _, line := range strings.Split(out.String(), "\n") {
 		line = strings.TrimSpace(line)
@@ -413,7 +413,7 @@ func ListDir(ctx context.Context, vol, rel string) ([]Entry, string) {
 			IsDir: isDir,
 		})
 	}
-	
+
 	return list, ""
 }
 

@@ -170,8 +170,8 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 			_ = deps.DB.UpdatePanelEnv(ctx, as.ID, env)
 		}
 		jobs = append(jobs, importAppJob{
-			snap: as,
-			app:  db.App{ID: as.ID, Name: as.Name, ComposeFile: as.ComposeFile, OwnerID: ownerID},
+			snap:    as,
+			app:     db.App{ID: as.ID, Name: as.Name, ComposeFile: as.ComposeFile, OwnerID: ownerID},
 			ownerID: ownerID,
 		})
 	}
@@ -208,7 +208,7 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 				ServeStatic: d.ServeStatic, StaticPath: d.StaticPath, StaticURLPrefix: d.StaticURLPrefix,
 				ServeMedia: d.ServeMedia, MediaPath: d.MediaPath, MediaURLPrefix: d.MediaURLPrefix,
 				RouteRulesJSON: d.RouteRulesJSON,
-				CreatedAt: time.Now().UTC(),
+				CreatedAt:      time.Now().UTC(),
 			})
 		}
 		if deps.AfterAppImported != nil {

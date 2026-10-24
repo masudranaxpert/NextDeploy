@@ -1601,7 +1601,7 @@ func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
 	}
 
 	close(blockCh)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
 	// 4. app_get with include_health:true
 	appGetParams, _ := json.Marshal(CallToolParams{
@@ -2179,7 +2179,3 @@ func TestMCP_DomainOperations(t *testing.T) {
 		t.Errorf("expected empty array after delete, got %s", res6.Result.(CallToolResult).Content[0].Text)
 	}
 }
-
-
-
-

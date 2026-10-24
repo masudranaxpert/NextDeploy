@@ -161,6 +161,14 @@ func (s *Store) SafeFilePath(wsID, rel string) (string, error) {
 	if rp == "." {
 		return "", os.ErrInvalid
 	}
+	if realBase, err := filepath.EvalSymlinks(base); err == nil {
+		if realTarget, err := filepath.EvalSymlinks(cf); err == nil {
+			relToReal, err := filepath.Rel(realBase, realTarget)
+			if err != nil || relToReal == ".." || strings.HasPrefix(relToReal, ".."+string(os.PathSeparator)) {
+				return "", os.ErrPermission
+			}
+		}
+	}
 	return cf, nil
 }
 
@@ -195,6 +203,14 @@ func (s *Store) SafeGitRepoFilePath(wsID, rel string) (string, error) {
 	}
 	if rp == ".git" || strings.HasPrefix(rp, ".git"+string(os.PathSeparator)) {
 		return "", os.ErrInvalid
+	}
+	if realBase, err := filepath.EvalSymlinks(base); err == nil {
+		if realTarget, err := filepath.EvalSymlinks(cf); err == nil {
+			relToReal, err := filepath.Rel(realBase, realTarget)
+			if err != nil || relToReal == ".." || strings.HasPrefix(relToReal, ".."+string(os.PathSeparator)) {
+				return "", os.ErrPermission
+			}
+		}
 	}
 	return cf, nil
 }
