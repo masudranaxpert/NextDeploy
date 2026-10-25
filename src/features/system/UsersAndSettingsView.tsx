@@ -22,6 +22,7 @@ import {
   Terminal,
   AlertTriangle,
   Info,
+  HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuditLogEntry, PanelUser } from '../../types/nextdeploy';
@@ -192,6 +193,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [cleanupLastStatus, setCleanupLastStatus] = useState<'ok' | 'error'>('ok');
   const [cleanupLastLog, setCleanupLastLog] = useState('No cleanup log recorded yet.');
   const [showCleanupLogModal, setShowCleanupLogModal] = useState(false);
+  const [showStorageKnowledgeModal, setShowStorageKnowledgeModal] = useState(false);
   const [tmpCount, setTmpCount] = useState(0);
   const [tmpTotalSize, setTmpTotalSize] = useState('0 B');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -1513,96 +1515,79 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Storage Allocation & Overselling Card */}
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3 md:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                <HardDrive className="h-4 w-4 text-orange-400" />
-              </div>
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
-                  Storage Allocation &amp; Overselling
-                </h2>
-                <p className="text-[11px] text-zinc-400">
-                  Control whether user storage quotas can exceed the host server's physical disk (thin provisioning)
-                </p>
-              </div>
+        {/* Storage Allocation Card */}
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-orange-400" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                Storage Allocation
+              </h2>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowStorageKnowledgeModal(true)}
+                title="Storage allocation and buffer guide"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
               <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium border ${
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium border ${
                   storageOversellingEnabled
                     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
                     : 'border-orange-500/30 bg-orange-500/10 text-orange-300'
                 }`}
               >
-                {storageOversellingEnabled ? (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Overselling Enabled (Thin Provisioning)
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="h-3 w-3 text-orange-400" />
-                    Strict Allocation (Guaranteed Capacity)
-                  </>
-                )}
+                {storageOversellingEnabled ? 'Thin Provisioning' : 'Strict Allocation'}
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
-              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Physical Host Disk</span>
-              <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-bold font-mono text-zinc-100">
-                  {host?.diskMB ? `${(host.diskMB / 1024).toFixed(1)} GB` : '—'}
+          <div className="space-y-2.5 text-xs">
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+              <div>
+                <span className="text-zinc-200 block font-medium">Allow Storage Overselling</span>
+                <span className="text-[11px] text-zinc-500">
+                  Allow tenant quotas to exceed physical server disk
                 </span>
-                <span className="text-[11px] text-zinc-500">total capacity</span>
               </div>
+              <ShadcnSwitch
+                checked={storageOversellingEnabled}
+                onChange={handleToggleStorageOverselling}
+              />
             </div>
 
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
-              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Total User Quotas Allocated</span>
-              <div className="mt-1 flex items-baseline gap-1.5">
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
+              <span className="text-zinc-400">Physical Host Disk</span>
+              <span className="text-zinc-200 font-semibold">
+                {host?.diskMB ? `${(host.diskMB / 1024).toFixed(1)} GB` : '—'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
+              <span className="text-zinc-400">Total User Quotas Allocated</span>
+              <div className="flex items-center gap-1.5">
                 <span
-                  className={`text-base font-bold font-mono ${
+                  className={`font-semibold ${
                     host?.diskMB && totalCurrentlyAllocatedStorageMB > host.diskMB
                       ? 'text-amber-400'
-                      : 'text-zinc-100'
+                      : 'text-zinc-200'
                   }`}
                 >
                   {(totalCurrentlyAllocatedStorageMB / 1024).toFixed(1)} GB
                 </span>
-                <span className="text-[11px] text-zinc-500">
-                  across {users.filter((u) => u.role !== 'admin').length} user(s)
+                <span className="text-[10px] text-zinc-500 font-sans">
+                  ({users.filter((u) => u.role !== 'admin').length} user{users.filter((u) => u.role !== 'admin').length === 1 ? '' : 's'})
                 </span>
               </div>
             </div>
 
-            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
-              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Host Safety Buffer</span>
-              <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-bold font-mono text-emerald-400">
-                  1.5 GB
-                </span>
-                <span className="text-[11px] text-zinc-500">emergency write pause</span>
-              </div>
+            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
+              <span className="text-zinc-400">Host Emergency Buffer</span>
+              <span className="text-emerald-400 font-semibold">1.5 GB</span>
             </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs">
-            <div className="pr-4">
-              <span className="text-zinc-200 block font-medium">Allow Storage Overselling</span>
-              <span className="text-[11px] text-zinc-500 leading-relaxed block mt-0.5">
-                When enabled, the sum of tenant quotas can exceed physical disk (cPanel-style thin provisioning). Writes are automatically paused if host free space drops below 1.5 GB. When disabled, quotas are strictly capped by available disk.
-              </span>
-            </div>
-            <ShadcnSwitch
-              checked={storageOversellingEnabled}
-              onChange={handleToggleStorageOverselling}
-            />
           </div>
         </div>
 
@@ -1854,6 +1839,57 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               className="rounded-lg bg-zinc-100 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
               Keep Overselling Enabled
+            </button>
+          </div>
+        </div>
+      </ShadcnDialog>
+
+      {/* Storage Allocation Knowledge Modal */}
+      <ShadcnDialog
+        open={showStorageKnowledgeModal}
+        onClose={() => setShowStorageKnowledgeModal(false)}
+        title="Storage Allocation & Overselling Guide"
+        icon={<HardDrive className="h-4 w-4 text-orange-400" />}
+        maxWidth="md"
+      >
+        <div className="space-y-3 text-xs">
+          <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3.5 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-zinc-100">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              Thin Provisioning (Overselling ON)
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-400">
+              User quotas act as soft ceilings. You can allocate more combined quota to your tenants than the physical server disk, assuming not everyone fills their quota at the same time.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3.5 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-zinc-100">
+              <span className="h-2 w-2 rounded-full bg-orange-400" />
+              Strict Capacity (Overselling OFF)
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-400">
+              Every gigabyte assigned to a tenant is guaranteed. The total sum of all user storage quotas cannot exceed the server's real disk capacity.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-3.5 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-emerald-300">
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              1.5 GB Host Safety Buffer
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-400">
+              Always active regardless of overselling mode. If the host machine's free disk space drops below 1.5 GB, new file uploads and database writes for non-admin users are automatically paused to protect MariaDB, Docker, and the OS from deadlock.
+            </p>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button
+              type="button"
+              onClick={() => setShowStorageKnowledgeModal(false)}
+              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            >
+              Got it
             </button>
           </div>
         </div>

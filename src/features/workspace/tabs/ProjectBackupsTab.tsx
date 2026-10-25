@@ -33,6 +33,7 @@ import { backendApi } from '../../../lib/backendApi';
 
 interface ProjectBackupsTabProps {
   app: AppStack;
+  onOpenBackupDestinations?: () => void;
 }
 
 const CRON_PRESETS: Array<{ label: string; value: string }> = [
@@ -64,7 +65,7 @@ const backupsCache = new Map<
   { destinations: BackupDestination[]; schedules: BackupScheduleItem[]; history: BackupArchiveRecord[] }
 >();
 
-export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => {
+export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpenBackupDestinations }) => {
   // PHP sites have no Docker volumes or containers to pause: a backup is the site files plus its databases.
   const isPhp = !!app.php;
   const cached = backupsCache.get(app.id);
@@ -437,7 +438,18 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app }) => 
 
         {loaded && destinations.length === 0 && (
           <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            No storage destination is connected yet. Add one under Integrations → Backup.
+            No storage destination is connected yet.{' '}
+            {onOpenBackupDestinations ? (
+              <button
+                type="button"
+                onClick={onOpenBackupDestinations}
+                className="font-semibold underline underline-offset-2 transition-colors hover:text-amber-100 cursor-pointer"
+              >
+                Add one under Integrations → Backup.
+              </button>
+            ) : (
+              <span>Add one under Integrations → Backup.</span>
+            )}
           </div>
         )}
 

@@ -114,6 +114,7 @@ import { ProjectBackupsTab } from './tabs/ProjectBackupsTab';
 interface AppWorkspaceProps {
   app: AppStack;
   onBack: () => void;
+  onNavigateToBackup?: () => void;
   onUpdateApp: (updated: AppStack) => void;
   onDeleteApp: (appId: string) => void;
   /** Reloads app data from the backend (used by PHP site tabs after changes). */
@@ -181,6 +182,7 @@ export function formatPermOctal(perm?: string | null, isDir = false): string {
 export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   app,
   onBack,
+  onNavigateToBackup,
   onUpdateApp,
   onDeleteApp,
   onRefresh,
@@ -4692,7 +4694,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* TAB 8: BACKUPS                                                        */}
       {/* ===================================================================== */}
       {activeTab === 'backups' && (
-        <ProjectBackupsTab app={app} />
+        <ProjectBackupsTab app={app} onOpenBackupDestinations={onNavigateToBackup} />
       )}
 
       {/* ===================================================================== */}

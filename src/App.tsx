@@ -1412,6 +1412,7 @@ export default function App() {
               <AppWorkspace
                 app={selectedApp}
                 onBack={() => navigateTo(selectedApp.php ? 'php-sites' : 'apps')}
+                onNavigateToBackup={() => navigateTo('backup')}
                 quota={myQuota}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();

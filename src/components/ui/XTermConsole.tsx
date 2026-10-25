@@ -91,6 +91,9 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const currentLineRef = useRef<string>('');
+  // How many terminal rows the currently rendered "prompt + typed line" block occupies —
+  // the prompt can wrap across rows on narrow screens, so redrawing must erase all of them.
+  const renderedRowsRef = useRef(1);
   const historyRef = useRef<string[]>([
     'docker compose ps',
     'ls -la',
@@ -186,16 +189,22 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   // Redraws current prompt + user input + dimmed inline ghost completion at cursor
   const renderActiveLine = (term: XTerm, showGhost = true) => {
     const promptAnsi = formatPromptAnsi(effectivePromptRef.current);
+    const plainPromptLen = effectivePromptRef.current.length;
     const line = currentLineRef.current;
     const ghost = showGhost ? getInlineGhostSuffix(line) : '';
+    const cols = term.cols || 80;
 
-    if (ghost.length > 0) {
-      term.write(
-        `\r\x1b[2K${promptAnsi}${line}\x1b[38;5;240m${ghost}\x1b[0m\x1b[${ghost.length}D`
-      );
-    } else {
-      term.write(`\r\x1b[2K${promptAnsi}${line}`);
+    // The prompt itself can wrap across multiple rows (long site paths), so move the
+    // cursor back to the row where the prompt began and erase everything from there
+    // down — a plain "\r\x1b[2K" only clears the cursor's row and leaves stale text.
+    if (renderedRowsRef.current > 1) {
+      term.write(`\x1b[${renderedRowsRef.current - 1}A`);
     }
+    term.write(`\r\x1b[0J${promptAnsi}${line}`);
+    if (ghost.length > 0) {
+      term.write(`\x1b[38;5;240m${ghost}\x1b[0m\x1b[${ghost.length}D`);
+    }
+    renderedRowsRef.current = Math.max(1, Math.ceil((plainPromptLen + line.length + ghost.length) / cols));
   };
 
   const writeNewPromptLine = (term: XTerm, leadingNewline = true) => {
@@ -205,6 +214,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     } else {
       term.write(promptAnsi);
     }
+    renderedRowsRef.current = Math.max(1, Math.ceil(effectivePromptRef.current.length / (term.cols || 80)));
   };
 
   const performClear = (term: XTerm) => {
@@ -412,9 +422,17 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       }
     };
     window.addEventListener('resize', handleResize);
+    // Fit on ANY container size change (sidebar, tab layout, parent scrollbar) —
+    // window resize alone leaves the terminal cols stale and text gets clipped.
+    let resizeObserver: ResizeObserver | null = null;
+    if (containerRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(containerRef.current);
+    }
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
       if (ws) {
         try {
           ws.close();
