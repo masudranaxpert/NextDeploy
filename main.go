@@ -382,6 +382,9 @@ func main() {
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
 	// PHP hosting
+	app.Get("/php", func(c *fiber.Ctx) error {
+		return c.Redirect("/php-sites", fiber.StatusFound)
+	})
 	app.Get("/php-sites", p.ServeSPA)
 	app.Get("/php-instance", p.RequireAdminMiddleware, p.ServeSPA)
 	app.Get("/api/php/status", p.PHPStatus)
@@ -496,6 +499,14 @@ func main() {
 	app.Get("/apps/:id/backup/schedules", p.AppBackupScheduleList)
 	app.Post("/apps/:id/backup/schedule/:scheduleid/toggle", p.AppBackupScheduleToggle)
 	app.Post("/apps/:id/backup/schedule/:scheduleid/delete", p.AppBackupScheduleDelete)
+
+	// SPA Fallback: for any unhandled GET request that is not an API route, serve the SPA
+	app.Use(func(c *fiber.Ctx) error {
+		if c.Method() == fiber.MethodGet && !strings.HasPrefix(c.Path(), "/api/") {
+			return p.ServeSPA(c)
+		}
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Not found"})
+	})
 
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {

@@ -55,6 +55,17 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // dev UI iteration on the PC: every backend path (top-level routes like /apps, /caddy, ws)
+      // goes to the live panel; only vite's own internals stay local
+      proxy: process.env.ND_DEV_PROXY
+        ? {
+            '^\\/(?!(?:@vite|@fs|@id|src|node_modules)\\b).+': {
+              target: process.env.ND_DEV_PROXY,
+              changeOrigin: true,
+              ws: true,
+            },
+          }
+        : undefined,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
