@@ -119,7 +119,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 				WorkingDir: p.PHP.DocRootFor(site),
 				Env: append(phphosting.SiteEnv(site),
 					"USER=site", "LOGNAME=site",
-					`PS1=\[\033[01;32m\]site@`+app.Name+`\[\033[00m\]:\[\033[01;34m\]\W\[\033[00m\]\$ `),
+					`PS1=\[\033[01;32m\]site@`+app.Name+`\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ `),
 			}
 		}
 	}

@@ -53,7 +53,7 @@ func ExecPTYWithOptions(ctx context.Context, container string, cmd []string, hei
 		Env: []string{
 			"TERM=xterm-256color",
 			"COLORTERM=truecolor",
-			"PS1=\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\W\\[\\033[00m\\]\\$ ",
+			"PS1=\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ",
 		},
 		ConsoleSize:  &[2]uint{height, width},
 		User:         opts.User,

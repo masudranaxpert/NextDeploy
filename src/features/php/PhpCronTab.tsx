@@ -155,55 +155,87 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
   return (
     <div className="space-y-5">
       <Card
-        title="Cron jobs"
-        actions={
-          <>
-            <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
-              <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
-            </GhostButton>
-            {!limits.unlimited && <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill>}
-            <PrimaryButton onClick={openCreate} disabled={limitReached}>
-              <Plus className="h-3.5 w-3.5" /> Add cron job
-            </PrimaryButton>
-          </>
+        title={
+          <span className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
+              <Clock className="h-4 w-4 text-orange-400" />
+            </span>
+            <span className="text-sm font-semibold text-zinc-100">Cronjobs</span>
+          </span>
         }
+        actions={!limits.unlimited ? <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill> : undefined}
       >
         {min > 1 && <p className="mb-3 text-[11px] text-zinc-500">Minimum interval: {min} minutes.</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
+            <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
+          </GhostButton>
+          <PrimaryButton onClick={openCreate} disabled={limitReached}>
+            <Plus className="h-3.5 w-3.5" /> Add cron job
+          </PrimaryButton>
+        </div>
+
+        <div className="mt-4">
         {(detail.cron_jobs ?? []).length === 0 ? (
           <EmptyState icon={<Clock className="h-6 w-6" />} text="No cron jobs yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.05]">
-            {(detail.cron_jobs ?? []).map((j) => (
-              <li key={j.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <button type="button" onClick={() => openEdit(j)} className="min-w-0 flex-1 cursor-pointer text-left">
+          <ul className="space-y-1">
+            {(detail.cron_jobs ?? []).map((j) => {
+              const phpFile = j.command.match(/([\w.-]+\.php)/);
+              const label = phpFile ? phpFile[1] : (j.command.trim().split(/\s+/)[0].split('/').pop() || 'cron').slice(0, 18);
+              const ran = j.last_run_at && j.last_run_at !== 'never';
+              return (
+                <li key={j.id} className="py-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded bg-[#09090b] px-1.5 py-0.5 font-mono text-[11px] text-orange-300">{j.schedule}</code>
+                    <span className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] text-sky-300">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(j)}
+                        title="Edit cron job"
+                        className="truncate cursor-pointer"
+                      >
+                        {label}
+                      </button>
+                    </span>
+                    <span className="rounded-md border border-orange-500/25 bg-orange-500/[0.07] px-2 py-0.5 font-mono text-[11px] text-orange-300">{j.schedule}</span>
                     {!j.enabled && <Pill tone="amber">paused</Pill>}
                     {j.last_status && <Pill tone={statusTone(j.last_status)}>{j.last_status}</Pill>}
+                    <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                      {j.last_output && (
+                        <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output" className="!h-8 !w-8 !px-0">
+                          <Terminal className="h-3.5 w-3.5" />
+                        </GhostButton>
+                      )}
+                      <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run now">
+                        <Play className="h-3.5 w-3.5" /> Run
+                      </GhostButton>
+                      <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'} className="!h-8 !w-8 !px-0">
+                        {j.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                      </GhostButton>
+                      <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)} title="Delete cron job" className="!h-8 !w-8 !px-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </GhostButton>
+                    </span>
                   </div>
-                  <div className="mt-1 truncate font-mono text-xs text-zinc-200">{j.command}</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">Last run: {formatTime(j.last_run_at)}</div>
-                </button>
-                <div className="flex items-center gap-1.5">
-                  {j.last_output && (
-                    <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output">
-                      <Terminal className="h-3.5 w-3.5" />
-                    </GhostButton>
-                  )}
-                  <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run now">
-                    <Play className="h-3.5 w-3.5" /> Run
-                  </GhostButton>
-                  <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'}>
-                    {j.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                  </GhostButton>
-                  <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </GhostButton>
-                </div>
-              </li>
-            ))}
+                  <button type="button" onClick={() => openEdit(j)} className="mt-2 flex w-full items-center justify-between gap-2 text-left cursor-pointer" title="Edit cron job">
+                    <span className="truncate font-mono text-[11px] text-zinc-500">{j.command}</span>
+                  </button>
+                  <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-500">
+                      Last run: <span className={ran ? 'text-emerald-400' : 'text-zinc-500'}>{formatTime(j.last_run_at)}</span>
+                    </span>
+                    {ran && (
+                      <span className="font-mono text-zinc-500">
+                        {new Date(j.last_run_at).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
+        </div>
       </Card>
 
       <ShadcnDialog
