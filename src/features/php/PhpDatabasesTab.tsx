@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
-import { MariaDbIcon, PhpMyAdminIcon } from '../../components/ui/BrandIcons';
+import { PhpMyAdminIcon } from '../../components/ui/BrandIcons';
 import type { PhpDbUserRow } from '../../lib/api/phpApi';
 import { Card, CopyField, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, formatBytes, inputCls, selectCls, usePhpSite } from './ui';
 
@@ -169,37 +169,38 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
   return (
     <div className="space-y-5">
       <Card
-        title={<span className="inline-flex items-center gap-2"><MariaDbIcon className="h-4 w-4" />Databases</span>}
-        description={`${mysql.host}:${mysql.port}`}
-        actions={
-          <>
-            {!limits.unlimited && (
-              <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_databases}/{limits.max_databases || '∞'} used</Pill>
-            )}
-            {detail.pma?.enabled && databases.length > 0 && (
-              <GhostButton
-                disabled={!mysql.ready}
-                busy={busy === 'pma'}
-                onClick={() => void openPma()}
-              >
-                <PhpMyAdminIcon className="h-3.5 w-3.5" /> phpMyAdmin
-              </GhostButton>
-            )}
-            <PrimaryButton disabled={!mysql.ready || limitReached} onClick={() => setDbOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> Add database
-            </PrimaryButton>
-          </>
+        title={
+          <span className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-500/25 bg-sky-500/10 text-sky-400">
+              <Database className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold leading-5 text-zinc-100">Databases</span>
+              <span className="block text-xs leading-4 text-zinc-500">{mysql.host}:{mysql.port}</span>
+            </span>
+          </span>
         }
+        actions={<Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_databases}/{limits.max_databases || '∞'} used</Pill>}
       >
         {!mysql.ready && (
           <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             The database server is not running.
           </div>
         )}
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          {detail.pma?.enabled && databases.length > 0 && (
+            <GhostButton disabled={!mysql.ready} busy={busy === 'pma'} onClick={() => void openPma()}>
+              <PhpMyAdminIcon className="h-3.5 w-3.5" /> phpMyAdmin
+            </GhostButton>
+          )}
+          <PrimaryButton disabled={!mysql.ready || limitReached} onClick={() => setDbOpen(true)} className={detail.pma?.enabled && databases.length > 0 ? '' : 'col-span-2'}>
+            <Plus className="h-3.5 w-3.5" /> Add database
+          </PrimaryButton>
+        </div>
         {databases.length === 0 ? (
           <EmptyState icon={<Database className="h-6 w-6" />} text="No databases yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.05]">
+          <ul className="space-y-1">
             {databases.map((d) => (
               <li key={d.id} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex items-center justify-between gap-3">
@@ -207,10 +208,10 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
                   <div className="flex shrink-0 items-center gap-1.5">
                     <a
                       href={backendApi.phpDbExportUrl(app.id, d.id)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800 transition-colors"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-200 transition-colors hover:bg-zinc-800"
                       title="Download .sql.gz"
                     >
-                      <Download className="h-3.5 w-3.5" />
+                      <Download className="h-4 w-4" />
                     </a>
                     <GhostButton
                       busy={busy === 'imp' + d.id}
@@ -219,11 +220,12 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
                         importTarget.current = d.id;
                         fileRef.current?.click();
                       }}
+                      className="!h-9 !w-9 !px-0"
                     >
-                      <Upload className="h-3.5 w-3.5" />
+                      <Upload className="h-4 w-4" />
                     </GhostButton>
-                    <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database">
-                      <Trash2 className="h-3.5 w-3.5" />
+                    <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database" className="!h-9 !w-9 !px-0">
+                      <Trash2 className="h-4 w-4" />
                     </GhostButton>
                   </div>
                 </div>
@@ -257,20 +259,20 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
         {users.length === 0 ? (
           <EmptyState icon={<UserRound className="h-6 w-6" />} text="No users yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.05]">
+          <ul className="space-y-1">
             {users.map((u) => (
-              <li key={u.id} className="py-3 first:pt-0 last:pb-0">
+              <li key={u.id} className="py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="min-w-0 break-all font-mono text-xs text-zinc-100">{u.user_name}</span>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <GhostButton onClick={() => openEditAccess(u)} title="Change access">
-                      <Pencil className="h-3.5 w-3.5" />
+                    <GhostButton onClick={() => openEditAccess(u)} title="Change access" className="!h-9 !w-9 !px-0">
+                      <Pencil className="h-4 w-4" />
                     </GhostButton>
-                    <GhostButton busy={busy === 'pw' + u.id} onClick={() => resetPassword(u)} title="New password">
-                      <KeyRound className="h-3.5 w-3.5" />
+                    <GhostButton busy={busy === 'pw' + u.id} onClick={() => resetPassword(u)} title="New password" className="!h-9 !w-9 !px-0">
+                      <KeyRound className="h-4 w-4" />
                     </GhostButton>
-                    <GhostButton tone="danger" busy={busy === 'deluser' + u.id} onClick={() => removeUser(u)} title="Delete user">
-                      <Trash2 className="h-3.5 w-3.5" />
+                    <GhostButton tone="danger" busy={busy === 'deluser' + u.id} onClick={() => removeUser(u)} title="Delete user" className="!h-9 !w-9 !px-0">
+                      <Trash2 className="h-4 w-4" />
                     </GhostButton>
                   </div>
                 </div>

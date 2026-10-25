@@ -87,9 +87,9 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
         {app.domains.length === 0 ? (
           <EmptyState icon={<Globe className="h-6 w-6" />} text="No domains yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.05]">
+          <ul>
             {app.domains.map((d) => (
-              <li key={d.id} className="py-3 first:pt-0 last:pb-0">
+              <li key={d.id} className="py-3">
                 <a
                   href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
                   target="_blank"
@@ -109,12 +109,18 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
                   <div className="flex shrink-0 items-center gap-1.5">
                     {!d.isPrimary && (
                       <GhostButton busy={busy === 'pri' + d.id} onClick={() => makePrimary(d.id)} title="Make primary">
-                        <Star className="h-3.5 w-3.5" /> Primary
+                        <Star className="h-3.5 w-3.5" /> Make primary
                       </GhostButton>
                     )}
-                    <GhostButton tone="danger" busy={busy === 'del' + d.id} onClick={() => remove(d.id, d.domain)} title="Remove">
+                    <button
+                      type="button"
+                      onClick={() => remove(d.id, d.domain)}
+                      disabled={busy === 'del' + d.id}
+                      title="Remove"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 transition-colors hover:bg-rose-500/20 cursor-pointer disabled:opacity-50"
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
-                    </GhostButton>
+                    </button>
                   </div>
                 </div>
               </li>

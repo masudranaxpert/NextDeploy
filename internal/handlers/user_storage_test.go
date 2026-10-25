@@ -54,7 +54,51 @@ func TestUserStorageCountsOnlyOwnedProjects(t *testing.T) {
 		t.Error("a write that goes over the limit was accepted")
 	}
 	u.MaxStorageMB = 0
-	if err := p.CheckStorageRoom(ctx, u, 1<<40); err != nil {
+	if err := p.CheckStorageRoom(ctx, u, 10<<20); err != nil {
 		t.Errorf("unlimited user refused: %v", err)
+	}
+}
+
+func TestCheckStorageRoomHostEmergencyBuffer(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := db.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	p := &Panel{DB: store}
+	normalUser := db.User{ID: 10, Role: db.RoleUser, MaxStorageMB: 5000}
+	adminUser := db.User{ID: 1, Role: db.RoleAdmin, MaxStorageMB: 0}
+
+	// Case 1: Host has only 1 GB free (critically low, buffer requires 1.5 GB).
+	// Any write from normal user must be blocked.
+	p.diskUsageFn = func(ctx context.Context) (int64, error) {
+		return 1024 * 1024 * 1024, nil // 1 GB
+	}
+	if err := p.CheckStorageRoom(ctx, normalUser, 0); err == nil {
+		t.Fatal("expected write to be blocked when host disk free is < 1.5 GB")
+	}
+
+	// Case 2: Admin writes are never blocked by host emergency buffer
+	if err := p.CheckStorageRoom(ctx, adminUser, 1024*1024*1024); err != nil {
+		t.Fatalf("admin write should never be blocked by emergency buffer: %v", err)
+	}
+
+	// Case 3: Host has 2 GB free, but incoming write is 600 MB (would leave 1.4 GB < 1.5 GB)
+	p.diskUsageFn = func(ctx context.Context) (int64, error) {
+		return 2048 * 1024 * 1024, nil // 2 GB
+	}
+	if err := p.CheckStorageRoom(ctx, normalUser, 600*1024*1024); err == nil {
+		t.Fatal("expected write to be blocked when incoming write reduces free disk below 1.5 GB")
+	}
+
+	// Case 4: Host has 5 GB free, incoming write is 100 MB (leaves 4.9 GB > 1.5 GB)
+	p.diskUsageFn = func(ctx context.Context) (int64, error) {
+		return 5120 * 1024 * 1024, nil // 5 GB
+	}
+	if err := p.CheckStorageRoom(ctx, normalUser, 100*1024*1024); err != nil {
+		t.Fatalf("expected write to succeed when sufficient host free disk: %v", err)
 	}
 }

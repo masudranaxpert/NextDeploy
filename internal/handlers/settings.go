@@ -290,7 +290,18 @@ const (
 	settingRootApplyStatus          = "root_apply_status"
 	settingCaddySharedMountPrefix   = "caddy_shared_mount_prefix"
 	settingCaddySharedVolumeNames   = "caddy_shared_volume_names"
+	settingStorageOverselling       = "storage_overselling_enabled"
 )
+
+// IsStorageOversellingEnabled returns whether admins are allowed to allocate more
+// total storage quotas to users than the physical disk has (thin provisioning).
+func (p *Panel) IsStorageOversellingEnabled(ctx context.Context) bool {
+	v := p.DB.GetSetting(ctx, settingStorageOverselling)
+	if v == "" {
+		return true
+	}
+	return settingBool(v, true)
+}
 
 type intervalOption struct {
 	Value string
@@ -706,6 +717,7 @@ func (p *Panel) SettingsPageOrJSON(c *fiber.Ctx) error {
 			"cleanup_include_build_cache": settingBool(settings[settingCleanupIncludeBuildCache], false),
 			"cleanup_last_run":            settings[settingCleanupLastRun],
 			"cleanup_last_log":            settings[settingCleanupLastLog],
+			"storage_overselling_enabled": p.IsStorageOversellingEnabled(ctx),
 		})
 	}
 	return p.ServeSPA(c)
@@ -722,43 +734,110 @@ func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 		CleanupEnabled           *bool  `json:"cleanup_enabled"`
 		CleanupInterval          string `json:"cleanup_interval"`
 		CleanupIncludeBuildCache *bool  `json:"cleanup_include_build_cache"`
+		StorageOverselling       *bool  `json:"storage_overselling_enabled"`
 	}
 	_ = c.BodyParser(&req)
 
-	enabled := c.FormValue(settingCleanupEnabled) == "on" || c.FormValue(settingCleanupEnabled) == "true" || c.FormValue(settingCleanupEnabled) == "1"
+	// Determine if StorageOverselling is being toggled
+	var nextOverselling *bool
+	if req.StorageOverselling != nil {
+		nextOverselling = req.StorageOverselling
+	} else if c.FormValue(settingStorageOverselling) != "" {
+		v := c.FormValue(settingStorageOverselling) == "on" || c.FormValue(settingStorageOverselling) == "true" || c.FormValue(settingStorageOverselling) == "1"
+		nextOverselling = &v
+	}
+
+	if nextOverselling != nil && !*nextOverselling {
+		// Admin is attempting to turn storage overselling OFF (switch to Strict Mode).
+		// Validate whether current active non-admin user quotas already exceed host capacity.
+		hostDiskMB := p.HostDiskCapacityMB(ctx)
+		users, err := p.DB.ListUsers(ctx)
+		if err == nil && hostDiskMB > 0 {
+			totalAllocatedMB := 0
+			var overcommittedUsers []fiber.Map
+			for _, user := range users {
+				if user.Role != db.RoleAdmin && user.Status == db.UserStatusActive {
+					totalAllocatedMB += user.MaxStorageMB
+					overcommittedUsers = append(overcommittedUsers, fiber.Map{
+						"id":             user.ID,
+						"username":       user.Username,
+						"max_storage_mb": user.MaxStorageMB,
+						"unlimited":      user.MaxStorageMB <= 0,
+					})
+				}
+			}
+			if totalAllocatedMB > hostDiskMB {
+				excessMB := totalAllocatedMB - hostDiskMB
+				errMsg := fmt.Sprintf("Cannot disable storage overselling: total user quotas (%s) exceed server disk capacity (%s) by %s.",
+					HumanStorage(int64(totalAllocatedMB)*1024*1024),
+					HumanStorage(int64(hostDiskMB)*1024*1024),
+					HumanStorage(int64(excessMB)*1024*1024))
+				if WantsJSON(c) {
+					return c.Status(400).JSON(fiber.Map{
+						"ok":            false,
+						"error":         errMsg,
+						"overcommitted": true,
+						"allocated_mb":  totalAllocatedMB,
+						"host_disk_mb":  hostDiskMB,
+						"excess_mb":     excessMB,
+						"users":         overcommittedUsers,
+					})
+				}
+				SetFlashError(c, errMsg)
+				return c.Redirect("/settings")
+			}
+		}
+	}
+
+	if nextOverselling != nil {
+		if err := p.DB.SetSetting(ctx, settingStorageOverselling, boolString(*nextOverselling)); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	}
+
 	if req.CleanupEnabled != nil {
-		enabled = *req.CleanupEnabled
+		if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(*req.CleanupEnabled)); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	} else if c.FormValue(settingCleanupEnabled) != "" {
+		enabled := c.FormValue(settingCleanupEnabled) == "on" || c.FormValue(settingCleanupEnabled) == "true" || c.FormValue(settingCleanupEnabled) == "1"
+		if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
 	}
 
 	interval := c.FormValue(settingCleanupInterval)
 	if req.CleanupInterval != "" {
 		interval = req.CleanupInterval
 	}
-	interval = normalizeCleanupInterval(interval)
+	if interval != "" {
+		interval = normalizeCleanupInterval(interval)
+		if err := p.DB.SetSetting(ctx, settingCleanupInterval, interval); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	}
 
-	includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on" || c.FormValue(settingCleanupIncludeBuildCache) == "true" || c.FormValue(settingCleanupIncludeBuildCache) == "1"
 	if req.CleanupIncludeBuildCache != nil {
-		includeBuildCache = *req.CleanupIncludeBuildCache
+		if err := p.DB.SetSetting(ctx, settingCleanupIncludeBuildCache, boolString(*req.CleanupIncludeBuildCache)); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	} else if c.FormValue(settingCleanupIncludeBuildCache) != "" {
+		includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on" || c.FormValue(settingCleanupIncludeBuildCache) == "true" || c.FormValue(settingCleanupIncludeBuildCache) == "1"
+		if err := p.DB.SetSetting(ctx, settingCleanupIncludeBuildCache, boolString(includeBuildCache)); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
 	}
 
-	if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	if err := p.DB.SetSetting(ctx, settingCleanupInterval, interval); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	if err := p.DB.SetSetting(ctx, settingCleanupIncludeBuildCache, boolString(includeBuildCache)); err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
 	if p.DB.GetSetting(ctx, settingCleanupLastRun) == "" {
 		_ = p.DB.SetSetting(ctx, settingCleanupLastRun, time.Now().UTC().Format(time.RFC3339))
 	}
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{
 			"ok":                          true,
-			"cleanup_enabled":             enabled,
-			"cleanup_interval":            interval,
-			"cleanup_include_build_cache": includeBuildCache,
+			"cleanup_enabled":             settingBool(p.DB.GetSetting(ctx, settingCleanupEnabled), true),
+			"cleanup_interval":            normalizeCleanupInterval(p.DB.GetSetting(ctx, settingCleanupInterval)),
+			"cleanup_include_build_cache": settingBool(p.DB.GetSetting(ctx, settingCleanupIncludeBuildCache), false),
+			"storage_overselling_enabled": p.IsStorageOversellingEnabled(ctx),
 		})
 	}
 	return c.Redirect("/settings")

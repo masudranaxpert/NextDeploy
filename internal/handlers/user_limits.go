@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/disk"
+
 	"panel/internal/db"
 	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
@@ -266,10 +268,47 @@ func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingByt
 	return p.CheckStorageRoom(ctx, owner, incomingBytes)
 }
 
+const HostEmergencyFreeDiskBytes = int64(1536 * 1024 * 1024) // 1.5 GB host safety buffer
+
+// HostFreeDiskBytes returns the currently available disk space on the root filesystem in bytes.
+func (p *Panel) HostFreeDiskBytes(ctx context.Context) (int64, error) {
+	if p.diskUsageFn != nil {
+		return p.diskUsageFn(ctx)
+	}
+	usage, err := disk.UsageWithContext(ctx, "/")
+	if err != nil {
+		return 0, err
+	}
+	return int64(usage.Free), nil
+}
+
+// HostDiskCapacityMB returns total physical disk capacity in megabytes.
+func (p *Panel) HostDiskCapacityMB(ctx context.Context) int {
+	usage, err := disk.UsageWithContext(ctx, "/")
+	if err == nil && usage != nil && usage.Total > 0 {
+		return int(usage.Total / (1024 * 1024))
+	}
+	snap := sysinfo.Collect(ctx)
+	return int(snap.DiskTotalGB * 1024)
+}
+
 // CheckStorageRoom refuses new data when owner (files + databases + volumes) is, or would
-// become, over their storage limit. Admins and users without a limit are never refused.
+// become, over their storage limit, or when physical host disk space drops below the 1.5 GB
+// emergency safety buffer. Admins are never refused.
 func (p *Panel) CheckStorageRoom(ctx context.Context, owner db.User, incomingBytes int64) error {
-	if owner.Role == db.RoleAdmin || owner.MaxStorageMB <= 0 {
+	if owner.Role == db.RoleAdmin {
+		return nil
+	}
+
+	// Host emergency safety buffer: if physical disk free space drops below 1.5 GB,
+	// halt all non-admin writes to prevent OS deadlock and MariaDB table corruption.
+	if freeBytes, err := p.HostFreeDiskBytes(ctx); err == nil {
+		if freeBytes < HostEmergencyFreeDiskBytes || (incomingBytes > 0 && freeBytes-incomingBytes < HostEmergencyFreeDiskBytes) {
+			return fmt.Errorf("server host storage protection active: free disk space is critically low (%s remaining, minimum 1.5 GB required). Writes are temporarily paused to protect database integrity", humanStorage(freeBytes))
+		}
+	}
+
+	if owner.MaxStorageMB <= 0 {
 		return nil
 	}
 	maxBytes := int64(owner.MaxStorageMB) * 1024 * 1024
@@ -385,27 +424,40 @@ func (p *Panel) measureUserUsage(ctx context.Context, u db.User) (int64, float64
 	return q.MemoryMB, q.CPUCores
 }
 
-// overcommitWarning tells the admin when the memory limits of all users together exceed the
-// server's RAM. That is allowed (limits are ceilings, not reservations), but then the users
-// cannot all use their full limit at the same time.
+// overcommitWarning tells the admin when the memory or storage limits of all users together exceed the
+// server's hardware capacity. When overselling is active, limits act as ceilings guarded by runtime buffers.
 func (p *Panel) overcommitWarning(ctx context.Context) string {
 	snap := sysinfo.Collect(ctx)
-	if snap.MemTotalGB <= 0 {
-		return ""
-	}
 	users, err := p.DB.ListUsers(ctx)
 	if err != nil {
 		return ""
 	}
-	total := 0
+	totalMem := 0
+	totalStorage := 0
 	for _, u := range users {
 		if u.Role != db.RoleAdmin && u.Status == db.UserStatusActive {
-			total += u.MaxMemoryMB
+			totalMem += u.MaxMemoryMB
+			totalStorage += u.MaxStorageMB
 		}
 	}
-	host := int(snap.MemTotalGB * 1024)
-	if total > host {
-		return fmt.Sprintf("Limits saved. The memory limits of all users add up to %d MB, more than this server's %d MB of RAM, so they cannot all use their full limit at the same time.", total, host)
+
+	var warnings []string
+	if snap.MemTotalGB > 0 {
+		hostMem := int(snap.MemTotalGB * 1024)
+		if totalMem > hostMem {
+			warnings = append(warnings, fmt.Sprintf("The memory limits of all users add up to %d MB, more than this server's %d MB of RAM.", totalMem, hostMem))
+		}
+	}
+
+	hostDiskMB := p.HostDiskCapacityMB(ctx)
+	if p.IsStorageOversellingEnabled(ctx) && hostDiskMB > 0 && totalStorage > hostDiskMB {
+		warnings = append(warnings, fmt.Sprintf("User storage quotas add up to %s, exceeding physical disk (%s). Storage overselling is enabled; runtime writes are safeguarded by the 1.5 GB host emergency buffer.",
+			HumanStorage(int64(totalStorage)*1024*1024),
+			HumanStorage(int64(hostDiskMB)*1024*1024)))
+	}
+
+	if len(warnings) > 0 {
+		return "Limits saved. " + strings.Join(warnings, " ")
 	}
 	return ""
 }

@@ -148,8 +148,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   // System Settings State (matches POST /settings & /settings/cleanup/run & /settings/tmp/*)
   const [cleanupEnabled, setCleanupEnabled] = useState(true);
   const [cleanupInterval, setCleanupInterval] = useState<'1h' | '6h' | '12h' | '24h' | '168h'>('24h');
+  const [storageOversellingEnabled, setStorageOversellingEnabled] = useState(true);
 
-  // Pre-calculate other users' allocated RAM for overcommit detection
+  // Pre-calculate other users' allocated RAM & Storage for overcommit detection
   const otherUsersAllocatedMB = useMemo(() => {
     if (!limitsModalUser) return 0;
     return users
@@ -162,6 +163,29 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       .filter((u) => u.role !== 'admin')
       .reduce((sum, u) => sum + (u.maxMemoryMB ?? (u.memQuotaGB ? u.memQuotaGB * 1024 : 0)), 0);
   }, [users]);
+
+  const otherUsersAllocatedStorageMB = useMemo(() => {
+    if (!limitsModalUser) return 0;
+    return users
+      .filter((u) => u.role !== 'admin' && String(u.id) !== String(limitsModalUser.id))
+      .reduce((sum, u) => sum + (u.maxStorageMB ?? (u.diskQuotaGB ? u.diskQuotaGB * 1024 : 0)), 0);
+  }, [users, limitsModalUser]);
+
+  const totalCurrentlyAllocatedStorageMB = useMemo(() => {
+    return users
+      .filter((u) => u.role !== 'admin')
+      .reduce((sum, u) => sum + (u.maxStorageMB ?? (u.diskQuotaGB ? u.diskQuotaGB * 1024 : 0)), 0);
+  }, [users]);
+
+  // Overcommit Resolution Modal State
+  const [overcommitModalOpen, setOvercommitModalOpen] = useState(false);
+  const [overcommitInfo, setOvercommitInfo] = useState<{
+    allocated_mb: number;
+    host_disk_mb: number;
+    excess_mb: number;
+    users: Array<{ id: number; username: string; max_storage_mb: number; unlimited: boolean }>;
+  } | null>(null);
+
   const [cleanupIncludeBuildCache, setCleanupIncludeBuildCache] = useState(false);
   const [cleanupRunning, setCleanupRunning] = useState(false);
   const [cleanupLastRunAt, setCleanupLastRunAt] = useState('Never');
@@ -178,6 +202,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     cleanup_include_build_cache?: boolean;
     cleanup_last_run?: string;
     cleanup_last_log?: string;
+    storage_overselling_enabled?: boolean;
     settings?: Record<string, string>;
   }) => {
     const rawMap = data.settings || {};
@@ -185,6 +210,12 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       setCleanupEnabled(data.cleanup_enabled);
     } else if (rawMap.cleanup_enabled !== undefined) {
       setCleanupEnabled(rawMap.cleanup_enabled === 'true' || rawMap.cleanup_enabled === '1' || rawMap.cleanup_enabled === 'on');
+    }
+
+    if (typeof data.storage_overselling_enabled === 'boolean') {
+      setStorageOversellingEnabled(data.storage_overselling_enabled);
+    } else if (rawMap.storage_overselling_enabled !== undefined) {
+      setStorageOversellingEnabled(rawMap.storage_overselling_enabled === 'true' || rawMap.storage_overselling_enabled === '1' || rawMap.storage_overselling_enabled === 'on');
     }
 
     if (data.cleanup_interval) {
@@ -244,6 +275,59 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setLimitAllowDomainFileServer(user.allowDomainFileServer ?? true);
   };
 
+  const handleToggleStorageOverselling = async (nextValue: boolean) => {
+    if (!nextValue) {
+      // Admin wants to turn Overselling OFF (Switch to Strict Mode).
+      // Verify whether current non-admin quotas already exceed the server's disk capacity.
+      const hostDisk = host?.diskMB || 0;
+      if (hostDisk > 0 && totalCurrentlyAllocatedStorageMB > hostDisk) {
+        const excess = totalCurrentlyAllocatedStorageMB - hostDisk;
+        const overcommittedUsers = users
+          .filter((u) => u.role !== 'admin')
+          .map((u) => ({
+            id: Number(u.id),
+            username: u.username,
+            max_storage_mb: u.maxStorageMB ?? (u.diskQuotaGB ? u.diskQuotaGB * 1024 : 0),
+            unlimited: (u.maxStorageMB ?? 0) <= 0,
+          }));
+        setOvercommitInfo({
+          allocated_mb: totalCurrentlyAllocatedStorageMB,
+          host_disk_mb: hostDisk,
+          excess_mb: excess,
+          users: overcommittedUsers,
+        });
+        setOvercommitModalOpen(true);
+        return;
+      }
+    }
+
+    try {
+      const res = await backendApi.saveSettings({
+        storage_overselling_enabled: nextValue,
+      });
+      if (res.ok) {
+        setStorageOversellingEnabled(nextValue);
+        toast.success(
+          nextValue
+            ? 'Storage overselling enabled (thin provisioning with host safety buffer)'
+            : 'Strict storage allocation enabled (guaranteed user quotas)'
+        );
+      } else if (res.data?.overcommitted) {
+        setOvercommitInfo({
+          allocated_mb: res.data.allocated_mb || totalCurrentlyAllocatedStorageMB,
+          host_disk_mb: res.data.host_disk_mb || (host?.diskMB || 0),
+          excess_mb: res.data.excess_mb || 0,
+          users: res.data.users || [],
+        });
+        setOvercommitModalOpen(true);
+      } else {
+        toast.error(res.data?.error || 'Failed to update storage overselling setting');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update storage overselling setting');
+    }
+  };
+
   const handleSaveLimits = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!limitsModalUser) return;
@@ -265,6 +349,21 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       if (over) {
         toast.error(over);
         return;
+      }
+
+      if (!storageOversellingEnabled) {
+        if (maxStorageMb <= 0) {
+          toast.error('Strict mode is active: standard users cannot have unlimited storage');
+          return;
+        }
+        const totalWithNew = otherUsersAllocatedStorageMB + maxStorageMb;
+        if (host.diskMB > 0 && totalWithNew > host.diskMB) {
+          const availableMB = Math.max(0, host.diskMB - otherUsersAllocatedStorageMB);
+          toast.error(
+            `Strict allocation active: cannot assign ${(maxStorageMb / 1024).toFixed(1)} GB. Only ${(availableMB / 1024).toFixed(1)} GB unallocated capacity remains on this server.`
+          );
+          return;
+        }
       }
     }
 
@@ -969,6 +1068,106 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 );
               })()}
 
+              {/* Storage Capacity & Overselling Indicator */}
+              {host && host.diskMB > 0 && (() => {
+                const currentInputStorageMB = Number(limitMaxStorageMb) || 0;
+                const newTotalAllocatedStorageMB = otherUsersAllocatedStorageMB + currentInputStorageMB;
+                const hostDiskMB = host.diskMB;
+                const isOvercommitted = newTotalAllocatedStorageMB > hostDiskMB;
+                const overcommitRatio = Math.round((newTotalAllocatedStorageMB / hostDiskMB) * 100);
+
+                return (
+                  <div
+                    className={`rounded-xl border p-3.5 transition-all ${
+                      !storageOversellingEnabled && isOvercommitted
+                        ? 'border-rose-500/40 bg-rose-500/[0.08] text-rose-200'
+                        : isOvercommitted
+                          ? 'border-amber-500/40 bg-amber-500/[0.08] text-amber-200'
+                          : 'border-white/[0.08] bg-white/[0.02] text-zinc-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      {!storageOversellingEnabled && isOvercommitted ? (
+                        <Ban className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                      ) : isOvercommitted ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <HardDrive className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-zinc-200">
+                            {!storageOversellingEnabled
+                              ? 'Strict Storage Allocation'
+                              : isOvercommitted
+                                ? 'Storage Overselling Active (Thin Provisioning)'
+                                : 'Server Storage Allocation'}
+                          </span>
+                          <span
+                            className={`font-mono text-xs font-bold ${
+                              !storageOversellingEnabled && isOvercommitted
+                                ? 'text-rose-400'
+                                : isOvercommitted
+                                  ? 'text-amber-300'
+                                  : 'text-zinc-300'
+                            }`}
+                          >
+                            {(newTotalAllocatedStorageMB / 1024).toFixed(1)} GB / {(hostDiskMB / 1024).toFixed(1)} GB ({overcommitRatio}%)
+                          </span>
+                        </div>
+
+                        {/* Visual Allocation Stack Bar */}
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08] flex">
+                          <div
+                            style={{ width: `${Math.min(100, (otherUsersAllocatedStorageMB / hostDiskMB) * 100)}%` }}
+                            className="h-full bg-zinc-500/80 transition-all"
+                            title={`Other users: ${(otherUsersAllocatedStorageMB / 1024).toFixed(1)} GB`}
+                          />
+                          <div
+                            style={{
+                              width: `${Math.min(
+                                Math.max(0, 100 - (otherUsersAllocatedStorageMB / hostDiskMB) * 100),
+                                (currentInputStorageMB / hostDiskMB) * 100
+                              )}%`,
+                            }}
+                            className={`h-full ${
+                              !storageOversellingEnabled && isOvercommitted
+                                ? 'bg-rose-500'
+                                : isOvercommitted
+                                  ? 'bg-amber-400'
+                                  : 'bg-emerald-500'
+                            } transition-all`}
+                            title={`This user: ${(currentInputStorageMB / 1024).toFixed(1)} GB`}
+                          />
+                        </div>
+
+                        <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                          {!storageOversellingEnabled ? (
+                            isOvercommitted ? (
+                              <span className="text-rose-300">
+                                <strong>Strict Mode Violation:</strong> Total quotas cannot exceed physical server disk capacity ({(hostDiskMB / 1024).toFixed(1)} GB). Only {Math.max(0, (hostDiskMB - otherUsersAllocatedStorageMB) / 1024).toFixed(1)} GB remains available.
+                              </span>
+                            ) : (
+                              <span>
+                                Strict Mode Active: Remaining assignable disk space is <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong>.
+                              </span>
+                            )
+                          ) : isOvercommitted ? (
+                            <span>
+                              Total user quotas exceed physical server disk by <strong className="text-amber-200 font-mono">{((newTotalAllocatedStorageMB - hostDiskMB) / 1024).toFixed(1)} GB</strong>. Storage overselling is enabled; the <strong>1.5 GB host safety buffer</strong> will dynamically pause writes if physical disk runs low.
+                            </span>
+                          ) : (
+                            <span>
+                              Remaining unallocated physical capacity: <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong>.
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <p className="-mt-1 text-[11px] text-zinc-500">
                 0 means unlimited. Limits are applied to the user's systemd slice{' '}
                 <code className="font-mono text-zinc-400">nextdeploy-user-{limitsModalUser.id}.slice</code> and cannot exceed this server's real capacity.
@@ -1286,9 +1485,18 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 cleanup_enabled: cleanupEnabled,
                 cleanup_interval: cleanupInterval,
                 cleanup_include_build_cache: cleanupIncludeBuildCache,
+                storage_overselling_enabled: storageOversellingEnabled,
               });
               if (res.ok) {
-                toast.success(`Saved Docker cleanup schedule (${cleanupInterval})`);
+                toast.success(`Saved system settings and cleanup schedule (${cleanupInterval})`);
+              } else if (res.data?.overcommitted) {
+                setOvercommitInfo({
+                  allocated_mb: res.data.allocated_mb || totalCurrentlyAllocatedStorageMB,
+                  host_disk_mb: res.data.host_disk_mb || (host?.diskMB || 0),
+                  excess_mb: res.data.excess_mb || 0,
+                  users: res.data.users || [],
+                });
+                setOvercommitModalOpen(true);
               } else {
                 toast.error((res as any).error || 'Failed to save settings');
               }
@@ -1305,6 +1513,99 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Storage Allocation & Overselling Card */}
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3 md:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+                <HardDrive className="h-4 w-4 text-orange-400" />
+              </div>
+              <div>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
+                  Storage Allocation &amp; Overselling
+                </h2>
+                <p className="text-[11px] text-zinc-400">
+                  Control whether user storage quotas can exceed the host server's physical disk (thin provisioning)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium border ${
+                  storageOversellingEnabled
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-orange-500/30 bg-orange-500/10 text-orange-300'
+                }`}
+              >
+                {storageOversellingEnabled ? (
+                  <>
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Overselling Enabled (Thin Provisioning)
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="h-3 w-3 text-orange-400" />
+                    Strict Allocation (Guaranteed Capacity)
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
+            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
+              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Physical Host Disk</span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-base font-bold font-mono text-zinc-100">
+                  {host?.diskMB ? `${(host.diskMB / 1024).toFixed(1)} GB` : '—'}
+                </span>
+                <span className="text-[11px] text-zinc-500">total capacity</span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
+              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Total User Quotas Allocated</span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span
+                  className={`text-base font-bold font-mono ${
+                    host?.diskMB && totalCurrentlyAllocatedStorageMB > host.diskMB
+                      ? 'text-amber-400'
+                      : 'text-zinc-100'
+                  }`}
+                >
+                  {(totalCurrentlyAllocatedStorageMB / 1024).toFixed(1)} GB
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  across {users.filter((u) => u.role !== 'admin').length} user(s)
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex flex-col justify-between">
+              <span className="text-[11px] text-zinc-500 uppercase tracking-wider">Host Safety Buffer</span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-base font-bold font-mono text-emerald-400">
+                  1.5 GB
+                </span>
+                <span className="text-[11px] text-zinc-500">emergency write pause</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs">
+            <div className="pr-4">
+              <span className="text-zinc-200 block font-medium">Allow Storage Overselling</span>
+              <span className="text-[11px] text-zinc-500 leading-relaxed block mt-0.5">
+                When enabled, the sum of tenant quotas can exceed physical disk (cPanel-style thin provisioning). Writes are automatically paused if host free space drops below 1.5 GB. When disabled, quotas are strictly capped by available disk.
+              </span>
+            </div>
+            <ShadcnSwitch
+              checked={storageOversellingEnabled}
+              onChange={handleToggleStorageOverselling}
+            />
+          </div>
+        </div>
+
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -1481,6 +1782,78 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
               Close
+            </button>
+          </div>
+        </div>
+      </ShadcnDialog>
+
+      {/* Overcommit Resolution Modal */}
+      <ShadcnDialog
+        open={overcommitModalOpen}
+        onClose={() => setOvercommitModalOpen(false)}
+        title={`Cannot Disable Storage Overselling (Overcommitted by ${(((overcommitInfo?.excess_mb || 0)) / 1024).toFixed(1)} GB)`}
+        icon={<AlertTriangle className="h-5 w-5 text-amber-400" />}
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 leading-relaxed">
+            <div className="font-semibold text-amber-300 flex items-center gap-1.5 mb-1">
+              <AlertTriangle className="h-4 w-4" />
+              Active User Quotas Exceed Server Capacity
+            </div>
+            Currently assigned standard user quotas total{' '}
+            <strong className="text-white font-mono">{((overcommitInfo?.allocated_mb || 0) / 1024).toFixed(1)} GB</strong>,
+            which exceeds your server's usable capacity (
+            <strong className="text-white font-mono">{((overcommitInfo?.host_disk_mb || 0) / 1024).toFixed(1)} GB</strong>) by{' '}
+            <strong className="text-amber-300 font-mono">{((overcommitInfo?.excess_mb || 0) / 1024).toFixed(1)} GB</strong>.
+            To enforce strict capacity allocation, reduce user quotas below server capacity first.
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-zinc-300">
+              Active User Storage Quotas ({overcommitInfo?.users.length || 0})
+            </div>
+            <div className="max-h-60 overflow-y-auto divide-y divide-white/[0.05] rounded-lg border border-white/[0.08] bg-[#09090b]">
+              {(overcommitInfo?.users || []).map((u) => {
+                const fullUser = users.find((usr) => String(usr.id) === String(u.id));
+                const quotaGB = u.unlimited ? 'Unlimited' : `${(u.max_storage_mb / 1024).toFixed(1)} GB`;
+                return (
+                  <div key={u.id} className="flex items-center justify-between p-3 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300 font-mono font-bold text-xs">
+                        {u.username.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-medium text-zinc-200">{u.username}</div>
+                        <div className="text-[11px] text-zinc-500">Current quota: <span className="font-mono text-zinc-300">{quotaGB}</span></div>
+                      </div>
+                    </div>
+                    {fullUser && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOvercommitModalOpen(false);
+                          openLimitsModal(fullUser);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 cursor-pointer"
+                      >
+                        <Sliders className="h-3.5 w-3.5 text-orange-400" />
+                        Edit Quota
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.07]">
+            <button
+              type="button"
+              onClick={() => setOvercommitModalOpen(false)}
+              className="rounded-lg bg-zinc-100 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            >
+              Keep Overselling Enabled
             </button>
           </div>
         </div>

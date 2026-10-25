@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -82,6 +83,25 @@ func (p *Panel) UserCreate(c *fiber.Ctx) error {
 		// the database defaults (2 GB, 2 CPUs, 5 GB) may exceed a small VPS
 		if nu, gerr := p.DB.GetUserByID(c.UserContext(), createdUser); gerr == nil {
 			mem, cpus, storage := clampLimitsToHost(c.UserContext(), nu.MaxMemoryMB, nu.MaxCPUs, nu.MaxStorageMB)
+			if !p.IsStorageOversellingEnabled(c.UserContext()) {
+				hostDiskMB := p.HostDiskCapacityMB(c.UserContext())
+				if hostDiskMB > 0 {
+					users, _ := p.DB.ListUsers(c.UserContext())
+					otherStorageMB := 0
+					for _, u := range users {
+						if u.Role != db.RoleAdmin && u.Status == db.UserStatusActive && u.ID != nu.ID {
+							otherStorageMB += u.MaxStorageMB
+						}
+					}
+					remMB := hostDiskMB - otherStorageMB
+					if remMB < 256 {
+						remMB = 256
+					}
+					if storage > remMB {
+						storage = remMB
+					}
+				}
+			}
 			if mem != nu.MaxMemoryMB || cpus != nu.MaxCPUs || storage != nu.MaxStorageMB {
 				_ = p.DB.UpdateUserLimits(c.UserContext(), nu.ID, nu.MaxApps, mem, cpus, storage, nu.BandwidthLimitMbps, nu.AllowDomainFileServer)
 			}
@@ -489,6 +509,43 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 		}
 		SetFlashError(c, msg)
 		return c.Redirect("/users/" + idStr + "/edit")
+	}
+
+	if !p.IsStorageOversellingEnabled(c.UserContext()) {
+		if maxStorage <= 0 {
+			if WantsJSON(c) {
+				return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Strict storage allocation is active: standard users cannot have unlimited storage"})
+			}
+			SetFlashError(c, "Strict storage allocation is active: standard users cannot have unlimited storage")
+			return c.Redirect("/users/" + idStr + "/edit")
+		}
+		hostDiskMB := p.HostDiskCapacityMB(c.UserContext())
+		if hostDiskMB > 0 {
+			users, err := p.DB.ListUsers(c.UserContext())
+			if err == nil {
+				otherAllocatedMB := 0
+				for _, u := range users {
+					if u.Role != db.RoleAdmin && u.Status == db.UserStatusActive && u.ID != id {
+						otherAllocatedMB += u.MaxStorageMB
+					}
+				}
+				if otherAllocatedMB+maxStorage > hostDiskMB {
+					availableMB := hostDiskMB - otherAllocatedMB
+					if availableMB < 0 {
+						availableMB = 0
+					}
+					msg := fmt.Sprintf("Strict allocation active: cannot assign %s. Remaining unallocated server disk is %s (total disk: %s)",
+						HumanStorage(int64(maxStorage)*1024*1024),
+						HumanStorage(int64(availableMB)*1024*1024),
+						HumanStorage(int64(hostDiskMB)*1024*1024))
+					if WantsJSON(c) {
+						return c.Status(400).JSON(fiber.Map{"ok": false, "error": msg})
+					}
+					SetFlashError(c, msg)
+					return c.Redirect("/users/" + idStr + "/edit")
+				}
+			}
+		}
 	}
 
 	allowFileServer := c.FormValue("allow_domain_file_server") == "on"

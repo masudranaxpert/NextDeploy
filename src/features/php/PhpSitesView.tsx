@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileCode2, Plus, Search, Server, Settings2 } from 'lucide-react';
+import { FileCode2, LayoutGrid, List, Plus, Search, Server, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
@@ -13,10 +13,10 @@ import { PhpVersionSelect } from './PhpVersionSelect';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
-const TYPE_CARDS: Array<{ id: SiteType; title: string; text: string; icon: React.ReactNode }> = [
-  { id: 'php', title: 'PHP', text: 'Laravel, Symfony, custom', icon: <PhpIcon className="h-4 w-4" /> },
-  { id: 'wordpress', title: 'WordPress', text: 'One-click install', icon: <WordPressIcon className="h-4 w-4" /> },
-  { id: 'static', title: 'Static HTML', text: 'No PHP', icon: <HtmlIcon className="h-4 w-4" /> },
+const TYPE_CARDS: Array<{ id: SiteType; title: string; short: string; text: string; icon: React.ReactNode }> = [
+  { id: 'php', title: 'PHP', short: 'Laravel, custom', text: 'Laravel, Symfony, custom', icon: <PhpIcon className="h-4 w-4" /> },
+  { id: 'wordpress', title: 'WordPress', short: 'One-click install', text: 'One-click install', icon: <WordPressIcon className="h-4 w-4" /> },
+  { id: 'static', title: 'Static HTML', short: 'No PHP runtime', text: 'No PHP · Pure HTML/CSS', icon: <HtmlIcon className="h-4 w-4" /> },
 ];
 
 interface Props {
@@ -34,6 +34,7 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
   const [open, setOpen] = useState(false);
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [selectorLayout, setSelectorLayout] = useState<'grid' | 'list'>('grid');
 
   const [name, setName] = useState('');
   const [type, setType] = useState<SiteType>('php');
@@ -166,6 +167,17 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
         title="New site"
         icon={<Plus className="h-4 w-4" />}
         maxWidth="lg"
+        headerActions={
+          <button
+            type="button"
+            onClick={() => setSelectorLayout((p) => (p === 'grid' ? 'list' : 'grid'))}
+            title={selectorLayout === 'grid' ? 'Switch to stacked list' : 'Switch to 3-column grid'}
+            className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 cursor-pointer"
+          >
+            {selectorLayout === 'grid' ? <List className="h-3 w-3" /> : <LayoutGrid className="h-3 w-3" />}
+            {selectorLayout === 'grid' ? 'List' : 'Grid'}
+          </button>
+        }
         footer={
           <>
             <GhostButton onClick={() => setOpen(false)} disabled={creating}>Cancel</GhostButton>
@@ -174,25 +186,81 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {TYPE_CARDS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setType(t.id)}
-                className={`cursor-pointer rounded-xl border p-3 text-left transition-colors ${
-                  type === t.id ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/[0.08] bg-zinc-900/60 hover:bg-zinc-900'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-zinc-100">{t.icon}<span className="text-xs font-semibold">{t.title}</span></div>
-                <div className="mt-1 text-[11px] leading-snug text-zinc-400">{t.text}</div>
-              </button>
-            ))}
-          </div>
+          {selectorLayout === 'grid' ? (
+            <div role="radiogroup" aria-label="Site type" className="grid grid-cols-3 gap-2">
+              {TYPE_CARDS.map((t) => {
+                const isSelected = type === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setType(t.id)}
+                    className={`relative flex flex-col items-start rounded-lg border p-3 text-left transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'border-orange-500/60 bg-orange-500/[0.08]'
+                        : 'border-white/[0.08] bg-zinc-900/60 hover:border-white/[0.16] hover:bg-zinc-900'
+                    }`}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className={`flex h-7 w-9 items-center justify-center rounded-md border ${isSelected ? 'border-orange-500/30 bg-orange-500/[0.06]' : 'border-white/[0.06] bg-white/[0.03]'}`}>
+                        {t.icon}
+                      </span>
+                      <span aria-hidden="true" className={`h-2 w-2 rounded-full ${isSelected ? 'bg-orange-500' : 'bg-white/[0.15]'}`} />
+                    </div>
+                    <div className="mt-2.5 whitespace-nowrap text-[13px] font-semibold leading-tight text-zinc-100">{t.title}</div>
+                    <div className={`mt-1 w-full truncate whitespace-nowrap text-[11px] leading-tight ${isSelected ? 'text-orange-200/80' : 'text-zinc-500'}`}>{t.short}</div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div role="radiogroup" aria-label="Site type" className="space-y-2">
+              {TYPE_CARDS.map((t) => {
+                const isSelected = type === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setType(t.id)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3.5 py-2.5 text-left transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'border-orange-500/60 bg-orange-500/[0.08]'
+                        : 'border-white/[0.08] bg-zinc-900/60 hover:border-white/[0.16] hover:bg-zinc-900'
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${isSelected ? 'border-orange-500/30 bg-orange-500/[0.06]' : 'border-white/[0.06] bg-white/[0.03]'}`}>
+                        {t.icon}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-semibold leading-tight text-zinc-100">{t.title}</span>
+                        <span className={`mt-0.5 block truncate text-[12px] leading-tight ${isSelected ? 'text-orange-200/80' : 'text-zinc-500'}`}>{t.text}</span>
+                      </span>
+                    </span>
+                    <span aria-hidden="true" className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${isSelected ? 'border-orange-500 bg-orange-500/20' : 'border-white/20'}`}>
+                      {isSelected && <span className="h-2 w-2 rounded-full bg-orange-500" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          <Field label="Site name">
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="my-site" autoFocus />
-          </Field>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label htmlFor="new-site-name" className="text-[11px] font-medium text-zinc-300">
+                Site name
+              </label>
+              {name.trim() && (
+                <span className="font-mono text-[10px] text-zinc-500">created as {name.trim().toLowerCase()}</span>
+              )}
+            </div>
+            <input id="new-site-name" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="my-site" autoFocus />
+          </div>
 
           {needsPhp && (
             <Field label="PHP version">

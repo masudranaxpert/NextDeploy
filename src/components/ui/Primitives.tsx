@@ -44,6 +44,7 @@ interface ShadcnDialogProps {
   title: string;
   description?: string;
   icon?: React.ReactNode;
+  headerActions?: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -55,6 +56,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
   title,
   description,
   icon,
+  headerActions,
   maxWidth = 'md',
   children,
   footer,
@@ -104,6 +106,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
               )}
             </div>
           </div>
+          {headerActions}
           <button
             type="button"
             onClick={onClose}

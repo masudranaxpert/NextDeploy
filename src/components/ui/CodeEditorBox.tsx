@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   Box,
@@ -40,6 +40,8 @@ interface CodeEditorBoxProps {
   value: string;
   onChange: (next: string) => void;
   onSave?: () => void;
+  /** Bump after a successful save so the dirty state resets. */
+  savedTick?: number;
   height?: number | string;
   readOnly?: boolean;
   actions?: React.ReactNode;
@@ -490,8 +492,15 @@ function renderSourceCodeTokens(line: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  let tokenCount = 0;
 
   while ((match = tokenRegex.exec(line)) !== null) {
+    // Performance guard: cap spans per line (VS Code-style stopRenderingLineAfter)
+    if (tokenCount++ >= 3000) {
+      parts.push(line.slice(match.index));
+      tokenRegex.lastIndex = 0;
+      return parts;
+    }
     if (match.index > lastIndex) {
       parts.push(line.slice(lastIndex, match.index));
     }
@@ -575,12 +584,56 @@ function renderSourceCodeTokens(line: string): React.ReactNode {
   return parts;
 }
 
+const highlightCache = new Map<string, React.ReactNode>();
+
+function cachedHighlightedLine(line: string, lang: SupportedEditorLanguage): React.ReactNode {
+  const key = lang + '\u0000' + line;
+  let node = highlightCache.get(key);
+  if (node === undefined) {
+    node = renderHighlightedLine(line, lang);
+    // ponytail: whole-cache clear at 4k lines — repeated lines (blank, braces) recompute once, fine.
+    // For 5k+ line files the remaining cost is React reconciling all rows; visible-viewport
+    // virtualization (needs wrap-mode handling) is the next step if that ever feels slow.
+    if (highlightCache.size >= 4000) highlightCache.clear();
+    highlightCache.set(key, node);
+  }
+  return node;
+}
+
+const HighlightedLineRow = React.memo(function HighlightedLineRow({
+  content,
+  lang,
+  active,
+}: {
+  content: string;
+  lang: SupportedEditorLanguage;
+  active: boolean;
+}) {
+  return (
+    <div className={active ? 'bg-white/[0.03] -mx-4 px-4' : undefined}>
+      {cachedHighlightedLine(content, lang)}
+    </div>
+  );
+});
+
+const GutterRow = React.memo(function GutterRow({ n, active }: { n: number; active: boolean }) {
+  return (
+    <div className={active ? 'font-bold text-orange-400 bg-orange-500/10 -mx-2.5 px-2.5' : undefined}>
+      {n}
+    </div>
+  );
+});
+
 /**
  * Lightweight, zero-dependency syntax highlighter for Compose YAML, Dockerfile, ENV, JSON, Shell, Nginx/Caddy,
  * plus full polyglot support for TypeScript, JavaScript, Python, Go, Rust, PHP, and SQL.
  */
 function renderHighlightedLine(line: string, lang: SupportedEditorLanguage): React.ReactNode {
   if (!line) return '\u00A0';
+
+  // Performance guard (VS Code stops rendering a line after 10k chars for the same reason):
+  // tokenizing a minified bundle/SVG line would create thousands of spans.
+  if (line.length > 2000) return <span className="text-zinc-300">{line}</span>;
 
   const trimmed = line.trimStart();
 
@@ -720,12 +773,17 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   value,
   onChange,
   onSave,
+  savedTick = 0,
   height = 420,
   readOnly = false,
   actions,
   permissions = '-rw-r--r-- (0644)',
 }) => {
-  const [wordWrap, setWordWrap] = useState(true);
+  // Wrap off by default: one display row per line keeps the textarea's native selection
+  // pixel-aligned with the highlight layer. Soft wrap makes the two layers break lines at
+  // slightly different points (browser textarea wrapping is not matchable exactly), which
+  // shows up as misaligned selection — the wrap toggle is there for when it is preferred.
+  const [wordWrap, setWordWrap] = useState(false);
   const [copied, setCopied] = useState(false);
   const [cursorLine, setCursorLine] = useState(1);
   const [fontSize, setFontSize] = useState<'xs' | 'sm'>('xs');
@@ -736,6 +794,16 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   const effectiveLanguage = detectLanguageFromFilename(filename, language);
   const lines = value.split('\n');
   const lineCount = Math.max(lines.length, 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Blob construction is the expensive part; only on content change
+  const sizeBytes = useMemo(() => new Blob([value]).size, [value]);
+
+  // Dirty state: the text as of the last open (filename change) or successful save (savedTick bump)
+  const savedBaseline = useRef(value);
+  useEffect(() => {
+    savedBaseline.current = value;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filename, savedTick]);
+  const isDirty = value !== savedBaseline.current;
 
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
     const { scrollTop, scrollLeft } = e.currentTarget;
@@ -761,9 +829,9 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
       });
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      if (onSave) {
+      if (onSave && value !== savedBaseline.current) {
         onSave();
-      } else {
+      } else if (!onSave) {
         toast.success(`Saved ${filename}`);
       }
     }
@@ -815,7 +883,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             {effectiveLanguage}
           </span>
           <span className="hidden md:inline font-mono text-[10px] text-zinc-500 shrink-0">
-            {lineCount} lines · {new Blob([value]).size} B
+            {lineCount} lines · {sizeBytes} B
           </span>
         </div>
 
@@ -861,7 +929,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             <Download className="h-3 w-3" />
           </button>
 
-          {onSave && !readOnly && (
+          {onSave && !readOnly && isDirty && (
             <button
               type="button"
               onClick={onSave}
@@ -886,16 +954,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           style={{ minWidth: '3.25rem' }}
         >
           {Array.from({ length: lineCount }, (_, i) => (
-            <div
-              key={i + 1}
-              className={
-                cursorLine === i + 1
-                  ? 'font-bold text-orange-400 bg-orange-500/10 -mx-2.5 px-2.5'
-                  : undefined
-              }
-            >
-              {i + 1}
-            </div>
+            <GutterRow key={i + 1} n={i + 1} active={cursorLine === i + 1} />
           ))}
         </div>
 
@@ -909,12 +968,12 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             }`}
           >
             {lines.map((ln, idx) => (
-              <div
+              <HighlightedLineRow
                 key={idx}
-                className={cursorLine === idx + 1 ? 'bg-white/[0.03] -mx-4 px-4' : undefined}
-              >
-                {renderHighlightedLine(ln, effectiveLanguage)}
-              </div>
+                content={ln}
+                lang={effectiveLanguage}
+                active={cursorLine === idx + 1}
+              />
             ))}
           </pre>
 
@@ -943,7 +1002,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <span className="text-emerald-400">{permissions}</span>
         </div>
         <div className="flex items-center gap-2">
-          {!readOnly && <span>⌘S to save</span>}
+          {!readOnly && isDirty && <span>⌘S to save</span>}
         </div>
       </div>
     </div>

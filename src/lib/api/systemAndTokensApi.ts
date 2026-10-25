@@ -290,20 +290,30 @@ export const systemAndTokensApi = {
       cleanup_include_build_cache?: boolean;
       cleanup_last_run?: string;
       cleanup_last_log?: string;
+      storage_overselling_enabled?: boolean;
     }>('/settings?format=json'),
   saveSettings: (payload: {
-    cleanup_enabled: boolean;
-    cleanup_interval: string;
-    cleanup_include_build_cache: boolean;
+    cleanup_enabled?: boolean;
+    cleanup_interval?: string;
+    cleanup_include_build_cache?: boolean;
+    storage_overselling_enabled?: boolean;
   }) =>
-    requestJson('/settings', {
+    requestJson<{
+      ok: boolean;
+      error?: string;
+      overcommitted?: boolean;
+      allocated_mb?: number;
+      host_disk_mb?: number;
+      excess_mb?: number;
+      users?: Array<{ id: number; username: string; max_storage_mb: number; unlimited: boolean }>;
+      cleanup_enabled?: boolean;
+      cleanup_interval?: string;
+      cleanup_include_build_cache?: boolean;
+      storage_overselling_enabled?: boolean;
+    }>('/settings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({
-        cleanup_enabled: payload.cleanup_enabled ? 'on' : '',
-        cleanup_interval: payload.cleanup_interval,
-        cleanup_include_build_cache: payload.cleanup_include_build_cache ? 'on' : '',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     }),
   runDockerCleanup: () =>
     requestJson<{ ok: boolean; log?: string }>('/settings/cleanup/run', { method: 'POST' }),

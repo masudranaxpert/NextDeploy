@@ -49,10 +49,23 @@ export const PhpLogsTab: React.FC<{ app: AppStack }> = ({ app }) => {
           <select aria-label="Number of lines" className={`${selectCls} !w-28`} value={lines} onChange={(e) => setLines(Number(e.target.value))}>
             {[100, 200, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n} lines</option>)}
           </select>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs text-zinc-300">
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-orange-500" />
+          <button
+            type="button"
+            onClick={() => setLive((p) => !p)}
+            aria-pressed={live}
+            title={live ? 'Live streaming is on — click to pause' : 'Stream new log lines as they are written'}
+            className={`inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors cursor-pointer ${
+              live
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`}
+            />
             Live
-          </label>
+          </button>
           <GhostButton busy={busy} onClick={() => void load()}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </GhostButton>

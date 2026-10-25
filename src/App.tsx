@@ -1686,6 +1686,7 @@ export default function App() {
             ) : isAdminUser && activeNav === 'settings' ? (
               <UsersAndSettingsView
                 mode="settings"
+                host={hostCaps}
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}

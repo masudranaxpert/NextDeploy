@@ -123,14 +123,7 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         </Card>
       )}
 
-      <Card
-        title="Site"
-        actions={!isStatic ? (
-          <GhostButton busy={busy === 'restart'} onClick={() => run('restart', () => backendApi.phpSiteRestart(app.id), 'PHP runtime restarted')} title="Restart PHP-FPM workers">
-            <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart FPM
-          </GhostButton>
-        ) : undefined}
-      >
+      <Card title="Site">
         <div className="divide-y divide-white/[0.05]">
           <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
             <div className="shrink-0 text-xs text-zinc-500">Type</div>
@@ -256,32 +249,45 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         )}
       </Card>
 
-      {!isStatic && (
-        <Card title="Maintenance">
-          <div className="flex flex-wrap items-center gap-2">
-            <GhostButton busy={busy === 'restart'} onClick={() => run('restart', () => backendApi.phpSiteRestart(app.id), 'PHP-FPM runtime restarted')}>
-              <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart PHP-FPM
-            </GhostButton>
-            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')}>
-              <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" /> Repair file permissions
+      <Card title="Maintenance & Operations">
+        <div className="divide-y divide-white/[0.05]">
+          {!isStatic && (
+            <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-zinc-100">Restart PHP-FPM</div>
+                <p className="mt-0.5 text-xs text-zinc-500">Reload PHP {detail.site.php_version} workers and OPcache</p>
+              </div>
+              <GhostButton busy={busy === 'restart'} onClick={() => run('restart', () => backendApi.phpSiteRestart(app.id), 'PHP-FPM runtime restarted')} className="shrink-0">
+                <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart
+              </GhostButton>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-zinc-100">Repair file permissions</div>
+              <p className="mt-0.5 text-xs text-zinc-500">Reset directories to 755 and files to 644</p>
+            </div>
+            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')} className="shrink-0">
+              <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" /> Repair
             </GhostButton>
           </div>
-        </Card>
-      )}
-
-      {onDelete && (
-        <Card title="Delete site" description="Removes the site, its files, databases and domains for good.">
-          <div className="flex justify-end px-4 py-3">
-            <button
-              type="button"
-              onClick={onDelete}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete this site
-            </button>
-          </div>
-        </Card>
-      )}
+          {onDelete && (
+            <div className="-mx-1 flex items-center justify-between gap-4 rounded-xl bg-red-500/[0.05] px-3 py-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-zinc-100">Delete site</div>
+                <p className="mt-0.5 text-xs text-zinc-500">Removes the site, its files, databases and domains for good.</p>
+              </div>
+              <button
+                type="button"
+                onClick={onDelete}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete this site
+              </button>
+            </div>
+          )}
+        </div>
+      </Card>
 
       <ShadcnDialog
         open={secrets !== null}

@@ -58,6 +58,7 @@ type Panel struct {
 	migrateTokens sync.Map // export id (int64) -> plain download token (string)
 
 	loginFailMu sync.Mutex
+	diskUsageFn func(ctx context.Context) (int64, error) // test hook for host free disk check
 	loginFails  map[string]loginFailEntry
 
 	monitorCache monitorCache
