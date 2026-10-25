@@ -49,6 +49,7 @@ import {
   MCP_TOOLS_CATALOG,
 } from './data/mcpTools';
 import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
+import { NextDeployLogoMark } from './components/ui/BrandIcons';
 import { OverviewDashboard } from './features/overview/OverviewDashboard';
 import { AuthView } from './features/auth/AuthView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
@@ -1164,6 +1165,7 @@ export default function App() {
   if (loadError && !isBootstrapping) {
     return (
       <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <NextDeployLogoMark className="h-12 w-12 rounded-xl shadow-[0_10px_25px_-5px_rgba(254,110,0,0.35)]" />
         <p className="text-sm font-semibold">Cannot load NextDeploy</p>
         <p className="font-mono text-xs text-zinc-400">{loadError}</p>
         <button
@@ -1184,7 +1186,7 @@ export default function App() {
   if (isBootstrapping) {
     return (
       <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4">
-        <img src="/nextdeploy-icon.svg" alt="NextDeploy" className="h-12 w-12 rounded-xl shadow-lg" />
+        <NextDeployLogoMark className="h-12 w-12 rounded-xl shadow-[0_10px_25px_-5px_rgba(254,110,0,0.35)]" />
         <div className="flex items-center gap-2.5 font-mono text-xs text-zinc-400">
           <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
           <span>Loading NextDeploy...</span>
@@ -1219,7 +1221,7 @@ export default function App() {
             }}
             className="flex flex-1 items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-1.5 text-left hover:border-white/[0.14] transition-all cursor-pointer"
           >
-            <img src="/nextdeploy-icon.svg" alt="NextDeploy" className="h-7 w-7 shrink-0 rounded-lg shadow-sm" />
+            <NextDeployLogoMark className="h-7 w-7 shrink-0 rounded-lg shadow-sm" />
             <div className="min-w-0 flex-1 leading-tight">
               <div className="flex items-center gap-1.5">
                 <span className="truncate font-display text-xs font-semibold text-zinc-100">

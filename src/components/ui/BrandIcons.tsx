@@ -100,3 +100,19 @@ export const SiteTypeBadge: React.FC<{ type: string; phpVersion?: string }> = ({
     </span>
   );
 };
+
+export const NextDeployLogoMark: React.FC<{ className?: string; size?: number }> = ({ className = 'h-6 w-6', size }) => (
+  <svg viewBox="0 0 64 64" width={size} height={size} className={className} aria-hidden="true">
+    <defs>
+      <linearGradient id="nd-brand-logo-mark-g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#f99c00" />
+        <stop offset="1" stopColor="#fe6e00" />
+      </linearGradient>
+    </defs>
+    <rect width="64" height="64" rx="15" fill="url(#nd-brand-logo-mark-g)" />
+    <g fill="none" stroke="#fff" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 45V20l24 24V19" />
+      <path d="M32 26l8-8 8 8" />
+    </g>
+  </svg>
+);

@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#09090b" />
+    <link rel="icon" type="image/svg+xml" href="/nextdeploy-icon.svg" />
     <link rel="icon" href="/nextdeploy.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180.png" />
     <title>NextDeploy — Modern Docker Compose & PaaS Control Plane</title>
     <meta name="description" content="Self-hosted Docker Compose deployment platform with automatic Caddy HTTPS, container topology, live PTY terminal, and MCP server." />
     <meta property="og:title" content="NextDeploy" />
@@ -16,7 +18,7 @@
     <!-- Fonts must never block the first paint: load them without blocking, the text shows in a system font first -->
     <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap">
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap"></noscript>
-    <style>.nd-splash{color:#a1a1aa;background:#09090b;flex-direction:column;justify-content:center;align-items:center;gap:16px;min-height:100vh;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;display:flex}.nd-splash b{color:#fb923c;background:#f973161a;border:1px solid #f9731633;border-radius:12px;justify-content:center;align-items:center;width:48px;height:48px;font-size:18px;display:flex}.nd-splash i{vertical-align:-3px;border:2px solid #f9731640;border-top-color:#fb923c;border-radius:50%;width:16px;height:16px;margin-right:10px;animation:.8s linear infinite nd-spin;display:inline-block}@keyframes nd-spin{to{transform:rotate(360deg)}}</style>
+    <style>.nd-splash{color:#a1a1aa;background:#09090b;flex-direction:column;justify-content:center;align-items:center;gap:16px;min-height:100vh;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;display:flex}.nd-splash-logo{border-radius:12px;width:48px;height:48px;box-shadow:0 10px 25px -5px #fe6e0059}.nd-splash i{vertical-align:-3px;border:2px solid #f9731640;border-top-color:#fb923c;border-radius:50%;width:16px;height:16px;margin-right:10px;animation:.8s linear infinite nd-spin;display:inline-block}@keyframes nd-spin{to{transform:rotate(360deg)}}</style>
     <script>
       // Ask for the page data right away, in parallel with downloading the app code.
       (function () {
@@ -28,13 +30,30 @@
         }).catch(function () { return null; });
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-DyO7aFTV.js"></script>
+    <script type="module" crossorigin src="/assets/index-CDz6yNJ6.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-XKyaHtl9.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BNCMh3YF.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-ui-BokTWCGq.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CJPyJ2pX.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CUU72cCP.css">
   </head>
   <body class="bg-[#09090b] text-[#fafafa] antialiased selection:bg-orange-500/30 selection:text-orange-200">
-    <div id="root"><div class="nd-splash"><b>ND</b><span><i></i>Loading NextDeploy…</span></div></div>
+    <div id="root">
+      <div class="nd-splash">
+        <svg class="nd-splash-logo" width="48" height="48" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="nd-splash-g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f99c00"/>
+              <stop offset="1" stop-color="#fe6e00"/>
+            </linearGradient>
+          </defs>
+          <rect width="64" height="64" rx="15" fill="url(#nd-splash-g)"/>
+          <g fill="none" stroke="#fff" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 45V20l24 24V19"/>
+            <path d="M32 26l8-8 8 8"/>
+          </g>
+        </svg>
+        <span><i></i>Loading NextDeploy…</span>
+      </div>
+    </div>
   </body>
 </html>

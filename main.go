@@ -136,13 +136,19 @@ func main() {
 	app.Use(func(c *fiber.Ctx) error {
 		p := strings.TrimPrefix(c.Path(), "/")
 		if strings.HasPrefix(p, "nextdeploy") || strings.HasPrefix(p, "apple-touch") || p == "favicon.ico" {
-			if data, err := fs.ReadFile(distFS, p); err == nil {
+			lookup := p
+			data, err := fs.ReadFile(distFS, lookup)
+			if err != nil && p == "favicon.ico" {
+				lookup = "nextdeploy.ico"
+				data, err = fs.ReadFile(distFS, lookup)
+			}
+			if err == nil {
 				switch {
-				case strings.HasSuffix(p, ".svg"):
+				case strings.HasSuffix(lookup, ".svg"):
 					c.Set("Content-Type", "image/svg+xml")
-				case strings.HasSuffix(p, ".png"):
+				case strings.HasSuffix(lookup, ".png"):
 					c.Set("Content-Type", "image/png")
-				case strings.HasSuffix(p, ".ico"):
+				case strings.HasSuffix(lookup, ".ico"):
 					c.Set("Content-Type", "image/x-icon")
 				}
 				c.Set("Cache-Control", "public, max-age=86400")
