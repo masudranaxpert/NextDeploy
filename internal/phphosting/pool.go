@@ -93,8 +93,6 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("php_admin_value[upload_tmp_dir] = %s", tmp)
 	w("php_admin_value[session.save_path] = %s", tmp)
 	w("php_admin_value[error_log] = %s/php-error.log", logs)
-	w("php_admin_value[mysqli.default_socket] = /var/run/mysqld/mysqld.sock")
-	w("php_admin_value[pdo_mysql.default_socket] = /var/run/mysqld/mysqld.sock")
 	w("php_admin_flag[log_errors] = on")
 	w("php_admin_flag[display_errors] = off")
 	w("php_admin_value[memory_limit] = %s", s.MemoryLimit)
