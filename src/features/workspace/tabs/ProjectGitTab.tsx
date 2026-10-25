@@ -176,10 +176,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     toast.success('Disconnected Git repository — project is now in Pure Manual Files mode');
   };
 
-  const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/webhooks/github`
-      : 'https://panel.nextdeploy.sh/webhooks/github';
+  // The push endpoint is per project: the panel looks the project up by this id.
+  const webhookUrl = `${window.location.origin}/webhooks/github/${encodeURIComponent(app.id)}`;
 
   return (
     <div className="space-y-4">

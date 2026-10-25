@@ -13,6 +13,8 @@ export type NavigationSection =
   | 'cli-sessions'
   | 'migrate'
   | 'proxy'
+  | 'proxy-options'
+  | 'proxy-routes'
   | 'settings'
   | 'audit-logs'
   | 'users'
@@ -35,7 +37,8 @@ export type AppWorkspaceTab =
   | 'php-settings'
   | 'php-databases'
   | 'php-cron'
-  | 'php-logs';
+  | 'php-logs'
+  | 'php-security';
 
 export type AppSourceType = 'git' | 'zip' | 'compose';
 export type AppStatus = 'running' | 'building' | 'stopped' | 'failed';

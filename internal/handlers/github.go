@@ -488,9 +488,10 @@ func (p *Panel) AppGitProviderRepos(c *fiber.Ctx) error {
 	}
 	if strings.TrimSpace(provider.Token) != "" {
 		var list []githubInstallationRepository
-		if err := json.Unmarshal(body, &list); err == nil {
-			return c.JSON(fiber.Map{"repos": list})
+		if err := json.Unmarshal(body, &list); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "failed to parse repositories: " + err.Error()})
 		}
+		return c.JSON(fiber.Map{"repos": list})
 	}
 	var payload githubInstallationRepositoriesResponse
 	if err := json.Unmarshal(body, &payload); err != nil {

@@ -32,6 +32,18 @@ export interface PhpContainerRow {
   owner_id?: string;
 }
 
+export interface PhpSecurity {
+  blocked_ips: string[];
+  allow_only: string[];
+  basic_auth_user: string;
+  has_password: boolean;
+  block_xmlrpc: boolean;
+  block_upload_php: boolean;
+  block_scanners: boolean;
+  hsts: boolean;
+  frame_protection: boolean;
+}
+
 export interface PhpInstanceData {
   ok: boolean;
   enabled: boolean;
@@ -152,6 +164,9 @@ export const phpApi = {
   phpSetModule: (enabled: boolean) => requestJson('/api/php/instance/module', json({ enabled })),
   phpMysql: (action: 'enable' | 'disable' | 'restart', memoryMb?: number) =>
     requestJson('/api/php/instance/mysql', json({ action, memory_mb: memoryMb })),
+  phpSecurity: (appId: string) => requestJson<{ ok: boolean; security: PhpSecurity; client_ip: string }>(site(appId, '/security')),
+  phpSecuritySave: (appId: string, body: Partial<PhpSecurity> & { basic_auth_password?: string; remove_password?: boolean }) =>
+    requestJson<{ ok: boolean; security: PhpSecurity }>(site(appId, '/security'), json(body)),
   phpPma: (action: 'enable' | 'disable' | 'restart') => requestJson('/api/php/instance/pma', json({ action })),
   phpPmaOpenAll: () => requestJson<{ ok: boolean; url: string }>('/api/php/instance/pma/open', json({})),
   phpPmaOpen: (appId: string) => requestJson<{ ok: boolean; url: string }>(site(appId, "/pma/open"), json({})),

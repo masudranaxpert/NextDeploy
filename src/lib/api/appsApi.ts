@@ -1,8 +1,22 @@
-import { BootstrapData, DomainFormPayload, requestJson, requestText, toFormBody } from './http';
+import { BootstrapData, DomainFormPayload, requestJson, requestText, resultFromResponse, toFormBody } from './http';
 
 export const appsAndDockerApi = {
   // Bootstrap & Auth
-  bootstrap: () => requestJson<BootstrapData>('/api/panel/bootstrap'),
+  // The first call reuses the request index.html started before the scripts finished loading.
+  bootstrap: async () => {
+    const w = window as unknown as { __ndBoot?: Promise<Response | null> | null };
+    const early = w.__ndBoot;
+    w.__ndBoot = null;
+    if (early) {
+      try {
+        const res = await early;
+        if (res) return await resultFromResponse<BootstrapData>(res);
+      } catch {
+        // fall through to a normal request
+      }
+    }
+    return requestJson<BootstrapData>('/api/panel/bootstrap');
+  },
   setup: (username: string, password: string, confirm: string) =>
     requestJson<{ ok: boolean; error?: string }>('/setup', {
       method: 'POST',

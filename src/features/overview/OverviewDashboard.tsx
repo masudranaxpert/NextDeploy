@@ -340,11 +340,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               ))}
             </div>
           </div>
-
-          <div className="flex items-center justify-between border-t border-white/[0.06] bg-[#09090b]/50 px-4 py-2.5 font-mono text-[10px] text-zinc-500">
-            <span>{sys?.HostNote || 'Linux Host'}</span>
-            <span className="text-zinc-400">{sys?.PublicIP ? `IP: ${sys.PublicIP}` : 'NextDeploy Engine'}</span>
-          </div>
         </div>
       </div>
     </div>

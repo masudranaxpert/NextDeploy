@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { McpTokensCard, type McpTokenRow } from './McpTokensCard';
 import {
   Copy,
   Trash2,
   Plus,
-  Sparkles,
+  Cable,
   KeyRound,
   Eye,
   EyeOff,
@@ -29,7 +30,10 @@ interface McpAndCliViewProps {
   mode: 'mcp' | 'cli';
   tools: McpToolItem[];
   cliSessions: CliSessionItem[];
+  mcpEnabled?: boolean;
   isAdmin?: boolean;
+  apiTokens?: McpTokenRow[];
+  onTokensChanged?: () => Promise<void> | void;
   onGenerateCliToken: (name: string) => void;
   onRevokeCliSession?: (id: string) => void;
 }
@@ -38,21 +42,23 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   mode,
   tools,
   cliSessions,
+  mcpEnabled,
+  isAdmin,
+  apiTokens,
+  onTokensChanged,
   onGenerateCliToken,
   onRevokeCliSession,
 }) => {
-  const [mcpServerEnabled, setMcpServerEnabled] = useState(true);
+  const [mcpServerEnabled, setMcpServerEnabled] = useState(mcpEnabled ?? false);
+
+  useEffect(() => {
+    if (typeof mcpEnabled === 'boolean') {
+      setMcpServerEnabled(mcpEnabled);
+    }
+  }, [mcpEnabled]);
   const [mcpTab, setMcpTab] = useState<'tools' | 'rpc-logs'>('tools');
   const [mcpCategory, setMcpCategory] = useState<string>('all');
   const [clientConfigOpen, setClientConfigOpen] = useState(false);
-  const [revealMcpToken, setRevealMcpToken] = useState(false);
-  const [mcpToken, setMcpToken] = useState('');
-  const [mcpScopes, setMcpScopes] = useState({
-    allow_env_reveal: true,
-    allow_container_exec: true,
-    allow_server_exec: false,
-    allow_app_delete: false,
-  });
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [installCliOpen, setInstallCliOpen] = useState(false);
@@ -70,18 +76,6 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     >
   >({});
 
-  const handleRegenerateMcpToken = async () => {
-    const res = await backendApi.createApiToken({ name: 'mcp-default', kind: 'mcp' });
-    const nextToken = res.data?.token;
-    if (!res.ok || !nextToken) {
-      toast.error(res.error || 'Could not create the MCP token');
-      return;
-    }
-    setMcpToken(nextToken);
-    setRevealMcpToken(true);
-    navigator.clipboard?.writeText(nextToken);
-    toast.success('Regenerated MCP token and copied full token to clipboard');
-  };
 
   if (mode === 'mcp') {
     const filteredTools = tools.filter(
@@ -89,33 +83,42 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
     );
 
     const mcpUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/mcp/sse`;
-    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "${mcpUrl}",\n      "headers": {\n        "Authorization": "Bearer ${mcpToken}"\n      }\n    }\n  }\n}`;
+    const mcpConfigJson = `{\n  "mcpServers": {\n    "nextdeploy": {\n      "url": "${mcpUrl}",\n      "headers": {\n        "Authorization": "Bearer YOUR_TOKEN"\n      }\n    }\n  }\n}`;
 
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-              <Sparkles className="h-4 w-4 text-emerald-400" />
+              <Cable className="h-4 w-4 text-emerald-400" />
             </div>
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">MCP Server</h1>
             <StatusBadge
               status={mcpServerEnabled ? 'active' : 'stopped'}
-              label={mcpServerEnabled ? 'SSE Online · 16 Tools' : 'MCP Disabled'}
+              label={mcpServerEnabled ? `SSE online · ${tools.length} tools` : 'MCP disabled'}
             />
           </div>
 
           <div className="flex items-center gap-2.5">
             <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1">
               <span className="text-xs font-medium text-zinc-300">MCP Server</span>
-              <ShadcnSwitch
-                checked={mcpServerEnabled}
-                onChange={async (next) => {
-                  setMcpServerEnabled(next);
-                  await backendApi.toggleMcpStatus();
-                  toast.success(next ? 'MCP Server enabled' : 'MCP Server disabled');
-                }}
-              />
+              {isAdmin ? (
+                <ShadcnSwitch
+                  checked={mcpServerEnabled}
+                  onChange={async (next) => {
+                    setMcpServerEnabled(next);
+                    const res = await backendApi.toggleMcpStatus();
+                    if (!res.ok) {
+                      setMcpServerEnabled(!next);
+                      toast.error(res.error || 'Could not change the MCP server');
+                      return;
+                    }
+                    toast.success(next ? 'MCP server enabled' : 'MCP server disabled');
+                  }}
+                />
+              ) : (
+                <span className="text-[11px] text-zinc-500">{mcpServerEnabled ? 'on' : 'off'} · set by an administrator</span>
+              )}
             </div>
             <button
               type="button"
@@ -128,106 +131,20 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           </div>
         </div>
 
-        {/* Dedicated Single Auto-Generated MCP Token & Endpoint Card */}
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-2.5">
-              <div className="min-w-0">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
-                  SSE Endpoint
-                </span>
-                <span className="font-mono text-xs text-zinc-100 truncate block mt-0.5">
-                  {mcpUrl}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText('https://panel.nextdeploy.sh/mcp/sse');
-                  toast.success('Copied SSE endpoint');
-                }}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer shrink-0 ml-2"
-              >
-                Copy
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-2.5">
-              <div className="min-w-0 flex-1 pr-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">
-                  MCP Bearer Token (Auto-Generated)
-                </span>
-                <span className="font-mono text-xs text-orange-400 truncate block mt-0.5">
-                  {revealMcpToken
-                    ? mcpToken
-                    : `${mcpToken.slice(0, 12)}••••••••••••••••••••`}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setRevealMcpToken((p) => !p)}
-                  title={revealMcpToken ? 'Hide token' : 'Reveal full token'}
-                  className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-white cursor-pointer"
-                >
-                  {revealMcpToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-                <CopyButton
-                  value={mcpToken}
-                  label="Copy"
-                  toastMessage="Copied full MCP token"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleRegenerateMcpToken()}
-                  title="Regenerate MCP Bearer Token"
-                  className="inline-flex items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300 hover:bg-orange-500/20 cursor-pointer"
-                >
-                  <RefreshCw className="h-3 w-3" />
-                  <span>Regenerate</span>
-                </button>
-              </div>
-            </div>
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3">
+          <div className="min-w-0">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">SSE endpoint</span>
+            <span className="mt-0.5 block truncate font-mono text-xs text-zinc-100">{mcpUrl}</span>
           </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-2.5">
-            <span className="text-[11px] font-medium text-zinc-400">
-              MCP Token Scopes
-            </span>
-            <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-              {(
-                [
-                  { key: 'allow_env_reveal', label: 'env:reveal' },
-                  { key: 'allow_container_exec', label: 'container:exec' },
-                  { key: 'allow_server_exec', label: 'host:exec' },
-                  { key: 'allow_app_delete', label: 'app:delete' },
-                ] as const
-              ).map((sc) => {
-                const active = mcpScopes[sc.key];
-                return (
-                  <button
-                    key={sc.key}
-                    type="button"
-                    onClick={() => {
-                      const nextVal = !mcpScopes[sc.key];
-                      setMcpScopes((prev) => ({ ...prev, [sc.key]: nextVal }));
-                      void backendApi.toggleApiTokenPerm('mcp-default', sc.key);
-                      toast.success(`${nextVal ? 'Enabled' : 'Disabled'} MCP scope ${sc.label}`);
-                    }}
-                    className={`rounded-md border px-2 py-0.5 transition-colors cursor-pointer ${
-                      active
-                        ? 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300'
-                        : 'border-white/[0.07] bg-zinc-900 text-zinc-500 hover:text-zinc-300'
-                    }`}
-                  >
-                    {sc.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <CopyButton
+            value={mcpUrl}
+            label="Copy"
+            toastMessage="Copied the endpoint"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
+          />
         </div>
+
+        <McpTokensCard tokens={apiTokens ?? []} isAdmin={Boolean(isAdmin)} mcpUrl={mcpUrl} onChanged={onTokensChanged ?? (() => {})} />
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
@@ -309,7 +226,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           open={clientConfigOpen}
           onClose={() => setClientConfigOpen(false)}
           title="Connect Cursor / Claude Desktop"
-          icon={<Sparkles className="h-4 w-4 text-emerald-400" />}
+          icon={<Cable className="h-4 w-4 text-emerald-400" />}
           maxWidth="lg"
         >
           <CodeEditorBox

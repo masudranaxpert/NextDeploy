@@ -15,14 +15,16 @@ export default defineConfig(() => {
           const srcDir = path.resolve(__dirname, 'dist');
           const destDir = path.resolve(__dirname, 'web/dist');
           if (fs.existsSync(srcDir)) {
-            fs.rmSync(destDir, {recursive: true, force: true});
-            fs.mkdirSync(path.dirname(destDir), {recursive: true});
+            fs.mkdirSync(destDir, {recursive: true});
             fs.cpSync(srcDir, destDir, {recursive: true});
             fs.rmSync(path.join(destDir, 'assets/aistudio'), {recursive: true, force: true});
           }
         },
       },
     ],
+    build: {
+      emptyOutDir: false,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -117,22 +117,24 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
     };
   }, []);
 
-  // GitHub Modal State (matches POST /git/github/start & /git/:pid/update)
+  // GitHub Modal State
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [ghAuthMethod, setGhAuthMethod] = useState<'GitHub App' | 'Fine-Grained PAT'>('GitHub App');
+  const [ghOrgInput, setGhOrgInput] = useState('');
   const [ghAppName, setGhAppName] = useState('');
-  const [ghAccountInput, setGhAccountInput] = useState('');
-  const [ghAppId, setGhAppId] = useState('');
-  const [ghInstallationId, setGhInstallationId] = useState('');
+  const [ghTokenName, setGhTokenName] = useState('');
   const [ghTokenInput, setGhTokenInput] = useState('');
+  const [isSubmittingGh, setIsSubmittingGh] = useState(false);
 
-  // GitLab Modal State (matches POST /git/gitlab/start & /git/:pid/update)
+  // GitLab Modal State
   const [gitlabModalOpen, setGitlabModalOpen] = useState(false);
   const [glAuthMethod, setGlAuthMethod] = useState<'OAuth 2.0' | 'Deploy Token'>('OAuth 2.0');
-  const [glAccountInput, setGlAccountInput] = useState('');
+  const [glNameInput, setGlNameInput] = useState('');
   const [glInstanceUrl, setGlInstanceUrl] = useState('https://gitlab.com');
   const [glClientId, setGlClientId] = useState('');
   const [glClientSecret, setGlClientSecret] = useState('');
+  const [glTokenInput, setGlTokenInput] = useState('');
+  const [isSubmittingGl, setIsSubmittingGl] = useState(false);
 
   // Container Registries State (matches POST /settings/registries with is_global)
   const [registryModalOpen, setRegistryModalOpen] = useState(false);
@@ -145,9 +147,34 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [regScope, setRegScope] = useState<'global' | 'personal'>('personal');
 
   const gitlabRedirectUri =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/git/gitlab/callback`
-      : 'https://panel.nextdeploy.sh/git/gitlab/callback';
+`${window.location.origin}/git/gitlab/callback`;
+
+  const refreshProviders = async () => {
+    try {
+      const res = await backendApi.gitProvidersList();
+      if (res.ok && Array.isArray(res.data?.providers)) {
+        const mapped: GitProviderConnection[] = res.data.providers.map((gp: any) => ({
+          id: String(gp.id),
+          provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
+          authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
+          accountName: gp.account_login || gp.name,
+          instanceUrl: gp.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com',
+          status: gp.needs_install ? ('error' as const) : ('connected' as const),
+          reposAccessible: typeof gp.repos_accessible === 'number' ? gp.repos_accessible : 0,
+          webhookDeliveryRate: '100%',
+          webhookUrl: '',
+          lastSynced: 'Just now',
+          needsInstall: Boolean(gp.needs_install),
+          installUrl: gp.install_url,
+          appSlug: gp.app_slug,
+          installationId: gp.installation_id,
+        }));
+        setProviders(mapped);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleSelectRegPreset = (p: RegistryCredential['provider']) => {
     setRegProvider(p);
@@ -171,50 +198,118 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
   const handleConnectGitHub = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ghAccountInput.trim()) return;
     if (ghAuthMethod === 'GitHub App') {
-      await backendApi.startGitHubApp(ghAppName.trim());
+      // GitHub App Manifest Flow: submits form to backend which redirects to GitHub App creation
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/git/github/start';
+      if (ghOrgInput.trim()) {
+        const orgInput = document.createElement('input');
+        orgInput.type = 'hidden';
+        orgInput.name = 'org';
+        orgInput.value = ghOrgInput.trim();
+        form.appendChild(orgInput);
+      }
+      if (ghAppName.trim()) {
+        const nameInput = document.createElement('input');
+        nameInput.type = 'hidden';
+        nameInput.name = 'name';
+        nameInput.value = ghAppName.trim();
+        form.appendChild(nameInput);
+      }
+      document.body.appendChild(form);
+      form.submit();
+      return;
     }
-    const created: GitProviderConnection = {
-      id: `git-gh-${Date.now()}`,
-      provider: 'GitHub',
-      authMethod: ghAuthMethod,
-      accountName: ghAccountInput.trim(),
-      instanceUrl: 'https://github.com',
-      status: 'connected',
-      reposAccessible: 16,
-      webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/github',
-      lastSynced: 'Just now',
-    };
-    setProviders((prev) => [...prev, created]);
-    setGhTokenInput('');
-    setGithubModalOpen(false);
-    toast.success(`Connected GitHub @${created.accountName} (${ghAuthMethod})`);
+
+    // Fine-Grained Personal Access Token (PAT)
+    if (!ghTokenInput.trim()) {
+      toast.error('Personal access token is required');
+      return;
+    }
+    setIsSubmittingGh(true);
+    try {
+      const res = await backendApi.createProvider({
+        name: ghTokenName.trim() || 'GitHub PAT',
+        provider: 'github',
+        token: ghTokenInput.trim(),
+        notes: 'Fine-Grained PAT',
+      });
+      if (!res.ok) {
+        toast.error((res as any).error || 'Failed to connect token');
+        return;
+      }
+      toast.success('Connected GitHub Access Token');
+      setGhTokenInput('');
+      setGhTokenName('');
+      setGithubModalOpen(false);
+      await refreshProviders();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to connect GitHub');
+    } finally {
+      setIsSubmittingGh(false);
+    }
   };
 
   const handleConnectGitLab = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!glAccountInput.trim()) return;
-    if (glAuthMethod === 'OAuth 2.0' && glClientId.trim() && glClientSecret.trim()) {
-      await backendApi.startGitLabOAuth(glClientId.trim(), glClientSecret.trim());
+    if (glAuthMethod === 'OAuth 2.0') {
+      if (!glClientId.trim() || !glClientSecret.trim()) {
+        toast.error('Application ID and Secret are required');
+        return;
+      }
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/git/gitlab/start';
+      const cInput = document.createElement('input');
+      cInput.type = 'hidden';
+      cInput.name = 'client_id';
+      cInput.value = glClientId.trim();
+      form.appendChild(cInput);
+      const sInput = document.createElement('input');
+      sInput.type = 'hidden';
+      sInput.name = 'client_secret';
+      sInput.value = glClientSecret.trim();
+      form.appendChild(sInput);
+      if (glNameInput.trim()) {
+        const nInput = document.createElement('input');
+        nInput.type = 'hidden';
+        nInput.name = 'name';
+        nInput.value = glNameInput.trim();
+        form.appendChild(nInput);
+      }
+      document.body.appendChild(form);
+      form.submit();
+      return;
     }
-    const created: GitProviderConnection = {
-      id: `git-gl-${Date.now()}`,
-      provider: 'GitLab',
-      authMethod: glAuthMethod,
-      accountName: glAccountInput.trim(),
-      instanceUrl: glInstanceUrl.trim() || 'https://gitlab.com',
-      status: 'connected',
-      reposAccessible: 12,
-      webhookDeliveryRate: '100%',
-      webhookUrl: 'https://panel.nextdeploy.sh/webhooks/gitlab',
-      lastSynced: 'Just now',
-    };
-    setProviders((prev) => [...prev, created]);
-    setGlClientSecret('');
-    setGitlabModalOpen(false);
-    toast.success(`Connected GitLab @${created.accountName}`);
+
+    // Deploy Token / PAT
+    if (!glTokenInput.trim()) {
+      toast.error('Token is required');
+      return;
+    }
+    setIsSubmittingGl(true);
+    try {
+      const res = await backendApi.createProvider({
+        name: glNameInput.trim() || 'GitLab Token',
+        provider: 'gitlab',
+        token: glTokenInput.trim(),
+        notes: 'Deploy Token',
+      });
+      if (!res.ok) {
+        toast.error((res as any).error || 'Failed to connect GitLab token');
+        return;
+      }
+      toast.success('Connected GitLab Token');
+      setGlTokenInput('');
+      setGlNameInput('');
+      setGitlabModalOpen(false);
+      await refreshProviders();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to connect GitLab');
+    } finally {
+      setIsSubmittingGl(false);
+    }
   };
 
   const filteredRepos = repos.filter(
@@ -299,7 +394,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                       ...(p.provider === 'GitHub'
                         ? [
                             {
-                              label: 'Manage Installation',
+                              label: 'Manage Repositories on GitHub',
                               icon: <ExternalLink className="h-3.5 w-3.5 text-orange-400" />,
                               onClick: () => {
                                 const targetUrl =
@@ -320,7 +415,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                               },
                             },
                             {
-                              label: 'Re-install / Add Account',
+                              label: 'Install on Another Account / Org',
                               icon: <Github className="h-3.5 w-3.5 text-zinc-400" />,
                               onClick: () => {
                                 const targetUrl = p.appSlug
@@ -338,6 +433,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           if (!isGitLab) {
                             await backendApi.refreshGitHubInstall(p.id);
                           }
+                          await refreshProviders();
                           toast.success(`Synced installation & repositories for ${p.accountName}`);
                         },
                       },
@@ -360,15 +456,40 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                         label: 'Disconnect Provider',
                         icon: <Trash2 className="h-3.5 w-3.5" />,
                         variant: 'danger',
-                        onClick: () => {
-                          void backendApi.deleteGitProvider(p.id);
-                          setProviders((prev) => prev.filter((item) => item.id !== p.id));
+                        onClick: async () => {
+                          await backendApi.deleteGitProvider(p.id);
+                          await refreshProviders();
                           toast.success(`Disconnected ${p.accountName}`);
                         },
                       },
                     ]}
                   />
                 </div>
+
+                {p.needsInstall && p.provider === 'GitHub' && (
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                    <div className="font-semibold mb-1 flex items-center justify-between">
+                      <span>Installation Required</span>
+                    </div>
+                    <p className="text-[11px] text-amber-300/80 mb-2 leading-tight">
+                      Install this GitHub App to select repositories and activate auto-deploy.
+                    </p>
+                    <a
+                      href={
+                        p.appSlug
+                          ? `https://github.com/apps/${p.appSlug.trim()}/installations/new`
+                          : p.installUrl || `/git/${p.id}/github/install`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-amber-400 cursor-pointer"
+                    >
+                      <Github className="h-3 w-3" />
+                      Install on GitHub
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 font-mono text-[11px] text-zinc-400">
                   <span>{p.reposAccessible} repos</span>
@@ -561,7 +682,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         <ShadcnDialog
           open={githubModalOpen}
           onClose={() => setGithubModalOpen(false)}
-          title="Connect GitHub (App Manifest or PAT)"
+          title="Connect GitHub"
           icon={<Github className="h-4 w-4" />}
         >
           <form onSubmit={handleConnectGitHub} className="space-y-4">
@@ -574,81 +695,90 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   className={`rounded-lg border px-3 py-2 text-xs font-medium cursor-pointer ${
                     ghAuthMethod === m
                       ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
-                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400'
+                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  {m}
+                  {m === 'GitHub App' ? 'GitHub App (Recommended)' : 'Personal Access Token'}
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  GitHub Account or Organization
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={ghAccountInput}
-                  onChange={(e) => setGhAccountInput(e.target.value)}
-                  placeholder="github-username-or-org"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-              {ghAuthMethod === 'GitHub App' && (
+
+            {ghAuthMethod === 'GitHub App' ? (
+              <div className="space-y-3.5">
+                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-1.5 leading-relaxed">
+                  <div className="font-semibold text-zinc-100 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-orange-400" />
+                    One-Click GitHub App Manifest
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    NextDeploy will automatically register a GitHub App with fine-grained repository permissions and webhook listeners. You choose which repositories to grant on GitHub.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    GitHub App Name (app_name)
+                    GitHub Organization <span className="text-zinc-600 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={ghOrgInput}
+                    onChange={(e) => setGhOrgInput(e.target.value)}
+                    placeholder="Leave empty for personal user account"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    If specified, the app is created directly in your GitHub organization.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Custom App Name <span className="text-zinc-600 font-normal">(optional)</span>
                   </label>
                   <input
                     type="text"
                     value={ghAppName}
                     onChange={(e) => setGhAppName(e.target.value)}
-                    placeholder="my-github-app"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                </div>
-              )}
-            </div>
-
-            {ghAuthMethod === 'GitHub App' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    App ID (Optional Override)
-                  </label>
-                  <input
-                    type="text"
-                    value={ghAppId}
-                    onChange={(e) => setGhAppId(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Installation ID
-                  </label>
-                  <input
-                    type="text"
-                    value={ghInstallationId}
-                    onChange={(e) => setGhInstallationId(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    placeholder="e.g. NextDeploy-Production (or leave empty for auto-generated)"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
                   />
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Personal Access Token
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={ghTokenInput}
-                  onChange={(e) => setGhTokenInput(e.target.value)}
-                  placeholder="github_pat_..."
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
+              <div className="space-y-3.5">
+                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-1">
+                  <div className="font-semibold text-zinc-100">Personal Access Token (PAT)</div>
+                  <p className="text-[11px] text-zinc-400">
+                    Provide a Fine-Grained or Classic Personal Access Token with <code className="text-orange-400 font-mono">repo</code> permissions.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Token Label / Name <span className="text-zinc-600 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={ghTokenName}
+                    onChange={(e) => setGhTokenName(e.target.value)}
+                    placeholder="e.g. My GitHub Token"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Personal Access Token
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={ghTokenInput}
+                    onChange={(e) => setGhTokenInput(e.target.value)}
+                    placeholder="github_pat_... or ghp_..."
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+                </div>
               </div>
             )}
 
@@ -656,15 +786,17 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setGithubModalOpen(false)}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                disabled={isSubmittingGh}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
               >
-                {ghAuthMethod === 'GitHub App' ? 'Register GitHub App' : 'Connect GitHub'}
+                <Github className="h-3.5 w-3.5" />
+                {ghAuthMethod === 'GitHub App' ? 'Connect with GitHub App' : 'Connect Access Token'}
               </button>
             </div>
           </form>
@@ -674,7 +806,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         <ShadcnDialog
           open={gitlabModalOpen}
           onClose={() => setGitlabModalOpen(false)}
-          title="Connect GitLab (OAuth 2.0)"
+          title="Connect GitLab"
           icon={<GitLabIcon className="h-4 w-4 text-orange-400" />}
         >
           <form onSubmit={handleConnectGitLab} className="space-y-4">
@@ -687,104 +819,102 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   className={`rounded-lg border px-3 py-2 text-xs font-medium cursor-pointer ${
                     glAuthMethod === m
                       ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
-                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400'
+                      : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  {m}
+                  {m === 'OAuth 2.0' ? 'OAuth 2.0 (Recommended)' : 'Deploy Token / PAT'}
                 </button>
               ))}
             </div>
 
-            {glAuthMethod === 'OAuth 2.0' && (
-              <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.05] p-2.5 font-mono text-[11px] text-zinc-300">
-                <div className="flex items-center justify-between text-[10px] text-orange-300 font-sans font-semibold mb-1">
-                  <span>GitLab OAuth Redirect URI (Scopes: api, read_user, read_repository)</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(gitlabRedirectUri);
-                      toast.success('Copied GitLab Redirect URI');
-                    }}
-                    className="underline cursor-pointer"
-                  >
-                    Copy
-                  </button>
-                </div>
-                <div className="truncate">{gitlabRedirectUri}</div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  GitLab Instance URL
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={glInstanceUrl}
-                  onChange={(e) => setGlInstanceUrl(e.target.value)}
-                  placeholder="https://gitlab.com"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Group or Namespace
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={glAccountInput}
-                  onChange={(e) => setGlAccountInput(e.target.value)}
-                  placeholder="my-organization"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
-              </div>
-            </div>
-
             {glAuthMethod === 'OAuth 2.0' ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-3.5">
+                <div className="rounded-lg border border-orange-500/20 bg-orange-500/[0.05] p-2.5 font-mono text-[11px] text-zinc-300">
+                  <div className="flex items-center justify-between text-[10px] text-orange-300 font-sans font-semibold mb-1">
+                    <span>GitLab OAuth Redirect URI (Scopes: api, read_user, read_repository)</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await copyToClipboard(gitlabRedirectUri);
+                        if (ok) toast.success('Copied GitLab Redirect URI');
+                      }}
+                      className="underline cursor-pointer text-orange-300 hover:text-orange-200"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="truncate text-zinc-400">{gitlabRedirectUri}</div>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Application ID (client_id)
+                    Account / Group Name <span className="text-zinc-600 font-normal">(optional)</span>
                   </label>
                   <input
                     type="text"
-                    required
-                    value={glClientId}
-                    onChange={(e) => setGlClientId(e.target.value)}
-                    placeholder="8a91c04f..."
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    value={glNameInput}
+                    onChange={(e) => setGlNameInput(e.target.value)}
+                    placeholder="e.g. My GitLab Group"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                      Application ID (client_id)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={glClientId}
+                      onChange={(e) => setGlClientId(e.target.value)}
+                      placeholder="8a91c04f..."
+                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                      Secret (client_secret)
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={glClientSecret}
+                      onChange={(e) => setGlClientSecret(e.target.value)}
+                      placeholder="gloas-••••••••••••"
+                      className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                    Account / Label <span className="text-zinc-600 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={glNameInput}
+                    onChange={(e) => setGlNameInput(e.target.value)}
+                    placeholder="e.g. GitLab Personal Token"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    Secret (client_secret)
+                    GitLab Deploy Token or PAT
                   </label>
                   <input
                     type="password"
                     required
-                    value={glClientSecret}
-                    onChange={(e) => setGlClientSecret(e.target.value)}
-                    placeholder="gloas-••••••••••••"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                    value={glTokenInput}
+                    onChange={(e) => setGlTokenInput(e.target.value)}
+                    placeholder="glpat-•••••••••••• or gldt-••••••••••••"
+                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
                   />
                 </div>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  GitLab Deploy Token
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={glClientSecret}
-                  onChange={(e) => setGlClientSecret(e.target.value)}
-                  placeholder="glpat-••••••••••••"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
-                />
               </div>
             )}
 
@@ -792,15 +922,17 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setGitlabModalOpen(false)}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                disabled={isSubmittingGl}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
               >
-                Connect GitLab
+                <GitLabIcon className="h-3.5 w-3.5 text-orange-500" />
+                {glAuthMethod === 'OAuth 2.0' ? 'Authorize with GitLab' : 'Connect GitLab Token'}
               </button>
             </div>
           </form>

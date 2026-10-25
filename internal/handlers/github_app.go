@@ -125,8 +125,12 @@ func githubAppInstallationURL(appSlug, state string) string {
 	return target + "?state=" + url.QueryEscape(state)
 }
 
-func githubAppInstallURL(appName string) string {
+func githubAppInstallURL(appName, org string) string {
 	base := "https://github.com/settings/apps/new"
+	org = strings.TrimSpace(org)
+	if org != "" {
+		base = "https://github.com/organizations/" + url.PathEscape(org) + "/settings/apps/new"
+	}
 	if strings.TrimSpace(appName) == "" {
 		return base
 	}
@@ -230,8 +234,12 @@ func fetchGitHubInstallation(ctx context.Context, detail db.GitHubProviderDetail
 func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
+		name = strings.TrimSpace(c.FormValue("app_name"))
+	}
+	if name == "" {
 		name = uniqueGitHubAppName()
 	}
+	org := strings.TrimSpace(c.FormValue("org"))
 	state := randomState()
 	if err := p.DB.SetSetting(c.UserContext(), "github_manifest_state:"+state, name); err != nil {
 		SetFlashError(c, err.Error())
@@ -243,7 +251,7 @@ func (p *Panel) GitHubAppManifestStart(c *fiber.Ctx) error {
 		SetFlashError(c, err.Error())
 		return c.Redirect("/git")
 	}
-	target := githubAppInstallURL(name)
+	target := githubAppInstallURL(name, org)
 	return c.Status(fiber.StatusOK).Type("html").SendString(`
 <html><body>
 <form id="gh-manifest-form" method="post" action="` + target + `">
@@ -361,6 +369,16 @@ func (p *Panel) GitHubAppManifestCallback(c *fiber.Ctx) error {
 	if err := p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail); err != nil {
 		SetFlashError(c, err.Error())
 		return c.Redirect("/git")
+	}
+	// If the newly created app has no installation yet, immediately forward to GitHub's install screen
+	// so the user can select their account & repositories in a seamless single pass.
+	if strings.TrimSpace(detail.InstallationID) == "" && strings.TrimSpace(detail.AppSlug) != "" {
+		detail.ManifestState = "gh_setup:" + randomState()
+		_ = p.DB.UpsertGitHubProviderDetail(c.UserContext(), detail)
+		target := githubAppInstallationURL(detail.AppSlug, detail.ManifestState)
+		if target != "" {
+			return c.Redirect(target)
+		}
 	}
 	SetFlash(c, "saved")
 	return c.Redirect("/git")

@@ -1,8 +1,10 @@
 package handlers
 
 import (
-	"log"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
+	"panel/internal/perflog"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,12 +37,42 @@ func (p *Panel) ServeSPA(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusServiceUnavailable).SendString("NextDeploy UI bundle not found. Run 'npm run build' first.")
 }
 
+// The slow Docker lookups every page load needs. They are shared by all users (each user's view is
+// filtered afterwards) and refreshed in the background; Docker changes made by the panel clear them.
+const bootTTL = 4 * time.Second
+
+type bootContainerList struct {
+	rows []dockerapi.ContainerRow
+	err  string
+}
+
+var (
+	bootVolumes    swrCache[[]string]
+	bootContainers swrCache[bootContainerList]
+	bootImages     swrCache[[]dockerapi.ImageRow]
+)
+
+// invalidateBootCaches makes the next page load fetch Docker's state again.
+func invalidateBootCaches() {
+	bootVolumes.invalidate()
+	bootContainers.invalidate()
+	bootImages.invalidate()
+}
+
 var (
 	caddyStatusMu   sync.Mutex
 	caddyStatusAt   time.Time
 	caddyStatusUp   bool
 	caddyStatusText string
 )
+
+// SPAVersion tells an open browser tab which UI build the server has now, so it can offer a reload
+// after an update instead of failing on a chunk that no longer exists. GET /api/panel/version
+func (p *Panel) SPAVersion(c *fiber.Ctx) error {
+	c.Set("Cache-Control", "no-store")
+	sum := sha256.Sum256(p.SPAIndexHTML)
+	return c.JSON(fiber.Map{"build": hex.EncodeToString(sum[:6])})
+}
 
 // SPABootstrap returns a unified JSON payload for the React SPA control plane.
 // GET /api/panel/bootstrap
@@ -79,15 +111,25 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			defer wg.Done()
 			st := time.Now()
 			fn()
-			log.Printf("[bootstrap] part %s took %v", name, time.Since(st))
+			perflog.Logf("bootstrap part %s %s", name, perflog.FormatDur(time.Since(st)))
 		}()
 	}
 	run("sys", func() { sys = sysinfo.Collect(ctx) })
-	run("volumes", func() { allVolNames, _ = volumex.List(ctx) })
+	run("volumes", func() {
+		allVolNames = bootVolumes.get(bootTTL, func() []string { v, _ := volumex.List(ctx); return v })
+	})
 	run("projects", func() { allProjects = p.AllPanelComposeProjects(ctx) })
 	run("matcher", func() { matcher = volumex.SharedMatcher(ctx) })
-	run("containers", func() { allContainers, dockerErr = dockerapi.ListContainers(ctx) })
-	run("images", func() { allImages, _ = dockerapi.ListImages(ctx) })
+	run("containers", func() {
+		r := bootContainers.get(bootTTL, func() bootContainerList {
+			rows, e := dockerapi.ListContainers(ctx)
+			return bootContainerList{rows, e}
+		})
+		allContainers, dockerErr = r.rows, r.err
+	})
+	run("images", func() {
+		allImages = bootImages.get(bootTTL, func() []dockerapi.ImageRow { v, _ := dockerapi.ListImages(ctx); return v })
+	})
 	run("storage", func() { usedStorage = p.UserStorageBytes(ctx, u.ID) })
 	if !isAdmin {
 		run("usage", func() { quotaMemUsed, quotaCPUUsed = p.userLiveUsage(ctx, u) })
@@ -160,7 +202,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	}
 
 	wg.Wait()
-	log.Printf("[bootstrap] parallel wait took %v", time.Since(t0))
+	perflog.Logf("bootstrap parallel total %s", perflog.FormatDur(time.Since(t0)))
 	tLoop := time.Now()
 
 	appList := make([]appSummary, len(apps))
@@ -343,7 +385,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			ownedApps++
 		}
 	}
-	log.Printf("[bootstrap] appList loop took %v | overall took %v", time.Since(tLoop), time.Since(t0))
+	perflog.Logf("bootstrap app loop %s, total %s", perflog.FormatDur(time.Since(tLoop)), perflog.FormatDur(time.Since(t0)))
 
 	return c.JSON(fiber.Map{
 		"ok": true,
@@ -414,7 +456,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			"enabled": p.QoS != nil,
 		},
 		"php":               p.phpBootstrap(ctx),
-		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") != "0",
+		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") == "1",
 		"telemetry_history": telemetry,
 		"public_ip":         sys.PublicIP,
 		"server_time":       time.Now().UTC().Format(time.RFC3339),

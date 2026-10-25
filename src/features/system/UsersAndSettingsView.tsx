@@ -36,6 +36,8 @@ interface UsersAndSettingsViewProps {
   users: PanelUser[];
   auditLogs: AuditLogEntry[];
   cgroupInfo?: { mode?: string; supported?: boolean };
+  /** What this server really has; quotas above it can never be honoured. */
+  host?: { memoryMB: number; cpus: number; diskMB: number };
   /** The signed-in user: they cannot demote, suspend or delete themselves. */
   currentUserId?: string;
 }
@@ -47,13 +49,15 @@ const LimitField: React.FC<{
   onChange: (v: string) => void;
   hint: string;
   step?: string;
-}> = ({ label, unit, value, onChange, hint, step = '1' }) => (
+  max?: number;
+}> = ({ label, unit, value, onChange, hint, step = '1', max }) => (
   <label className="block">
     <span className="mb-1.5 block text-[11px] font-medium text-zinc-300">{label}</span>
     <div className="relative">
       <input
         type="number"
         min={0}
+        max={max && max > 0 ? max : undefined}
         step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -70,6 +74,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   users: initialUsers,
   auditLogs: initialAuditLogs,
   currentUserId,
+  host,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialAuditLogs);
@@ -146,6 +151,21 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     const maxCpus = Math.max(0, parseFloat(limitMaxCpus) || 0);
     const maxMemoryMb = Math.max(0, parseInt(limitMaxMemoryMb, 10) || 0);
     const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
+
+    if (host) {
+      const over =
+        host.memoryMB > 0 && maxMemoryMb > host.memoryMB
+          ? `Memory is more than this server's ${host.memoryMB} MB RAM`
+          : host.cpus > 0 && maxCpus > host.cpus
+            ? `CPU is more than this server's ${host.cpus} cores`
+            : host.diskMB > 0 && maxStorageMb > host.diskMB
+              ? `Storage is more than this server's ${Math.floor(host.diskMB / 1024)} GB disk`
+              : '';
+      if (over) {
+        toast.error(over);
+        return;
+      }
+    }
 
     try {
       const res = await backendApi.updateUserLimits(limitsModalUser.id, {
@@ -587,7 +607,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
 
             <div>
               <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                Password (min 8 characters, bcrypt hashed)
+                Password (min 8 characters)
               </label>
               <input
                 type="password"
@@ -687,7 +707,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   step="0.5"
                   value={limitMaxCpus}
                   onChange={setLimitMaxCpus}
-                  hint={Number(limitMaxCpus) > 0 ? `${Number(limitMaxCpus)} cores at most` : 'Unlimited'}
+                  max={host?.cpus}
+                  hint={`${Number(limitMaxCpus) > 0 ? `${Number(limitMaxCpus)} cores at most` : 'Unlimited'}${host?.cpus ? ` · server has ${host.cpus}` : ''}`}
                 />
                 <LimitField
                   label="Memory"
@@ -695,7 +716,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   step="256"
                   value={limitMaxMemoryMb}
                   onChange={setLimitMaxMemoryMb}
-                  hint={Number(limitMaxMemoryMb) > 0 ? `≈ ${(Number(limitMaxMemoryMb) / 1024).toFixed(1)} GB RAM` : 'Unlimited'}
+                  max={host?.memoryMB}
+                  hint={`${Number(limitMaxMemoryMb) > 0 ? `≈ ${(Number(limitMaxMemoryMb) / 1024).toFixed(1)} GB RAM` : 'Unlimited'}${host?.memoryMB ? ` · server has ${(host.memoryMB / 1024).toFixed(1)} GB` : ''}`}
                 />
                 <LimitField
                   label="Storage"
@@ -703,7 +725,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   step="1024"
                   value={limitMaxStorageMb}
                   onChange={setLimitMaxStorageMb}
-                  hint={Number(limitMaxStorageMb) > 0 ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB disk` : 'Unlimited'}
+                  max={host?.diskMB}
+                  hint={`${Number(limitMaxStorageMb) > 0 ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB disk` : 'Unlimited'}${host?.diskMB ? ` · server has ${(host.diskMB / 1024).toFixed(0)} GB` : ''}`}
                 />
               </div>
               <p className="-mt-1 text-[11px] text-zinc-500">

@@ -177,6 +177,7 @@ func (p *Panel) InvalidateAfterAppWorkspaceChange(appID string) {
 }
 
 func (p *Panel) InvalidateAfterDockerChange() {
+	invalidateBootCaches()
 	volumex.InvalidateSharedMatcher()
 	sysinfo.InvalidateDiskCache()
 	go p.refreshMonitorSnapshot()

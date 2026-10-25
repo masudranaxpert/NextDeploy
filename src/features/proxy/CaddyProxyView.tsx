@@ -458,42 +458,42 @@ ${externalVolDefs}`;
                   <Lock className="h-4 w-4 text-orange-400" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold text-zinc-100">Panel Domain</h2>
-                    {serverIp && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await copyToClipboard(serverIp);
-                          if (ok) {
-                            toast.success(`Copied server IP: ${serverIp}`);
-                          } else {
-                            toast.error('Failed to copy IP address');
-                          }
-                        }}
-                        title="Click to copy server IP address"
-                        className="group inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-zinc-900/90 px-2 py-0.5 font-mono text-[11px] text-zinc-300 hover:border-orange-500/40 hover:bg-zinc-800 hover:text-orange-300 cursor-pointer transition-colors shadow-xs"
-                      >
-                        <Server className="h-3 w-3 text-orange-400" />
-                        <span>IP: {serverIp}</span>
-                        <Copy className="h-2.5 w-2.5 text-zinc-500 group-hover:text-orange-400 transition-colors" />
-                      </button>
-                    )}
-                  </div>
-                  <p className="font-mono text-[11px] text-zinc-500">POST /nextdeploy/panel</p>
+                  <h2 className="text-sm font-semibold text-zinc-100">Panel Domain</h2>
+                  <p className="text-[11px] text-zinc-500">The address you open this panel on</p>
                 </div>
               </div>
-              {panelDomain.trim() && (
-                <a
-                  href={`${panelEnableHttps ? 'https' : 'http'}://${panelDomain.trim()}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-mono text-xs text-emerald-400 hover:underline"
-                >
-                  {panelDomain.trim()}
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
+              <div className="flex items-center gap-2">
+                {serverIp && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await copyToClipboard(serverIp);
+                      if (ok) {
+                        toast.success(`Copied server IP: ${serverIp}`);
+                      } else {
+                        toast.error('Failed to copy IP address');
+                      }
+                    }}
+                    title="Click to copy server IP address"
+                    className="group inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-zinc-900/90 px-2 py-1 font-mono text-[11px] text-zinc-300 hover:border-orange-500/40 hover:bg-zinc-800 hover:text-orange-300 cursor-pointer transition-colors shadow-xs"
+                  >
+                    <Server className="h-3 w-3 text-orange-400" />
+                    <span>IP: {serverIp}</span>
+                    <Copy className="h-2.5 w-2.5 text-zinc-500 group-hover:text-orange-400 transition-colors" />
+                  </button>
+                )}
+                {panelDomain.trim() && (
+                  <a
+                    href={`${panelEnableHttps ? 'https' : 'http'}://${panelDomain.trim()}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-xs text-emerald-400 hover:underline"
+                  >
+                    {panelDomain.trim()}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
             </div>
 
             <div>
@@ -513,7 +513,7 @@ ${externalVolDefs}`;
               <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3 py-2.5">
                 <div>
                   <div className="text-xs font-medium text-zinc-200">Automatic HTTPS</div>
-                  <div className="font-mono text-[10px] text-zinc-500">panel_enable_https</div>
+                  <div className="text-[10px] text-zinc-500">Get a free certificate for the panel</div>
                 </div>
                 <ShadcnSwitch checked={panelEnableHttps} onChange={setPanelEnableHttps} />
               </div>
@@ -521,7 +521,7 @@ ${externalVolDefs}`;
               <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#09090b] px-3 py-2.5">
                 <div>
                   <div className="text-xs font-medium text-zinc-200">Also route www</div>
-                  <div className="font-mono text-[10px] text-zinc-500">panel_enable_www</div>
+                  <div className="text-[10px] text-zinc-500">Also answer on www.your-domain</div>
                 </div>
                 <ShadcnSwitch checked={panelEnableWww} onChange={setPanelEnableWww} />
               </div>
@@ -571,7 +571,7 @@ ${externalVolDefs}`;
 
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-400">
-                Mount prefix (caddy_shared_mount_prefix)
+                Mount folder prefix
               </label>
               <input
                 type="text"
@@ -651,7 +651,7 @@ ${externalVolDefs}`;
             </div>
             <div>
               <h2 className="text-sm font-semibold text-zinc-100">Proxy Control</h2>
-              <p className="font-mono text-[11px] text-zinc-500">POST /caddy/config</p>
+              <p className="text-[11px] text-zinc-500">How the Caddy proxy itself is set up</p>
             </div>
           </div>
           <button
@@ -666,7 +666,7 @@ ${externalVolDefs}`;
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-              Admin API URL (admin_api)
+              Caddy admin API address
             </label>
             <input
               type="text"
@@ -678,7 +678,7 @@ ${externalVolDefs}`;
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-              ACME Email (email)
+              Certificate email
             </label>
             <input
               type="email"
@@ -690,7 +690,7 @@ ${externalVolDefs}`;
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-              Caddy Image (caddy_image)
+              Caddy image
             </label>
             <input
               type="text"

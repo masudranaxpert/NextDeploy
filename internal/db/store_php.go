@@ -94,6 +94,12 @@ func (s *Store) migratePHPHosting() error {
   FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_php_cron_app ON php_cron_jobs(app_id);`,
+		`CREATE TABLE IF NOT EXISTS php_security (
+  app_id TEXT PRIMARY KEY,
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
+);`,
 		`CREATE TABLE IF NOT EXISTS php_db_users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   app_id TEXT NOT NULL,
@@ -185,7 +191,8 @@ func (s *Store) CreateAppAtomic(ctx context.Context, id, name string, ownerID in
 	}()
 
 	var found string
-	err = conn.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ? LIMIT 1`, strings.ToLower(strings.TrimSpace(name)), ownerID).Scan(&found)
+	err = conn.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ?
+AND (id IN (SELECT app_id FROM php_sites)) = ? LIMIT 1`, strings.ToLower(strings.TrimSpace(name)), ownerID, site != nil).Scan(&found)
 	if err == nil && found != "" {
 		return errors.New("app name already exists")
 	}
@@ -567,4 +574,20 @@ func (s *Store) ReplacePHPUserGrants(ctx context.Context, userID int64, grants [
 		}
 	}
 	return tx.Commit()
+}
+
+// GetPHPSecurityJSON returns the stored protection settings of a site ("" when none were saved).
+func (s *Store) GetPHPSecurityJSON(ctx context.Context, appID string) string {
+	var v string
+	if err := s.db.QueryRowContext(ctx, `SELECT settings_json FROM php_security WHERE app_id = ?`, appID).Scan(&v); err != nil {
+		return ""
+	}
+	return v
+}
+
+func (s *Store) SetPHPSecurityJSON(ctx context.Context, appID, settingsJSON string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO php_security (app_id, settings_json, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(app_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at`,
+		appID, settingsJSON, time.Now().UTC().Format(time.RFC3339))
+	return err
 }

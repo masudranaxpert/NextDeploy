@@ -101,3 +101,29 @@ func TestDuplicateNameAndDatabaseLimit(t *testing.T) {
 		t.Fatal("database limit must be enforced")
 	}
 }
+
+// Names only need to be unique inside one account and one kind of app: another user, or the
+// same user's PHP site, can reuse a name, and nobody can tell from the error that it exists.
+func TestSameNameAcrossUsersAndKinds(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	aid, _ := s.CreateUser(ctx, "alice", "x", db.RoleUser)
+	bid, _ := s.CreateUser(ctx, "bob", "x", db.RoleUser)
+	alice := db.User{ID: aid, Role: db.RoleUser, MaxApps: 5}
+	bob := db.User{ID: bid, Role: db.RoleUser, MaxApps: 5}
+
+	if err := CreateApp(ctx, s, alice, "blog-1111", "blog"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateApp(ctx, s, bob, "blog-2222", "blog"); err != nil {
+		t.Fatalf("another user must be able to use the same name: %v", err)
+	}
+	site := db.PHPSite{AppID: "blog-3333", OwnerID: aid, SiteType: "php", PHPVersion: "8.3"}
+	if err := CreatePHPSite(ctx, s, alice, "blog-3333", "blog", &site); err != nil {
+		t.Fatalf("a PHP site may share a name with a project of the same user: %v", err)
+	}
+	site2 := db.PHPSite{AppID: "blog-4444", OwnerID: aid, SiteType: "php", PHPVersion: "8.3"}
+	if err := CreatePHPSite(ctx, s, alice, "blog-4444", "Blog", &site2); err == nil {
+		t.Fatal("two PHP sites of one user must not share a name")
+	}
+}

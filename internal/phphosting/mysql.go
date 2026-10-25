@@ -113,9 +113,20 @@ func (m *Manager) MySQLEnabled(ctx context.Context) bool {
 
 func (m *Manager) MySQLStatus(ctx context.Context) MySQLStatus {
 	status.mu.Lock()
-	if time.Since(status.mysqlAt) < mysqlTTL {
+	if !status.mysqlAt.IsZero() || status.mysql.Image != "" {
 		st := status.mysql
+		fresh := time.Since(status.mysqlAt) < mysqlTTL
 		status.mu.Unlock()
+		if !fresh {
+			status.refreshOnce(2, func() {
+				bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				fresh := m.mysqlStatusUncached(bg)
+				status.mu.Lock()
+				status.mysql, status.mysqlAt = fresh, time.Now()
+				status.mu.Unlock()
+			})
+		}
 		return st
 	}
 	status.mu.Unlock()

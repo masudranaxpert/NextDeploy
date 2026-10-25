@@ -30,7 +30,29 @@ func (s *Store) AppNameExistsForUser(ctx context.Context, name string, ownerID i
 		return false, nil
 	}
 	var found string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ? LIMIT 1`, name, ownerID).Scan(&found)
+	// Names only have to be unique within one account and one kind: a user can have a project
+	// and a PHP site with the same name, and two users can use the same name freely (every app
+	// gets its own random id, and all containers, folders and domains are derived from that id).
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ?
+AND id NOT IN (SELECT app_id FROM php_sites) LIMIT 1`, name, ownerID).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return found != "", nil
+}
+
+// PHPSiteNameExistsForUser is the same check among the account's PHP sites only.
+func (s *Store) PHPSiteNameExistsForUser(ctx context.Context, name string, ownerID int64) (bool, error) {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return false, nil
+	}
+	var found string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM apps WHERE lower(name) = ? AND owner_id = ?
+AND id IN (SELECT app_id FROM php_sites) LIMIT 1`, name, ownerID).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

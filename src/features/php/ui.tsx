@@ -257,10 +257,22 @@ export function usePhpStatus() {
   return status;
 }
 
-export const LoadingBlock: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (
-  <div className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 py-12 text-xs text-zinc-400">
-    <Loader2 className="h-4 w-4 animate-spin" />
-    {label}
+/** A quiet placeholder with the shape of the page, instead of a spinner in an empty box. */
+export const LoadingBlock: React.FC<{ label?: string }> = ({ label = 'Loading' }) => (
+  <div className="space-y-5" aria-busy="true" aria-label={label}>
+    {[0, 1].map((i) => (
+      <div key={i} className="rounded-xl border border-white/[0.07] bg-[#111115]/90">
+        <div className="border-b border-white/[0.06] px-4 py-3.5">
+          <div className="h-4 w-32 animate-pulse rounded bg-white/[0.07]" />
+        </div>
+        <div className="grid gap-4 p-4 sm:grid-cols-2">
+          <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+          <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+          <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+          <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+        </div>
+      </div>
+    ))}
   </div>
 );
 

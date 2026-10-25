@@ -198,7 +198,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 onClick={() => {
                   const url =
                     activeBundle.downloadUrl ||
-                    `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`;
+                    `${window.location.origin}/migrate/download/${activeBundle.token}`;
                   navigator.clipboard?.writeText(url);
                   toast.success('Copied one-time download URL');
                 }}
@@ -213,7 +213,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                     activeBundle.migrateCmd ||
                     `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
                       activeBundle.downloadUrl ||
-                      `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`
+                      `${window.location.origin}/migrate/download/${activeBundle.token}`
                     }"`;
                   navigator.clipboard?.writeText(cmd);
                   toast.success('Copied target VPS migrate.sh command');
@@ -230,7 +230,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
             {activeBundle.migrateCmd ||
               `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
                 activeBundle.downloadUrl ||
-                `https://panel.nextdeploy.sh/migrate/download/${activeBundle.token}`
+                `${window.location.origin}/migrate/download/${activeBundle.token}`
               }"`}
           </div>
         </div>
@@ -297,7 +297,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                               b.migrateCmd ||
                               `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
                                 b.downloadUrl ||
-                                `https://panel.nextdeploy.sh/migrate/download/${b.token}`
+                                `${window.location.origin}/migrate/download/${b.token}`
                               }"`;
                             navigator.clipboard?.writeText(cmd);
                             toast.success('Copied target VPS migrate.sh command');
@@ -535,7 +535,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 <p className="text-zinc-400">
                   Click <strong className="text-zinc-200">Create Export Bundle</strong> and choose
                   which projects to migrate. NextDeploy estimates workspace + Docker volume sizes
-                  via <code className="text-orange-300">GET /migrate/estimate</code> and packages
+                  and packages
                   everything into a single <code className="text-orange-300">.nd-migrate</code>{' '}
                   archive.
                 </p>
@@ -600,7 +600,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                   },
                   {
                     title: 'Git Providers & Webhooks',
-                    desc: 'Connected GitHub App private keys/installations and GitLab OAuth 2.0 credentials for seamless push-to-deploy continuity.',
+                    desc: 'Connected GitHub App private keys/installations and GitLab OAuth 2.0 credentials.',
                   },
                   {
                     title: 'Container Registries',

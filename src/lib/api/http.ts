@@ -1,3 +1,5 @@
+import { toast } from 'sonner';
+
 // Core HTTP helpers and shared payload types for NextDeploy Go Backend API Client
 
 export type ApiResult<T = Record<string, unknown>> = {
@@ -15,10 +17,81 @@ const DEFAULT_HEADERS: Record<string, string> = {
   'X-NextDeploy-Client': 'spa',
 };
 
+/** Turns a fetch Response into the ApiResult shape used everywhere in the client. */
+export async function resultFromResponse<T = Record<string, unknown>>(res: Response): Promise<ApiResult<T>> {
+  if (res.status === 401 && typeof window !== 'undefined') {
+    // the session ended (or never existed): the app shows the sign-in screen instead of failing quietly
+    window.dispatchEvent(new Event('nd:unauthorized'));
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return {
+        ok: false,
+        status: res.status,
+        error: errText.trim().slice(0, 300) || `HTTP ${res.status}`,
+      } as ApiResult<T>;
+    }
+    return { ok: true, status: res.status } as ApiResult<T>;
+  }
+  const json = (await res.json()) as T & { ok?: boolean; error?: string; message?: string };
+  const spread =
+    typeof json === 'object' && json !== null && !Array.isArray(json)
+      ? (json as Record<string, unknown>)
+      : {};
+  if (!res.ok || json.ok === false) {
+    return {
+      ...spread,
+      ok: false,
+      status: res.status,
+      data: json,
+      error: json.error || json.message || `HTTP ${res.status}`,
+    } as ApiResult<T>;
+  }
+  return {
+    ...spread,
+    ok: true,
+    status: res.status,
+    data: json,
+  } as ApiResult<T>;
+}
+
+// A change that takes more than a moment shows a "working" toast until it finishes, so the user
+// is never left wondering whether the click did anything. The caller still shows the result.
+function progressLabel(path: string): string {
+  const p = path.toLowerCase();
+  const table: Array<[RegExp, string]> = [
+    [/upload|archive/, 'Uploading…'],
+    [/import/, 'Importing…'],
+    [/export/, 'Exporting…'],
+    [/restore/, 'Restoring…'],
+    [/backup/, 'Backing up…'],
+    [/deploy|rollback/, 'Deploying…'],
+    [/install|pull|build/, 'Installing…'],
+    [/sync|refresh/, 'Syncing…'],
+    [/delete|remove|prune/, 'Removing…'],
+    [/restart|start|stop|apply|action|container/, 'Applying…'],
+    [/save|update|settings|config|create|add|password|limits|security|domains|env/, 'Saving…'],
+  ];
+  for (const [re, label] of table) if (re.test(p)) return label;
+  return 'Working…';
+}
+
+const QUIET_PATHS = /^\/(login|logout|setup)\b|\/status|\/heartbeat|\/sessions\b/;
+
 export async function requestJson<T = Record<string, unknown>>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResult<T>> {
+  const method = (options.method || 'GET').toUpperCase();
+  let timer: number | undefined;
+  let toastId: string | number | undefined;
+  if (method !== 'GET' && typeof window !== 'undefined' && !QUIET_PATHS.test(path)) {
+    timer = window.setTimeout(() => {
+      toastId = toast.loading(progressLabel(path));
+    }, 700);
+  }
   try {
     const headers: Record<string, string> = {
       ...DEFAULT_HEADERS,
@@ -32,40 +105,12 @@ export async function requestJson<T = Record<string, unknown>>(
       ...options,
       headers,
     });
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        return {
-          ok: false,
-          status: res.status,
-          error: errText.trim().slice(0, 300) || `HTTP ${res.status}`,
-        } as ApiResult<T>;
-      }
-      return { ok: true, status: res.status } as ApiResult<T>;
-    }
-    const json = (await res.json()) as T & { ok?: boolean; error?: string; message?: string };
-    const spread =
-      typeof json === 'object' && json !== null && !Array.isArray(json)
-        ? (json as Record<string, unknown>)
-        : {};
-    if (!res.ok || json.ok === false) {
-      return {
-        ...spread,
-        ok: false,
-        status: res.status,
-        data: json,
-        error: json.error || json.message || `HTTP ${res.status}`,
-      } as ApiResult<T>;
-    }
-    return {
-      ...spread,
-      ok: true,
-      status: res.status,
-      data: json,
-    } as ApiResult<T>;
+    return await resultFromResponse<T>(res);
   } catch {
     return { ok: false, error: 'Cannot reach the server' } as ApiResult<T>;
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+    if (toastId !== undefined) toast.dismiss(toastId);
   }
 }
 

@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import { lazyRetry } from './lib/lazyRetry';
 import {
   Activity,
   Archive,
   ArrowLeftRight,
+  SlidersHorizontal,
   Box,
   ChevronRight,
   FileCode2,
@@ -18,7 +20,7 @@ import {
   Search,
   Server,
   Settings,
-  Sparkles,
+  Cable,
   Terminal,
   Users,
   X,
@@ -47,24 +49,51 @@ import {
 } from './data/mcpTools';
 import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
 import { OverviewDashboard } from './features/overview/OverviewDashboard';
-import { ProjectsListView } from './features/projects/ProjectsListView';
-import { AppWorkspace } from './features/workspace/AppWorkspace';
-import { ContainersView } from './features/docker/ContainersView';
-import { ImagesView } from './features/docker/ImagesView';
-import { VolumesView } from './features/docker/VolumesView';
-import { VpsTerminalView } from './features/terminal/VpsTerminalView';
-import { MonitorView } from './features/monitoring/MonitorView';
-import { GitAndRegistriesView } from './features/integrations/GitAndRegistriesView';
-import { CaddyProxyView } from './features/proxy/CaddyProxyView';
-import { BackupsView } from './features/backups/BackupsView';
-import { MigrationView } from './features/migration/MigrationView';
-import { McpAndCliView } from './features/automation/McpAndCliView';
-import { UsersAndSettingsView } from './features/system/UsersAndSettingsView';
 import { AuthView } from './features/auth/AuthView';
-import { PhpSitesView } from './features/php/PhpSitesView';
-import { PhpInstanceView } from './features/php/PhpInstanceView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
+
+// Each screen is its own chunk: only the code for the page you open is downloaded first,
+// the rest is fetched quietly in the background (see the idle prefetch below).
+const AppWorkspace = lazyRetry(() => import('./features/workspace/AppWorkspace').then((m) => ({ default: m.AppWorkspace })));
+const ContainersView = lazyRetry(() => import('./features/docker/ContainersView').then((m) => ({ default: m.ContainersView })));
+const ImagesView = lazyRetry(() => import('./features/docker/ImagesView').then((m) => ({ default: m.ImagesView })));
+const VolumesView = lazyRetry(() => import('./features/docker/VolumesView').then((m) => ({ default: m.VolumesView })));
+const VpsTerminalView = lazyRetry(() => import('./features/terminal/VpsTerminalView').then((m) => ({ default: m.VpsTerminalView })));
+const MonitorView = lazyRetry(() => import('./features/monitoring/MonitorView').then((m) => ({ default: m.MonitorView })));
+const GitAndRegistriesView = lazyRetry(() => import('./features/integrations/GitAndRegistriesView').then((m) => ({ default: m.GitAndRegistriesView })));
+const CaddyProxyView = lazyRetry(() => import('./features/proxy/CaddyProxyView').then((m) => ({ default: m.CaddyProxyView })));
+const CaddyOptionsView = lazyRetry(() => import('./features/proxy/CaddyOptionsView').then((m) => ({ default: m.CaddyOptionsView })));
+const CaddyRoutesView = lazyRetry(() => import('./features/proxy/CaddyRoutesView').then((m) => ({ default: m.CaddyRoutesView })));
+const BackupsView = lazyRetry(() => import('./features/backups/BackupsView').then((m) => ({ default: m.BackupsView })));
+const MigrationView = lazyRetry(() => import('./features/migration/MigrationView').then((m) => ({ default: m.MigrationView })));
+const McpAndCliView = lazyRetry(() => import('./features/automation/McpAndCliView').then((m) => ({ default: m.McpAndCliView })));
+const UsersAndSettingsView = lazyRetry(() => import('./features/system/UsersAndSettingsView').then((m) => ({ default: m.UsersAndSettingsView })));
+const PhpSitesView = lazyRetry(() => import('./features/php/PhpSitesView').then((m) => ({ default: m.PhpSitesView })));
+const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView').then((m) => ({ default: m.PhpInstanceView })));
+const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.ProjectsListView })));
+
+// Start downloading the code of the page in the address bar right away (while the data request
+// runs), instead of waiting for the data first and the code second.
+if (typeof window !== 'undefined') {
+  const path = window.location.pathname;
+  if (path.startsWith('/apps/')) void import('./features/workspace/AppWorkspace');
+  else if (path.startsWith('/php-sites')) void import('./features/php/PhpSitesView');
+  else if (path.startsWith('/php-instance')) void import('./features/php/PhpInstanceView');
+  else if (path.startsWith('/apps')) void import('./features/projects/ProjectsListView');
+  else if (path.startsWith('/containers')) void import('./features/docker/ContainersView');
+  else if (path.startsWith('/images')) void import('./features/docker/ImagesView');
+  else if (path.startsWith('/volumes')) void import('./features/docker/VolumesView');
+  else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
+}
+
+const ViewSkeleton: React.FC = () => (
+  <div className="space-y-4" aria-busy="true" aria-label="Loading">
+    <div className="h-7 w-48 animate-pulse rounded-lg bg-white/[0.05]" />
+    <div className="h-40 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
+    <div className="h-64 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
+  </div>
+);
 
 
 
@@ -117,6 +146,8 @@ export default function App() {
       'cli-sessions',
       'migrate',
       'proxy',
+      'proxy-options',
+      'proxy-routes',
       'settings',
       'audit-logs',
       'users',
@@ -189,6 +220,17 @@ export default function App() {
 
   // Core State
   const [sys, setSys] = useState<any>(null);
+  const hostCaps = useMemo(
+    () =>
+      sys
+        ? {
+            memoryMB: Math.floor((sys.MemTotalGB || 0) * 1024),
+            cpus: sys.NumCPU || 0,
+            diskMB: Math.floor((sys.DiskTotalGB || 0) * 1024),
+          }
+        : undefined,
+    [sys],
+  );
   const [apps, setApps] = useState<AppStack[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [images, setImages] = useState<DockerImageItem[]>([]);
@@ -206,9 +248,11 @@ export default function App() {
   const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
   const [phpEnabled, setPhpEnabled] = useState(false);
+  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const [apiTokens, setApiTokens] = useState<any[]>([]);
   const [myQuota, setMyQuota] = useState<any>(null);
   React.useEffect(() => {
-    const adminOnly = ['monitor', 'terminal', 'proxy', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
+    const adminOnly = ['monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
     if (currentUser && currentUser.role !== 'admin' && !selectedAppId && adminOnly.includes(activeNav)) {
       setActiveNav('overview');
       window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
@@ -408,17 +452,7 @@ export default function App() {
           createdAt: d.created_at || 'Active',
         }))
       : [],
-    files: [
-      {
-        path: 'docker-compose.yml',
-        name: 'docker-compose.yml',
-        type: 'file' as const,
-        sizeBytes: 100,
-        updatedAt: 'Recently',
-        language: 'yaml' as const,
-        content: 'services:\n  app:\n    build: .\n',
-      },
-    ],
+    files: [], // the real list is loaded from the server when the file manager opens
     envVars: (a.env_content || '')
       .split('\n')
       .filter((l: string) => l.includes('='))
@@ -510,6 +544,8 @@ export default function App() {
     }
 
     setPhpEnabled(Boolean((data as any).php?.enabled));
+    setMcpEnabled(Boolean((data as any).mcp_enabled));
+    setApiTokens(Array.isArray((data as any).api_tokens) ? (data as any).api_tokens : []);
     setMyQuota((data as any).quota && !(data as any).quota.unlimited ? (data as any).quota : null);
 
     const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
@@ -795,6 +831,69 @@ export default function App() {
     setDockerVersion(typeof data.docker_version === 'string' ? data.docker_version : '');
   }, []);
 
+  // Any request answered with 401 means the session ended: show the sign-in screen once.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setAuthMode((cur) => cur ?? 'login');
+      setIsBootstrapping(false);
+    };
+    window.addEventListener('nd:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('nd:unauthorized', onUnauthorized);
+  }, []);
+
+  // Tell the user when the panel was updated while this tab was open.
+  useEffect(() => {
+    if (isBootstrapping || authMode) return;
+    let baseline = '';
+    let stopped = false;
+    const check = async () => {
+      try {
+        const r = await fetch('/api/panel/version', { cache: 'no-store' });
+        if (!r.ok) return;
+        const { build } = (await r.json()) as { build?: string };
+        if (!build || stopped) return;
+        if (!baseline) baseline = build;
+        else if (build !== baseline) {
+          toast.message('NextDeploy was updated', {
+            id: 'new-version',
+            description: 'Reload to use the new version.',
+            duration: Infinity,
+            action: { label: 'Reload', onClick: () => window.location.reload() },
+          });
+        }
+      } catch {
+        // offline: try again later
+      }
+    };
+    void check();
+    const t = window.setInterval(check, 90000);
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      stopped = true;
+      window.clearInterval(t);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isBootstrapping, authMode]);
+
+  // After the first screen is up, fetch the other screens' code while the browser is idle,
+  // so opening them later is instant.
+  useEffect(() => {
+    if (isBootstrapping || authMode) return;
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
+    const run = () => {
+      void import('./features/workspace/AppWorkspace');
+      void import('./features/php/PhpSitesView');
+      void import('./features/projects/ProjectsListView');
+      void import('./features/docker/ContainersView');
+      void import('./features/docker/ImagesView');
+      void import('./features/docker/VolumesView');
+      void import('./features/monitoring/MonitorView');
+    };
+    if (idle) idle(run);
+    else window.setTimeout(run, 1500);
+  }, [isBootstrapping, authMode]);
+
   // First page data. Only a 401 means "not signed in". A slow or failed request is retried and, if
   // it keeps failing, shown as an error: it must never put a signed-in user on the login page.
   const loadBootstrap = React.useCallback(
@@ -974,21 +1073,26 @@ export default function App() {
         {
           id: 'mcp',
           label: 'MCP Server',
-          icon: <Sparkles className="h-3.5 w-3.5" />,
-          badge: { text: 'AI', tone: 'emerald' },
+          icon: <Cable className="h-3.5 w-3.5" />,
         },
         {
           id: 'cli-sessions',
           label: 'CLI Sessions',
           icon: <KeyRound className="h-3.5 w-3.5" />,
-          badge: { text: 'nd', tone: 'violet' },
         },
+      ],
+    },
+    {
+      group: 'Caddy',
+      items: [
+        { id: 'proxy', label: 'Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
+        { id: 'proxy-options', label: 'Server Options', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
+        { id: 'proxy-routes', label: 'Routes & Redirects', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
       ],
     },
     {
       group: 'System',
       items: [
-        { id: 'proxy', label: 'Caddy Proxy', icon: <Globe className="h-3.5 w-3.5" /> },
         { id: 'migrate', label: 'Migration', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
         { id: 'users', label: 'Team & Quotas', icon: <Users className="h-3.5 w-3.5" /> },
         { id: 'audit-logs', label: 'Audit Trail', icon: <FileText className="h-3.5 w-3.5" /> },
@@ -1002,6 +1106,8 @@ export default function App() {
     'monitor',
     'terminal',
     'proxy',
+    'proxy-options',
+    'proxy-routes',
     'migrate',
     'users',
     'settings',
@@ -1068,7 +1174,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
-      <Toaster position="bottom-right" theme="dark" />
+      <Toaster position="bottom-right" theme="dark" richColors closeButton duration={4500} visibleToasts={4} toastOptions={{ classNames: { toast: "font-sans text-xs" } }} />
 
       {mobileMenuOpen && (
         <div
@@ -1156,9 +1262,6 @@ export default function App() {
                         : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
                     }`}
                   >
-                    {isActive && (
-                      <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-orange-500" />
-                    )}
                     <span className={isActive ? 'text-orange-400 shrink-0' : 'text-zinc-500 shrink-0'}>
                       {item.icon}
                     </span>
@@ -1282,6 +1385,7 @@ export default function App() {
 
           {/* Main Viewport */}
           <main className="relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7">
+            <Suspense fallback={<ViewSkeleton />}>
             {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
@@ -1444,6 +1548,10 @@ export default function App() {
                   setRegistries((prev) => prev.filter((item) => item.id !== id))
                 }
               />
+            ) : activeNav === 'proxy-options' ? (
+              <CaddyOptionsView />
+            ) : activeNav === 'proxy-routes' ? (
+              <CaddyRoutesView />
             ) : activeNav === 'proxy' ? (
               <CaddyProxyView
                 apps={apps}
@@ -1487,7 +1595,13 @@ export default function App() {
                 mode="mcp"
                 tools={MCP_TOOLS_CATALOG}
                 cliSessions={cliSessions}
+                mcpEnabled={mcpEnabled}
                 isAdmin={isAdminUser}
+                apiTokens={apiTokens}
+                onTokensChanged={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && Array.isArray((r.data as any)?.api_tokens)) setApiTokens((r.data as any).api_tokens);
+                }}
                 onGenerateCliToken={() => {}}
               />
             ) : activeNav === 'cli-sessions' ? (
@@ -1527,6 +1641,7 @@ export default function App() {
             ) : activeNav === 'users' ? (
               <UsersAndSettingsView
                 mode="users"
+                host={hostCaps}
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
@@ -1565,6 +1680,7 @@ export default function App() {
                 onSelectNav={(nav) => navigateTo(nav)}
               />
             )}
+            </Suspense>
           </main>
         </div>
       </div>

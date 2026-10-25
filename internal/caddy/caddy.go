@@ -588,7 +588,7 @@ func MergeCaddyGatewayPorts(caddySvc map[string]interface{}, ports []db.Allocate
 
 // GenerateRootStackCompose updates the root NextDeploy stack compose with
 // Caddy admin settings, optional panel domain labels, and allocated gateway ports.
-func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string, sharedMounts []NDSharedMount, gatewayPorts ...db.AllocatedPort) ([]byte, error) {
+func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enableWWW bool, email, caddyImage string, sharedMounts []NDSharedMount, opts GlobalOptions, gatewayPorts ...db.AllocatedPort) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -644,6 +644,11 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 		removeLabels(caddySvc, func(key string) bool {
 			return key == "caddy.email"
 		})
+	}
+	// server-wide options chosen on the Caddy options page (timeouts, real visitor IP, grace period)
+	removeLabels(caddySvc, IsGlobalOptionLabel)
+	if len(opts.Labels()) > 0 {
+		mergeLabels(caddySvc, opts.Labels())
 	}
 	mergeNDSharedMountsIntoDoc(doc, caddySvc, sharedMounts)
 	MergeCaddyGatewayPorts(caddySvc, gatewayPorts)

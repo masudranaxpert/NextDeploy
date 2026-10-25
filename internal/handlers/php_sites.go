@@ -109,7 +109,7 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 	if err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
-	if exists, err := p.DB.AppNameExistsForUser(ctx, slug, u.ID); err != nil {
+	if exists, err := p.DB.PHPSiteNameExistsForUser(ctx, slug, u.ID); err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	} else if exists {
 		return phpJSONErr(c, 400, "an app with this name already exists")

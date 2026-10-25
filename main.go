@@ -75,6 +75,7 @@ func main() {
 		BodyLimit:                    2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
 		StreamRequestBody:            true,
 		DisablePreParseMultipartForm: true,
+		IdleTimeout:                  2 * time.Minute, // drop idle keep-alive connections; uploads are not cut short
 	})
 
 	p := &handlers.Panel{
@@ -153,6 +154,7 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			p.PHP.Reconcile(ctx)
+			p.ReconcileProxyRoutes(ctx)
 		}()
 	}
 
@@ -167,6 +169,7 @@ func main() {
 	app.Post("/webhooks/gitlab/:id", p.GitHubWebhook)
 	app.Post("/webhooks/:id", p.GitHubWebhook)
 	app.Get("/migrate/download/:token", p.MigrateDownload)
+	app.Get("/api/panel/version", p.SPAVersion)
 
 	// Model Context Protocol (MCP) server endpoints for external AI coding agents
 	mcpServer := mcp.NewServer(p)
@@ -209,6 +212,8 @@ func main() {
 	app.Use("/nextdeploy", p.RequireAdminMiddleware)
 	app.Use("/caddy", p.RequireAdminMiddleware)
 	app.Use("/proxy", p.RequireAdminMiddleware)
+	app.Use("/proxy-options", p.RequireAdminMiddleware)
+	app.Use("/proxy-routes", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
 	app.Use("/users", p.RequireAdminMiddleware)
 	app.Use("/settings", p.RequireAdminMiddleware)
@@ -381,6 +386,8 @@ func main() {
 	app.Get("/apps/:id/php/databases/:dbid/export", p.PHPDatabaseExport)
 	app.Post("/apps/:id/php/databases/:dbid/import", p.PHPDatabaseImport)
 	app.Post("/apps/:id/php/pma/open", p.PHPPMAOpen)
+	app.Get("/apps/:id/php/security", p.PHPSecurityGet)
+	app.Post("/apps/:id/php/security", p.PHPSecuritySave)
 	app.Post("/api/php/instance/pma", p.RequireAdminMiddleware, p.PHPPMAAction)
 	app.Post("/api/php/instance/pma/open", p.RequireAdminMiddleware, p.PHPPMAOpenAll)
 	app.All("/phpmyadmin", p.PMAProxy)
@@ -392,6 +399,8 @@ func main() {
 
 	// Caddy global management
 	app.Get("/caddy", p.ServeSPA)
+	app.Get("/proxy-options", p.ServeSPA)
+	app.Get("/proxy-routes", p.ServeSPA)
 	app.Get("/proxy", p.ServeSPA)
 	app.Get("/mcp", p.ServeSPA)
 	app.Get("/audit-logs", p.ServeSPA)
@@ -399,6 +408,13 @@ func main() {
 	app.Post("/caddy/container", p.CaddyContainerAction)
 	app.Get("/caddy/logs", p.CaddyLogs)
 	app.Get("/caddy/overview", p.CaddyOverview)
+	app.Get("/caddy/options", p.CaddyOptionsGet)
+	app.Post("/caddy/options", p.CaddyOptionsSave)
+	app.Get("/caddy/routes", p.CaddyRoutesList)
+	app.Post("/caddy/routes", p.CaddyRouteSave)
+	app.Post("/caddy/routes/:id", p.CaddyRouteSave)
+	app.Post("/caddy/routes/:id/toggle", p.CaddyRouteToggle)
+	app.Post("/caddy/routes/:id/delete", p.CaddyRouteDelete)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 

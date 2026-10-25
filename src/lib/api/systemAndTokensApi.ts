@@ -177,6 +177,8 @@ export const systemAndTokensApi = {
     requestJson(`/cli-sessions/tokens/${tokenId}/delete`, {
       method: 'POST',
     }),
+  deleteMcpToken: (tokenId: string | number) =>
+    requestJson(`/mcp-docs/tokens/${tokenId}/delete`, { method: 'POST' }),
   toggleMcpStatus: () =>
     requestJson<{ ok: boolean; enabled: boolean }>('/mcp-docs/toggle-status', {
       method: 'POST',

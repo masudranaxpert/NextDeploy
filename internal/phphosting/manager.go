@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"panel/internal/db"
@@ -87,22 +88,49 @@ func docker(ctx context.Context, args ...string) runutil.Result {
 // database ping, database sizes) for a few seconds, so opening several tabs does not run a
 // docker command each time. Any docker call that changes containers clears it.
 type statusCache struct {
-	mu      sync.Mutex
-	listAt  time.Time
-	list    []ContainerState
-	mysqlAt time.Time
-	mysql   MySQLStatus
-	sizesAt time.Time
-	sizesK  string
-	sizes   map[string]int64
+	refreshing atomic.Int32 // bit 1 list, bit 2 mysql, bit 4 sizes: one background refresh at a time
+	mu         sync.Mutex
+	listAt     time.Time
+	list       []ContainerState
+	mysqlAt    time.Time
+	mysql      MySQLStatus
+	sizesAt    time.Time
+	sizesK     string
+	sizes      map[string]int64
 }
 
 var status statusCache
 
+// reset marks every entry as old. The old values are still served at once (and refreshed in the
+// background), so a page never waits for docker just because something changed a moment ago.
 func (c *statusCache) reset() {
 	c.mu.Lock()
 	c.listAt, c.mysqlAt, c.sizesAt = time.Time{}, time.Time{}, time.Time{}
 	c.mu.Unlock()
+}
+
+// refreshOnce runs fn in the background unless a refresh for the same bit is already running.
+func (c *statusCache) refreshOnce(bit int32, fn func()) {
+	for {
+		cur := c.refreshing.Load()
+		if cur&bit != 0 {
+			return
+		}
+		if c.refreshing.CompareAndSwap(cur, cur|bit) {
+			break
+		}
+	}
+	go func() {
+		defer func() {
+			for {
+				cur := c.refreshing.Load()
+				if c.refreshing.CompareAndSwap(cur, cur&^bit) {
+					return
+				}
+			}
+		}()
+		fn()
+	}()
 }
 
 const (
@@ -251,9 +279,20 @@ type ContainerState struct {
 // ListContainers returns every container the module manages.
 func (m *Manager) ListContainers(ctx context.Context) []ContainerState {
 	status.mu.Lock()
-	if time.Since(status.listAt) < listTTL {
+	if !status.listAt.IsZero() || status.list != nil {
 		cp := append([]ContainerState(nil), status.list...)
+		fresh := time.Since(status.listAt) < listTTL
 		status.mu.Unlock()
+		if !fresh {
+			status.refreshOnce(1, func() {
+				bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				out := m.listContainersUncached(bg)
+				status.mu.Lock()
+				status.list, status.listAt = append([]ContainerState(nil), out...), time.Now()
+				status.mu.Unlock()
+			})
+		}
 		return cp
 	}
 	status.mu.Unlock()

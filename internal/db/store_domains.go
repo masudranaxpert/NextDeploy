@@ -66,7 +66,7 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 		var existingAppID string
 		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? LIMIT 1`, cleanDomain).Scan(&existingAppID)
 		if err == nil && existingAppID != d.AppID {
-			return 0, fmt.Errorf("domain %q is already in use by another app", d.Domain)
+			return 0, fmt.Errorf("domain %q is not available", d.Domain)
 		}
 	}
 
@@ -94,7 +94,7 @@ func (s *Store) UpdateAppDomain(ctx context.Context, d AppDomain) error {
 		var existingAppID string
 		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? AND id != ? LIMIT 1`, cleanDomain, d.ID).Scan(&existingAppID)
 		if err == nil && existingAppID != d.AppID {
-			return fmt.Errorf("domain %q is already in use by another app", d.Domain)
+			return fmt.Errorf("domain %q is not available", d.Domain)
 		}
 	}
 

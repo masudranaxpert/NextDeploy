@@ -12,11 +12,26 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/assets/index-B3SfyKRa.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-D9HKwUJU.css">
+    <!-- Fonts must never block the first paint: load them without blocking, the text shows in a system font first -->
+    <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap"></noscript>
+    <style>.nd-splash{color:#a1a1aa;background:#09090b;flex-direction:column;justify-content:center;align-items:center;gap:16px;min-height:100vh;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;display:flex}.nd-splash b{color:#fb923c;background:#f973161a;border:1px solid #f9731633;border-radius:12px;justify-content:center;align-items:center;width:48px;height:48px;font-size:18px;display:flex}.nd-splash i{vertical-align:-3px;border:2px solid #f9731640;border-top-color:#fb923c;border-radius:50%;width:16px;height:16px;margin-right:10px;animation:.8s linear infinite nd-spin;display:inline-block}@keyframes nd-spin{to{transform:rotate(360deg)}}</style>
+    <script>
+      // Ask for the page data right away, in parallel with downloading the app code.
+      (function () {
+        var p = location.pathname;
+        if (p === '/login' || p === '/setup') return;
+        window.__ndBoot = fetch('/api/panel/bootstrap', {
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-NextDeploy-Client': 'spa' }
+        }).catch(function () { return null; });
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-DaieQ9QG.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/jsx-runtime-CWACBe9S.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DD9foiTd.css">
   </head>
   <body class="bg-[#09090b] text-[#fafafa] antialiased selection:bg-orange-500/30 selection:text-orange-200">
-    <div id="root"></div>
+    <div id="root"><div class="nd-splash"><b>ND</b><span><i></i>Loading NextDeploy…</span></div></div>
   </body>
 </html>

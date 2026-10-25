@@ -156,11 +156,22 @@ func (c Ceilings) MemoryChoices() []string {
 	return out
 }
 
-// SizeChoices returns the upload/post size values that fit under the storage ceiling.
+// SizeCapMB is the largest upload/post size offered: it must fit the storage the owner has and
+// must not be bigger than the memory they can use (PHP parses form data in memory).
+func (c Ceilings) SizeCapMB() int {
+	cap := c.StorageMB
+	if c.MemoryMB > 0 && (cap <= 0 || c.MemoryMB < cap) {
+		cap = c.MemoryMB
+	}
+	return cap
+}
+
+// SizeChoices returns the upload/post size values that fit under SizeCapMB.
 func (c Ceilings) SizeChoices() []string {
 	out := []string{}
+	cap := c.SizeCapMB()
 	for _, v := range SizeChoices {
-		if c.StorageMB <= 0 || SizeToMB(v) <= c.StorageMB {
+		if cap <= 0 || SizeToMB(v) <= cap {
 			out = append(out, v)
 		}
 	}
@@ -191,8 +202,8 @@ func (s SiteSettings) Validate(c Ceilings) error {
 		if !containsString(SizeChoices, v) {
 			return fmt.Errorf("invalid %s %q", name, v)
 		}
-		if c.StorageMB > 0 && SizeToMB(v) > c.StorageMB {
-			return fmt.Errorf("%s %s is more than your storage allows (%d MB)", name, v, c.StorageMB)
+		if cap := c.SizeCapMB(); cap > 0 && SizeToMB(v) > cap {
+			return fmt.Errorf("%s %s is more than your storage or memory allows (%d MB)", name, v, cap)
 		}
 	}
 	if SizeToMB(s.PostMaxSize) < SizeToMB(s.UploadMaxFilesize) {

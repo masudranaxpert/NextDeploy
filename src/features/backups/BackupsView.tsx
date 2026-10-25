@@ -83,9 +83,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const [gdriveClientId, setGdriveClientId] = useState('');
   const [gdriveClientSecret, setGdriveClientSecret] = useState('');
   const [gdriveRedirectUrl, setGdriveRedirectUrl] = useState(
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/backup/gdrive/callback`
-      : 'https://panel.nextdeploy.sh/backup/gdrive/callback'
+`${window.location.origin}/backup/gdrive/callback`
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -640,7 +638,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
                     {paginatedApps.map((app) => {
-                      const isPhp = Boolean(app.php || app.sourceType === 'php');
+                      const isPhp = Boolean(app.php);
                       return (
                         <tr key={app.id} className="hover:bg-white/[0.02]">
                           <td className="px-4 py-2.5">

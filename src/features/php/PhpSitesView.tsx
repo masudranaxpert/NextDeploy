@@ -7,7 +7,7 @@ import type { PhpStatusData } from '../../lib/api/phpApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import { SiteCard } from './components/SiteCard';
 import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons';
-import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls } from './ui';
+import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls, prefetchPhpSite } from './ui';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
@@ -38,6 +38,11 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
   const [title, setTitle] = useState('');
   const [wpUser, setWpUser] = useState('admin');
   const [wpEmail, setWpEmail] = useState('');
+
+  // Load the first sites' details now, so opening one shows its settings without waiting.
+  useEffect(() => {
+    sites.slice(0, 6).forEach((s) => prefetchPhpSite(s.id));
+  }, [sites.map((s) => s.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadStatus = () => backendApi.phpStatus().then((r) => r.ok && r.data && setStatus(r.data));
   useEffect(() => {

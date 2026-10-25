@@ -424,7 +424,7 @@ func (p *Panel) syncRootStackCompose(ctx context.Context) error {
 	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
 	sharedMounts := p.caddySharedMountsFromSettings(ctx)
 	gatewayPorts, _ := p.DB.ListAllocatedPorts(ctx)
-	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts, gatewayPorts...)
+	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts, p.caddyGlobalOptions(ctx), gatewayPorts...)
 	if err != nil {
 		return err
 	}

@@ -80,6 +80,7 @@ import {
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { PhpSettingsTab } from '../php/PhpSettingsTab';
 import { PhpDomainsTab } from '../php/PhpDomainsTab';
+import { PhpSecurityTab } from '../php/PhpSecurityTab';
 import { prefetchPhpSite } from '../php/ui';
 import {
   Archive as PhpTabArchive,
@@ -89,6 +90,7 @@ import {
   Globe as PhpTabGlobe,
   ScrollText as PhpTabLogs,
   Settings2 as PhpTabSettings,
+  ShieldCheck as PhpTabShield,
   SquareTerminal as PhpTabTerminal,
   Users as PhpTabUsers,
 } from 'lucide-react';
@@ -201,6 +203,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         'php-databases',
         'php-cron',
         'php-logs',
+        'php-security',
         'collaborators',
       ];
       if (tabParam && validTabs.includes(tabParam as AppWorkspaceTab)) {
@@ -803,6 +806,97 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     [allFolderPaths]
   );
 
+  // Folder tree node: recursive, so folders nest to any depth (like an editor's explorer).
+  const renderTreeFolder = (folder: string, depth: number): React.ReactNode => {
+    const name = folder.split('/').pop() || folder;
+    const isExpanded = Boolean(expandedDirs[folder]);
+    const isCurrent = currentDir === folder && !editingFilePath;
+    const childFolders = allFolderPaths.filter((d) => {
+      const i = d.lastIndexOf('/');
+      return i !== -1 && d.slice(0, i) === folder;
+    });
+    const childFiles = defaultRichFiles.filter((f) => {
+      const i = f.path.lastIndexOf('/');
+      return (i === -1 ? '' : f.path.slice(0, i)) === folder;
+    });
+    const count = childFolders.length + childFiles.length;
+    const small = depth > 0;
+    return (
+      <div key={folder} className="space-y-0.5">
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setContextMenu({ x: e.clientX, y: e.clientY, targetPath: folder, targetName: name, isFolder: true });
+          }}
+          className={`group flex items-center justify-between rounded-lg pr-2 py-1 font-mono text-xs transition-colors ${
+            isCurrent
+              ? 'bg-amber-500/15 text-amber-200 font-semibold ring-1 ring-amber-500/25'
+              : 'text-zinc-300 hover:bg-white/[0.04] hover:text-zinc-100'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={(e) => toggleFolderTreeExpand(folder, e)}
+            title={isExpanded ? 'Collapse folder' : 'Expand folder'}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/[0.08] text-zinc-400 hover:text-amber-300 shrink-0 cursor-pointer"
+          >
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                isExpanded ? 'rotate-90 text-amber-400' : 'text-zinc-500'
+              }`}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (isCurrent) {
+                toggleFolderTreeExpand(folder);
+              } else {
+                setExpandedDirs((prev) => ({ ...prev, [folder]: true }));
+                navigateToFolder(folder, { preserveTreeToggle: true });
+              }
+            }}
+            className="flex flex-1 items-center justify-between gap-1.5 text-left min-w-0 py-0.5 cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5 min-w-0">
+              {isCurrent || isExpanded ? (
+                <FolderOpen className={`${small ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-amber-400 fill-amber-400/25 shrink-0`} />
+              ) : (
+                <Folder className={`${small ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-amber-400 fill-amber-400/20 shrink-0`} />
+              )}
+              <span className="truncate">{name}</span>
+            </span>
+            <span className="text-[10px] text-zinc-500 group-hover:text-zinc-400 shrink-0">{count}</span>
+          </button>
+        </div>
+        {isExpanded && count > 0 && (
+          <div className="ml-3 border-l border-white/[0.07] pl-2 space-y-0.5">
+            {childFolders.map((sub) => renderTreeFolder(sub, depth + 1))}
+            {childFiles.map((df) => {
+              const isFileOpen = editingFilePath === df.path;
+              return (
+                <button
+                  key={df.path}
+                  type="button"
+                  onClick={() => openFileInEditor(df)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left font-mono text-[11px] transition-colors cursor-pointer ${
+                    isFileOpen
+                      ? 'bg-orange-500/15 text-orange-300 font-semibold'
+                      : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+                  }`}
+                >
+                  {renderFileIcon(df.name)}
+                  <span className="truncate">{df.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Subfolders inside currentDir
   const currentSubfolders = useMemo(() => {
     if (fileSearch.trim()) {
@@ -1145,6 +1239,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [newVolMountPath, setNewVolMountPath] = useState('/var/lib/postgresql/data');
 
   const [memberModalOpen, setMemberModalOpen] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<'deployer' | 'viewer'>('deployer');
   const [newMemberPermissions, setNewMemberPermissions] = useState<string[]>([
@@ -1822,6 +1917,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     ...(app.php?.siteType !== 'static' ? [{ id: 'php-cron' as AppWorkspaceTab, label: 'Cron Jobs', icon: <PhpTabClock className="h-3.5 w-3.5" /> }] : []),
     ...(app.php?.siteType !== 'static' ? [{ id: 'php-logs' as AppWorkspaceTab, label: 'Logs', icon: <PhpTabLogs className="h-3.5 w-3.5" /> }] : []),
     ...(app.php?.siteType !== 'static' ? [{ id: 'terminal' as AppWorkspaceTab, label: 'Terminal', icon: <PhpTabTerminal className="h-3.5 w-3.5" /> }] : []),
+    { id: 'php-security' as AppWorkspaceTab, label: 'Security', icon: <PhpTabShield className="h-3.5 w-3.5" /> },
     { id: 'backups', label: 'Backups', count: projectBackups.length, icon: <PhpTabArchive className="h-3.5 w-3.5" /> },
     { id: 'collaborators', label: 'Access', icon: <PhpTabUsers className="h-3.5 w-3.5" /> },
   ];
@@ -3449,6 +3545,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {activeTab === 'php-databases' && app.php && <PhpDatabasesTab app={app} />}
       {activeTab === 'php-cron' && app.php && <PhpCronTab app={app} />}
       {activeTab === 'php-logs' && app.php && <PhpLogsTab app={app} />}
+      {activeTab === 'php-security' && app.php && <PhpSecurityTab app={app} />}
 
       {/* ===================================================================== */}
       {/* TAB 4: ENVIRONMENT VARIABLES                                          */}
@@ -4000,205 +4097,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </button>
 
                 <div className="pl-1.5 pt-0.5 space-y-0.5">
-                  {rootFolders.map((folder) => {
-                    const isExpanded = Boolean(expandedDirs[folder]);
-                    const isCurrentFolder = currentDir === folder && !editingFilePath;
-                    const childSubfolders = allFolderPaths.filter((d) => {
-                      const lastSlash = d.lastIndexOf('/');
-                      return lastSlash !== -1 && d.slice(0, lastSlash) === folder;
-                    });
-                    const folderDirectFiles = defaultRichFiles.filter((f) => {
-                      const lastSlash = f.path.lastIndexOf('/');
-                      return (lastSlash === -1 ? '' : f.path.slice(0, lastSlash)) === folder;
-                    });
-                    const hasChildren =
-                      childSubfolders.length > 0 || folderDirectFiles.length > 0;
-
-                    return (
-                      <div key={folder} className="space-y-0.5">
-                        <div
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              targetPath: folder,
-                              targetName: folder,
-                              isFolder: true,
-                            });
-                          }}
-                          className={`group flex items-center justify-between rounded-lg pr-2 py-1 font-mono text-xs transition-colors ${
-                            isCurrentFolder
-                              ? 'bg-amber-500/15 text-amber-200 font-semibold ring-1 ring-amber-500/25'
-                              : 'text-zinc-300 hover:bg-white/[0.04] hover:text-zinc-100'
-                          }`}
-                        >
-                          {/* Dedicated Tree Arrow Toggle Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => toggleFolderTreeExpand(folder, e)}
-                            title={isExpanded ? 'Collapse folder' : 'Expand folder'}
-                            className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/[0.08] text-zinc-400 hover:text-amber-300 shrink-0 cursor-pointer"
-                          >
-                            {hasChildren ? (
-                              <ChevronRight
-                                className={`h-3.5 w-3.5 transition-transform duration-150 ${
-                                  isExpanded ? 'rotate-90 text-amber-400' : 'text-zinc-500'
-                                }`}
-                              />
-                            ) : (
-                              <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
-                            )}
-                          </button>
-
-                          {/* Folder Label Navigation Button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (currentDir === folder && !editingFilePath) {
-                                toggleFolderTreeExpand(folder);
-                              } else {
-                                setExpandedDirs((prev) => ({ ...prev, [folder]: true }));
-                                navigateToFolder(folder, { preserveTreeToggle: true });
-                              }
-                            }}
-                            className="flex flex-1 items-center justify-between gap-1.5 text-left min-w-0 py-0.5 cursor-pointer"
-                          >
-                            <span className="flex items-center gap-1.5 min-w-0">
-                              {isCurrentFolder || isExpanded ? (
-                                <FolderOpen className="h-4 w-4 text-amber-400 fill-amber-400/25 shrink-0" />
-                              ) : (
-                                <Folder className="h-4 w-4 text-amber-400 fill-amber-400/20 shrink-0" />
-                              )}
-                              <span className="truncate">{folder}</span>
-                            </span>
-                            <span className="text-[10px] text-zinc-500 group-hover:text-zinc-400 shrink-0">
-                              {childSubfolders.length + folderDirectFiles.length}
-                            </span>
-                          </button>
-                        </div>
-
-                        {isExpanded && hasChildren && (
-                          <div className="ml-3.5 border-l border-white/[0.07] pl-2 space-y-0.5">
-                            {childSubfolders.map((sub) => {
-                              const subName = sub.split('/').pop() || sub;
-                              const subActive = currentDir === sub && !editingFilePath;
-                              const subExpanded = Boolean(expandedDirs[sub]);
-                              const subFiles = defaultRichFiles.filter((f) => {
-                                const lastSlash = f.path.lastIndexOf('/');
-                                return (
-                                  (lastSlash === -1 ? '' : f.path.slice(0, lastSlash)) === sub
-                                );
-                              });
-
-                              return (
-                                <div key={sub} className="space-y-0.5">
-                                  <div
-                                    onContextMenu={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setContextMenu({
-                                        x: e.clientX,
-                                        y: e.clientY,
-                                        targetPath: sub,
-                                        targetName: subName,
-                                        isFolder: true,
-                                      });
-                                    }}
-                                    className={`flex items-center justify-between rounded-lg pr-2 py-1 font-mono text-xs transition-colors ${
-                                      subActive
-                                        ? 'bg-amber-500/15 text-amber-200 font-semibold ring-1 ring-amber-500/25'
-                                        : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-                                    }`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={(e) => toggleFolderTreeExpand(sub, e)}
-                                      className="flex h-5 w-5 items-center justify-center rounded hover:bg-white/[0.08] text-zinc-500 hover:text-amber-300 shrink-0 cursor-pointer"
-                                    >
-                                      <ChevronRight
-                                        className={`h-3 w-3 transition-transform duration-150 ${
-                                          subExpanded ? 'rotate-90 text-amber-400' : ''
-                                        }`}
-                                      />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (currentDir === sub && !editingFilePath) {
-                                          toggleFolderTreeExpand(sub);
-                                        } else {
-                                          setExpandedDirs((prev) => ({ ...prev, [sub]: true }));
-                                          navigateToFolder(sub, { preserveTreeToggle: true });
-                                        }
-                                      }}
-                                      className="flex flex-1 items-center justify-between gap-1.5 text-left min-w-0 cursor-pointer"
-                                    >
-                                      <span className="flex items-center gap-1.5 min-w-0">
-                                        {subActive || subExpanded ? (
-                                          <FolderOpen className="h-3.5 w-3.5 text-amber-400 fill-amber-400/25 shrink-0" />
-                                        ) : (
-                                          <Folder className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0" />
-                                        )}
-                                        <span className="truncate">{subName}</span>
-                                      </span>
-                                      <span className="text-[10px] text-zinc-600">
-                                        {subFiles.length}
-                                      </span>
-                                    </button>
-                                  </div>
-
-                                  {subExpanded && subFiles.length > 0 && (
-                                    <div className="ml-3.5 border-l border-white/[0.06] pl-2 space-y-0.5">
-                                      {subFiles.map((sf) => {
-                                        const isFileOpen = editingFilePath === sf.path;
-                                        return (
-                                          <button
-                                            key={sf.path}
-                                            type="button"
-                                            onClick={() => openFileInEditor(sf)}
-                                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left font-mono text-[11px] transition-colors cursor-pointer ${
-                                              isFileOpen
-                                                ? 'bg-orange-500/15 text-orange-300 font-semibold'
-                                                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-                                            }`}
-                                          >
-                                            {renderFileIcon(sf.name)}
-                                            <span className="truncate">{sf.name}</span>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-
-                            {/* Direct files inside this expanded folder */}
-                            {folderDirectFiles.map((df) => {
-                              const isFileOpen = editingFilePath === df.path;
-                              return (
-                                <button
-                                  key={df.path}
-                                  type="button"
-                                  onClick={() => openFileInEditor(df)}
-                                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left font-mono text-[11px] transition-colors cursor-pointer ${
-                                    isFileOpen
-                                      ? 'bg-orange-500/15 text-orange-300 font-semibold'
-                                      : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-                                  }`}
-                                >
-                                  {renderFileIcon(df.name)}
-                                  <span className="truncate">{df.name}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {rootFolders.map((folder) => renderTreeFolder(folder, 0))}
                 </div>
               </div>
 
@@ -5183,7 +5082,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 11: ACCESS (No AI Slop Subtitle)                                  */}
+      {/* TAB 11: ACCESS                                                        */}
       {/* ===================================================================== */}
       {activeTab === 'collaborators' && (
         <div className="space-y-4">
@@ -5219,23 +5118,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <tr key={c.userId} className="hover:bg-white/[0.03]">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-zinc-100">{c.username}</div>
-                      <div className="font-mono text-[11px] text-zinc-500">{c.email}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-200 uppercase">
-                          {c.role}
-                        </span>
-                        {Array.isArray((c as any).permissions) &&
-                          (c as any).permissions.map((perm: string) => (
-                            <span
-                              key={perm}
-                              className="rounded bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.2 font-mono text-[9px] text-orange-300"
-                            >
-                              {perm}
-                            </span>
-                          ))}
-                      </div>
+                      <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-200">
+                        {c.role === 'viewer' ? 'Viewer' : c.role === 'owner' ? 'Owner' : 'Developer'}
+                      </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-zinc-400">{c.addedAt}</td>
                     <td className="px-3 py-3 text-right">
@@ -5245,35 +5132,29 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                             {
                               label: 'Transfer Ownership',
                               icon: <KeyRound className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                void backendApi.transferOwnership(app.id, c.userId);
-                                onUpdateApp({
-                                  ...app,
-                                  owner: c.username,
-                                  collaborators: app.collaborators.map((m) =>
-                                    m.userId === c.userId
-                                      ? { ...m, role: 'owner' }
-                                      : m.role === 'owner'
-                                        ? { ...m, role: 'deployer' }
-                                        : m
-                                  ),
-                                });
-                                toast.success(`Transferred project ownership to ${c.username}`);
+                              onClick: async () => {
+                                if (!window.confirm(`Make ${c.username} the owner of ${app.name}? You will become a collaborator.`)) return;
+                                const res = await backendApi.transferOwnership(app.id, c.username);
+                                if (!res.ok) {
+                                  toast.error(res.error || 'Could not transfer ownership');
+                                  return;
+                                }
+                                toast.success(`${c.username} is now the owner`);
+                                await onRefresh?.();
                               },
                             },
                             {
                               label: 'Revoke Access',
                               icon: <Trash2 className="h-3.5 w-3.5" />,
                               variant: 'danger',
-                              onClick: () => {
-                                void backendApi.removeCollaborator(app.id, c.userId);
-                                onUpdateApp({
-                                  ...app,
-                                  collaborators: app.collaborators.filter(
-                                    (m) => m.userId !== c.userId
-                                  ),
-                                });
+                              onClick: async () => {
+                                const res = await backendApi.removeCollaborator(app.id, c.userId);
+                                if (!res.ok) {
+                                  toast.error(res.error || 'Could not remove this user');
+                                  return;
+                                }
                                 toast.success(`Removed ${c.username}`);
+                                await onRefresh?.();
                               },
                             },
                           ]}
@@ -6885,123 +6766,86 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* 7. Invite Collaborator Modal */}
       <ShadcnDialog
         open={memberModalOpen}
-        onClose={() => setMemberModalOpen(false)}
-        title="Invite Member"
+        onClose={() => !inviting && setMemberModalOpen(false)}
+        title="Invite member"
         icon={<Users className="h-4 w-4" />}
       >
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            if (!newMemberEmail.trim()) return;
-            const uname = newMemberEmail.split('@')[0];
-            void backendApi.addCollaborator(
+            const username = newMemberEmail.trim();
+            if (!username) return;
+            setInviting(true);
+            const res = await backendApi.addCollaborator(
               app.id,
-              uname,
-              newMemberRole === 'deployer' ? 'developer' : 'viewer',
-              newMemberPermissions
+              username,
+              newMemberRole === 'deployer' ? 'developer' : 'viewer'
             );
-            onUpdateApp({
-              ...app,
-              collaborators: [
-                ...app.collaborators,
-                {
-                  userId: `u-${Date.now()}`,
-                  username: uname,
-                  email: newMemberEmail.trim(),
-                  role: newMemberRole,
-                  permissions: newMemberPermissions,
-                  addedAt: 'Just now',
-                },
-              ],
-            });
+            setInviting(false);
+            if (!res.ok) {
+              toast.error(res.error || 'Could not add this user');
+              return;
+            }
             setNewMemberEmail('');
             setMemberModalOpen(false);
-            toast.success('Collaborator invited with custom permissions');
+            toast.success(`${username} now has access`);
+            await onRefresh?.();
           }}
           className="space-y-4"
         >
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Email Address
+            <label htmlFor="invite-username" className="block text-[11px] font-medium text-zinc-300 mb-1.5">
+              Username
             </label>
             <input
-              type="email"
+              id="invite-username"
+              type="text"
               required
+              autoFocus
+              autoComplete="off"
               value={newMemberEmail}
               onChange={(e) => setNewMemberEmail(e.target.value)}
-              placeholder="engineer@company.io"
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 text-xs text-zinc-100"
+              placeholder="their NextDeploy username"
+              className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-100 outline-none focus:border-orange-500/50"
             />
           </div>
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Role Preset</label>
-            <select
-              value={newMemberRole}
-              onChange={(e) => {
-                const nextRole = e.target.value as 'deployer' | 'viewer';
-                setNewMemberRole(nextRole);
-                if (nextRole === 'deployer') {
-                  setNewMemberPermissions(['deploy', 'files', 'terminal', 'logs', 'env']);
-                } else {
-                  setNewMemberPermissions(['logs']);
-                }
-              }}
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 text-xs text-zinc-100"
-            >
-              <option value="deployer">Deployer (Full operational permissions)</option>
-              <option value="viewer">Viewer (Read-only logs & monitoring)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-2">
-              Granular Action Permissions Matrix
-            </label>
-            <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs">
-              {[
-                { id: 'deploy', label: 'Deploy & Restart' },
-                { id: 'files', label: 'File Manager (Read/Write)' },
-                { id: 'terminal', label: 'Terminal & Exec' },
-                { id: 'env', label: 'Environment Variables' },
-                { id: 'logs', label: 'View Logs & Telemetry' },
-              ].map((p) => {
-                const checked = newMemberPermissions.includes(p.id);
-                return (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-2 text-zinc-300 cursor-pointer select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setNewMemberPermissions((prev) => [...prev, p.id]);
-                        } else {
-                          setNewMemberPermissions((prev) => prev.filter((x) => x !== p.id));
-                        }
-                      }}
-                      className="h-3.5 w-3.5 accent-orange-500 rounded"
-                    />
-                    <span className="font-mono text-[11px]">{p.label}</span>
-                  </label>
-                );
-              })}
-            </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            {(
+              [
+                { id: 'deployer', title: 'Developer', text: 'Deploy, edit files, use the terminal, change environment variables and backups.' },
+                { id: 'viewer', title: 'Viewer', text: 'See the project and its status. Cannot open files or secrets, and cannot change anything.' },
+              ] as const
+            ).map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setNewMemberRole(r.id)}
+                className={`cursor-pointer rounded-lg border p-3 text-left transition-colors ${
+                  newMemberRole === r.id
+                    ? 'border-orange-500/50 bg-orange-500/10'
+                    : 'border-white/[0.08] bg-[#09090b] hover:bg-zinc-900'
+                }`}
+              >
+                <div className="text-xs font-semibold text-zinc-100">{r.title}</div>
+                <div className="mt-1 text-[11px] leading-snug text-zinc-400">{r.text}</div>
+              </button>
+            ))}
           </div>
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"
               onClick={() => setMemberModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+              disabled={inviting}
+              className="h-8 rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              disabled={inviting || !newMemberEmail.trim()}
+              className="h-8 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-600 cursor-pointer disabled:opacity-50"
             >
-              Grant Access
+              {inviting ? 'Adding…' : 'Add member'}
             </button>
           </div>
         </form>

@@ -217,7 +217,7 @@ func (m *Manager) SiteLabels(ctx context.Context, site db.PHPSite) map[string]st
 	if site.SiteType != SiteTypeStatic {
 		socket = SocketPath(site.OwnerID, site.PHPVersion, site.AppID)
 	}
-	return caddy.PHPSiteLabels(domains, DocRoot(site.AppID, site.RootDir), socket)
+	return caddy.PHPSiteLabels(domains, DocRoot(site.AppID, site.RootDir), socket, m.siteSecurity(ctx, site.AppID))
 }
 
 // SyncRoutes (re)creates the label-carrying holder container of a site. Only this site's
@@ -236,6 +236,13 @@ func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
 		removeContainer(ctx, name)
 		return nil
 	}
+	return m.PublishHolder(ctx, name, labels, map[string]string{"nd.php": "route", "nd.php.app": appID})
+}
+
+// PublishHolder (re)creates a tiny container whose only job is to carry Caddy labels. Nothing
+// changes when the labels are identical to the running holder, so other routes keep serving
+// while one route is edited. It is used for PHP sites and for the admin's proxy routes.
+func (m *Manager) PublishHolder(ctx context.Context, name string, labels map[string]string, extra map[string]string) error {
 	hash := labelsHash(labels)
 	ci := inspectContainer(ctx, name)
 	if ci.Exists && ci.Running && ci.Labels["nd.php.hash"] == hash {
@@ -251,7 +258,15 @@ func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
 	args := []string{"run", "-d", "--name", name, "--restart", "unless-stopped",
 		"--network", m.IngressNetwork,
 		"--memory", "16m", "--cpus", "0.05", "--read-only", "--cap-drop", "ALL",
-		"--label", "nd.php=route", "--label", "nd.php.hash=" + hash, "--label", "nd.php.app=" + appID}
+		"--label", "nd.php.hash=" + hash}
+	extraKeys := make([]string, 0, len(extra))
+	for k := range extra {
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+	for _, k := range extraKeys {
+		args = append(args, "--label", k+"="+extra[k])
+	}
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
@@ -265,6 +280,11 @@ func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
 		return fmt.Errorf("publish routes: %s", res.Output)
 	}
 	return nil
+}
+
+// RemoveHolder deletes a label holder (no error when it does not exist).
+func (m *Manager) RemoveHolder(ctx context.Context, name string) {
+	removeContainer(ctx, name)
 }
 
 // ---- site level operations ----

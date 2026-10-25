@@ -181,13 +181,13 @@ func TestHostPathTranslation(t *testing.T) {
 
 func TestCaddyLabels(t *testing.T) {
 	doms := []db.AppDomain{{Domain: "example.com", EnableHTTPS: true, EnableWWW: true}}
-	l := caddy.PHPSiteLabels(doms, "/data/workspaces/a-1/htdocs", "/data/workspaces/.nd-php/u1-v83/run/a-1.sock")
+	l := caddy.PHPSiteLabels(doms, "/data/workspaces/a-1/htdocs", "/data/workspaces/.nd-php/u1-v83/run/a-1.sock", caddy.SiteSecurity{})
 	want := map[string]string{
 		"caddy":                     "example.com, www.example.com",
 		"caddy.root":                "* /data/workspaces/a-1/htdocs",
 		"caddy.php_fastcgi":         "unix//data/workspaces/.nd-php/u1-v83/run/a-1.sock",
 		"caddy.file_server":         `{{""}}`,
-		"caddy.respond":             "@hidden 404",
+		"caddy.respond_0":           "@hidden 404",
 		"caddy.@hidden.path_regexp": `(^|/)\.(git|svn|hg|env|nextdeploy-db|ht[a-z]*)(/|$|\.)`,
 	}
 	for k, v := range want {
@@ -195,11 +195,11 @@ func TestCaddyLabels(t *testing.T) {
 			t.Errorf("label %s = %q, want %q", k, l[k], v)
 		}
 	}
-	static := caddy.PHPSiteLabels(doms, "/x", "")
+	static := caddy.PHPSiteLabels(doms, "/x", "", caddy.SiteSecurity{})
 	if _, ok := static["caddy.php_fastcgi"]; ok {
 		t.Error("static sites must not have php_fastcgi")
 	}
-	two := caddy.PHPSiteLabels([]db.AppDomain{{Domain: "a.com", EnableHTTPS: true}, {Domain: "b.com", EnableHTTPS: true}}, "/x", "/s")
+	two := caddy.PHPSiteLabels([]db.AppDomain{{Domain: "a.com", EnableHTTPS: true}, {Domain: "b.com", EnableHTTPS: true}}, "/x", "/s", caddy.SiteSecurity{})
 	if two["caddy_0"] == "" || two["caddy_1"] == "" || two["caddy"] != "" {
 		t.Errorf("multi-domain prefixes wrong: %v", two)
 	}
@@ -268,5 +268,20 @@ func TestSweepSymlinksRemovesOnlyEscapingLinks(t *testing.T) {
 		if _, err := os.Lstat(p); err == nil {
 			t.Errorf("%s still exists", p)
 		}
+	}
+}
+
+func TestUploadSizesNeverExceedMemoryOrStorage(t *testing.T) {
+	last := func(c Ceilings) string { l := c.SizeChoices(); return l[len(l)-1] }
+	if got := last(Ceilings{MemoryMB: 1024, StorageMB: 5120}); got != "1G" {
+		t.Errorf("1 GB RAM, 5 GB disk: largest upload = %s, want 1G", got)
+	}
+	if got := last(Ceilings{MemoryMB: 8192, StorageMB: 512}); got != "512M" {
+		t.Errorf("small disk: largest upload = %s, want 512M", got)
+	}
+	s := DefaultSettings()
+	s.PostMaxSize = "2G"
+	if err := s.Validate(Ceilings{MemoryMB: 1024, StorageMB: 5120}); err == nil {
+		t.Error("a 2G post size on a 1 GB server must be refused")
 	}
 }

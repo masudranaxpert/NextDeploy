@@ -6,6 +6,7 @@ import { gitAndRegistryApi } from './api/gitAndRegistryApi';
 import { backupsAndMigrateApi } from './api/backupsAndMigrateApi';
 import { systemAndTokensApi } from './api/systemAndTokensApi';
 import { phpApi } from './api/phpApi';
+import { caddyApi } from './api/caddyApi';
 
 export {
   type ApiResult,
@@ -20,6 +21,7 @@ export {
 export const backendApi = {
   ...appsAndDockerApi,
   ...phpApi,
+  ...caddyApi,
   ...gitAndRegistryApi,
   ...backupsAndMigrateApi,
   ...systemAndTokensApi,

@@ -28,6 +28,9 @@ type FileItem struct {
 }
 
 // APIAppFilesList returns the list of files in an app workspace or git repo.
+// maxRecursiveListEntries caps one recursive listing; folders deeper in a huge tree load when opened.
+const maxRecursiveListEntries = 20000
+
 // GET /api/v1/apps/:id/files?path=&recursive=true
 func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 	ctx := c.UserContext()
@@ -41,7 +44,7 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "app id required"})
 	}
 
-	allowed, err := p.CanAccessApp(ctx, u.ID, u.Role, appID, db.CollabRoleViewer)
+	allowed, err := p.CanAccessApp(ctx, u.ID, u.Role, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -138,6 +141,9 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 			ModTime: info.ModTime().Unix(),
 			Perms:   fmt.Sprintf("%03o", info.Mode().Perm()),
 		})
+		if len(out) >= maxRecursiveListEntries {
+			return filepath.SkipAll // a huge tree must not balloon one response
+		}
 		return nil
 	})
 
@@ -173,7 +179,7 @@ func (p *Panel) APIAppFileContent(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "app id required"})
 	}
 
-	allowed, err := p.CanAccessApp(ctx, u.ID, u.Role, appID, db.CollabRoleViewer)
+	allowed, err := p.CanAccessApp(ctx, u.ID, u.Role, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
