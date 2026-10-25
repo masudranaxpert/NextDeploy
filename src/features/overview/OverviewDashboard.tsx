@@ -79,18 +79,32 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const myCards =
     !isAdmin && quota
       ? [
-          { label: 'Your memory', value: fmtMB(quota.memory_used_mb), limit: fmtMB(quota.max_memory_mb), p: pct(quota.memory_used_mb, quota.max_memory_mb) },
-          quota.max_cpus > 0
-            ? {
-                label: 'Your CPU',
-                value: `${fmtPct((quota.cpu_used_cores / quota.max_cpus) * 100)}`,
-                limit: `of ${quota.max_cpus} ${quota.max_cpus === 1 ? 'core' : 'cores'}`,
-                p: pct(quota.cpu_used_cores, quota.max_cpus),
-                note: `${quota.cpu_used_cores.toFixed(3)} cores · average of the last minute`,
-              }
-            : { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: 'no limit', p: 0 },
-          { label: 'Your storage', value: fmtBytes(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024, quota.max_storage_mb * 1024 * 1024), note: storageNote },
-          { label: 'Your projects', value: String(quota.apps_used), limit: String(quota.max_apps), p: pct(quota.apps_used, quota.max_apps) },
+          {
+            label: 'Memory',
+            value: fmtMB(quota.memory_used_mb),
+            limit: fmtMB(quota.max_memory_mb),
+            p: pct(quota.memory_used_mb, quota.max_memory_mb),
+          },
+          {
+            label: 'CPU',
+            value: quota.max_cpus > 0 ? fmtPct((quota.cpu_used_cores / quota.max_cpus) * 100) : `${quota.cpu_used_cores.toFixed(2)} cores`,
+            limit: quota.max_cpus > 0 ? `of ${quota.max_cpus} ${quota.max_cpus === 1 ? 'core' : 'cores'}` : 'no limit',
+            p: pct(quota.cpu_used_cores, quota.max_cpus),
+            tooltip: quota.max_cpus > 0 ? `${quota.cpu_used_cores.toFixed(2)} cores in use` : undefined,
+          },
+          {
+            label: 'Storage',
+            value: fmtBytes(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024),
+            limit: fmtMB(quota.max_storage_mb),
+            p: pct(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024, quota.max_storage_mb * 1024 * 1024),
+            tooltip: storageNote || undefined,
+          },
+          {
+            label: 'Projects',
+            value: String(quota.apps_used),
+            limit: String(quota.max_apps),
+            p: pct(quota.apps_used, quota.max_apps),
+          },
         ]
       : [];
 
@@ -99,16 +113,40 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       {myCards.length > 0 && (
         <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {myCards.map((c) => (
-            <div key={c.label} className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-              <p className="text-[11px] font-medium text-zinc-400">{c.label}</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {c.value} <span className="text-xs font-normal text-zinc-500">/ {c.limit}</span>
-              </p>
-              {'note' in c && c.note && <p className="mt-1.5 truncate text-[10px] text-zinc-500">{c.note}</p>}
-              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+            <div
+              key={c.label}
+              title={c.tooltip}
+              className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-[11px] font-medium text-zinc-400">{c.label}</p>
+                  <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {c.value} <span className="text-xs font-normal text-zinc-500">/ {c.limit}</span>
+                  </p>
+                </div>
+                <span
+                  className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium ring-1 ${
+                    c.p >= 90
+                      ? 'bg-rose-500/10 text-rose-400 ring-rose-500/20'
+                      : c.p >= 70
+                      ? 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
+                      : 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
+                  }`}
+                >
+                  {c.p}%
+                </span>
+              </div>
+              <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${c.p >= 90 ? 'bg-red-500' : c.p >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${c.p}%` }}
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    c.p >= 90
+                      ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                      : c.p >= 70
+                      ? 'bg-gradient-to-r from-amber-500 to-amber-400'
+                      : 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(c.p > 0 ? 2 : 0, c.p))}%` }}
                 />
               </div>
             </div>
