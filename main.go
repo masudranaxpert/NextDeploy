@@ -126,6 +126,7 @@ func main() {
 			c.Set("Cache-Control", "public, max-age=31536000, immutable")
 			return c.Next()
 		})
+		app.Use("/assets", gzipAssets(assetsFS))
 		app.Use("/assets", filesystem.New(filesystem.Config{
 			Root:   http.FS(assetsFS),
 			Browse: false,

@@ -11,6 +11,19 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'sync-web-dist-for-go-embed',
+        // keep hashed files from older builds for three days (open tabs may still ask for them), then drop them
+        writeBundle(_opts: unknown, bundle: Record<string, unknown>) {
+          const fresh = new Set(Object.keys(bundle).map((f) => path.basename(f)));
+          const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
+          for (const dir of ['dist/assets', 'web/dist/assets']) {
+            const abs = path.resolve(__dirname, dir);
+            if (!fs.existsSync(abs)) continue;
+            for (const f of fs.readdirSync(abs)) {
+              const full = path.join(abs, f);
+              if (!fresh.has(f) && fs.statSync(full).isFile() && fs.statSync(full).mtimeMs < cutoff) fs.rmSync(full);
+            }
+          }
+        },
         closeBundle() {
           const srcDir = path.resolve(__dirname, 'dist');
           const destDir = path.resolve(__dirname, 'web/dist');
@@ -24,6 +37,17 @@ export default defineConfig(() => {
     ],
     build: {
       emptyOutDir: false,
+      rolldownOptions: {
+        output: {
+          // libraries change rarely: their own files stay cached in the browser across app updates
+          advancedChunks: {
+            groups: [
+              { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-is)[\\/]/ },
+              { name: 'vendor-ui', test: /node_modules[\\/](sonner|lucide-react|motion|framer-motion|motion-dom|motion-utils)[\\/]/ },
+            ],
+          },
+        },
+      },
     },
     resolve: {
       alias: {

@@ -50,6 +50,7 @@ func InvalidateSharedMatcher() {
 	matcherMu.Lock()
 	matcherAt = time.Time{}
 	matcherMu.Unlock()
+	dockerapi.InvalidateVolumeLabels()
 }
 
 func workspaceDirContainedInApp(appRoot, workDir string) bool {

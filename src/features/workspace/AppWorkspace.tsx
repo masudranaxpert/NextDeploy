@@ -821,19 +821,38 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     [allFolderPaths]
   );
 
+  // Children of every folder, built in one pass so a big tree (a WordPress site has thousands of
+  // files) is not searched again for each folder on every render.
+  const treeIndex = useMemo(() => {
+    const folders = new Map<string, string[]>();
+    const files = new Map<string, ComposeFileNode[]>();
+    const parentOf = (path: string) => {
+      const i = path.lastIndexOf('/');
+      return i === -1 ? '' : path.slice(0, i);
+    };
+    for (const d of allFolderPaths) {
+      if (!d.includes('/')) continue;
+      const parent = parentOf(d);
+      const list = folders.get(parent);
+      if (list) list.push(d);
+      else folders.set(parent, [d]);
+    }
+    for (const f of defaultRichFiles) {
+      const parent = parentOf(f.path);
+      const list = files.get(parent);
+      if (list) list.push(f);
+      else files.set(parent, [f]);
+    }
+    return { folders, files };
+  }, [allFolderPaths, defaultRichFiles]);
+
   // Folder tree node: recursive, so folders nest to any depth (like an editor's explorer).
   const renderTreeFolder = (folder: string, depth: number): React.ReactNode => {
     const name = folder.split('/').pop() || folder;
     const isExpanded = Boolean(expandedDirs[folder]);
     const isCurrent = currentDir === folder && !editingFilePath;
-    const childFolders = allFolderPaths.filter((d) => {
-      const i = d.lastIndexOf('/');
-      return i !== -1 && d.slice(0, i) === folder;
-    });
-    const childFiles = defaultRichFiles.filter((f) => {
-      const i = f.path.lastIndexOf('/');
-      return (i === -1 ? '' : f.path.slice(0, i)) === folder;
-    });
+    const childFolders = treeIndex.folders.get(folder) ?? [];
+    const childFiles = treeIndex.files.get(folder) ?? [];
     const count = childFolders.length + childFiles.length;
     const small = depth > 0;
     return (
@@ -4077,8 +4096,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         setExpandedDirs({});
                       } else {
                         const allOpen: Record<string, boolean> = {};
+                        // opening every folder of a very large site would draw thousands of rows: stop at two levels
+                        const limitDepth = allFolderPaths.length > 400;
                         allFolderPaths.forEach((d) => {
-                          allOpen[d] = true;
+                          if (!limitDepth || d.split('/').length <= 2) allOpen[d] = true;
                         });
                         setExpandedDirs(allOpen);
                       }

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"panel/internal/dockerapi"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -92,21 +93,11 @@ func listByComposeProjectLabel(ctx context.Context, composeProject string) ([]st
 	if composeProject == "" {
 		return nil, ""
 	}
-	cmd := exec.CommandContext(ctx, "docker", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project="+composeProject)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return nil, strings.TrimSpace(out.String())
+	byProject, err := dockerapi.VolumesByComposeProject(ctx)
+	if err != nil {
+		return nil, err.Error()
 	}
-	var names []string
-	for _, line := range strings.Split(out.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			names = append(names, line)
-		}
-	}
-	return names, ""
+	return append([]string(nil), byProject[composeProject]...), ""
 }
 
 func inspectComposeVolumeLabel(ctx context.Context, volumeName string) string {
