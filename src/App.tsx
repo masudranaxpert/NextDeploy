@@ -416,7 +416,7 @@ export default function App() {
       updatedAt: a.updated_at || 'Recently',
       cpuPct: Math.round((a.usage?.cpu_percent || 0) * 100) / 100,
       memMB: a.usage?.memory_mb || 0,
-      diskMB: 0,
+      diskMB: a.disk_mb || 0,
       reqPerMin: 0,
       services:
         appContainers.length > 0

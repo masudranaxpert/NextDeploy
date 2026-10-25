@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/phphosting"
 )
 
 // appUsage is what one project's containers use right now.
@@ -115,16 +117,47 @@ func (p *Panel) projectUsage(ctx context.Context) map[string]appUsage {
 // WarmUsage measures project usage once at start, so the first page load already has numbers.
 func (p *Panel) WarmUsage() { p.usageRows(context.Background()) }
 
-// usageForApp adds up the usage of every compose project that belongs to the app.
+// usageForApp adds up the usage of every compose project or PHP container that belongs to the app.
 func (p *Panel) usageForApp(ctx context.Context, app db.App, byProject map[string]appUsage) appUsage {
 	var out appUsage
-	if len(byProject) == 0 {
-		return out
+	if len(byProject) > 0 {
+		for _, proj := range p.composeProjectsForApps(ctx, []db.App{app}) {
+			if u, ok := byProject[proj]; ok {
+				out.MemoryMB += u.MemoryMB
+				out.CPUPercent += u.CPUPercent
+			}
+		}
 	}
-	for _, proj := range p.composeProjectsForApps(ctx, []db.App{app}) {
-		if u, ok := byProject[proj]; ok {
-			out.MemoryMB += u.MemoryMB
-			out.CPUPercent += u.CPUPercent
+	if p.DB.IsPHPSite(ctx, app.ID) {
+		site, err := p.DB.GetPHPSite(ctx, app.ID)
+		if err == nil {
+			rows := p.usageRows(ctx)
+			routeTarget := phphosting.RouteContainer(app.ID)
+			runtimeTarget := phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion)
+
+			peerSites := 1
+			if allSites, sErr := p.DB.ListPHPSites(ctx); sErr == nil {
+				cnt := 0
+				for _, s := range allSites {
+					if s.OwnerID == site.OwnerID && s.PHPVersion == site.PHPVersion {
+						cnt++
+					}
+				}
+				if cnt > 1 {
+					peerSites = cnt
+				}
+			}
+
+			for _, r := range rows {
+				cleanName := strings.TrimPrefix(r.Name, "/")
+				if cleanName == routeTarget {
+					out.MemoryMB += int64(r.MemUsage / (1024 * 1024))
+					out.CPUPercent += r.CPUPercent
+				} else if cleanName == runtimeTarget {
+					out.MemoryMB += int64(r.MemUsage / (1024 * 1024)) / int64(peerSites)
+					out.CPUPercent += r.CPUPercent / float64(peerSites)
+				}
+			}
 		}
 	}
 	return out

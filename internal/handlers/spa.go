@@ -186,6 +186,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		Ports         []db.AllocatedPort      `json:"ports"`
 		PHP           *phpAppInfo             `json:"php,omitempty"`
 		Usage         appUsage                `json:"usage"`
+		DiskMB        int64                   `json:"disk_mb"`
 		OwnerName     string                  `json:"owner_name"`
 		OwnerRole     string                  `json:"owner_role"`
 	}
@@ -286,6 +287,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				Ports:         appPorts,
 				PHP:           phpInfo,
 				Usage:         p.usageForApp(ctx, app, usageByProject),
+				DiskMB:        p.AppStorageBytes(app.ID) / (1024 * 1024),
 				OwnerName:     ownerOf(owners, app.OwnerID).Name,
 				OwnerRole:     ownerOf(owners, app.OwnerID).Role,
 			}
