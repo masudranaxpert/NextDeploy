@@ -90,6 +90,8 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const isFallbackModeRef = useRef<boolean>(false);
   const currentLineRef = useRef<string>('');
   // How many terminal rows the currently rendered "prompt + typed line" block occupies —
   // the prompt can wrap across rows on narrow screens, so redrawing must erase all of them.
@@ -217,21 +219,25 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     renderedRowsRef.current = Math.max(1, Math.ceil(effectivePromptRef.current.length / (term.cols || 80)));
   };
 
-  // Refit + resync the rendered-row bookkeeping + redraw the active line — after any
-  // size change the re-wrapped buffer invalidates the old row count, and a stale count
-  // makes the next keystroke redraw land on the wrong rows (chars appearing one-per-row).
-  const refitAndRedraw = (fitAddon: FitAddon | null, term: XTerm | null) => {
+  // Refit terminal dimensions and notify backend PTY of size changes.
+  // In live PTY sessions, NEVER inject client-side prompts into the buffer.
+  const refit = (fitAddon: FitAddon | null, term: XTerm | null) => {
     if (!fitAddon || !term) return;
     try {
       fitAddon.fit();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && term.cols && term.rows) {
+        wsRef.current.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+      }
     } catch {
       return;
     }
-    renderedRowsRef.current = Math.max(
-      1,
-      Math.ceil((effectivePromptRef.current.length + currentLineRef.current.length) / (term.cols || 80))
-    );
-    renderActiveLine(term, false);
+    if (isFallbackModeRef.current) {
+      renderedRowsRef.current = Math.max(
+        1,
+        Math.ceil((effectivePromptRef.current.length + currentLineRef.current.length) / (term.cols || 80))
+      );
+      renderActiveLine(term, false);
+    }
   };
 
   const performClear = (term: XTerm) => {
@@ -239,7 +245,9 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     // ANSI sequence: \x1b[2J (erase screen) + \x1b[3J (erase scrollback) + \x1b[H (home cursor 1,1)
     term.write('\x1b[2J\x1b[3J\x1b[H');
     term.clear();
-    writeNewPromptLine(term, false);
+    if (isFallbackModeRef.current) {
+      writeNewPromptLine(term, false);
+    }
   };
 
   const executeCommand = (rawCmd: string) => {
@@ -301,12 +309,13 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     term.open(containerRef.current);
 
     setTimeout(() => {
-      refitAndRedraw(fitAddon, term);
+      refit(fitAddon, term);
     }, 30);
 
     if (initialBanner && initialBanner.length > 0) {
       initialBanner.forEach((line) => term.writeln(line));
     }
+    isFallbackModeRef.current = false;
     currentLineRef.current = '';
 
     // Connect to live backend PTY WebSocket (/apps/:id/ws/terminal or /terminal/ws)
@@ -321,11 +330,15 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
           }`
         : `/terminal/ws`;
       ws = new WebSocket(`${proto}//${window.location.host}${wsPath}`);
+      wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
       ws.onopen = () => {
         wsConnected = true;
         setWsConnectedState(true);
         term.focus();
+        if (term.cols && term.rows) {
+          ws?.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+        }
       };
       ws.onmessage = (ev) => {
         wsConnected = true;
@@ -338,19 +351,22 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       };
       ws.onerror = () => {
         setWsConnectedState(false);
-        if (!wsConnected) {
+        if (!wsConnected && !isFallbackModeRef.current) {
+          isFallbackModeRef.current = true;
           writeNewPromptLine(term, false);
         }
       };
       ws.onclose = () => {
         setWsConnectedState(false);
-        if (!wsConnected) {
+        if (!wsConnected && !isFallbackModeRef.current) {
+          isFallbackModeRef.current = true;
           writeNewPromptLine(term, false);
         }
         wsConnected = false;
       };
     } catch {
       setWsConnectedState(false);
+      isFallbackModeRef.current = true;
       writeNewPromptLine(term, false);
     }
 
@@ -428,7 +444,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     fitAddonRef.current = fitAddon;
 
     const handleResize = () => {
-      refitAndRedraw(fitAddon, term);
+      refit(fitAddon, term);
     };
     window.addEventListener('resize', handleResize);
     // Fit on ANY container size change (sidebar, tab layout, parent scrollbar) —
@@ -449,13 +465,14 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
           // ignore
         }
       }
+      wsRef.current = null;
       term.dispose();
     };
   }, [activeServiceObj?.service, activeServiceObj?.name, appSlug]);
 
   useEffect(() => {
     setTimeout(() => {
-      refitAndRedraw(fitAddonRef.current, xtermRef.current);
+      refit(fitAddonRef.current, xtermRef.current);
     }, 50);
   }, [expanded]);
 
@@ -469,7 +486,13 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   const handleClearTerminal = () => {
     const term = xtermRef.current;
     if (!term) return;
-    performClear(term);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      term.clear();
+      term.write('\x1b[2J\x1b[3J\x1b[H');
+      wsRef.current.send('\x0c');
+    } else {
+      performClear(term);
+    }
     term.focus();
   };
 
