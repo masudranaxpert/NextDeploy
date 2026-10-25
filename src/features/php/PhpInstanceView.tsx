@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Database, Download, Power, RotateCw, Server, Trash2 } from 'lucide-react';
+import { BookOpen, Database, Download, Power, RotateCw, Server, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpInstanceData } from '../../lib/api/phpApi';
 import { ShadcnDialog, ShadcnSwitch } from '../../components/ui/Primitives';
 import { MariaDbIcon, PhpIcon, PhpMyAdminIcon } from '../../components/ui/BrandIcons';
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, ValueBox, inputCls } from './ui';
+import { MariaDbTuningDocsModal } from './MariaDbTuningDocsModal';
 
 export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }> = ({ onChanged }) => {
   const [data, setData] = useState<PhpInstanceData | null>(null);
@@ -13,6 +14,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   const [busy, setBusy] = useState('');
   const [memory, setMemory] = useState(512);
   const [querySeconds, setQuerySeconds] = useState(60);
+  const [showDocs, setShowDocs] = useState(false);
   const [minCron, setMinCron] = useState(1);
   const [logVersion, setLogVersion] = useState<string | null>(null);
   const [limits, setLimits] = useState<Record<number, { d: number; c: number }>>({});
@@ -113,14 +115,35 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
             </>
           )}
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-zinc-500">
-          Memory: up to {m.host_memory_mb ? `${m.host_memory_mb} MB (this server's RAM)` : 'the server\'s RAM'}. By default a quarter of the server's RAM, at least 512 MB.
-          Half of it is the InnoDB cache ({m.buffer_pool_mb} MB), the rest serves connections (up to {m.max_connections}). Idle connections are closed after {m.idle_seconds} seconds.
-          Changing the memory takes effect when the database restarts.
-        </p>
+
+        {/* Live Tuning Bar & Documentation Modal Trigger */}
+        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-white/[0.07] bg-zinc-900/40 p-2.5 px-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-zinc-400">
+            <span className="inline-flex items-center gap-1.5 font-medium text-zinc-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span>Buffer Pool: <strong className="font-mono text-emerald-400">{m.buffer_pool_mb} MB</strong> (50%)</span>
+            </span>
+            <span className="text-zinc-600 hidden sm:inline">·</span>
+            <span>Max Conns: <strong className="font-mono text-zinc-200">{m.max_connections}</strong></span>
+            <span className="text-zinc-600 hidden sm:inline">·</span>
+            <span>Idle Timeout: <strong className="font-mono text-zinc-200">{m.idle_seconds}s</strong></span>
+            <span className="text-zinc-600 hidden sm:inline">·</span>
+            <span>Statement Limit: <strong className="font-mono text-amber-400">{m.query_seconds > 0 ? `${m.query_seconds}s` : 'Off'}</strong></span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowDocs(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[11px] font-medium text-orange-400 transition hover:bg-orange-500/20 hover:text-orange-300 cursor-pointer shadow-sm"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            <span>Architecture & Tuning Docs (গাইড)</span>
+          </button>
+        </div>
+
         {m.exists && (
           <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-white/[0.06] pt-4">
-            <Field label="Query time limit (seconds)" hint={m.query_limit_supported ? '0 turns the limit off' : 'only MariaDB can do this'}>
+            <Field label="Query time limit (seconds)" hint={m.query_limit_supported ? 'Site query abort threshold (0 = off)' : 'only MariaDB supports per-user limits'}>
               <input
                 type="number"
                 min={0}
@@ -139,10 +162,9 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
             >
               Save limit
             </GhostButton>
-            <p className="max-w-md pb-2 text-[11px] leading-4 text-zinc-500">
-              A site's database query that runs longer than this is stopped, so one slow query cannot hold up every other site. phpMyAdmin
-              sessions get five times as long; backups and the panel itself are not limited.
-            </p>
+            <span className="pb-2 text-[11px] text-zinc-500">
+              phpMyAdmin gets 5x ({querySeconds * 5}s); panel root and backups are unlimited.
+            </span>
           </div>
         )}
       </Card>
@@ -340,6 +362,12 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         {logBuild?.error && <div className="mb-2 text-xs text-red-300">{logBuild.error}</div>}
         <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[#09090b] p-3 font-mono text-[11px] leading-relaxed text-zinc-300">{logBuild?.log || 'No output yet.'}</pre>
       </ShadcnDialog>
+
+      <MariaDbTuningDocsModal
+        open={showDocs}
+        onClose={() => setShowDocs(false)}
+        mysql={m}
+      />
     </div>
   );
 };
