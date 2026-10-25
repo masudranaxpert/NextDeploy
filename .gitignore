@@ -33,6 +33,7 @@ vendor/
 .env
 .env.*
 !.env.example
+*.log
 
 # Editor, OS & temporary files
 .DS_Store

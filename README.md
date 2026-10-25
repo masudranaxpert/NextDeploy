@@ -1,11 +1,11 @@
 <div align="center">
 
-# NextDeploy
+# NextDeploy v2
 
-**Self-hosted Docker deployment panel** — Compose stacks, automatic HTTPS, file manager, live logs, and AI-agent access from one clean UI.
+**Self-hosted Docker deployment & CloudPanel-style PHP hosting panel** — Compose stacks, instant pre-built PHP runtimes with CVE alerts, automated HTTPS, native AI MCP server, and live logs from one clean UI.
 
 [![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
+[![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy-v2?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy-v2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go)](https://go.dev)
 
@@ -15,115 +15,78 @@
 
 ---
 
-## Features
+## What's New in v2
 
-| Category | Capabilities |
-|---|---|
-| **Deploy** | Upload ZIP/files or connect a Git repo; one-click deploy via `docker-compose.yml`; webhook auto-deploy |
-| **HTTPS & Domains** | Caddy reverse proxy with Let's Encrypt / ZeroSSL; per-app domain routing; no Caddyfile needed |
-| **Files & Logs** | In-browser file manager; real-time deploy logs; container log tailing with filters |
-| **Docker Resources** | Browse and remove containers, images, and volumes; scheduled auto-prune |
-| **PHP Hosting** | CloudPanel-style PHP, WordPress and static sites in Docker: per-site databases (MariaDB), cron jobs, web terminal, backups with databases, multiple PHP versions — see [docs/php-hosting.md](docs/php-hosting.md) |
-| **Multi-user** | Admin + user roles; per-user resource limits; audit log |
-| **MCP Server** | Native [Model Context Protocol](skills/nextdeploy-mcp/SKILL.md) server — let Cursor, Claude Code or Windsurf edit, deploy, and inspect apps directly over your local API token |
-| **NextDeploy CLI (`nd`)** | Native CLI to push local projects, stream logs, manage apps and tokens |
-| **Panel Migration** | Export selected apps to a `.nd-migrate` bundle and restore on another VPS |
-
-## Requirements
-
-- **Linux** host; **Docker 24+** and **Compose V2**
-- Ports **80**, **443**, and **8080** open
+- ⚡ **Instant PHP Hosting (5–10s provision)**: Pre-built Docker Hub runtimes (`masudranaxpert/nextdeploy-php:7.4` to `8.5`) pre-baked with MongoDB, Redis, MySQL, GD, Imagick, OPcache, Composer, and WP-CLI. No more waiting 15 minutes to compile on small VPS servers.
+- 🛡️ **Active CVE & EOL Security Auditing**: Real-time vulnerability badges and CVSS ratings (including critical 2026 PHP2Shell CVE-2026-109618/109619 RCE warnings and EOL status for 7.4/8.0/8.1) right in the PHP version manager.
+- 🚀 **Advanced Asset Optimization**: Pre-compressed Gzip assets, vendor chunking, and sub-millisecond virtual tree rendering for large workspaces.
+- 🤖 **Native MCP Server**: Directly connect Cursor, Claude Code, or Windsurf to inspect, deploy, and edit code with 18+ tools over SSE.
 
 ---
 
-## Install
+## Quick Install (One Command)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/install.sh | sudo bash
 ```
 
-With options (use `bash -s --` to pass flags):
+With custom domain and Let's Encrypt email:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/install.sh | sudo bash -s -- \
   --domain panel.example.com --email admin@example.com
 ```
 
 | Option | Default | Description |
-|--------|---------|-------------|
-| `--domain` | *(none)* | Panel domain hint (configure HTTPS in-panel after install) |
-| `--email` | *(none)* | Let's Encrypt / ACME email reminder |
-| `--dir` | `/opt/nextdeploy` | Install directory |
-| `--data-dir` | `/data` | Host data path |
+|---|---|---|
+| `--domain` | *(none)* | Panel domain (automatic HTTPS via Caddy) |
+| `--email` | *(none)* | Let's Encrypt / ACME notification email |
+| `--dir` | `/opt/nextdeploy` | Host installation directory |
+| `--data-dir` | `/data` | Host persistent data path |
 
-Open **`http://<server-ip>:8080`** after install and create the first admin user.
+After install, open **`http://<server-ip>:8080`** to set up your admin account.
 
-### Manual (without install script)
+---
+
+## Core Capabilities
+
+| Category | Features |
+|---|---|
+| **PHP & WordPress** | PHP 7.4–8.5 runtimes, MariaDB databases, WP-CLI, cron jobs, php.ini tuning, php-fpm pools, CVE indicators |
+| **Deploy Stacks** | Git webhook auto-deploy or manual file upload; automatic `docker-compose.yml` generation |
+| **HTTPS & Routing** | Embedded Caddy proxy; zero-config SSL certificates via Let's Encrypt / ZeroSSL |
+| **Files & Terminal** | In-browser file editor, upload/download, host & container interactive web terminals |
+| **AI Integration** | Native [Model Context Protocol (MCP)](skills/nextdeploy-mcp/SKILL.md) server at `/mcp/sse` for AI dev agents |
+| **Resource Limits** | Per-container CPU / Memory limits, live container metrics, and scheduled Docker prune |
+| **VPS Migration** | Export apps to a `.nd-migrate` bundle and one-command import onto another VPS |
+
+---
+
+## Manual Run (Docker Compose)
 
 ```bash
 mkdir -p /data
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-### Build from source
+### Local Development / Build from Source
 
 ```bash
-git clone https://github.com/masudranaxpert/NextDeploy.git && cd NextDeploy
-docker compose -f docker-compose.local.yml up -d --build
+git clone https://github.com/masudranaxpert/NextDeploy.git -b main-v2
+cd NextDeploy
+npm run build
+go build -o panel .
+./panel
 ```
 
 ---
 
-## MCP Server (AI Integration)
+## Management & Updates
 
-NextDeploy ships a native **Model Context Protocol** server at `/mcp/sse`. AI coding assistants (Cursor, Claude Code, Windsurf, Claude Desktop) can connect using a panel API token and get 18 tools — `file_write`, `deploy`, `container_logs`, `env_set`, and more — without touching SSH or installing anything on the VPS.
-
-**Quick start:**
-1. Open **MCP Server** in the sidebar → generate an API token.
-2. Add the SSE URL + token to your assistant's MCP config.
-3. The assistant can now edit files, trigger deploys, and tail logs directly.
-
-See [`skills/nextdeploy-mcp/SKILL.md`](skills/nextdeploy-mcp/SKILL.md) for the full agent skill guide.
-
----
-
-## Panel Migration (VPS-to-VPS)
-
-1. **Export** — Admin → System → Migration → select apps → *Create export bundle* (valid 3 hours).
-2. **Import** on the new VPS:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \
-  --url "https://panel.example.com/migrate/download/TOKEN"
-```
-
----
-
-## Domains & HTTPS
-
-Panel writes Caddy labels into `.nextdeploy.generated.compose.yml`. Add domains from each app's **Domains** tab — no hand-written Caddyfile needed.
-
----
-
-## Uninstall
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash
-```
-
-| Option | Description |
-|--------|-------------|
-| `--keep-data` | Preserve workspaces and SQLite DB |
-| `--force` / `-f` | Skip confirmation |
-
----
-
-## Troubleshooting
-
-See **[docs/troubleshooting.md](docs/troubleshooting.md)** for common issues.
-
-**Cloudflare users:** uploads are capped at the edge (~100 MB on Free/Pro). Access the panel directly at `http://<server-ip>:8080` for large uploads.
+- **Update to latest v2**: `sudo nextdeploy-update`
+- **Stream panel logs**: `sudo nextdeploy-logs`
+- **Uninstall**: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/uninstall.sh | sudo bash`
 
 ---
 

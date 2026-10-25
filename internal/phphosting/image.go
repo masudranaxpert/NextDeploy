@@ -85,6 +85,38 @@ func (m *Manager) StartBuild(version string) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
+
+		targetImage := ImageName(version)
+
+		// 1. Fast path: Attempt to pull pre-built image from Docker Hub first
+		appendLog(fmt.Sprintf("Checking for pre-built image on Docker Hub (%s)...\n", targetImage))
+		pullCmd := exec.CommandContext(ctx, "docker", "pull", targetImage)
+		pullCmd.Env = os.Environ()
+		prPull, pwPull := io.Pipe()
+		pullCmd.Stdout, pullCmd.Stderr = pwPull, pwPull
+		pullDone := make(chan struct{})
+		go func() {
+			sc := bufio.NewScanner(prPull)
+			sc.Buffer(make([]byte, 64*1024), 1024*1024)
+			for sc.Scan() {
+				appendLog(sc.Text() + "\n")
+			}
+			close(pullDone)
+		}()
+		pullErr := pullCmd.Run()
+		_ = pwPull.Close()
+		<-pullDone
+
+		if pullErr == nil {
+			appendLog(fmt.Sprintf("\nSuccessfully pulled pre-built image %s.\n", targetImage))
+			m.invalidateInstalled()
+			finish(nil)
+			return
+		}
+
+		// 2. Fallback: Local compilation with docker build if pre-built image is unavailable
+		appendLog(fmt.Sprintf("\nPre-built image not available on Docker Hub; starting local build with extensions...\n"))
+
 		dir, err := os.MkdirTemp("", "nd-php-build-")
 		if err != nil {
 			finish(err)
@@ -102,7 +134,7 @@ func (m *Manager) StartBuild(version string) error {
 				return
 			}
 		}
-		cmd := exec.CommandContext(ctx, "docker", "build", "--pull", "--build-arg", "PHP_VERSION="+version, "-t", ImageName(version), dir)
+		cmd := exec.CommandContext(ctx, "docker", "build", "--pull", "--build-arg", "PHP_VERSION="+version, "-t", targetImage, dir)
 		cmd.Env = os.Environ()
 		pr, pw := io.Pipe()
 		cmd.Stdout, cmd.Stderr = pw, pw
@@ -138,6 +170,9 @@ func (m *Manager) RemoveImage(ctx context.Context, version string) error {
 	if !res.OK && !strings.Contains(strings.ToLower(res.Output), "no such image") {
 		return fmt.Errorf("%s", res.Output)
 	}
+	if ImageRepo() != "nextdeploy/php" {
+		_ = docker(ctx, "rmi", "nextdeploy/php:"+version)
+	}
 	m.builds.mu.Lock()
 	delete(m.builds.states, version)
 	m.builds.mu.Unlock()
@@ -153,11 +188,19 @@ func (m *Manager) InstalledVersions(ctx context.Context) []string {
 	if time.Since(m.instAt) < 10*time.Second && m.instVals != nil {
 		return append([]string{}, m.instVals...)
 	}
-	res := docker(ctx, "image", "ls", ImageRepo, "--format", "{{.Tag}}")
 	have := map[string]bool{}
+	res := docker(ctx, "image", "ls", ImageRepo(), "--format", "{{.Tag}}")
 	if res.OK {
 		for _, t := range strings.Fields(res.Output) {
 			have[t] = true
+		}
+	}
+	if ImageRepo() != "nextdeploy/php" {
+		resLegacy := docker(ctx, "image", "ls", "nextdeploy/php", "--format", "{{.Tag}}")
+		if resLegacy.OK {
+			for _, t := range strings.Fields(resLegacy.Output) {
+				have[t] = true
+			}
 		}
 	}
 	out := []string{}

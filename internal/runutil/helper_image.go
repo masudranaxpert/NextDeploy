@@ -34,7 +34,7 @@ func HelperImage() string {
 				}
 			}
 		}
-		helperImg = "masudranaxpert/nextdeploy:latest"
+		helperImg = "masudranaxpert/nextdeploy-v2:latest"
 	})
 	return helperImg
 }

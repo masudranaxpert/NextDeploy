@@ -1,11 +1,27 @@
 # NextDeploy PHP-FPM runtime image. One image per PHP version, shared by every site.
-# Deliberately lean: no ImageMagick (WordPress uses GD) and no git; both add 60+ MB.
+# Pre-baked with popular extensions (MySQL, Redis, MongoDB, GD, Imagick, OPcache, Composer, WP-CLI)
 ARG PHP_VERSION=8.3
 FROM php:${PHP_VERSION}-fpm-alpine
 
 ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 RUN chmod +x /usr/local/bin/install-php-extensions \
- && install-php-extensions mysqli pdo_mysql opcache gd intl zip bcmath exif soap sockets pcntl redis apcu @composer \
+ && IPE_GD_WITHOUTAVIF=1 install-php-extensions \
+      mysqli \
+      pdo_mysql \
+      opcache \
+      gd \
+      intl \
+      zip \
+      bcmath \
+      exif \
+      soap \
+      sockets \
+      pcntl \
+      redis \
+      apcu \
+      mongodb \
+      imagick \
+      @composer \
  && apk add --no-cache bash curl unzip zip less mariadb-client \
  && curl -fsSL -o /usr/local/bin/wp https://github.com/wp-cli/wp-cli/releases/download/v2.11.0/wp-cli-2.11.0.phar \
  && chmod +x /usr/local/bin/wp \

@@ -148,20 +148,71 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] text-zinc-500">
-              <tr><th className="py-2 pr-4 font-medium">Version</th><th className="py-2 pr-4 font-medium">Status</th><th className="py-2 pr-4 font-medium">Sites</th><th className="py-2 text-right font-medium">Actions</th></tr>
+              <tr>
+                <th className="py-2 pr-4 font-medium">Version</th>
+                <th className="py-2 pr-4 font-medium">Security & CVE Status</th>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-4 font-medium">Sites</th>
+                <th className="py-2 text-right font-medium">Actions</th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {(data.versions ?? []).map((v) => {
                 const building = v.build?.running;
                 return (
                   <tr key={v.version}>
-                    <td className="py-2.5 pr-4 font-mono text-zinc-100">PHP {v.version}</td>
+                    <td className="py-2.5 pr-4 font-mono text-zinc-100 whitespace-nowrap">
+                      PHP {v.version}
+                      {v.is_default && (
+                        <span className="ml-1.5 rounded bg-sky-500/10 px-1 py-0.2 text-[9px] font-sans font-medium text-sky-400 ring-1 ring-sky-500/20">
+                          Default
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-4">
-                      {building ? <Pill tone="amber">building…</Pill> : v.installed ? <Pill tone="green">installed</Pill> : v.build?.error ? <Pill tone="red">build failed</Pill> : <Pill>not installed</Pill>}
+                      {v.has_cve ? (
+                        <div className="flex flex-col gap-0.5" title={v.cve_warning}>
+                          <span className="inline-flex items-center gap-1">
+                            <Pill tone="red">⚠️ {v.cves?.[0] || 'CVE Risk'} ({v.cvss || '9.2'})</Pill>
+                          </span>
+                          <span className="text-[10px] text-rose-400/80 font-sans truncate max-w-[220px]" title={v.cve_warning}>
+                            {v.status_label || 'EOL / Critical RCE'}
+                          </span>
+                        </div>
+                      ) : v.status === 'security-only' ? (
+                        <div className="flex flex-col gap-0.5" title={v.cve_warning}>
+                          <span className="inline-flex items-center gap-1">
+                            <Pill tone="amber">Security Only</Pill>
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-sans">
+                            {v.patched_in ? `Patched ≥ ${v.patched_in}` : `EOL: ${v.eol_date}`}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="inline-flex items-center gap-1">
+                            <Pill tone="green">{v.status_label || 'Active Support'}</Pill>
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-sans">
+                            {v.patched_in ? `Patched ≥ ${v.patched_in}` : 'Latest Secure'}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-4 whitespace-nowrap">
+                      {building ? (
+                        <Pill tone="amber">pulling / building…</Pill>
+                      ) : v.installed ? (
+                        <Pill tone="green">installed</Pill>
+                      ) : v.build?.error ? (
+                        <Pill tone="red">build failed</Pill>
+                      ) : (
+                        <Pill>not installed</Pill>
+                      )}
                     </td>
                     <td className="py-2.5 pr-4 font-mono text-zinc-400">{v.sites}</td>
                     <td className="py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                         {v.build && <GhostButton onClick={() => setLogVersion(v.version)}>Build log</GhostButton>}
                         {v.installed ? (
                           <GhostButton tone="danger" disabled={v.sites > 0} title={v.sites > 0 ? 'In use by sites' : 'Remove image'} busy={busy === 'rm' + v.version}
@@ -169,7 +220,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
                             <Trash2 className="h-3.5 w-3.5" /> Remove
                           </GhostButton>
                         ) : (
-                          <PrimaryButton busy={busy === 'in' + v.version || !!building} onClick={() => act('in' + v.version, () => backendApi.phpVersion(v.version, 'install'), `Building PHP ${v.version}. This takes a few minutes`)}>
+                          <PrimaryButton busy={busy === 'in' + v.version || !!building} onClick={() => act('in' + v.version, () => backendApi.phpVersion(v.version, 'install'), `Installing PHP ${v.version} (pulling DockerHub image)...`)}>
                             <Download className="h-3.5 w-3.5" /> Install
                           </PrimaryButton>
                         )}

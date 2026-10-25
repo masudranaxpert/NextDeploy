@@ -109,10 +109,19 @@ func (p *Panel) PHPStatus(c *fiber.Ctx) error {
 // ---- admin: instance ----
 
 type phpVersionRow struct {
-	Version   string                 `json:"version"`
-	Installed bool                   `json:"installed"`
-	Sites     int                    `json:"sites"`
-	Build     *phphosting.BuildState `json:"build,omitempty"`
+	Version     string                 `json:"version"`
+	Installed   bool                   `json:"installed"`
+	Sites       int                    `json:"sites"`
+	Build       *phphosting.BuildState `json:"build,omitempty"`
+	Status      string                 `json:"status"`
+	StatusLabel string                 `json:"status_label"`
+	HasCVE      bool                   `json:"has_cve"`
+	CVSS        string                 `json:"cvss,omitempty"`
+	CVEs        []string               `json:"cves,omitempty"`
+	CVEWarning  string                 `json:"cve_warning,omitempty"`
+	EOLDate     string                 `json:"eol_date,omitempty"`
+	PatchedIn   string                 `json:"patched_in,omitempty"`
+	IsDefault   bool                   `json:"is_default,omitempty"`
 }
 
 // GET /api/php/instance
@@ -125,7 +134,21 @@ func (p *Panel) PHPInstance(c *fiber.Ctx) error {
 	counts, _ := p.DB.CountPHPSitesByVersion(ctx)
 	versions := make([]phpVersionRow, 0, len(phphosting.SupportedVersions))
 	for _, v := range phphosting.SupportedVersions {
-		row := phpVersionRow{Version: v, Installed: installed[v], Sites: counts[v]}
+		meta := phphosting.MetaForVersion(v)
+		row := phpVersionRow{
+			Version:     v,
+			Installed:   installed[v],
+			Sites:       counts[v],
+			Status:      meta.Status,
+			StatusLabel: meta.StatusLabel,
+			HasCVE:      meta.HasCVE,
+			CVSS:        meta.CVSS,
+			CVEs:        meta.CVEs,
+			CVEWarning:  meta.CVEWarning,
+			EOLDate:     meta.EOLDate,
+			PatchedIn:   meta.PatchedIn,
+			IsDefault:   meta.IsDefault,
+		}
 		if b, ok := p.PHP.BuildStatus(v); ok {
 			bb := b
 			row.Build = &bb

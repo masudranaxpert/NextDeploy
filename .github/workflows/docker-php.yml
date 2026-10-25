@@ -1,0 +1,68 @@
+name: Docker PHP Runtimes
+
+on:
+  push:
+    branches:
+      - main-v2
+    paths:
+      - 'internal/phphosting/docker/**'
+      - '.github/workflows/docker-php.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+  IMAGE_REPO: ${{ secrets.DOCKER_USERNAME }}/nextdeploy-php
+
+jobs:
+  build-php:
+    name: Build & push PHP ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - "7.4"
+          - "8.0"
+          - "8.1"
+          - "8.2"
+          - "8.3"
+          - "8.4"
+          - "8.5"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: internal/phphosting/docker
+          build-args: |
+            PHP_VERSION=${{ matrix.version }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE_REPO }}:${{ matrix.version }}
+          labels: |
+            org.opencontainers.image.title=NextDeploy PHP ${{ matrix.version }}
+            org.opencontainers.image.description=Pre-built high-performance PHP-FPM runtime for NextDeploy
+            org.opencontainers.image.url=https://github.com/masudranaxpert/NextDeploy
+            org.opencontainers.image.source=https://github.com/masudranaxpert/NextDeploy/tree/main-v2
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=php-${{ matrix.version }}
+          cache-to: type=gha,mode=max,scope=php-${{ matrix.version }}

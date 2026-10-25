@@ -33,7 +33,7 @@ services:
             LISTEN_ADDR: :8080
             PANEL_PERF_LOG: "false"
             WORKSPACES_ROOT: /data/workspaces
-        image: masudranaxpert/nextdeploy:latest
+        image: masudranaxpert/nextdeploy-v2:latest
         networks:
             - nextdeploy
         ports:

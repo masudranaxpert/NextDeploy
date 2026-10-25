@@ -20,6 +20,15 @@ export interface PhpVersionRow {
   installed: boolean;
   sites: number;
   build?: PhpBuildState;
+  status?: string;
+  status_label?: string;
+  has_cve?: boolean;
+  cvss?: string;
+  cves?: string[];
+  cve_warning?: string;
+  eol_date?: string;
+  patched_in?: string;
+  is_default?: boolean;
 }
 
 export interface PhpContainerRow {

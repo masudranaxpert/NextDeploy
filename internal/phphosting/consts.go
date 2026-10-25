@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	ImageRepo = "nextdeploy/php"
+	DefaultImageRepo = "masudranaxpert/nextdeploy-php"
 
 	MySQLContainer = "nd-mysql"
 	MySQLVolume    = "nd-mysql-data"
@@ -31,7 +31,7 @@ const (
 )
 
 // SupportedVersions lists the PHP versions an admin can install.
-var SupportedVersions = []string{"7.4", "8.1", "8.2", "8.3", "8.4", "8.5"}
+var SupportedVersions = []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"}
 
 func IsSupportedVersion(v string) bool {
 	for _, s := range SupportedVersions {
@@ -46,7 +46,7 @@ func IsValidSiteType(t string) bool {
 	return t == SiteTypePHP || t == SiteTypeWordPress || t == SiteTypeStatic
 }
 
-func ImageName(version string) string { return ImageRepo + ":" + version }
+func ImageName(version string) string { return ImageRepo() + ":" + version }
 
 func versionTag(version string) string { return strings.ReplaceAll(version, ".", "") }
 
