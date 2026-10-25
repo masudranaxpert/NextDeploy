@@ -104,6 +104,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     'df -h',
   ]);
   const historyIdxRef = useRef<number>(-1);
+  const lastSentSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
 
   // Sync when parent passes a new initialService (e.g. clicking Shell on a service row)
   useEffect(() => {
@@ -226,7 +227,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     try {
       fitAddon.fit();
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && term.cols && term.rows) {
-        wsRef.current.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+        if (term.cols !== lastSentSizeRef.current.cols || term.rows !== lastSentSizeRef.current.rows) {
+          lastSentSizeRef.current = { cols: term.cols, rows: term.rows };
+          wsRef.current.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+        }
       }
     } catch {
       return;
@@ -308,6 +312,12 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
+    try {
+      fitAddon.fit();
+    } catch {
+      // ignore initial fit error
+    }
+
     setTimeout(() => {
       refit(fitAddon, term);
     }, 30);
@@ -328,11 +338,18 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     try {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const containerParam = activeServiceObj?.name || activeServiceObj?.service || '';
-      const wsPath = appSlug
-        ? `/apps/${encodeURIComponent(appSlug)}/ws/terminal${
-            containerParam ? `?container=${encodeURIComponent(containerParam)}` : ''
-          }`
-        : `/terminal/ws`;
+      const initialCols = term.cols || 80;
+      const initialRows = term.rows || 24;
+      lastSentSizeRef.current = { cols: initialCols, rows: initialRows };
+
+      const params = new URLSearchParams();
+      if (containerParam) params.set('container', containerParam);
+      params.set('cols', String(initialCols));
+      params.set('rows', String(initialRows));
+      const qs = params.toString();
+      const wsPath = (appSlug
+        ? `/apps/${encodeURIComponent(appSlug)}/ws/terminal`
+        : `/terminal/ws`) + (qs ? `?${qs}` : '');
       ws = new WebSocket(`${proto}//${window.location.host}${wsPath}`);
       wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
@@ -341,7 +358,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
         setWsConnectedState(true);
         term.focus();
         if (term.cols && term.rows) {
-          ws?.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+          if (term.cols !== lastSentSizeRef.current.cols || term.rows !== lastSentSizeRef.current.rows) {
+            lastSentSizeRef.current = { cols: term.cols, rows: term.rows };
+            ws?.send(JSON.stringify({ op: 'resize', cols: term.cols, rows: term.rows }));
+          }
         }
       };
       ws.onmessage = (ev) => {
