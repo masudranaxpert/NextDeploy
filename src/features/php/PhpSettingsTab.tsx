@@ -21,6 +21,7 @@ import {
   usePhpSite,
   usePhpStatus,
 } from './ui';
+import { PhpVersionSelect } from './PhpVersionSelect';
 
 const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
 
@@ -142,12 +143,11 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         <div className="grid gap-4 sm:grid-cols-2">
           {!isStatic && (
             <Field label="PHP version">
-              <select className={selectCls} value={version} onChange={(e) => setVersion(e.target.value)}>
-                {installed.map((v) => (
-                  <option key={v} value={v}>PHP {v}</option>
-                ))}
-                {!installed.includes(version) && <option value={version}>PHP {version} (not installed)</option>}
-              </select>
+              <PhpVersionSelect
+                value={version}
+                onChange={setVersion}
+                installedVersions={installed}
+              />
             </Field>
           )}
           <Field label="Root directory">

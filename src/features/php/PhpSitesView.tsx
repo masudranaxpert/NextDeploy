@@ -9,6 +9,7 @@ import { SiteCard } from './components/SiteCard';
 import { DeleteSiteDialog } from './components/DeleteSiteDialog';
 import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons';
 import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls, prefetchPhpSite } from './ui';
+import { PhpVersionSelect } from './PhpVersionSelect';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
@@ -195,9 +196,11 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
 
           {needsPhp && (
             <Field label="PHP version">
-              <select className={selectCls} value={version} onChange={(e) => setVersion(e.target.value)}>
-                {installed.map((v) => <option key={v} value={v}>PHP {v}</option>)}
-              </select>
+              <PhpVersionSelect
+                value={version}
+                onChange={setVersion}
+                installedVersions={installed}
+              />
             </Field>
           )}
 
