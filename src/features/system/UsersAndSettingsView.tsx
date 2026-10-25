@@ -20,6 +20,8 @@ import {
   Cpu,
   HardDrive,
   Terminal,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuditLogEntry, PanelUser } from '../../types/nextdeploy';
@@ -146,6 +148,20 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   // System Settings State (matches POST /settings & /settings/cleanup/run & /settings/tmp/*)
   const [cleanupEnabled, setCleanupEnabled] = useState(true);
   const [cleanupInterval, setCleanupInterval] = useState<'1h' | '6h' | '12h' | '24h' | '168h'>('24h');
+
+  // Pre-calculate other users' allocated RAM for overcommit detection
+  const otherUsersAllocatedMB = useMemo(() => {
+    if (!limitsModalUser) return 0;
+    return users
+      .filter((u) => u.role !== 'admin' && String(u.id) !== String(limitsModalUser.id))
+      .reduce((sum, u) => sum + (u.maxMemoryMB ?? (u.memQuotaGB ? u.memQuotaGB * 1024 : 0)), 0);
+  }, [users, limitsModalUser]);
+
+  const totalCurrentlyAllocatedMB = useMemo(() => {
+    return users
+      .filter((u) => u.role !== 'admin')
+      .reduce((sum, u) => sum + (u.maxMemoryMB ?? (u.memQuotaGB ? u.memQuotaGB * 1024 : 0)), 0);
+  }, [users]);
   const [cleanupIncludeBuildCache, setCleanupIncludeBuildCache] = useState(false);
   const [cleanupRunning, setCleanupRunning] = useState(false);
   const [cleanupLastRunAt, setCleanupLastRunAt] = useState('Never');
@@ -747,6 +763,48 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               </div>
             </div>
 
+            {newRole === 'user' && host?.memoryMB && host.memoryMB > 0 && (
+              <div
+                className={`rounded-lg border p-3 text-xs ${
+                  totalCurrentlyAllocatedMB > host.memoryMB
+                    ? 'border-amber-500/30 bg-amber-500/[0.08] text-amber-200'
+                    : 'border-white/[0.07] bg-[#09090b] text-zinc-300'
+                }`}
+              >
+                <div className="flex items-center justify-between text-zinc-300 mb-1.5">
+                  <span className="text-[11px] text-zinc-400 font-medium">Server RAM Allocation</span>
+                  <span
+                    className={`font-mono text-[11px] font-semibold ${
+                      totalCurrentlyAllocatedMB > host.memoryMB ? 'text-amber-300' : 'text-zinc-200'
+                    }`}
+                  >
+                    {totalCurrentlyAllocatedMB} MB / {host.memoryMB} MB (
+                    {Math.round((totalCurrentlyAllocatedMB / host.memoryMB) * 100)}%)
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
+                  <div
+                    style={{
+                      width: `${Math.min(100, (totalCurrentlyAllocatedMB / host.memoryMB) * 100)}%`,
+                    }}
+                    className={`h-full ${
+                      totalCurrentlyAllocatedMB > host.memoryMB ? 'bg-amber-400' : 'bg-orange-500'
+                    }`}
+                  />
+                </div>
+                {totalCurrentlyAllocatedMB > host.memoryMB ? (
+                  <p className="mt-2 text-[11px] text-amber-300/90 flex items-start gap-1.5 leading-relaxed">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400" />
+                    Existing users already exceed physical server RAM ({Math.round((totalCurrentlyAllocatedMB / host.memoryMB) * 100)}% allocated). We recommend adjusting quotas after creation.
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-[10.5px] text-zinc-500">
+                    Remaining unallocated RAM: {Math.max(0, Math.round(((host.memoryMB - totalCurrentlyAllocatedMB) / 1024) * 10) / 10)} GB
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
               <button
                 type="button"
@@ -820,6 +878,97 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   hint={`${Number(limitMaxStorageMb) > 0 ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB disk` : 'Unlimited'}${host?.diskMB ? ` · server has ${(host.diskMB / 1024).toFixed(0)} GB` : ''}`}
                 />
               </div>
+
+              {/* RAM Overcommit / Capacity Indicator */}
+              {host && host.memoryMB > 0 && (() => {
+                const currentInputMB = Number(limitMaxMemoryMb) || 0;
+                const newTotalAllocatedMB = otherUsersAllocatedMB + currentInputMB;
+                const hostRAM = host.memoryMB;
+                const isOvercommitted = newTotalAllocatedMB > hostRAM;
+                const overcommitRatio = Math.round((newTotalAllocatedMB / hostRAM) * 100);
+
+                return (
+                  <div
+                    className={`rounded-xl border p-3.5 transition-all ${
+                      isOvercommitted
+                        ? 'border-amber-500/40 bg-amber-500/[0.08] text-amber-200'
+                        : 'border-white/[0.08] bg-white/[0.02] text-zinc-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      {isOvercommitted ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <Info className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-zinc-200">
+                            {isOvercommitted
+                              ? 'RAM Over-allocation Warning (Overcommit)'
+                              : 'Server RAM Allocation'}
+                          </span>
+                          <span
+                            className={`font-mono text-xs font-bold ${
+                              isOvercommitted ? 'text-amber-300' : 'text-zinc-300'
+                            }`}
+                          >
+                            {newTotalAllocatedMB} MB / {hostRAM} MB ({overcommitRatio}%)
+                          </span>
+                        </div>
+
+                        {/* Visual Allocation Stack Bar */}
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08] flex">
+                          <div
+                            style={{ width: `${Math.min(100, (otherUsersAllocatedMB / hostRAM) * 100)}%` }}
+                            className="h-full bg-zinc-500/80 transition-all"
+                            title={`Other users: ${otherUsersAllocatedMB} MB`}
+                          />
+                          <div
+                            style={{
+                              width: `${Math.min(
+                                Math.max(0, 100 - (otherUsersAllocatedMB / hostRAM) * 100),
+                                (currentInputMB / hostRAM) * 100
+                              )}%`,
+                            }}
+                            className={`h-full ${isOvercommitted ? 'bg-amber-400' : 'bg-orange-500'} transition-all`}
+                            title={`This user: ${currentInputMB} MB`}
+                          />
+                        </div>
+
+                        <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                          {isOvercommitted ? (
+                            <>
+                              Total assigned RAM across standard users will reach{' '}
+                              <strong className="text-amber-200 font-mono">
+                                {(newTotalAllocatedMB / 1024).toFixed(1)} GB
+                              </strong>
+                              , exceeding physical server capacity ({ (hostRAM / 1024).toFixed(1) } GB) by{' '}
+                              <strong className="text-amber-200 font-mono">
+                                {((newTotalAllocatedMB - hostRAM) / 1024).toFixed(1)} GB
+                              </strong>
+                              . If multiple users reach memory peaks at the same time, the Linux OOM killer may terminate containers.
+                            </>
+                          ) : (
+                            <>
+                              Other users allocated:{' '}
+                              <span className="font-mono text-zinc-300">
+                                {(otherUsersAllocatedMB / 1024).toFixed(1)} GB
+                              </span>
+                              . Remaining unallocated RAM:{' '}
+                              <span className="font-mono text-emerald-400 font-semibold">
+                                {Math.max(0, (hostRAM - newTotalAllocatedMB) / 1024).toFixed(1)} GB
+                              </span>
+                              .
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <p className="-mt-1 text-[11px] text-zinc-500">
                 0 means unlimited. Limits are applied to the user's systemd slice{' '}
                 <code className="font-mono text-zinc-400">nextdeploy-user-{limitsModalUser.id}.slice</code> and cannot exceed this server's real capacity.
