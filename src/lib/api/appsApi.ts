@@ -472,6 +472,23 @@ export const appsAndDockerApi = {
     });
     return res.json();
   },
+  appLimitsGet: (appId: string) =>
+    requestJson<AppLimitsInfo>(`/apps/${encodeURIComponent(appId)}/limits`),
+  appLimitsSet: (appId: string, memoryMb: number, cpus: number) =>
+    requestJson<{ ok: boolean; needs_redeploy?: boolean; error?: string }>(
+      `/apps/${encodeURIComponent(appId)}/limits`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memory_mb: memoryMb, cpus }) }
+    ),
   metricsHistory: () =>
     requestJson<{ ok?: boolean; history?: any[] }>('/api/v1/metrics/history'),
 };
+
+/** A project's own memory/CPU ceiling, the most it may be given, and what it uses now. */
+export interface AppLimitsInfo {
+  ok: boolean;
+  limits: { memory_mb: number; cpus: number };
+  cap: { memory_mb: number; cpus: number; source: 'account' | 'server' };
+  usage: { memory_mb: number; cpu_cores: number };
+  /** False when this server cannot enforce group limits (the numbers are stored but not applied). */
+  enforced: boolean;
+}

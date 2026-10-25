@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"panel/internal/db"
-	"panel/internal/dockerapi"
 	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
 	"panel/internal/workspace"
@@ -357,7 +356,7 @@ func (p *Panel) userLiveUsage(ctx context.Context, u db.User) (int64, float64) {
 
 var quotaUsageBusy sync.Map // user id -> true while a measurement runs
 
-// measureUserUsage asks Docker for the live memory and CPU of the user's own containers.
+// measureUserUsage adds up the memory and (recent average) CPU of the user's own containers.
 func (p *Panel) measureUserUsage(ctx context.Context, u db.User) (int64, float64) {
 	apps := p.ownedApps(ctx, u.ID)
 	projects := map[string]bool{}
@@ -372,14 +371,14 @@ func (p *Panel) measureUserUsage(ctx context.Context, u db.User) (int64, float64
 			}
 		}
 	}
-	rows, _ := dockerapi.ListContainerUsageMatching(ctx, func(name, project string) bool {
-		return (project != "" && projects[project]) || phpNames[name]
-	})
 	var mem uint64
 	var cpu float64
-	for _, r := range rows {
-		mem += r.MemUsage
-		cpu += r.CPUPercent
+	for _, r := range p.usageRows(ctx) {
+		name := strings.TrimPrefix(r.Name, "/")
+		if (r.ComposeProject != "" && projects[r.ComposeProject]) || phpNames[name] {
+			mem += r.MemUsage
+			cpu += r.CPUPercent
+		}
 	}
 	q := quotaUsage{MemoryMB: int64(mem / (1024 * 1024)), CPUCores: cpu / 100, At: time.Now()}
 	quotaUsageCache.Store(u.ID, q)

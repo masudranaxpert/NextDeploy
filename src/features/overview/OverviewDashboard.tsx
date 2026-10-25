@@ -74,6 +74,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         quota.storage_breakdown.volumes > 0 ? ` · volumes ${fmtBytes(quota.storage_breakdown.volumes)}` : ''
       }`
     : '';
+  const fmtPct = (n: number) => `${n < 10 ? n.toFixed(2) : n.toFixed(1)}%`;
   const pct = (used: number, max: number) => (max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0);
   const myCards =
     !isAdmin && quota
@@ -82,10 +83,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           quota.max_cpus > 0
             ? {
                 label: 'Your CPU',
-                value: `${((quota.cpu_used_cores / quota.max_cpus) * 100).toFixed(1)}%`,
+                value: `${fmtPct((quota.cpu_used_cores / quota.max_cpus) * 100)}`,
                 limit: `of ${quota.max_cpus} ${quota.max_cpus === 1 ? 'core' : 'cores'}`,
                 p: pct(quota.cpu_used_cores, quota.max_cpus),
-                note: `${quota.cpu_used_cores.toFixed(2)} cores in use`,
+                note: `${quota.cpu_used_cores.toFixed(3)} cores · average of the last minute`,
               }
             : { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: 'no limit', p: 0 },
           { label: 'Your storage', value: fmtBytes(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024, quota.max_storage_mb * 1024 * 1024), note: storageNote },

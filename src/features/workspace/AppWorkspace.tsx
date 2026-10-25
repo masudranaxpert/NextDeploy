@@ -80,6 +80,7 @@ import {
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { PhpSettingsTab } from '../php/PhpSettingsTab';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
+import { ProjectLimitsDialog, useAppLimits } from './ProjectLimitsDialog';
 import { PhpDomainsTab } from '../php/PhpDomainsTab';
 import { PhpSecurityTab } from '../php/PhpSecurityTab';
 import { prefetchPhpSite } from '../php/ui';
@@ -1264,9 +1265,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   ]);
 
   const [limitsModalOpen, setLimitsModalOpen] = useState(false);
-  const [unlimitedResources, setUnlimitedResources] = useState(false);
-  const [cpuQuota, setCpuQuota] = useState('2.0');
-  const [memQuota, setMemQuota] = useState('2048');
+  const [limitsReload, setLimitsReload] = useState(0);
+  const { info: limitsInfo } = useAppLimits(app, activeTab === 'overview' || limitsModalOpen, limitsReload);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [otpDeleteCode, setOtpDeleteCode] = useState('');
@@ -2211,7 +2211,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 )}
                 {!app.php && (
                   <span className="font-mono text-[11px] text-zinc-500">
-                    {runningContainersCount}/{app.services.length} containers · {app.cpuPct}% CPU ·{' '}
+                    {runningContainersCount}/{app.services.length} containers · {app.cpuPct.toFixed(2)}% CPU ·{' '}
                     {app.memMB} MB
                   </span>
                 )}
@@ -2589,18 +2589,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     <span className="text-[10px] text-zinc-500 block">Max CPU</span>
                     <div className="mt-0.5 flex items-baseline justify-between">
                       <span className="text-zinc-100 font-semibold">
-                        {unlimitedResources || cpuQuota === '0' ? 'Unlimited' : `${cpuQuota} vCPU`}
+                        {limitsInfo?.limits.cpus ? `${limitsInfo.limits.cpus} vCPU` : limitsInfo ? 'Shared' : '…'}
                       </span>
-                      <span className="text-[10px] text-emerald-400">{app.cpuPct}% used</span>
+                      <span className="text-[10px] text-emerald-400">
+                        {limitsInfo ? `${(limitsInfo.usage.cpu_cores * 100).toFixed(2)}% in use` : ''}
+                      </span>
                     </div>
                   </div>
                   <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
                     <span className="text-[10px] text-zinc-500 block">Max Memory</span>
                     <div className="mt-0.5 flex items-baseline justify-between">
                       <span className="text-zinc-100 font-semibold">
-                        {unlimitedResources || memQuota === '0' ? 'Unlimited' : `${memQuota} MB`}
+                        {limitsInfo?.limits.memory_mb ? `${limitsInfo.limits.memory_mb} MB` : limitsInfo ? 'Shared' : '…'}
                       </span>
-                      <span className="text-[10px] text-sky-400">{app.memMB} MB</span>
+                      <span className="text-[10px] text-sky-400">{limitsInfo ? `${limitsInfo.usage.memory_mb} MB in use` : ''}</span>
                     </div>
                   </div>
                 </div>
@@ -6866,53 +6868,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         </form>
       </ShadcnDialog>
 
-      {/* 8. Container Resource Limits Modal */}
-      <ShadcnDialog
+      {/* 8. Project resource limits */}
+      <ProjectLimitsDialog
+        app={app}
         open={limitsModalOpen}
         onClose={() => setLimitsModalOpen(false)}
-        title="Your Resource Limits"
-        icon={<Sliders className="h-4 w-4" />}
-      >
-        <div className="space-y-4 text-xs">
-          {quota ? (
-            <>
-              <p className="text-zinc-400">
-                All your containers share the limits your administrator set for your account. They are enforced by the
-                kernel, so a container can never use more than this, and you cannot raise them here.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Memory', used: `${quota.memory_used_mb} MB`, max: `${quota.max_memory_mb} MB` },
-                  { label: 'CPU', used: `${quota.cpu_used_cores.toFixed(2)} cores`, max: `${quota.max_cpus} cores` },
-                  { label: 'Storage', used: `${quota.storage_used_mb} MB`, max: `${quota.max_storage_mb} MB` },
-                  { label: 'Projects', used: String(quota.apps_used), max: String(quota.max_apps) },
-                ].map((r) => (
-                  <div key={r.label} className="rounded-lg border border-white/[0.08] bg-[#09090b] px-3.5 py-2.5">
-                    <div className="text-[11px] text-zinc-500">{r.label}</div>
-                    <div className="mt-1 font-mono text-zinc-100">
-                      {r.used} <span className="text-zinc-500">/ {r.max}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-zinc-400">
-              Administrator accounts are not limited, and per-container limits are defined in the compose file
-              (<code className="font-mono">deploy.resources.limits</code>).
-            </p>
-          )}
-          <div className="flex justify-end border-t border-white/[0.07] pt-3">
-            <button
-              type="button"
-              onClick={() => setLimitsModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </ShadcnDialog>
+        onSaved={() => setLimitsReload((n) => n + 1)}
+      />
 
       {/* 9. Delete Project Confirmation Modal */}
       <ShadcnDialog

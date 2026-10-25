@@ -414,8 +414,8 @@ export default function App() {
       ownerId: a.owner_id,
       ownerRole: a.owner_role,
       updatedAt: a.updated_at || 'Recently',
-      cpuPct: 0,
-      memMB: 0,
+      cpuPct: Math.round((a.usage?.cpu_percent || 0) * 100) / 100,
+      memMB: a.usage?.memory_mb || 0,
       diskMB: 0,
       reqPerMin: 0,
       services:
@@ -429,8 +429,8 @@ export default function App() {
                 ? 'running'
                 : 'exited') as any,
               uptime: c.Status || 'Active',
-              cpuPct: 0,
-              memUsedMB: 0,
+              cpuPct: Math.round((c.cpu_percent || 0) * 100) / 100,
+              memUsedMB: c.memory_mb || 0,
               memLimitMB: 1024,
               ports: c.Ports || '',
             }))

@@ -49,6 +49,7 @@ type Panel struct {
 	cgroupChecked    bool
 	cgroupModeVal    string   // "systemd", "cgroupfs", or "" (unsupported)
 	userSliceApplied sync.Map // user id (int64) -> "memMB:cpus" last applied
+	appSliceApplied  sync.Map // "owner/app" -> "memMB:cpus" last applied
 
 	appStorage sync.Map // app id (string) -> appStorageEntry
 

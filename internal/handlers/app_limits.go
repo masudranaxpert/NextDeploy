@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"panel/internal/db"
-	"panel/internal/dockerapi"
 	"panel/internal/sysinfo"
 
 	"github.com/gofiber/fiber/v2"
@@ -207,17 +206,17 @@ func (p *Panel) AppLimitsGet(c *fiber.Ctx) error {
 	}
 	var memUsed uint64
 	var cpuUsed float64
-	if rows, _ := dockerapi.ListContainerUsageMatching(ctx, func(_, project string) bool { return project != "" && projects[project] }); len(rows) > 0 {
-		for _, r := range rows {
+	for _, r := range p.usageRows(ctx) {
+		if r.ComposeProject != "" && projects[r.ComposeProject] {
 			memUsed += r.MemUsage
 			cpuUsed += r.CPUPercent
 		}
 	}
 	return c.JSON(fiber.Map{
-		"ok":     true,
-		"limits": fiber.Map{"memory_mb": l.MemoryMB, "cpus": l.CPUs},
-		"cap":    fiber.Map{"memory_mb": capMem, "cpus": capCPU, "source": source},
-		"usage":  fiber.Map{"memory_mb": int64(memUsed / (1024 * 1024)), "cpu_cores": cpuUsed / 100},
+		"ok":       true,
+		"limits":   fiber.Map{"memory_mb": l.MemoryMB, "cpus": l.CPUs},
+		"cap":      fiber.Map{"memory_mb": capMem, "cpus": capCPU, "source": source},
+		"usage":    fiber.Map{"memory_mb": int64(memUsed / (1024 * 1024)), "cpu_cores": cpuUsed / 100},
 		"enforced": p.cgroupMode() != "",
 	})
 }
@@ -239,14 +238,16 @@ func (p *Panel) AppLimitsSet(c *fiber.Ctx) error {
 	if err := validateAppLimits(ctx, owner, body.MemoryMB, body.CPUs); err != nil {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
-	if err := p.DB.SetAppLimits(ctx, db.AppLimits{AppID: app.ID, MemoryMB: body.MemoryMB, CPUs: body.CPUs}); err != nil {
-		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
-	}
+	// apply to the host first: a limit that could not be applied must not be saved as if it were
 	if body.MemoryMB > 0 || body.CPUs > 0 {
 		if err := p.EnsureAppSliceLimits(ctx, owner.ID, app.ID, body.MemoryMB, body.CPUs); err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 		}
-	} else {
+	}
+	if err := p.DB.SetAppLimits(ctx, db.AppLimits{AppID: app.ID, MemoryMB: body.MemoryMB, CPUs: body.CPUs}); err != nil {
+		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	if body.MemoryMB <= 0 && body.CPUs <= 0 {
 		p.RemoveAppSlice(ctx, owner.ID, app.ID)
 	}
 	// the new cgroup goes into the project's compose file; containers move into it when they are recreated

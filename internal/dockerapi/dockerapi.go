@@ -342,7 +342,7 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 			out = append(out, row)
 			continue
 		}
-		row.CPUPercent = math.Round(cpuPercentSingleSample(cur)*10) / 10
+		row.CPUPercent = math.Round(cpuPercentSingleSample(cur)*100) / 100
 		memUsage := memoryUsageLikeDockerCLI(cur)
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit

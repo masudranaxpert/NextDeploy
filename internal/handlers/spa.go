@@ -185,6 +185,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		PreviewBase   string                  `json:"preview_host_base"`
 		Ports         []db.AllocatedPort      `json:"ports"`
 		PHP           *phpAppInfo             `json:"php,omitempty"`
+		Usage         appUsage                `json:"usage"`
 		OwnerName     string                  `json:"owner_name"`
 		OwnerRole     string                  `json:"owner_role"`
 	}
@@ -209,6 +210,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	tLoop := time.Now()
 
 	allUsers, _ := p.DB.ListUsers(ctx)
+	usageByProject := p.projectUsage(ctx)
 	owners := ownerLookup(allUsers)
 	appList := make([]appSummary, len(apps))
 	var appWg sync.WaitGroup
@@ -283,6 +285,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				PreviewBase:   previewHostBase(app, pvCfg, sys.PublicIP),
 				Ports:         appPorts,
 				PHP:           phpInfo,
+				Usage:         p.usageForApp(ctx, app, usageByProject),
 				OwnerName:     ownerOf(owners, app.OwnerID).Name,
 				OwnerRole:     ownerOf(owners, app.OwnerID).Role,
 			}
@@ -291,6 +294,19 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	appWg.Wait()
 
 	containers := p.visibleContainers(ctx, u, allContainers)
+	liveByID := make(map[string]appUsage, len(containers))
+	for _, r := range p.usageRows(ctx) {
+		liveByID[r.ID] = appUsage{MemoryMB: int64(r.MemUsage / (1024 * 1024)), CPUPercent: r.CPUPercent}
+	}
+	type containerWithUsage struct {
+		dockerapi.ContainerRow
+		CPUPercent float64 `json:"cpu_percent"`
+		MemoryMB   int64   `json:"memory_mb"`
+	}
+	containerList := make([]containerWithUsage, len(containers))
+	for i, c := range containers {
+		containerList[i] = containerWithUsage{ContainerRow: c, CPUPercent: liveByID[c.ID].CPUPercent, MemoryMB: liveByID[c.ID].MemoryMB}
+	}
 	images := p.visibleImages(ctx, u, allImages, allContainers)
 	var ownerPtr *int64
 	if !isAdmin {
@@ -447,7 +463,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"sys":                 respSys,
 		"docker_error":        dockerErr,
 		"apps":                appList,
-		"containers":          containers,
+		"containers":          containerList,
 		"images":              images,
 		"volumes":             visibleVolNames,
 		"resource_owners":     resOwners,

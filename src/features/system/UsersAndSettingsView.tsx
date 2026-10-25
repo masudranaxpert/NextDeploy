@@ -66,7 +66,7 @@ const CpuFigure: React.FC<{ used: number; cores: number }> = ({ used, cores }) =
   const tone = p >= 90 ? 'text-red-400' : p >= 70 ? 'text-amber-400' : 'text-zinc-200';
   return (
     <span className={tone}>
-      {p.toFixed(1)}%<span className="text-zinc-500"> of {cores} {cores === 1 ? 'core' : 'cores'}</span>
+      {p < 10 ? p.toFixed(2) : p.toFixed(1)}%<span className="text-zinc-500"> of {cores} {cores === 1 ? 'core' : 'cores'}</span>
     </span>
   );
 };

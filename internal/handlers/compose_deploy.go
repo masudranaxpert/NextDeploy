@@ -239,6 +239,9 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 		return errors.New(strings.Join(realCleanupErrs, "\n"))
 	}
 	p.RemoveDeployRun(id)
+	if l, _ := p.DB.GetAppLimits(ctx, id); l.MemoryMB > 0 || l.CPUs > 0 {
+		p.RemoveAppSlice(ctx, app.OwnerID, id)
+	}
 	if err := p.DB.DeleteApp(ctx, id); err != nil {
 		return err
 	}

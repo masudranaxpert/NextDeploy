@@ -145,6 +145,8 @@ func main() {
 	}
 	p.StartBackgroundJobs()
 	go p.ReapplyUserCgroupLimitsOnStart()
+	go p.ReapplyAppCgroupLimitsOnStart()
+	go p.WarmUsage()
 	go p.StartBackupWorker()
 	if p.PHP != nil {
 		p.PHP.StartCronScheduler(context.Background())
@@ -344,6 +346,8 @@ func main() {
 	app.Post("/apps/:id/collaborators", p.AddCollaborator)
 	app.Post("/apps/:id/collaborators/:uid/delete", p.DeleteCollaborator)
 	app.Post("/apps/:id/transfer", p.TransferAppOwnership)
+	app.Get("/apps/:id/limits", p.AppLimitsGet)
+	app.Post("/apps/:id/limits", p.AppLimitsSet)
 	app.Post("/apps/:id/containers/start", p.ContainerStartOp)
 	app.Post("/apps/:id/containers/stop", p.ContainerStopOp)
 	app.Post("/apps/:id/containers/restart", p.ContainerRestartOp)
