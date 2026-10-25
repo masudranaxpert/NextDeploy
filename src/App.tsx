@@ -966,6 +966,30 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [exportRunning]);
 
+  // Live real-time telemetry stream for Monitor & Overview views
+  React.useEffect(() => {
+    if (activeNav !== 'monitor' && activeNav !== 'overview') return;
+    let cancelled = false;
+
+    const pollMetrics = async () => {
+      try {
+        const r = await backendApi.metricsHistory();
+        if (!cancelled && r.ok && Array.isArray(r.data?.history) && r.data.history.length > 0) {
+          setTelemetry(r.data.history);
+        }
+      } catch {
+        // network error / abort
+      }
+    };
+
+    void pollMetrics();
+    const timer = window.setInterval(pollMetrics, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeNav]);
+
   const appendTelemetryTick = () => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
