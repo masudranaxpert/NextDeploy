@@ -253,7 +253,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   }, [initialSettings]);
 
   useEffect(() => {
-    if (mode === 'settings') {
+    if (mode === 'settings' || mode === 'users') {
       void backendApi.getSettings().then((res) => {
         if (res.ok && res.data) {
           applySettingsData(res.data);

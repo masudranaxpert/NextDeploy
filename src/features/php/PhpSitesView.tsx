@@ -137,7 +137,7 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
       )}
 
       {sites.length > 0 && (
-        <div className="relative max-w-xs">
+        <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
           <input className={`${inputCls} pl-8`} placeholder="Search sites" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>

@@ -1673,6 +1673,7 @@ export default function App() {
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+                settings={systemSettings}
                 currentUserId={currentUser ? String(currentUser.id) : undefined}
               />
             ) : activeNav === 'audit-logs' ? (
