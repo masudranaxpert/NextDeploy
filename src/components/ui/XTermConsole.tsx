@@ -217,6 +217,23 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     renderedRowsRef.current = Math.max(1, Math.ceil(effectivePromptRef.current.length / (term.cols || 80)));
   };
 
+  // Refit + resync the rendered-row bookkeeping + redraw the active line — after any
+  // size change the re-wrapped buffer invalidates the old row count, and a stale count
+  // makes the next keystroke redraw land on the wrong rows (chars appearing one-per-row).
+  const refitAndRedraw = (fitAddon: FitAddon | null, term: XTerm | null) => {
+    if (!fitAddon || !term) return;
+    try {
+      fitAddon.fit();
+    } catch {
+      return;
+    }
+    renderedRowsRef.current = Math.max(
+      1,
+      Math.ceil((effectivePromptRef.current.length + currentLineRef.current.length) / (term.cols || 80))
+    );
+    renderActiveLine(term, false);
+  };
+
   const performClear = (term: XTerm) => {
     currentLineRef.current = '';
     // ANSI sequence: \x1b[2J (erase screen) + \x1b[3J (erase scrollback) + \x1b[H (home cursor 1,1)
@@ -284,11 +301,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     term.open(containerRef.current);
 
     setTimeout(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // ignore layout race
-      }
+      refitAndRedraw(fitAddon, term);
     }, 30);
 
     if (initialBanner && initialBanner.length > 0) {
@@ -415,11 +428,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     fitAddonRef.current = fitAddon;
 
     const handleResize = () => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // ignore
-      }
+      refitAndRedraw(fitAddon, term);
     };
     window.addEventListener('resize', handleResize);
     // Fit on ANY container size change (sidebar, tab layout, parent scrollbar) —
@@ -446,11 +455,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
 
   useEffect(() => {
     setTimeout(() => {
-      try {
-        fitAddonRef.current?.fit();
-      } catch {
-        // ignore
-      }
+      refitAndRedraw(fitAddonRef.current, xtermRef.current);
     }, 50);
   }, [expanded]);
 

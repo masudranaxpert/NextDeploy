@@ -1517,46 +1517,38 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Storage Allocation Card */}
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-orange-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <HardDrive className="h-4 w-4 shrink-0 text-orange-400" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300 whitespace-nowrap">
                 Storage Allocation
               </h2>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowStorageKnowledgeModal(true)}
-                title="Storage allocation and buffer guide"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
-              >
-                <HelpCircle className="h-3.5 w-3.5" />
-              </button>
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium border ${
-                  storageOversellingEnabled
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                    : 'border-orange-500/30 bg-orange-500/10 text-orange-300'
-                }`}
-              >
-                {storageOversellingEnabled ? 'Thin Provisioning' : 'Strict Allocation'}
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowStorageKnowledgeModal(true)}
+              aria-label="Storage allocation guide"
+              title="How storage allocation and safety buffer works"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
           </div>
 
           <div className="space-y-2.5 text-xs">
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+              <div className="min-w-0">
                 <span className="text-zinc-200 block font-medium">Allow Storage Overselling</span>
-                <span className="text-[11px] text-zinc-500">
+                <span className="text-[11px] text-zinc-500 block mt-0.5">
                   Allow tenant quotas to exceed physical server disk
                 </span>
               </div>
-              <ShadcnSwitch
-                checked={storageOversellingEnabled}
-                onChange={handleToggleStorageOverselling}
-              />
+              <div className="shrink-0">
+                <ShadcnSwitch
+                  checked={storageOversellingEnabled}
+                  onChange={handleToggleStorageOverselling}
+                />
+              </div>
             </div>
 
             <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
