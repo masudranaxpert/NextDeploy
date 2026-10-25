@@ -28,10 +28,18 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
   const gradId1 = `evil-grad-${String(dataKey)}`;
   const gradId2 = `evil-grad-${String(secondaryKey || 'sec')}`;
 
+  const chartData = React.useMemo(() => {
+    if (!Array.isArray(data)) return [];
+    return data.map((pt, idx) => ({
+      ...pt,
+      _idxKey: `${pt.time || ''}__${idx}`,
+    }));
+  }, [data]);
+
   return (
     <div style={{ height, minHeight: height }} className="w-full min-w-0 select-none">
       <ResponsiveContainer width="100%" height={height} minWidth={0} initialDimension={{ width: 640, height }}>
-        <AreaChart data={data} margin={{ top: 8, right: 6, left: -22, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 8, right: 6, left: -22, bottom: 0 }}>
           <defs>
             <linearGradient id={gradId1} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.32} />
@@ -46,12 +54,15 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           <XAxis
-            dataKey="time"
+            dataKey="_idxKey"
             stroke="#71717a"
             fontSize={10}
             tickLine={false}
             axisLine={false}
             fontFamily="JetBrains Mono"
+            minTickGap={32}
+            interval="preserveStartEnd"
+            tickFormatter={(val: string) => (typeof val === 'string' ? val.split('__')[0] : val)}
           />
           <YAxis
             stroke="#71717a"
@@ -70,6 +81,7 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
               color: '#fafafa',
               boxShadow: '0 12px 32px rgba(0,0,0,0.65)',
             }}
+            labelFormatter={(val) => (typeof val === 'string' ? val.split('__')[0] : val)}
             formatter={(val, name) => [
               `${typeof val === 'number' ? Number(val).toFixed(1) : (val ?? 0)}${unit}`,
               name === dataKey ? label || String(dataKey) : secondaryLabel || String(secondaryKey),
@@ -83,6 +95,7 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
             fillOpacity={1}
             fill={`url(#${gradId1})`}
             isAnimationActive={false}
+            activeDot={{ r: 4, strokeWidth: 1.5, stroke: '#ffffff', fill: color }}
           />
           {secondaryKey && (
             <Area
@@ -93,6 +106,7 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
               fillOpacity={1}
               fill={`url(#${gradId2})`}
               isAnimationActive={false}
+              activeDot={{ r: 4, strokeWidth: 1.5, stroke: '#ffffff', fill: secondaryColor }}
             />
           )}
         </AreaChart>
