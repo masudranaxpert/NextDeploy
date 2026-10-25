@@ -285,3 +285,45 @@ func TestUploadSizesNeverExceedMemoryOrStorage(t *testing.T) {
 		t.Error("a 2G post size on a 1 GB server must be refused")
 	}
 }
+
+func TestDBMemoryDefaultFollowsTheHost(t *testing.T) {
+	cases := map[int]int{0: 512, 1024: 512, 2048: 512, 8192: 2048, 16384: 4096, 65536: 4096}
+	for host, want := range cases {
+		if got := DBMemoryDefaultMB(host); got != want {
+			t.Errorf("host %d MB: database memory %d, want %d", host, got, want)
+		}
+	}
+}
+
+func TestTuneDBKeepsTheBufferPoolFromCrowdingOutConnections(t *testing.T) {
+	for _, mem := range []int{256, 512, 1024, 4096, 16384} {
+		tn := TuneDB(mem)
+		if tn.BufferPoolMB*2 > mem {
+			t.Errorf("%d MB: buffer pool %d MB is more than half the container", mem, tn.BufferPoolMB)
+		}
+		if tn.MaxConnections < 100 || tn.MaxConnections > 500 {
+			t.Errorf("%d MB: %d connections is outside 100..500", mem, tn.MaxConnections)
+		}
+		if tn.TmpTableMB < 16 || tn.TmpTableMB > 64 {
+			t.Errorf("%d MB: temp table cap %d MB is outside 16..64", mem, tn.TmpTableMB)
+		}
+	}
+	args := strings.Join(TuneDB(512).serverArgs(), " ")
+	for _, want := range []string{"--innodb-buffer-pool-size=256M", "--wait-timeout=300", "--interactive-timeout=300", "--max-connections=100"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("server flags %q lack %s", args, want)
+		}
+	}
+}
+
+func TestUserLimitClauseOnlyOnMariaDB(t *testing.T) {
+	if got := userLimitClause("mariadb:11.4", 25, 60); got != "WITH MAX_USER_CONNECTIONS 25 MAX_STATEMENT_TIME 60" {
+		t.Errorf("mariadb clause = %q", got)
+	}
+	if got := userLimitClause("mysql:8.4", 25, 60); got != "WITH MAX_USER_CONNECTIONS 25" {
+		t.Errorf("mysql clause = %q (MySQL has no per-user statement time)", got)
+	}
+	if got := userLimitClause("mariadb:11.4", 10, 0); !strings.HasSuffix(got, "MAX_STATEMENT_TIME 0") {
+		t.Errorf("a zero limit must be written out so an older limit is reset: %q", got)
+	}
+}

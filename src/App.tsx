@@ -1226,7 +1226,7 @@ export default function App() {
                   NextDeploy
                 </span>
                 <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">
-                  v2.4
+                  v2.5
                 </span>
               </div>
             </div>

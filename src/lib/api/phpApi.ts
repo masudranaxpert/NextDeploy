@@ -56,7 +56,20 @@ export interface PhpSecurity {
 export interface PhpInstanceData {
   ok: boolean;
   enabled: boolean;
-  mysql: { enabled: boolean; exists: boolean; running: boolean; ready: boolean; image: string; memory_mb: number };
+  mysql: {
+    enabled: boolean;
+    exists: boolean;
+    running: boolean;
+    ready: boolean;
+    image: string;
+    memory_mb: number;
+    host_memory_mb: number;
+    buffer_pool_mb: number;
+    max_connections: number;
+    query_seconds: number;
+    idle_seconds: number;
+    query_limit_supported: boolean;
+  };
   mysql_task: { running: boolean; error?: string };
   pma: { enabled: boolean; exists: boolean; running: boolean; image: string };
   pma_task: { running: boolean; error?: string };
@@ -171,6 +184,8 @@ export const phpApi = {
   // ---- admin: instance ----
   phpInstance: () => requestJson<PhpInstanceData>('/api/php/instance'),
   phpSetModule: (enabled: boolean) => requestJson('/api/php/instance/module', json({ enabled })),
+  phpMysqlQueryLimit: (seconds: number) =>
+    requestJson('/api/php/instance/mysql', json({ action: 'limits', query_seconds: seconds })),
   phpMysql: (action: 'enable' | 'disable' | 'restart', memoryMb?: number) =>
     requestJson('/api/php/instance/mysql', json({ action, memory_mb: memoryMb })),
   phpSecurity: (appId: string) => requestJson<{ ok: boolean; security: PhpSecurity; client_ip: string }>(site(appId, '/security')),

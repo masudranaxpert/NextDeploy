@@ -74,6 +74,14 @@ type MySQLStatus struct {
 	Ready    bool   `json:"ready"`
 	Image    string `json:"image"`
 	MemoryMB int    `json:"memory_mb"`
+	// What the memory is split into, and the limits that protect other sites (shown to the admin).
+	HostMemoryMB   int `json:"host_memory_mb"`
+	BufferPoolMB   int `json:"buffer_pool_mb"`
+	MaxConnections int `json:"max_connections"`
+	QuerySeconds   int `json:"query_seconds"`
+	IdleSeconds    int `json:"idle_seconds"`
+	// QueryLimitSupported: the per-user query limit is a MariaDB feature (the panel's database).
+	QueryLimitSupported bool `json:"query_limit_supported"`
 }
 
 func (m *Manager) mysqlImage(ctx context.Context) string {
@@ -87,7 +95,16 @@ func (m *Manager) mysqlMemoryMB(ctx context.Context) int {
 	if n, err := strconv.Atoi(strings.TrimSpace(m.DB.GetSetting(ctx, settingMySQLMemoryMB))); err == nil && n >= 256 {
 		return n
 	}
-	return 512
+	// not chosen by the admin: keep what a running database already has (changing it would
+	// recreate the container); a new one gets a share of the host's RAM
+	if ci := inspectContainer(ctx, MySQLContainer); ci.Exists {
+		if parts := strings.Split(ci.Labels["nd.php.config"], "|"); len(parts) == 2 {
+			if n, err := strconv.Atoi(parts[1]); err == nil && n >= 256 {
+				return n
+			}
+		}
+	}
+	return DBMemoryDefaultMB(hostRAMMB())
 }
 
 func isMariaDB(image string) bool {
@@ -140,6 +157,9 @@ func (m *Manager) MySQLStatus(ctx context.Context) MySQLStatus {
 
 func (m *Manager) mysqlStatusUncached(ctx context.Context) MySQLStatus {
 	st := MySQLStatus{Enabled: m.MySQLEnabled(ctx), Image: m.mysqlImage(ctx), MemoryMB: m.mysqlMemoryMB(ctx)}
+	t := TuneDB(st.MemoryMB)
+	st.HostMemoryMB, st.BufferPoolMB, st.MaxConnections = hostRAMMB(), t.BufferPoolMB, t.MaxConnections
+	st.QuerySeconds, st.IdleSeconds, st.QueryLimitSupported = m.querySeconds(ctx), idleTimeoutSeconds, isMariaDB(st.Image)
 	ci := inspectContainer(ctx, MySQLContainer)
 	st.Exists, st.Running = ci.Exists, ci.Running
 	if st.Running {
@@ -210,8 +230,8 @@ func (m *Manager) ensureMySQL(ctx context.Context, recreate bool) error {
 		"--memory", fmt.Sprintf("%dm", mem), "--memory-swap", fmt.Sprintf("%dm", mem),
 		image,
 		"--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci",
-		fmt.Sprintf("--innodb-buffer-pool-size=%dM", mem/4),
-		"--max-connections=300", "--skip-name-resolve", "--max-allowed-packet=64M"}
+		"--skip-name-resolve", "--max-allowed-packet=64M"}
+	args = append(args, TuneDB(mem).serverArgs()...)
 	if isMariaDB(image) {
 		args = append([]string{args[0]}, append([]string{"-e", "MARIADB_AUTO_UPGRADE=1"}, args[1:]...)...)
 	}
@@ -291,7 +311,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, dbName, dbUser, password s
 		}
 		return err
 	}
-	if _, err := m.sql(ctx, fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s WITH MAX_USER_CONNECTIONS 25;", SQLString(dbUser), SQLString(password))); err != nil {
+	if err := m.createLimitedUser(ctx, dbUser, password); err != nil {
 		_, _ = m.sql(context.Background(), "DROP DATABASE IF EXISTS "+SQLIdent(dbName)+";")
 		if strings.Contains(strings.ToLower(err.Error()), "exists") {
 			return ErrDatabaseExists
@@ -498,8 +518,7 @@ func (m *Manager) CreateDBUser(ctx context.Context, user, password string) error
 	if strings.TrimSpace(out) != "0" {
 		return ErrDatabaseExists
 	}
-	_, err = m.sql(ctx, fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s WITH MAX_USER_CONNECTIONS 25;", SQLString(user), SQLString(password)))
-	return err
+	return m.createLimitedUser(ctx, user, password)
 }
 
 func (m *Manager) DropDBUser(ctx context.Context, user string) error {

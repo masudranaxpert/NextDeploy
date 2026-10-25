@@ -274,7 +274,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
         </div>
 
         <div className="flex justify-between font-mono text-xs text-zinc-600">
-          <span>v2.4</span>
+          <span>v2.5</span>
           <span>Docker Compose PaaS</span>
         </div>
       </section>

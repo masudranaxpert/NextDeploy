@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/phphosting"
+	"panel/internal/sysinfo"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -204,15 +206,28 @@ func (p *Panel) PHPSetModule(c *fiber.Ctx) error {
 // POST /api/php/instance/mysql {"action":"enable|disable|restart","memory_mb":512}
 func (p *Panel) PHPMySQLAction(c *fiber.Ctx) error {
 	var body struct {
-		Action   string `json:"action"`
-		MemoryMB int    `json:"memory_mb"`
+		Action       string `json:"action"`
+		MemoryMB     int    `json:"memory_mb"`
+		QuerySeconds *int   `json:"query_seconds"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return phpJSONErr(c, 400, "invalid body")
 	}
 	ctx := c.UserContext()
 	switch body.Action {
+	case "limits":
+		if body.QuerySeconds == nil {
+			return phpJSONErr(c, 400, "query_seconds is required")
+		}
+		if err := p.PHP.SetQuerySeconds(ctx, *body.QuerySeconds); err != nil {
+			return phpJSONErr(c, 400, err.Error())
+		}
+		p.RecordAuditLog(c, "php_mysql", "php", "mysql", fmt.Sprintf("query limit %ds", *body.QuerySeconds))
+		return c.JSON(fiber.Map{"ok": true})
 	case "enable", "restart":
+		if hostMB := int(sysinfo.Collect(ctx).MemTotalGB * 1024); hostMB > 0 && body.MemoryMB > hostMB {
+			return phpJSONErr(c, 400, fmt.Sprintf("the database cannot have %d MB: this server has %d MB of RAM", body.MemoryMB, hostMB))
+		}
 		mem := body.MemoryMB
 		started := phpAdminTasks.start("mysql", func() error {
 			bg, cancel := context.WithTimeout(context.Background(), 6*time.Minute)

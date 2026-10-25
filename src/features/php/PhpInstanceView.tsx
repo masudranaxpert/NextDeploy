@@ -12,6 +12,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [memory, setMemory] = useState(512);
+  const [querySeconds, setQuerySeconds] = useState(60);
   const [minCron, setMinCron] = useState(1);
   const [logVersion, setLogVersion] = useState<string | null>(null);
   const [limits, setLimits] = useState<Record<number, { d: number; c: number }>>({});
@@ -40,6 +41,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   useEffect(() => {
     if (data) {
       setMemory(data.mysql.memory_mb);
+      setQuerySeconds(data.mysql.query_seconds);
       setMinCron(data.min_cron_interval_minutes);
     }
   }, [seeded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -86,7 +88,15 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Image"><ValueBox>{m.image}</ValueBox></Field>
           <Field label="Memory (MB)">
-            <input type="number" min={256} step={128} className={`${inputCls} !w-32`} value={memory} onChange={(e) => setMemory(Number(e.target.value))} />
+            <input
+              type="number"
+              min={256}
+              max={m.host_memory_mb || undefined}
+              step={1}
+              className={`${inputCls} !w-32`}
+              value={memory}
+              onChange={(e) => setMemory(Number(e.target.value))}
+            />
           </Field>
           {!m.running ? (
             <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', memory), 'Starting database server…')}>
@@ -103,6 +113,38 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
             </>
           )}
         </div>
+        <p className="mt-3 text-[11px] leading-5 text-zinc-500">
+          Memory: up to {m.host_memory_mb ? `${m.host_memory_mb} MB (this server's RAM)` : 'the server\'s RAM'}. By default a quarter of the server's RAM, at least 512 MB.
+          Half of it is the InnoDB cache ({m.buffer_pool_mb} MB), the rest serves connections (up to {m.max_connections}). Idle connections are closed after {m.idle_seconds} seconds.
+          Changing the memory takes effect when the database restarts.
+        </p>
+        {m.exists && (
+          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-white/[0.06] pt-4">
+            <Field label="Query time limit (seconds)" hint={m.query_limit_supported ? '0 turns the limit off' : 'only MariaDB can do this'}>
+              <input
+                type="number"
+                min={0}
+                max={3600}
+                step={10}
+                disabled={!m.query_limit_supported}
+                className={`${inputCls} !w-32`}
+                value={querySeconds}
+                onChange={(e) => setQuerySeconds(Number(e.target.value))}
+              />
+            </Field>
+            <GhostButton
+              busy={busy === 'my-q'}
+              disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
+              onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
+            >
+              Save limit
+            </GhostButton>
+            <p className="max-w-md pb-2 text-[11px] leading-4 text-zinc-500">
+              A site's database query that runs longer than this is stopped, so one slow query cannot hold up every other site. phpMyAdmin
+              sessions get five times as long; backups and the panel itself are not limited.
+            </p>
+          </div>
+        )}
       </Card>
 
       <Card

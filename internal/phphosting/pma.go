@@ -248,7 +248,9 @@ func (m *Manager) PMAOpen(ctx context.Context, userID int64, appID string, dbNam
 		DBUser: pmaUserPrefix + hex.EncodeToString(rnd), Password: RandomPassword(24),
 		Expires: time.Now().Add(pmaSessionTTL),
 	}
-	stmt := fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s WITH MAX_USER_CONNECTIONS 10;", SQLString(s.DBUser), SQLString(s.Password))
+	userBase := fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s ", SQLString(s.DBUser), SQLString(s.Password))
+	plainUser := userBase + "WITH MAX_USER_CONNECTIONS 10;"
+	var stmt string
 	if all {
 		stmt += fmt.Sprintf("GRANT ALL PRIVILEGES ON *.* TO %s@'%%' WITH GRANT OPTION;", SQLString(s.DBUser))
 	} else {
@@ -260,7 +262,8 @@ func (m *Manager) PMAOpen(ctx context.Context, userID int64, appID string, dbNam
 		}
 	}
 	stmt += "FLUSH PRIVILEGES;"
-	if _, err := m.sql(ctx, stmt); err != nil {
+	preferred := userBase + userLimitClause(m.mysqlImage(ctx), 10, pmaQuerySeconds) + ";" + stmt
+	if _, err := m.sqlPreferring(ctx, preferred, plainUser+stmt); err != nil {
 		_ = m.DropDBUser(ctx, s.DBUser)
 		return nil, err
 	}
