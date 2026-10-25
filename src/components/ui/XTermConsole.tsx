@@ -312,6 +312,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       refit(fitAddon, term);
     }, 30);
 
+    document.fonts?.ready?.then(() => {
+      refit(fitAddon, term);
+    });
+
     if (initialBanner && initialBanner.length > 0) {
       initialBanner.forEach((line) => term.writeln(line));
     }
@@ -610,12 +614,14 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       </div>
 
       {/* XTerm.js Viewport */}
-      <div
-        ref={containerRef}
-        onClick={() => xtermRef.current?.focus()}
-        style={{ height: expanded ? 540 : height }}
-        className="w-full px-3 py-2 cursor-text"
-      />
+      <div className="w-full px-3 py-2 bg-[#070709]">
+        <div
+          ref={containerRef}
+          onClick={() => xtermRef.current?.focus()}
+          style={{ height: expanded ? 540 : height }}
+          className="w-full cursor-text"
+        />
+      </div>
     </div>
   );
 };
