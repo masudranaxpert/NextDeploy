@@ -182,11 +182,16 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                     </td>
 
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-start gap-0.5 min-w-0">
                         <StatusBadge status={c.state} />
-                        <span className="font-mono text-[11px] text-zinc-500 truncate">
-                          {c.uptime.replace('Up ', '')}
-                        </span>
+                        {c.uptime && (
+                          <span
+                            className="font-mono text-[10px] text-zinc-400 truncate max-w-full"
+                            title={c.uptime}
+                          >
+                            {c.uptime.replace(/^Up\s+/i, '')}
+                          </span>
+                        )}
                       </div>
                     </td>
 
