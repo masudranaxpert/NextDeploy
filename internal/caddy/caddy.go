@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/db"
@@ -756,6 +757,50 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	}
 }
 
+var (
+	cfRangesParsed []*net.IPNet
+	cfRangesOnce   sync.Once
+	cfDomainCache  sync.Map
+)
+
+func initCFRanges() {
+	cfRangesOnce.Do(func() {
+		for _, cidr := range CloudflareRanges {
+			_, network, err := net.ParseCIDR(cidr)
+			if err == nil {
+				cfRangesParsed = append(cfRangesParsed, network)
+			}
+		}
+	})
+}
+
+// IsBehindCloudflare checks if a domain resolves to Cloudflare proxy IPs.
+func IsBehindCloudflare(domain string) bool {
+	domain = strings.TrimSpace(strings.ToLower(CleanQuotedValue(domain)))
+	if domain == "" || !strings.Contains(domain, ".") {
+		return false
+	}
+	base := strings.TrimPrefix(domain, "www.")
+	if v, ok := cfDomainCache.Load(base); ok {
+		return v.(bool)
+	}
+	initCFRanges()
+	ips, err := net.LookupIP(base)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		for _, network := range cfRangesParsed {
+			if network.Contains(ip) {
+				cfDomainCache.Store(base, true)
+				return true
+			}
+		}
+	}
+	cfDomainCache.Store(base, false)
+	return false
+}
+
 // ShouldUseInternalTLS checks if a domain should use internal/self-signed TLS.
 func ShouldUseInternalTLS(domain string) bool {
 	domain = strings.TrimSpace(strings.ToLower(CleanQuotedValue(domain)))
@@ -782,6 +827,9 @@ func ShouldUseInternalTLS(domain string) bool {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
 			return true
 		}
+	}
+	if IsBehindCloudflare(domain) {
+		return true
 	}
 	return false
 }

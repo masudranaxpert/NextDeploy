@@ -142,6 +142,9 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 	for _, s := range sites {
 		args = append(args, "-v", m.HostPath(ctx, m.SitePath(s.AppID))+":"+SiteDir(s.AppID))
 	}
+	if _, err := os.Stat("/var/run/mysqld"); err == nil {
+		args = append(args, "-v", "/var/run/mysqld:/var/run/mysqld")
+	}
 	args = append(args, image)
 	if res := docker(ctx, args...); !res.OK {
 		return fmt.Errorf("start PHP container: %s", res.Output)
