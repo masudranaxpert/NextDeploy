@@ -316,7 +316,8 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 		}
 	}
 
-	statsMap := fetchStatsSnapshot(ctx, cli, ids)
+	// up to 32 containers: take the slower, accurate CPU reading (all of them are sampled at once)
+	statsMap := fetchStatsSnapshot(ctx, cli, ids, len(ids) <= 32)
 
 	out := make([]ContainerUsageRow, 0, len(list))
 	for _, c := range list {
@@ -468,11 +469,24 @@ func HumanBytes(n uint64) string {
 	return workspace.FormatByteSize(int64(n))
 }
 
-func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string) (statsJSON, error) {
+// fetchContainerStatsJSON reads one stats sample. A one-shot sample has no previous CPU reading
+// (so the CPU figure would be the average since the container started, close to 0); accurate
+// asks Docker to take two readings about a second apart, which gives the CPU use right now.
+func fetchContainerStatsJSON(ctx context.Context, cli *client.Client, id string, accurate bool) (statsJSON, error) {
 	var out statsJSON
-	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	timeout := 3 * time.Second
+	if accurate {
+		timeout = 6 * time.Second
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	stats, err := cli.ContainerStatsOneShot(cctx, id)
+	var stats types.ContainerStats
+	var err error
+	if accurate {
+		stats, err = cli.ContainerStats(cctx, id, false)
+	} else {
+		stats, err = cli.ContainerStatsOneShot(cctx, id)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -516,7 +530,7 @@ func autoStatsConcurrency() int {
 	}
 }
 
-func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) map[string]statsJSON {
+func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string, accurate bool) map[string]statsJSON {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -527,7 +541,7 @@ func fetchStatsSnapshot(ctx context.Context, cli *client.Client, ids []string) m
 	for _, id := range ids {
 		id := id
 		eg.Go(func() error {
-			j, err := fetchContainerStatsJSON(gctx, cli, id)
+			j, err := fetchContainerStatsJSON(gctx, cli, id, accurate)
 			if err != nil {
 				return nil
 			}

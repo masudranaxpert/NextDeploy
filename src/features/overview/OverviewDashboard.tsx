@@ -79,7 +79,15 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     !isAdmin && quota
       ? [
           { label: 'Your memory', value: fmtMB(quota.memory_used_mb), limit: fmtMB(quota.max_memory_mb), p: pct(quota.memory_used_mb, quota.max_memory_mb) },
-          { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: `${quota.max_cpus} cores`, p: pct(quota.cpu_used_cores, quota.max_cpus) },
+          quota.max_cpus > 0
+            ? {
+                label: 'Your CPU',
+                value: `${((quota.cpu_used_cores / quota.max_cpus) * 100).toFixed(1)}%`,
+                limit: `of ${quota.max_cpus} ${quota.max_cpus === 1 ? 'core' : 'cores'}`,
+                p: pct(quota.cpu_used_cores, quota.max_cpus),
+                note: `${quota.cpu_used_cores.toFixed(2)} cores in use`,
+              }
+            : { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: 'no limit', p: 0 },
           { label: 'Your storage', value: fmtBytes(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024, quota.max_storage_mb * 1024 * 1024), note: storageNote },
           { label: 'Your projects', value: String(quota.apps_used), limit: String(quota.max_apps), p: pct(quota.apps_used, quota.max_apps) },
         ]

@@ -59,6 +59,18 @@ const UsageFigure: React.FC<{ used: number; max: number; fmt: (n: number) => str
   );
 };
 
+/** CPU as a percentage of the user's limit (100% = all the cores they are allowed). */
+const CpuFigure: React.FC<{ used: number; cores: number }> = ({ used, cores }) => {
+  if (!(cores > 0)) return <span className="text-zinc-200">{used.toFixed(2)} cores <span className="text-zinc-500">/ unlimited</span></span>;
+  const p = (used / cores) * 100;
+  const tone = p >= 90 ? 'text-red-400' : p >= 70 ? 'text-amber-400' : 'text-zinc-200';
+  return (
+    <span className={tone}>
+      {p.toFixed(1)}%<span className="text-zinc-500"> of {cores} {cores === 1 ? 'core' : 'cores'}</span>
+    </span>
+  );
+};
+
 const LimitField: React.FC<{
   label: string;
   unit: string;
@@ -580,7 +592,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                             <div className="text-zinc-500">
                               Using{' '}
                               <UsageFigure used={u.memUsedMB ?? 0} max={ramMb} fmt={fmtMb} /> RAM ·{' '}
-                              <UsageFigure used={u.cpuUsedCores ?? 0} max={u.cpuQuotaCores} fmt={(n) => `${n.toFixed(2)} cores`} /> CPU
+                              <CpuFigure used={u.cpuUsedCores ?? 0} cores={u.cpuQuotaCores} /> CPU
                             </div>
                             <div className="text-zinc-500" title={u.storageBreakdown ? `files ${fmtBytes(u.storageBreakdown.files)} · databases ${fmtBytes(u.storageBreakdown.databases)} · volumes ${fmtBytes(u.storageBreakdown.volumes)}` : undefined}>
                               Disk <UsageFigure used={(u.storageUsedBytes ?? 0) / (1024 * 1024)} max={diskMb} fmt={fmtMb} />

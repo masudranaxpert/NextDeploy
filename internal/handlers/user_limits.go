@@ -337,11 +337,29 @@ var quotaUsageCache sync.Map // user id -> quotaUsage
 // it asks Docker for stats).
 func (p *Panel) userLiveUsage(ctx context.Context, u db.User) (int64, float64) {
 	if v, ok := quotaUsageCache.Load(u.ID); ok {
-		if q := v.(quotaUsage); time.Since(q.At) < 15*time.Second {
-			return q.MemoryMB, q.CPUCores
+		q := v.(quotaUsage)
+		if time.Since(q.At) >= 15*time.Second {
+			// show the last reading at once and measure again in the background: an accurate CPU
+			// reading takes a second or two and must not slow the page down
+			if _, busy := quotaUsageBusy.LoadOrStore(u.ID, true); !busy {
+				go func() {
+					defer quotaUsageBusy.Delete(u.ID)
+					bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					p.measureUserUsage(bg, u)
+				}()
+			}
 		}
+		return q.MemoryMB, q.CPUCores
 	}
-	apps := p.userApps(ctx, u)
+	return p.measureUserUsage(ctx, u)
+}
+
+var quotaUsageBusy sync.Map // user id -> true while a measurement runs
+
+// measureUserUsage asks Docker for the live memory and CPU of the user's own containers.
+func (p *Panel) measureUserUsage(ctx context.Context, u db.User) (int64, float64) {
+	apps := p.ownedApps(ctx, u.ID)
 	projects := map[string]bool{}
 	for _, proj := range p.composeProjectsForApps(ctx, apps) {
 		projects[proj] = true

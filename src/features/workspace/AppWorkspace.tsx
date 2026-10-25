@@ -777,8 +777,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   const formatFileSize = (bytes: number) => {
-    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${bytes} B`;
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes >= 1024 * 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
+    }
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+    if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${Math.round(bytes)} B`;
   };
 
   // Compute all unique folder paths in the project
@@ -6681,7 +6693,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     >
                       <span className="truncate">{f.name}</span>
                       <div className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500">
-                        <span>{(f.size / 1024).toFixed(1)} KB</span>
+                        <span>{formatFileSize(f.size)}</span>
                         <button
                           type="button"
                           onClick={(e) => {
