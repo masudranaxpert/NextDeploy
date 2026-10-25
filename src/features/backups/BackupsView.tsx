@@ -1,3 +1,4 @@
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
@@ -644,6 +645,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-zinc-100">{app.name}</span>
+                              <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                               {isPhp && (
                                 <SiteTypeBadge
                                   type={app.php?.siteType || 'php'}

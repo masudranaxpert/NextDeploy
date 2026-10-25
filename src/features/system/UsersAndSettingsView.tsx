@@ -30,6 +30,7 @@ import {
   StatusBadge,
 } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 
 interface UsersAndSettingsViewProps {
   mode: 'users' | 'audit-logs' | 'settings';
@@ -40,7 +41,23 @@ interface UsersAndSettingsViewProps {
   host?: { memoryMB: number; cpus: number; diskMB: number };
   /** The signed-in user: they cannot demote, suspend or delete themselves. */
   currentUserId?: string;
+  settings?: Record<string, string>;
 }
+
+const fmtMb = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : mb >= 1 ? `${Math.round(mb)} MB` : mb > 0 ? `${Math.max(1, Math.round(mb * 1024))} KB` : '0 MB');
+const fmtBytes = (b: number) => fmtMb(b / (1024 * 1024));
+
+/** "used / limit", turning amber at 70% and red at 90% of the limit. */
+const UsageFigure: React.FC<{ used: number; max: number; fmt: (n: number) => string }> = ({ used, max, fmt }) => {
+  const p = max > 0 ? (used / max) * 100 : 0;
+  const tone = p >= 90 ? 'text-red-400' : p >= 70 ? 'text-amber-400' : 'text-zinc-200';
+  return (
+    <span className={tone}>
+      {fmt(used)}
+      <span className="text-zinc-500"> / {max > 0 ? fmt(max) : 'unlimited'}</span>
+    </span>
+  );
+};
 
 const LimitField: React.FC<{
   label: string;
@@ -75,6 +92,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   auditLogs: initialAuditLogs,
   currentUserId,
   host,
+  settings: initialSettings,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialAuditLogs);
@@ -124,9 +142,64 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [showCleanupLogModal, setShowCleanupLogModal] = useState(false);
   const [tmpCount, setTmpCount] = useState(0);
   const [tmpTotalSize, setTmpTotalSize] = useState('0 B');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  const applySettingsData = (data: {
+    cleanup_enabled?: boolean;
+    cleanup_interval?: string;
+    cleanup_include_build_cache?: boolean;
+    cleanup_last_run?: string;
+    cleanup_last_log?: string;
+    settings?: Record<string, string>;
+  }) => {
+    const rawMap = data.settings || {};
+    if (typeof data.cleanup_enabled === 'boolean') {
+      setCleanupEnabled(data.cleanup_enabled);
+    } else if (rawMap.cleanup_enabled !== undefined) {
+      setCleanupEnabled(rawMap.cleanup_enabled === 'true' || rawMap.cleanup_enabled === '1' || rawMap.cleanup_enabled === 'on');
+    }
+
+    if (data.cleanup_interval) {
+      setCleanupInterval(data.cleanup_interval as any);
+    } else if (rawMap.cleanup_interval) {
+      setCleanupInterval(rawMap.cleanup_interval as any);
+    }
+
+    if (typeof data.cleanup_include_build_cache === 'boolean') {
+      setCleanupIncludeBuildCache(data.cleanup_include_build_cache);
+    } else if (rawMap.cleanup_include_build_cache !== undefined) {
+      setCleanupIncludeBuildCache(rawMap.cleanup_include_build_cache === 'true' || rawMap.cleanup_include_build_cache === '1' || rawMap.cleanup_include_build_cache === 'on');
+    }
+
+    const lastRun = data.cleanup_last_run || rawMap.cleanup_last_run;
+    if (lastRun) {
+      try {
+        setCleanupLastRunAt(new Date(lastRun).toLocaleString());
+      } catch {
+        setCleanupLastRunAt(lastRun);
+      }
+    }
+
+    const lastLog = data.cleanup_last_log || rawMap.cleanup_last_log;
+    if (lastLog) {
+      setCleanupLastLog(lastLog);
+      setCleanupLastStatus(lastLog.toLowerCase().includes('error') ? 'error' : 'ok');
+    }
+  };
+
+  useEffect(() => {
+    if (initialSettings && Object.keys(initialSettings).length > 0) {
+      applySettingsData({ settings: initialSettings });
+    }
+  }, [initialSettings]);
 
   useEffect(() => {
     if (mode === 'settings') {
+      void backendApi.getSettings().then((res) => {
+        if (res.ok && res.data) {
+          applySettingsData(res.data);
+        }
+      });
       void backendApi.getTmpCleanupInfo().then((info) => {
         if (typeof info?.count === 'number') setTmpCount(info.count);
         if (info?.total_size) setTmpTotalSize(info.total_size);
@@ -356,7 +429,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           id: String(raw.id ?? `aud-${idx}`),
           action: String(raw.action ?? 'system.event'),
           actor: String(raw.username ?? 'admin'),
-          actorRole: (raw as any).role || (raw.user_id === 1 ? 'admin' : raw.username === 'system' ? 'system' : 'user'),
+          actorRole: (raw as any).role || (raw.username === 'system' ? 'system' : 'user'),
+          targetOwner: (raw as any).target_owner || undefined,
+          targetOwnerRole: (raw as any).target_owner_role || undefined,
           target: String(raw.resource_id || raw.resource_type || 'system'),
           details: String(raw.details ?? ''),
           ip: String(raw.ip_address ?? '127.0.0.1'),
@@ -367,7 +442,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       }
       toast.success('Audit trail synced');
     } catch {
-      toast.success('Refreshed audit trail');
+      toast.error('Could not refresh the audit trail');
     } finally {
       setAuditLoading(false);
     }
@@ -503,8 +578,12 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                               </span>
                             </div>
                             <div className="text-zinc-500">
-                              Used: {u.memUsedGB} GB RAM · Disk Quota:{' '}
-                              {diskMb > 0 ? `${diskMb} MB` : 'Unlimited'}
+                              Using{' '}
+                              <UsageFigure used={u.memUsedMB ?? 0} max={ramMb} fmt={fmtMb} /> RAM ·{' '}
+                              <UsageFigure used={u.cpuUsedCores ?? 0} max={u.cpuQuotaCores} fmt={(n) => `${n.toFixed(2)} cores`} /> CPU
+                            </div>
+                            <div className="text-zinc-500" title={u.storageBreakdown ? `files ${fmtBytes(u.storageBreakdown.files)} · databases ${fmtBytes(u.storageBreakdown.databases)} · volumes ${fmtBytes(u.storageBreakdown.volumes)}` : undefined}>
+                              Disk <UsageFigure used={(u.storageUsedBytes ?? 0) / (1024 * 1024)} max={diskMb} fmt={fmtMb} />
                             </div>
                           </div>
                         )}
@@ -923,13 +1002,17 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                         {log.action}
                       </td>
                       <td className="px-4 py-3 text-zinc-200 whitespace-nowrap">
-                        {log.actor}{' '}
-                        <span className="font-mono text-[10px] text-zinc-500">
-                          ({log.actorRole})
-                        </span>
+                        <OwnerBadge name={log.actor} role={log.actorRole} id={-1} />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-mono text-zinc-200">{log.target}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-zinc-200">{log.target}</span>
+                          {log.targetOwner && log.targetOwner !== log.actor && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-zinc-500">
+                              of <OwnerBadge name={log.targetOwner} role={log.targetOwnerRole} id={-1} />
+                            </span>
+                          )}
+                        </div>
                         {log.details && (
                           <div className="mt-0.5 text-[11px] text-zinc-500">{log.details}</div>
                         )}
@@ -1034,17 +1117,29 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
 
         <button
           type="button"
-          onClick={() => {
-            void backendApi.saveSettings({
-              cleanup_enabled: cleanupEnabled,
-              cleanup_interval: cleanupInterval,
-              cleanup_include_build_cache: cleanupIncludeBuildCache,
-            });
-            toast.success(`Saved Docker cleanup schedule (${cleanupInterval})`);
+          disabled={isSavingSettings}
+          onClick={async () => {
+            setIsSavingSettings(true);
+            try {
+              const res = await backendApi.saveSettings({
+                cleanup_enabled: cleanupEnabled,
+                cleanup_interval: cleanupInterval,
+                cleanup_include_build_cache: cleanupIncludeBuildCache,
+              });
+              if (res.ok) {
+                toast.success(`Saved Docker cleanup schedule (${cleanupInterval})`);
+              } else {
+                toast.error((res as any).error || 'Failed to save settings');
+              }
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to save settings');
+            } finally {
+              setIsSavingSettings(false);
+            }
           }}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
         >
-          Save Changes
+          {isSavingSettings ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
 

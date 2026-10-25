@@ -356,6 +356,10 @@ type AuditLog struct {
 	UserAgent  string    `json:"user_agent"`
 	Details    string    `json:"details"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Read-time joins: what the actor is, and who owns the project the action touched.
+	ActorRole       string `json:"role"`
+	TargetOwner     string `json:"target_owner"`
+	TargetOwnerRole string `json:"target_owner_role"`
 }
 
 // CLISession represents an active nd CLI connection.

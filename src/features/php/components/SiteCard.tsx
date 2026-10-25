@@ -1,15 +1,17 @@
 import React from 'react';
-import { ArrowUpRight, ExternalLink, Globe } from 'lucide-react';
+import { ArrowUpRight, ExternalLink, Globe, Trash2 } from 'lucide-react';
 import { AppStack } from '../../../types/nextdeploy';
 import { Pill, StatusDot } from '../ui';
+import { OwnerBadge } from '../../../components/ui/OwnerBadge';
 import { SiteTypeBadge, SiteTypeIcon } from '../../../components/ui/BrandIcons';
 
 interface SiteCardProps {
   site: AppStack;
   onOpenSite: (id: string) => void;
+  onDelete?: (site: AppStack) => void;
 }
 
-export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite }) => {
+export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite, onDelete }) => {
   const php = site.php;
   const siteType = php?.siteType || 'php';
   const phpVersion = php?.phpVersion;
@@ -36,6 +38,7 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite }) => {
                   {site.name}
                 </span>
                 <StatusDot status={isRunning ? 'running' : 'stopped'} />
+                <OwnerBadge id={site.ownerId} name={site.owner} role={site.ownerRole} />
               </div>
 
               {primaryDomain ? (
@@ -78,6 +81,20 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite }) => {
             <span className="ml-auto text-[10px] text-zinc-500 font-mono">
               {site.updatedAt}
             </span>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              title="Delete site"
+              aria-label={`Delete ${site.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(site);
+              }}
+              className={`${site.updatedAt ? '' : 'ml-auto '}flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 cursor-pointer`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
       </div>

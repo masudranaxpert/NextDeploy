@@ -1,3 +1,4 @@
+import { OwnerContext } from './components/ui/OwnerBadge';
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { lazyRetry } from './lib/lazyRetry';
 import {
@@ -250,6 +251,7 @@ export default function App() {
   const [phpEnabled, setPhpEnabled] = useState(false);
   const [mcpEnabled, setMcpEnabled] = useState(false);
   const [apiTokens, setApiTokens] = useState<any[]>([]);
+  const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
   React.useEffect(() => {
     const adminOnly = ['monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
@@ -408,7 +410,9 @@ export default function App() {
       previewHostBase: a.preview_host_base || '',
       ports: Array.isArray(a.ports) ? a.ports : [],
       composeFilePath: 'docker-compose.yml',
-      owner: 'admin',
+      owner: a.owner_name || '',
+      ownerId: a.owner_id,
+      ownerRole: a.owner_role,
       updatedAt: a.updated_at || 'Recently',
       cpuPct: 0,
       memMB: 0,
@@ -588,6 +592,7 @@ export default function App() {
             sizeMB: Math.round((img.Size || 0) / (1024 * 1024)),
             created: img.Created ? new Date(img.Created).toLocaleDateString() : 'Recently',
             inUseBy,
+            owner: data.resource_owners?.images?.[img.ID],
           };
         })
       );
@@ -630,6 +635,7 @@ export default function App() {
           createdAt: 'Active',
           filesCount: 0,
           sampleFiles: [],
+          owner: data.resource_owners?.volumes?.[v],
         }))
       );
     }
@@ -646,10 +652,14 @@ export default function App() {
           appsCount: 0,
           maxApps: u.MaxApps || u.max_apps || 5,
           cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
-          memUsedGB: 0,
+          memUsedGB: (data.user_usage?.[String(u.ID || u.id)]?.memory_mb || 0) / 1024,
+          memUsedMB: data.user_usage?.[String(u.ID || u.id)]?.memory_mb || 0,
+          cpuUsedCores: data.user_usage?.[String(u.ID || u.id)]?.cpu_cores || 0,
+          storageUsedBytes: data.user_usage?.[String(u.ID || u.id)]?.storage_bytes || 0,
+          storageBreakdown: data.user_usage?.[String(u.ID || u.id)]?.storage,
           memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
           maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
-          diskUsedGB: Math.round((u.storage_used_bytes || 0) / (1024 * 1024 * 1024)),
+          diskUsedGB: (data.user_usage?.[String(u.ID || u.id)]?.storage_bytes || 0) / (1024 * 1024 * 1024),
           diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
           maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
           bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
@@ -750,7 +760,9 @@ export default function App() {
         data.audit_logs.map((al: any) => ({
           id: String(al.id ?? al.ID),
           actor: al.username || al.Username || 'system',
-          actorRole: al.role || al.Role || (al.user_id === 1 || al.UserID === 1 ? 'admin' : (al.username || al.Username === 'system' ? 'system' : 'user')),
+          actorRole: al.role || al.Role || ((al.username || al.Username) === 'system' ? 'system' : 'user'),
+          targetOwner: al.target_owner || undefined,
+          targetOwnerRole: al.target_owner_role || undefined,
           action: al.action || al.Action || 'system.event',
           target: (al.target_id || al.TargetID)
             ? `${al.target_type || al.TargetType || 'resource'}: ${al.target_id || al.TargetID}`
@@ -767,13 +779,14 @@ export default function App() {
     if (Array.isArray(data.registries)) {
       setRegistries(
         data.registries.map((r: any) => ({
-          id: String(r.id),
+          id: String(r.ID ?? r.id),
           provider: 'Custom' as const,
-          name: r.name,
-          registryUrl: r.url || 'docker.io',
-          username: r.username || 'admin',
+          name: r.Name ?? r.name,
+          registryUrl: r.ServerAddress || r.url || 'docker.io',
+          username: r.Username || r.username || '',
           tokenPreview: '••••••••',
-          scope: 'global' as const,
+          scope: (r.UserID ?? r.user_id) == null ? ('global' as const) : ('personal' as const),
+          owner: data.resource_owners?.registries?.[String(r.ID ?? r.id)],
           connectedApps: 0,
           imagesCount: 0,
           status: 'connected' as const,
@@ -785,6 +798,7 @@ export default function App() {
       setGitProviders(
         data.git_providers.map((gp: any) => ({
           id: String(gp.id),
+          owner: data.resource_owners?.providers?.[String(gp.id)],
           provider: (gp.provider === 'gitlab' ? 'GitLab' : 'GitHub') as any,
           authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
           accountName: gp.account_login || gp.name,
@@ -806,10 +820,11 @@ export default function App() {
     if (Array.isArray(data.backup_destinations)) {
       setBackupDestinations(
         data.backup_destinations.map((bd: any) => ({
-          id: String(bd.id),
-          name: bd.name,
-          provider: bd.provider === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
-          providerCode: (bd.provider || 'r2') as 'r2' | 'gdrive',
+          id: String(bd.ID ?? bd.id),
+          owner: data.resource_owners?.destinations?.[String(bd.ID ?? bd.id)],
+          name: bd.Name ?? bd.name,
+          provider: (bd.Provider ?? bd.provider) === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
+          providerCode: (bd.Provider || bd.provider || 'r2') as 'r2' | 'gdrive',
           bucket: bd.bucket || '',
           endpoint: '',
           region: 'auto',
@@ -827,6 +842,9 @@ export default function App() {
     }
     if (data.caddy) {
       setCaddyInfo(data.caddy);
+    }
+    if (data.settings && typeof data.settings === 'object') {
+      setSystemSettings(data.settings);
     }
     setDockerVersion(typeof data.docker_version === 'string' ? data.docker_version : '');
   }, []);
@@ -1007,7 +1025,12 @@ export default function App() {
     });
   };
 
-  const containersCount = apps.reduce((acc, a) => acc + (a.services?.length || 0), 0);
+  // running only: a project's running containers, and each PHP site that is up
+  const containersCount = apps.reduce(
+    (acc, a) =>
+      acc + (a.php ? (a.status === 'running' ? 1 : 0) : (a.services || []).filter((s) => s.state === 'running').length),
+    0,
+  );
   const selectedApp = apps.find((a) => a.id === selectedAppId) || null;
 
   const navGroups: {
@@ -1173,6 +1196,7 @@ export default function App() {
   }
 
   return (
+    <OwnerContext.Provider value={{ viewerId: currentUser ? Number(currentUser.id) : 0, isAdmin: currentUser?.role === 'admin' }}>
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
       <Toaster position="bottom-right" theme="dark" richColors closeButton duration={4500} visibleToasts={4} toastOptions={{ classNames: { toast: "font-sans text-xs" } }} />
 
@@ -1450,6 +1474,10 @@ export default function App() {
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onUpdateApps={setApps}
                 onCreateApp={() => setNewAppModalOpen(true)}
+                onRefresh={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                }}
               />
             ) : activeNav === 'php-sites' ? (
               <PhpSitesView
@@ -1479,9 +1507,10 @@ export default function App() {
               <ContainersView
                 apps={apps}
                 onOpenAppTab={(id) => navigateTo('apps', id)}
-                onUpdateApp={(updated) =>
-                  setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
-                }
+                onRefresh={async () => {
+                  const r = await backendApi.bootstrap();
+                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                }}
               />
             ) : activeNav === 'images' ? (
               <ImagesView
@@ -1661,6 +1690,7 @@ export default function App() {
                 users={users}
                 auditLogs={auditLogs}
                 cgroupInfo={cgroupInfo}
+                settings={systemSettings}
                 currentUserId={currentUser ? String(currentUser.id) : undefined}
               />
             ) : (
@@ -1705,5 +1735,6 @@ export default function App() {
         onCreateApp={handleCreateApp}
       />
     </div>
+    </OwnerContext.Provider>
   );
 }

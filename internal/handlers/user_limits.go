@@ -215,7 +215,7 @@ func (p *Panel) ReapplyUserCgroupLimitsOnStart() {
 	}
 }
 
-const appStorageCacheTTL = 5 * time.Minute
+const appStorageCacheTTL = time.Minute
 
 type appStorageEntry struct {
 	size int64
@@ -253,31 +253,6 @@ func (p *Panel) InvalidateAppStorageCache(appID string) {
 	p.appStorage.Delete(appID)
 }
 
-// UserStorageBytes returns the total workspace bytes used by all apps owned by the user.
-func (p *Panel) UserStorageBytes(ctx context.Context, userID int64) int64 {
-	apps, err := p.DB.ListAppsForUser(ctx, userID)
-	if err != nil {
-		return 0
-	}
-	var total int64
-	for _, app := range apps {
-		total += p.AppStorageBytes(app.ID)
-	}
-	return total
-}
-
-func (p *Panel) userStorageBytesUncached(ctx context.Context, userID int64) int64 {
-	apps, err := p.DB.ListAppsForUser(ctx, userID)
-	if err != nil {
-		return 0
-	}
-	var total int64
-	for _, app := range apps {
-		total += dirSizeBytes(p.Store.Path(app.ID))
-	}
-	return total
-}
-
 // CheckStorageQuota returns an error when writing incomingBytes more into the
 // app would push its owner past their storage limit. Admins are unlimited.
 func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingBytes int64) error {
@@ -286,14 +261,23 @@ func (p *Panel) CheckStorageQuota(ctx context.Context, appID string, incomingByt
 		return nil
 	}
 	owner, err := p.DB.GetUserByID(ctx, app.OwnerID)
-	if err != nil || owner.Role == db.RoleAdmin || owner.MaxStorageMB <= 0 {
+	if err != nil {
+		return nil
+	}
+	return p.CheckStorageRoom(ctx, owner, incomingBytes)
+}
+
+// CheckStorageRoom refuses new data when owner (files + databases + volumes) is, or would
+// become, over their storage limit. Admins and users without a limit are never refused.
+func (p *Panel) CheckStorageRoom(ctx context.Context, owner db.User, incomingBytes int64) error {
+	if owner.Role == db.RoleAdmin || owner.MaxStorageMB <= 0 {
 		return nil
 	}
 	maxBytes := int64(owner.MaxStorageMB) * 1024 * 1024
-	used := p.userStorageBytesUncached(ctx, owner.ID)
-	if used+incomingBytes > maxBytes {
-		return fmt.Errorf("storage limit exceeded: using %s of %s (upload needs %s more)",
-			humanStorage(used), humanStorage(maxBytes), humanStorage(incomingBytes))
+	u := p.UserStorage(ctx, owner.ID, true)
+	if used := u.Total(); used+incomingBytes > maxBytes {
+		return fmt.Errorf("storage limit exceeded: using %s of %s (files %s, databases %s, volumes %s)",
+			humanStorage(used), humanStorage(maxBytes), humanStorage(u.Files), humanStorage(u.Databases), humanStorage(u.Volumes))
 	}
 	return nil
 }

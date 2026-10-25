@@ -98,6 +98,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		usedStorage   int64
 		quotaMemUsed  int64
 		quotaCPUUsed  float64
+		usedBreakdown StorageUsage
 		dockerVersion string
 		caddyCfg      map[string]string
 		caddyUp       bool
@@ -130,7 +131,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	run("images", func() {
 		allImages = bootImages.get(bootTTL, func() []dockerapi.ImageRow { v, _ := dockerapi.ListImages(ctx); return v })
 	})
-	run("storage", func() { usedStorage = p.UserStorageBytes(ctx, u.ID) })
+	run("storage", func() { usedBreakdown = p.UserStorage(ctx, u.ID, false); usedStorage = usedBreakdown.Total() })
 	if !isAdmin {
 		run("usage", func() { quotaMemUsed, quotaCPUUsed = p.userLiveUsage(ctx, u) })
 	}
@@ -184,6 +185,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		PreviewBase   string                  `json:"preview_host_base"`
 		Ports         []db.AllocatedPort      `json:"ports"`
 		PHP           *phpAppInfo             `json:"php,omitempty"`
+		OwnerName     string                  `json:"owner_name"`
+		OwnerRole     string                  `json:"owner_role"`
 	}
 
 	phpByApp := map[string]db.PHPSite{}
@@ -205,6 +208,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	perflog.Logf("bootstrap parallel total %s", perflog.FormatDur(time.Since(t0)))
 	tLoop := time.Now()
 
+	allUsers, _ := p.DB.ListUsers(ctx)
+	owners := ownerLookup(allUsers)
 	appList := make([]appSummary, len(apps))
 	var appWg sync.WaitGroup
 	for idx, a := range apps {
@@ -278,6 +283,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				PreviewBase:   previewHostBase(app, pvCfg, sys.PublicIP),
 				Ports:         appPorts,
 				PHP:           phpInfo,
+				OwnerName:     ownerOf(owners, app.OwnerID).Name,
+				OwnerRole:     ownerOf(owners, app.OwnerID).Role,
 			}
 		}(idx, a)
 	}
@@ -352,8 +359,28 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	var settings map[string]string
 	var migrateExports []db.MigrateExport
 
+	var userUsage map[string]userUsageRow
 	if isAdmin {
-		users, _ = p.DB.ListUsers(ctx)
+		userUsage = p.allUserUsage(ctx, allUsers)
+	}
+	var resOwners *resourceOwners
+	if isAdmin {
+		users = allUsers
+		volsByApp := make(map[string][]string, len(appList))
+		for _, a := range appList {
+			volsByApp[a.ID] = a.Volumes
+		}
+		ro := p.buildResourceOwners(ctx, apps, allUsers, allContainers, allImages, volsByApp, allVolNames)
+		for _, gp := range gitProviders {
+			ro.Providers[strconv.FormatInt(gp.ID, 10)] = scopeOwner(owners, gp.UserID)
+		}
+		for _, r := range registries {
+			ro.Registries[strconv.FormatInt(r.ID, 10)] = scopeOwner(owners, r.UserID)
+		}
+		for _, d := range backupDests {
+			ro.Destinations[strconv.FormatInt(d.ID, 10)] = scopeOwner(owners, d.UserID)
+		}
+		resOwners = &ro
 		cliSessions, _ = p.DB.ListCLISessions()
 		auditLogs, _ = p.DB.ListAuditLogs(ctx, 100, 0)
 		settings, _ = p.DB.GetAllSettings(ctx)
@@ -390,16 +417,19 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"ok": true,
 		"quota": fiber.Map{
-			"unlimited":       isAdmin,
-			"max_apps":        u.MaxApps,
-			"apps_used":       ownedApps,
-			"max_memory_mb":   u.MaxMemoryMB,
-			"memory_used_mb":  quotaMemUsed,
-			"max_cpus":        u.MaxCPUs,
-			"cpu_used_cores":  quotaCPUUsed,
-			"max_storage_mb":  u.MaxStorageMB,
-			"storage_used_mb": usedStorage / (1024 * 1024),
+			"unlimited":          isAdmin,
+			"max_apps":           u.MaxApps,
+			"apps_used":          ownedApps,
+			"max_memory_mb":      u.MaxMemoryMB,
+			"memory_used_mb":     quotaMemUsed,
+			"max_cpus":           u.MaxCPUs,
+			"cpu_used_cores":     quotaCPUUsed,
+			"max_storage_mb":     u.MaxStorageMB,
+			"storage_used_mb":    usedStorage / (1024 * 1024),
+			"storage_used_bytes": usedStorage,
+			"storage_breakdown":  usedBreakdown,
 		},
+		"user_usage": userUsage,
 		"user": fiber.Map{
 			"id":                       u.ID,
 			"username":                 u.Username,
@@ -420,6 +450,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"containers":          containers,
 		"images":              images,
 		"volumes":             visibleVolNames,
+		"resource_owners":     resOwners,
 		"git_providers":       enrichedGitProviders,
 		"webhook_deliveries":  webhookDeliveries,
 		"registries":          registries,
@@ -440,6 +471,46 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 					return ""
 				}
 				return strings.TrimSpace(p.DB.GetSetting(ctx, "panel_domain"))
+			}(),
+			"panel_enable_https": func() bool {
+				if !isAdmin {
+					return true
+				}
+				return settingBool(p.DB.GetSetting(ctx, "panel_enable_https"), true)
+			}(),
+			"panel_enable_www": func() bool {
+				if !isAdmin {
+					return false
+				}
+				return settingBool(p.DB.GetSetting(ctx, "panel_enable_www"), false)
+			}(),
+			"shared_mount_prefix": func() string {
+				if !isAdmin {
+					return "/mnt/shared"
+				}
+				pfx := strings.TrimSpace(p.DB.GetSetting(ctx, "caddy_shared_mount_prefix"))
+				if pfx == "" {
+					return "/mnt/shared"
+				}
+				return pfx
+			}(),
+			"shared_volumes": func() []string {
+				if !isAdmin {
+					return nil
+				}
+				raw := strings.TrimSpace(p.DB.GetSetting(ctx, "caddy_shared_volume_names"))
+				if raw == "" {
+					return nil
+				}
+				parts := strings.Split(raw, ",")
+				out := make([]string, 0, len(parts))
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if part != "" {
+						out = append(out, part)
+					}
+				}
+				return out
 			}(),
 		},
 		"cgroup": fiber.Map{

@@ -18,6 +18,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { DockerVolumeItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
@@ -280,7 +281,12 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-orange-400 truncate">{v.appSlug}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-mono text-orange-400">{v.appSlug}</span>
+                        <OwnerBadge id={v.owner?.id} name={v.owner?.name} role={v.owner?.role} system={v.owner?.system} />
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <StatusBadge status="active" label={v.driver || 'local'} />
                     </td>
@@ -322,7 +328,10 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
                     <div className="truncate font-mono text-xs font-semibold text-zinc-100">
                       {v.name}
                     </div>
-                    <div className="mt-0.5 font-mono text-[11px] text-orange-400">{v.appSlug}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="font-mono text-[11px] text-orange-400">{v.appSlug}</span>
+                      <OwnerBadge id={v.owner?.id} name={v.owner?.name} role={v.owner?.role} system={v.owner?.system} />
+                    </div>
                   </div>
                 </div>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyRound, RotateCw, ShieldCheck } from 'lucide-react';
+import { KeyRound, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
@@ -24,7 +24,7 @@ import {
 
 const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
 
-export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | Promise<void> }> = ({ app, onChanged }) => {
+export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | Promise<void>; onDelete?: () => void }> = ({ app, onChanged, onDelete }) => {
   const [pollMs, setPollMs] = useState(0);
   const { detail, error, loading, reload } = usePhpSite(app.id, pollMs);
   const status = usePhpStatus();
@@ -213,6 +213,20 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
             <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')}>
               <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" /> Repair file permissions
             </GhostButton>
+          </div>
+        </Card>
+      )}
+
+      {onDelete && (
+        <Card title="Delete site" description="Removes the site, its files, databases and domains for good.">
+          <div className="flex justify-end px-4 py-3">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete this site
+            </button>
           </div>
         </Card>
       )}

@@ -79,6 +79,7 @@ import {
 } from '../../lib/dockerFormatters';
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { PhpSettingsTab } from '../php/PhpSettingsTab';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { PhpDomainsTab } from '../php/PhpDomainsTab';
 import { PhpSecurityTab } from '../php/PhpSecurityTab';
 import { prefetchPhpSite } from '../php/ui';
@@ -2163,6 +2164,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     production · {activeSlotLower.toUpperCase()}
                   </span>
                 )}
+                <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                 {isPinnedProduction && (
                   <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
                     <Pin className="h-2.5 w-2.5" />
@@ -3540,7 +3542,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} />
       )}
       {activeTab === 'php-settings' && app.php && (
-        <PhpSettingsTab app={app} onChanged={() => onRefresh?.()} />
+        <PhpSettingsTab app={app} onChanged={() => onRefresh?.()} onDelete={() => setDeleteDialogOpen(true)} />
       )}
       {activeTab === 'php-databases' && app.php && <PhpDatabasesTab app={app} />}
       {activeTab === 'php-cron' && app.php && <PhpCronTab app={app} />}

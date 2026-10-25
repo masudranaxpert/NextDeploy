@@ -691,15 +691,56 @@ func (p *Panel) TempCleanupInfo(c *fiber.Ctx) error {
 	})
 }
 
+func (p *Panel) SettingsPageOrJSON(c *fiber.Ctx) error {
+	if WantsJSON(c) || c.Query("format") == "json" {
+		ctx := c.UserContext()
+		settings, err := p.DB.GetAllSettings(ctx)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.JSON(fiber.Map{
+			"ok":                          true,
+			"settings":                    settings,
+			"cleanup_enabled":             settingBool(settings[settingCleanupEnabled], true),
+			"cleanup_interval":            normalizeCleanupInterval(settings[settingCleanupInterval]),
+			"cleanup_include_build_cache": settingBool(settings[settingCleanupIncludeBuildCache], false),
+			"cleanup_last_run":            settings[settingCleanupLastRun],
+			"cleanup_last_log":            settings[settingCleanupLastLog],
+		})
+	}
+	return p.ServeSPA(c)
+}
+
 func (p *Panel) SettingsSave(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 	ctx := c.UserContext()
-	enabled := c.FormValue(settingCleanupEnabled) == "on"
-	interval := normalizeCleanupInterval(c.FormValue(settingCleanupInterval))
-	includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on"
+
+	var req struct {
+		CleanupEnabled           *bool  `json:"cleanup_enabled"`
+		CleanupInterval          string `json:"cleanup_interval"`
+		CleanupIncludeBuildCache *bool  `json:"cleanup_include_build_cache"`
+	}
+	_ = c.BodyParser(&req)
+
+	enabled := c.FormValue(settingCleanupEnabled) == "on" || c.FormValue(settingCleanupEnabled) == "true" || c.FormValue(settingCleanupEnabled) == "1"
+	if req.CleanupEnabled != nil {
+		enabled = *req.CleanupEnabled
+	}
+
+	interval := c.FormValue(settingCleanupInterval)
+	if req.CleanupInterval != "" {
+		interval = req.CleanupInterval
+	}
+	interval = normalizeCleanupInterval(interval)
+
+	includeBuildCache := c.FormValue(settingCleanupIncludeBuildCache) == "on" || c.FormValue(settingCleanupIncludeBuildCache) == "true" || c.FormValue(settingCleanupIncludeBuildCache) == "1"
+	if req.CleanupIncludeBuildCache != nil {
+		includeBuildCache = *req.CleanupIncludeBuildCache
+	}
+
 	if err := p.DB.SetSetting(ctx, settingCleanupEnabled, boolString(enabled)); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}

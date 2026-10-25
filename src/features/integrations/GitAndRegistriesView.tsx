@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import {
   RefreshCw,
   Copy,
@@ -380,6 +381,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           {p.accountName}
                         </span>
                         <StatusBadge status={p.status} />
+                        <OwnerBadge id={p.owner?.id} name={p.owner?.name} role={p.owner?.role} system={p.owner?.system} />
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
                         <span>{p.provider}</span>
@@ -1155,7 +1157,10 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           {r.provider}
                         </span>
                         <div className="min-w-0">
-                          <div className="font-semibold text-zinc-100">{r.name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-zinc-100">{r.name}</span>
+                            <OwnerBadge id={r.owner?.id} name={r.owner?.name} role={r.owner?.role} system={r.owner?.system} />
+                          </div>
                           <div className="text-[11px] text-zinc-500">
                             {r.registryUrl}
                           </div>

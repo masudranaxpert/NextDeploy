@@ -6,6 +6,7 @@ import { backendApi } from '../../lib/backendApi';
 import type { PhpStatusData } from '../../lib/api/phpApi';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import { SiteCard } from './components/SiteCard';
+import { DeleteSiteDialog } from './components/DeleteSiteDialog';
 import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons';
 import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls, prefetchPhpSite } from './ui';
 
@@ -30,6 +31,7 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
   const [status, setStatus] = useState<PhpStatusData | null>(null);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
   const [creating, setCreating] = useState(false);
 
   const [name, setName] = useState('');
@@ -150,10 +152,12 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
-            <SiteCard key={s.id} site={s} onOpenSite={onOpenSite} />
+            <SiteCard key={s.id} site={s} onOpenSite={onOpenSite} onDelete={(x) => setToDelete({ id: x.id, name: x.name })} />
           ))}
         </div>
       )}
+
+      <DeleteSiteDialog site={toDelete} onClose={() => setToDelete(null)} onDeleted={() => onRefresh()} />
 
       <ShadcnDialog
         open={open}

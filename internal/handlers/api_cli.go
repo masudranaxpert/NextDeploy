@@ -96,7 +96,7 @@ func (p *Panel) APIAppDelete(c *fiber.Ctx) error {
 	if err := p.DeleteAppResources(delCtx, appID); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	p.RecordAuditLog(c, "delete_app", "app", appID, "Deleted app via CLI/API: "+app.Name)
+	p.RecordAuditLog(c, "delete_app", "app", appID, "Deleted app via CLI/API: "+app.Name+" (owner: "+p.ownerName(ctx, app.OwnerID)+")")
 	return c.JSON(fiber.Map{"ok": true, "message": fmt.Sprintf("Application %s deleted successfully", appID)})
 }
 

@@ -110,7 +110,11 @@ type imageScope struct {
 }
 
 func (p *Panel) newImageScope(ctx context.Context, u db.User, allContainers []dockerapi.ContainerRow) imageScope {
-	apps := p.userApps(ctx, u)
+	return p.imageScopeFor(ctx, p.userApps(ctx, u), allContainers)
+}
+
+// imageScopeFor matches images to a set of apps (the images their containers use, or built from them).
+func (p *Panel) imageScopeFor(ctx context.Context, apps []db.App, allContainers []dockerapi.ContainerRow) imageScope {
 	allowed := map[string]bool{}
 	for _, a := range apps {
 		allowed[a.ID] = true
@@ -172,13 +176,7 @@ func (p *Panel) visibleVolumes(ctx context.Context, u db.User, all []string) []s
 	seen := map[string]bool{}
 	out := []string{}
 	for _, app := range p.userApps(ctx, u) {
-		if p.PHP != nil && p.DB.IsPHPSite(ctx, app.ID) {
-			continue
-		}
-		cands := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
-		q := p.AppVolumeQuery(ctx, app, allProjects, cands...)
-		vols, _ := matcher.ListForAppFromNames(ctx, q, all)
-		for _, v := range vols {
+		for _, v := range p.appVolumeNames(ctx, app, all, allProjects, matcher) {
 			if !seen[v] {
 				seen[v] = true
 				out = append(out, v)
@@ -186,6 +184,18 @@ func (p *Panel) visibleVolumes(ctx context.Context, u db.User, all []string) []s
 		}
 	}
 	return out
+}
+
+// appVolumeNames lists the Docker volumes that belong to one project. PHP sites keep their
+// data in the workspace and in the database server, never in Docker volumes.
+func (p *Panel) appVolumeNames(ctx context.Context, app db.App, all, allProjects []string, matcher *volumex.Matcher) []string {
+	if p.PHP != nil && p.DB.IsPHPSite(ctx, app.ID) {
+		return nil
+	}
+	cands := append([]string{app.ID, strings.ReplaceAll(app.ID, "-", "_"), app.Name}, p.ComposeProjectCandidates(ctx, app, app.ID)...)
+	q := p.AppVolumeQuery(ctx, app, allProjects, cands...)
+	vols, _ := matcher.ListForAppFromNames(ctx, q, all)
+	return vols
 }
 
 // writeableVolumes returns Docker volumes that u can delete (requires developer access on app).

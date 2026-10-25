@@ -11,6 +11,7 @@ import {
   Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { DockerImageItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 
@@ -178,6 +179,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                           <span className="font-semibold text-zinc-100">{shortRepo}</span>
                           <span className="text-orange-400">:{img.tag}</span>
                         </div>
+                        <OwnerBadge id={img.owner?.id} name={img.owner?.name} role={img.owner?.role} system={img.owner?.system} />
                       </div>
                     </td>
 

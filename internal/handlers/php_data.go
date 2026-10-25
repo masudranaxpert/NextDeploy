@@ -66,6 +66,9 @@ func (p *Panel) PHPDatabaseCreate(c *fiber.Ctx) error {
 	if err := quota.CheckDatabaseSlot(ctx, p.DB, owner); err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
+	if err := p.CheckStorageRoom(ctx, owner, 0); err != nil {
+		return phpJSONErr(c, 400, err.Error())
+	}
 	dbName := dbPrefix(owner) + body.Name
 	if err := p.PHP.CreateDatabaseOnly(ctx, dbName); err != nil {
 		if errors.Is(err, phphosting.ErrDatabaseExists) {

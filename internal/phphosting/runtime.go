@@ -355,7 +355,11 @@ func (m *Manager) TeardownSite(ctx context.Context, appID string) error {
 	removeContainer(ctx, RouteContainer(appID))
 	dbs, _ := m.DB.ListPHPDatabases(ctx, appID)
 	users, _ := m.DB.ListPHPDBUsers(ctx, appID)
-	if (len(dbs) > 0 || len(users) > 0) && m.MySQLStatus(ctx).Running {
+	if (len(dbs) > 0 || len(users) > 0) && !m.MySQLStatus(ctx).Running {
+		// dropping the rows without dropping the databases would leave them orphaned for good
+		return fmt.Errorf("the database server is stopped; start it so this site's databases can be removed, then delete the site again")
+	}
+	if len(dbs) > 0 || len(users) > 0 {
 		for _, d := range dbs {
 			if _, err := m.sql(ctx, "DROP DATABASE IF EXISTS "+SQLIdent(d.DBName)+";"); err != nil {
 				return fmt.Errorf("drop database %s: %w", d.DBName, err)

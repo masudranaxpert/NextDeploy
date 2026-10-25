@@ -1,3 +1,4 @@
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import React, { useState } from 'react';
 import { GitBranch, Server } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
@@ -20,6 +21,8 @@ interface OverviewDashboardProps {
     cpu_used_cores: number;
     max_storage_mb: number;
     storage_used_mb: number;
+    storage_used_bytes?: number;
+    storage_breakdown?: { files: number; databases: number; volumes: number };
   } | null;
   /** Host services with their real state (admins only). */
   services?: Array<{ name: string; ver: string; meta: string; ok: boolean }>;
@@ -56,18 +59,28 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       ...d,
       appId: a.id,
       appName: a.name,
+      appOwner: a.owner,
+      appOwnerId: a.ownerId,
+      appOwnerRole: a.ownerRole,
     }))
   ).slice(0, 5);
 
   const hostOnly = isAdmin ? '' : 'hidden';
   const fmtMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${Math.round(mb)} MB`);
+  const fmtBytes = (b: number) =>
+    b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : b >= 1024 ** 2 ? `${(b / 1024 ** 2).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`;
+  const storageNote = quota?.storage_breakdown
+    ? `files ${fmtBytes(quota.storage_breakdown.files)} · databases ${fmtBytes(quota.storage_breakdown.databases)}${
+        quota.storage_breakdown.volumes > 0 ? ` · volumes ${fmtBytes(quota.storage_breakdown.volumes)}` : ''
+      }`
+    : '';
   const pct = (used: number, max: number) => (max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0);
   const myCards =
     !isAdmin && quota
       ? [
           { label: 'Your memory', value: fmtMB(quota.memory_used_mb), limit: fmtMB(quota.max_memory_mb), p: pct(quota.memory_used_mb, quota.max_memory_mb) },
           { label: 'Your CPU', value: `${quota.cpu_used_cores.toFixed(2)} cores`, limit: `${quota.max_cpus} cores`, p: pct(quota.cpu_used_cores, quota.max_cpus) },
-          { label: 'Your storage', value: fmtMB(quota.storage_used_mb), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_mb, quota.max_storage_mb) },
+          { label: 'Your storage', value: fmtBytes(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024), limit: fmtMB(quota.max_storage_mb), p: pct(quota.storage_used_bytes ?? quota.storage_used_mb * 1024 * 1024, quota.max_storage_mb * 1024 * 1024), note: storageNote },
           { label: 'Your projects', value: String(quota.apps_used), limit: String(quota.max_apps), p: pct(quota.apps_used, quota.max_apps) },
         ]
       : [];
@@ -82,6 +95,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {c.value} <span className="text-xs font-normal text-zinc-500">/ {c.limit}</span>
               </p>
+              {'note' in c && c.note && <p className="mt-1.5 truncate text-[10px] text-zinc-500">{c.note}</p>}
               <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
                 <div
                   className={`h-full rounded-full ${c.p >= 90 ? 'bg-red-500' : c.p >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
@@ -277,6 +291,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                           <span className="font-mono font-semibold text-zinc-100">
                             {dep.appName}
                           </span>
+                          <OwnerBadge id={dep.appOwnerId} name={dep.appOwner} role={dep.appOwnerRole} />
                           <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
                             {dep.branch || 'main'}@{dep.commitSha?.slice(0, 7) || 'latest'}
                           </span>

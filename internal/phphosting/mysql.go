@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -582,4 +583,46 @@ func (m *Manager) RepairGrants(ctx context.Context) {
 	if !failed {
 		_ = m.DB.SetSetting(ctx, key, "1")
 	}
+}
+
+type dbSizeEntry struct {
+	bytes int64
+	at    time.Time
+}
+
+const dbSizeTTL = 90 * time.Second
+
+// DatabaseBytes is the combined on-disk size (data + indexes) of the named databases. The
+// database server is asked at most once every 90 seconds per set of names; when it cannot be
+// reached the last known size (or 0) is returned.
+func (m *Manager) DatabaseBytes(ctx context.Context, names []string) int64 {
+	valid := make([]string, 0, len(names))
+	for _, n := range names {
+		if ValidIdent(n) {
+			valid = append(valid, "'"+n+"'")
+		}
+	}
+	if len(valid) == 0 {
+		return 0
+	}
+	sort.Strings(valid)
+	key := strings.Join(valid, ",")
+	var last int64
+	if v, ok := m.dbSizes.Load(key); ok {
+		e := v.(dbSizeEntry)
+		if time.Since(e.at) < dbSizeTTL {
+			return e.bytes
+		}
+		last = e.bytes
+	}
+	out, err := m.sql(ctx, "SELECT COALESCE(SUM(data_length+index_length),0) FROM information_schema.tables WHERE table_schema IN ("+key+");")
+	if err != nil {
+		return last
+	}
+	n, perr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if perr != nil {
+		return last
+	}
+	m.dbSizes.Store(key, dbSizeEntry{bytes: n, at: time.Now()})
+	return n
 }

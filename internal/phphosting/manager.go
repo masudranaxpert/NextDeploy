@@ -29,6 +29,7 @@ type Manager struct {
 
 	locks     sync.Map // runtimeKey -> *sync.Mutex
 	fixTimers sync.Map // appID -> *time.Timer
+	dbSizes   sync.Map // database name set -> dbSizeEntry
 	builds    buildRegistry
 	pma       pmaRegistry
 

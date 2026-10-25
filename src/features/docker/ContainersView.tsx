@@ -12,6 +12,8 @@ import {
   Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
+import { backendApi } from '../../lib/backendApi';
 import { AppStack, ContainerService } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatters';
@@ -19,18 +21,19 @@ import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatter
 interface ContainersViewProps {
   apps: AppStack[];
   onOpenAppTab: (appId: string) => void;
-  onUpdateApp: (app: AppStack) => void;
+  /** Reloads the project and container lists from the server. */
+  onRefresh: () => Promise<void> | void;
 }
 
 export const ContainersView: React.FC<ContainersViewProps> = ({
   apps,
   onOpenAppTab,
-  onUpdateApp,
+  onRefresh,
 }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'running' | 'exited'>('all');
   const [inspectedContainer, setInspectedContainer] = useState<
-    (ContainerService & { appId: string; appName: string; owner: string }) | null
+    (ContainerService & { appId: string; appName: string; owner: string; ownerId?: number; ownerRole?: string }) | null
   >(null);
 
   const allContainers = apps.flatMap((app) =>
@@ -39,6 +42,8 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
       appId: app.id,
       appName: app.name,
       owner: app.owner,
+      ownerId: app.ownerId,
+      ownerRole: app.ownerRole,
     }))
   );
 
@@ -55,21 +60,19 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     return true;
   });
 
-  const toggleContainerState = (appId: string, containerId: string) => {
-    const targetApp = apps.find((a) => a.id === appId);
-    if (!targetApp) return;
-    const updatedServices = targetApp.services.map((s) => {
-      if (s.id !== containerId) return s;
-      const nextState = s.state === 'running' ? ('exited' as const) : ('running' as const);
-      toast.success(`${nextState === 'running' ? 'Started' : 'Stopped'} ${s.name}`);
-      return {
-        ...s,
-        state: nextState,
-        uptime: nextState === 'running' ? 'Just started' : 'Exited (0)',
-        cpuPct: nextState === 'running' ? 4.2 : 0,
-      };
-    });
-    onUpdateApp({ ...targetApp, services: updatedServices });
+  // Start, stop and restart go to the server; the list is reloaded from it afterwards.
+  const runContainerAction = async (
+    c: { appId: string; name: string },
+    action: 'start' | 'stop' | 'restart',
+  ) => {
+    const verb = { start: 'Started', stop: 'Stopped', restart: 'Restarted' }[action];
+    const res = await backendApi.appContainerAction(c.appId, c.name, action);
+    if (!res.ok) {
+      toast.error(res.error || `Could not ${action} ${c.name}`);
+      return;
+    }
+    toast.success(`${verb} ${c.name}`);
+    await onRefresh();
   };
 
   return (
@@ -161,6 +164,7 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                           </button>
                           <span className="font-semibold text-zinc-100">{suffix}</span>
                         </div>
+                        <OwnerBadge id={c.ownerId} name={c.owner} role={c.ownerRole} />
                       </div>
                     </td>
 
@@ -229,12 +233,12 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                               ) : (
                                 <Play className="h-3.5 w-3.5" />
                               ),
-                            onClick: () => toggleContainerState(c.appId, c.id),
+                            onClick: () => void runContainerAction(c, c.state === 'running' ? 'stop' : 'start'),
                           },
                           {
                             label: 'Restart Container',
                             icon: <RotateCw className="h-3.5 w-3.5" />,
-                            onClick: () => toast.success(`Restarted ${c.name}`),
+                            onClick: () => void runContainerAction(c, 'restart'),
                           },
                         ]}
                       />

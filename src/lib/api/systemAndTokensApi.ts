@@ -281,6 +281,16 @@ export const systemAndTokensApi = {
       per_page: number;
       total_pages: number;
     }>(`/api/audit-logs?format=json&page=${page}&per_page=${perPage}`),
+  getSettings: () =>
+    requestJson<{
+      ok: boolean;
+      settings: Record<string, string>;
+      cleanup_enabled?: boolean;
+      cleanup_interval?: string;
+      cleanup_include_build_cache?: boolean;
+      cleanup_last_run?: string;
+      cleanup_last_log?: string;
+    }>('/settings?format=json'),
   saveSettings: (payload: {
     cleanup_enabled: boolean;
     cleanup_interval: string;

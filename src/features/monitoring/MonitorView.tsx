@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { AppStack, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 
@@ -317,8 +318,9 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                             <Pin className="h-3.5 w-3.5" />
                           </button>
                           <div className="min-w-0">
-                            <span className="block truncate font-mono font-semibold text-zinc-100">
-                              {app.name}
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate font-mono font-semibold text-zinc-100">{app.name}</span>
+                              <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                             </span>
                             {app.primaryDomain && (
                               <span className="block truncate font-mono text-[10px] text-zinc-500">

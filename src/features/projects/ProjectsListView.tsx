@@ -18,19 +18,38 @@ import {
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ActionMenu, StatusBadge } from '../../components/ui/Primitives';
+import { OwnerBadge } from '../../components/ui/OwnerBadge';
+import { backendApi } from '../../lib/backendApi';
+import { DeleteSiteDialog } from '../php/components/DeleteSiteDialog';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
   onSelectApp: (appId: string) => void;
   onUpdateApps: React.Dispatch<React.SetStateAction<AppStack[]>>;
   onCreateApp?: () => void;
+  /** Reloads the project list from the server after a change. */
+  onRefresh: () => Promise<void> | void;
 }
 
 export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
   apps,
   onSelectApp,
   onUpdateApps,
+  onRefresh,
 }) => {
+  const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // Every action goes to the server; the list is reloaded from it afterwards.
+  const runAction = async (app: AppStack, action: 'up' | 'down' | 'restart' | 'redeploy', started: string) => {
+    const res = await backendApi.composeAction(app.id, action);
+    if (!res.ok) {
+      toast.error(res.error || `Could not ${action === 'down' ? 'stop' : action} ${app.name}`);
+      return;
+    }
+    toast.success(started);
+    window.setTimeout(() => void onRefresh(), 2000);
+  };
+
   const [appsLayout, setAppsLayout] = useState<'grid' | 'board' | 'table'>('grid');
   const [appSearch, setAppSearch] = useState('');
   const [appStatusFilter, setAppStatusFilter] = useState<
@@ -58,7 +77,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Trigger Deploy',
       icon: <Play className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Deploying ${app.name}...`),
+      onClick: () => void runAction(app, 'up', `Deployment started for ${app.name}`),
     },
     {
       label: 'Copy App ID',
@@ -71,7 +90,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Restart Containers',
       icon: <RotateCw className="h-3.5 w-3.5" />,
-      onClick: () => toast.success(`Restarted ${app.name}`),
+      onClick: () => void runAction(app, 'restart', `Restarting ${app.name}`),
     },
     {
       label: app.status === 'stopped' ? 'Start Stack' : 'Stop Stack',
@@ -81,22 +100,18 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
         ) : (
           <Square className="h-3.5 w-3.5" />
         ),
-      onClick: () => {
-        const nextStatus = app.status === 'stopped' ? ('running' as const) : ('stopped' as const);
-        onUpdateApps((prev) =>
-          prev.map((a) => (a.id === app.id ? { ...a, status: nextStatus } : a))
-        );
-        toast.success(`${nextStatus === 'running' ? 'Started' : 'Stopped'} ${app.name}`);
-      },
+      onClick: () =>
+        void runAction(
+          app,
+          app.status === 'stopped' ? 'up' : 'down',
+          app.status === 'stopped' ? `Starting ${app.name}` : `Stopping ${app.name}`,
+        ),
     },
     {
       label: 'Delete Project',
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: 'danger' as const,
-      onClick: () => {
-        onUpdateApps((prev) => prev.filter((a) => a.id !== app.id));
-        toast.success(`Deleted ${app.name}`);
-      },
+      onClick: () => setToDelete({ id: app.id, name: app.name }),
     },
   ];
 
@@ -201,6 +216,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                           {app.name}
                         </h3>
                         <StatusBadge status={app.status} />
+                        <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-400">
                         {app.primaryDomain ? (
@@ -290,8 +306,9 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                         className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#111115] p-3 hover:border-white/[0.15] cursor-pointer transition-all"
                       >
                         <div className="min-w-0">
-                          <div className="truncate text-xs font-semibold text-zinc-100">
-                            {app.name}
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-xs font-semibold text-zinc-100">{app.name}</span>
+                            <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                           </div>
                           <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
                             {app.services.length} services · {app.cpuPct}% CPU
@@ -333,7 +350,10 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                             {app.name.slice(0, 2)}
                           </div>
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-zinc-100">{app.name}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-semibold text-zinc-100">{app.name}</span>
+                              <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
+                            </div>
                             {app.primaryDomain && (
                               <div className="truncate font-mono text-[10px] text-zinc-500">
                                 {app.primaryDomain}
@@ -363,6 +383,8 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
           </div>
         )}
       </div>
+
+      <DeleteSiteDialog kind="project" site={toDelete} onClose={() => setToDelete(null)} onDeleted={() => onRefresh()} />
     </div>
   );
 };

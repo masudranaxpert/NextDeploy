@@ -192,6 +192,8 @@ export interface AppStack {
   ports?: ExposedPort[];
   composeFilePath: string;
   owner: string;
+  ownerId?: number;
+  ownerRole?: string;
   updatedAt: string;
   cpuPct: number;
   memMB: number;
@@ -223,6 +225,7 @@ export interface DockerImageItem {
   sizeMB: number;
   created: string;
   inUseBy: string[];
+  owner?: { id: number; name: string; role: string; system?: boolean };
 }
 
 export interface DockerVolumeItem {
@@ -234,9 +237,11 @@ export interface DockerVolumeItem {
   createdAt: string;
   filesCount: number;
   sampleFiles: { path: string; size: string; modified: string }[];
+  owner?: { id: number; name: string; role: string; system?: boolean };
 }
 
 export interface GitProviderConnection {
+  owner?: { id: number; name: string; role: string; system?: boolean };
   id: string;
   provider: 'GitHub' | 'GitLab';
   authMethod: 'GitHub App' | 'OAuth 2.0' | 'Fine-Grained PAT' | 'Deploy Token';
@@ -266,6 +271,7 @@ export interface SyncedGitRepository {
 }
 
 export interface RegistryCredential {
+  owner?: { id: number; name: string; role: string; system?: boolean };
   id: string;
   provider: 'GHCR' | 'DockerHub' | 'GitLab' | 'AWS ECR' | 'Custom';
   name: string;
@@ -280,6 +286,7 @@ export interface RegistryCredential {
 }
 
 export interface BackupDestination {
+  owner?: { id: number; name: string; role: string; system?: boolean };
   id: string;
   name: string;
   provider: 'Cloudflare R2' | 'Google Drive';
@@ -392,6 +399,10 @@ export interface PanelUser {
   maxApps: number;
   cpuQuotaCores: number;
   memUsedGB: number;
+  memUsedMB?: number;
+  cpuUsedCores?: number;
+  storageUsedBytes?: number;
+  storageBreakdown?: { files: number; databases: number; volumes: number };
   memQuotaGB: number;
   maxMemoryMB?: number;
   diskUsedGB: number;
@@ -407,7 +418,9 @@ export interface AuditLogEntry {
   id: string;
   timestamp: string;
   actor: string;
-  actorRole: 'admin' | 'user' | 'mcp-agent' | 'nd-cli';
+  actorRole: 'admin' | 'user' | 'system' | 'mcp-agent' | 'nd-cli';
+  targetOwner?: string;
+  targetOwnerRole?: string;
   action: string;
   resourceType?: string;
   target: string;

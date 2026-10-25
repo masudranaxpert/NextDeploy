@@ -134,6 +134,14 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 			return phpJSONErr(c, 400, "PHP "+version+" is not installed")
 		}
 	}
+	// a new site writes files at once (WordPress alone is ~70 MB), so refuse when there is no room
+	var needBytes int64
+	if body.Type == phphosting.SiteTypeWordPress {
+		needBytes = 80 << 20
+	}
+	if err := p.CheckStorageRoom(ctx, u, needBytes); err != nil {
+		return phpJSONErr(c, 400, err.Error())
+	}
 	var wp phphosting.WPOptions
 	if body.Type == phphosting.SiteTypeWordPress {
 		if !p.PHP.MySQLStatus(ctx).Ready {

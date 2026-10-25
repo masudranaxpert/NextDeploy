@@ -149,7 +149,7 @@ func (p *Panel) DeleteApp(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(err.Error())
 	}
-	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name)
+	p.RecordAuditLog(c, "delete_app", "app", id, "Deleted app: "+app.Name+" (owner: "+p.ownerName(c.UserContext(), app.OwnerID)+")")
 	if wantJSON {
 		return c.JSON(fiber.Map{"ok": true})
 	}
@@ -244,6 +244,10 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 	}
 	p.InvalidateAfterAppDeployChange(id)
 	_ = os.RemoveAll(dir)
+	// the source dir of a git app is a subfolder: the project's own folder (meta, override file) goes too
+	if id != "" && !strings.ContainsAny(id, `/\.`) {
+		_ = os.RemoveAll(p.Store.Path(id))
+	}
 	return nil
 }
 

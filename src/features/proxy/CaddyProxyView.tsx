@@ -93,27 +93,32 @@ export const CaddyProxyView: React.FC<{
 
   // 1. Panel Domain card (POST /nextdeploy/panel + GET /nextdeploy/apply-status)
   const [panelDomain, setPanelDomain] = useState<string>(caddyInfo?.panel_domain ?? '');
-  // the saved value arrives with the first page data, which may be after this view mounted
+  const [panelEnableHttps, setPanelEnableHttps] = useState<boolean>(caddyInfo?.panel_enable_https ?? true);
+  const [panelEnableWww, setPanelEnableWww] = useState<boolean>(caddyInfo?.panel_enable_www ?? false);
+  const [sharedMountPrefix, setSharedMountPrefix] = useState<string>(caddyInfo?.shared_mount_prefix ?? '/mnt/shared');
+  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>(
+    Array.isArray(caddyInfo?.shared_volumes) ? caddyInfo.shared_volumes.filter(Boolean) : []
+  );
+
+  // Hydrate saved settings when caddyInfo arrives or updates
   useEffect(() => {
     if (typeof caddyInfo?.panel_domain === 'string') setPanelDomain(caddyInfo.panel_domain);
-  }, [caddyInfo?.panel_domain]);
-  const [panelEnableHttps, setPanelEnableHttps] = useState(true);
-  const [panelEnableWww, setPanelEnableWww] = useState(false);
+    if (typeof caddyInfo?.panel_enable_https === 'boolean') setPanelEnableHttps(caddyInfo.panel_enable_https);
+    if (typeof caddyInfo?.panel_enable_www === 'boolean') setPanelEnableWww(caddyInfo.panel_enable_www);
+    if (typeof caddyInfo?.shared_mount_prefix === 'string' && caddyInfo.shared_mount_prefix) {
+      setSharedMountPrefix(caddyInfo.shared_mount_prefix);
+    }
+    if (Array.isArray(caddyInfo?.shared_volumes)) {
+      setSelectedSharedVolumes(caddyInfo.shared_volumes.filter(Boolean));
+    }
+  }, [caddyInfo]);
+
   const [applyBanner, setApplyBanner] = useState<{
     active: boolean;
     done: boolean;
     succeeded: boolean;
     status: string;
   } | null>(null);
-
-  // 2. Caddy Shared Volumes card (POST /nextdeploy/shared-volumes)
-  const [sharedMountPrefix, setSharedMountPrefix] = useState('/mnt/shared');
-  const allDockerVolumes = useMemo(() => {
-    const set = new Set<string>();
-    apps.forEach((a) => a.volumes.forEach((v) => set.add(v.name)));
-    return Array.from(set);
-  }, [apps]);
-  const [selectedSharedVolumes, setSelectedSharedVolumes] = useState<string[]>([]);
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)

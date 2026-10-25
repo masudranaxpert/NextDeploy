@@ -45,7 +45,15 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   useEffect(() => {
     setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
-  }, [app.gitSync, app.sourceType]);
+    if (app.gitAuthMode) setAuthMode(app.gitAuthMode as any);
+    if (app.gitProviderId) setSelectedProviderId(app.gitProviderId);
+    if (app.gitRepo) {
+      setRepoUrl(app.gitRepo);
+      setSelectedRepoFullName(app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, ''));
+    }
+    if (app.gitBranch) setBranch(app.gitBranch);
+    if (app.webhookAutoDeploy !== undefined) setAutoDeploy(Boolean(app.webhookAutoDeploy));
+  }, [app]);
 
   // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
   const [providerRepos, setProviderRepos] = useState<RepoOption[]>([]);
