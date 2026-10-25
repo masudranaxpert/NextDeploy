@@ -225,10 +225,11 @@ func (p *Panel) PHPMySQLAction(c *fiber.Ctx) error {
 		p.RecordAuditLog(c, "php_mysql", "php", "mysql", fmt.Sprintf("query limit %ds", *body.QuerySeconds))
 		return c.JSON(fiber.Map{"ok": true})
 	case "enable", "restart":
-		if hostMB := int(sysinfo.Collect(ctx).MemTotalGB * 1024); hostMB > 0 && body.MemoryMB > hostMB {
+		hostMB := int(sysinfo.Collect(ctx).MemTotalGB * 1024)
+		if hostMB > 0 && body.MemoryMB > hostMB {
 			return phpJSONErr(c, 400, fmt.Sprintf("the database cannot have %d MB: this server has %d MB of RAM", body.MemoryMB, hostMB))
 		}
-		mem := body.MemoryMB
+		mem := phphosting.SnapToBinaryRAM(body.MemoryMB, hostMB)
 		started := phpAdminTasks.start("mysql", func() error {
 			bg, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 			defer cancel()

@@ -327,3 +327,27 @@ func TestUserLimitClauseOnlyOnMariaDB(t *testing.T) {
 		t.Errorf("a zero limit must be written out so an older limit is reset: %q", got)
 	}
 }
+
+func TestSnapToBinaryRAM(t *testing.T) {
+	cases := []struct {
+		input  int
+		maxMB  int
+		expect int
+	}{
+		{2000, 16384, 2048},
+		{1000, 16384, 1024},
+		{4000, 16384, 4096},
+		{3000, 16384, 3072},
+		{8000, 16384, 8192},
+		{500, 16384, 512},
+		{2040, 16384, 2048},
+		{2050, 16384, 2048},
+		{200, 16384, 512}, // below min (512)
+		{20000, 16384, 16384}, // clamped to host max
+	}
+	for _, c := range cases {
+		if got := SnapToBinaryRAM(c.input, c.maxMB); got != c.expect {
+			t.Errorf("SnapToBinaryRAM(%d, %d) = %d, want %d", c.input, c.maxMB, got, c.expect)
+		}
+	}
+}

@@ -8,6 +8,34 @@ import { MariaDbIcon, PhpIcon, PhpMyAdminIcon } from '../../components/ui/BrandI
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, ValueBox, inputCls } from './ui';
 import { MariaDbTuningDocsModal } from './MariaDbTuningDocsModal';
 
+function snapToBinaryRAM(val: number, maxMB?: number): number {
+  if (isNaN(val) || val < 256) return 256;
+  const common: Record<number, number> = {
+    500: 512,
+    1000: 1024,
+    1500: 1536,
+    2000: 2048,
+    3000: 3072,
+    4000: 4096,
+    5000: 5120,
+    6000: 6144,
+    8000: 8192,
+    12000: 12288,
+    16000: 16384,
+    24000: 24576,
+    32000: 32768,
+  };
+  let snapped = common[val];
+  if (!snapped) {
+    const rem = val % 128;
+    snapped = rem >= 64 ? val + (128 - rem) : val - rem;
+  }
+  if (maxMB && snapped > maxMB) {
+    snapped = Math.floor(maxMB / 128) * 128 || maxMB;
+  }
+  return snapped < 256 ? 256 : snapped;
+}
+
 export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }> = ({ onChanged }) => {
   const [data, setData] = useState<PhpInstanceData | null>(null);
   const [error, setError] = useState('');
@@ -98,21 +126,58 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
               className={`${inputCls} !w-32`}
               value={memory}
               onChange={(e) => setMemory(Number(e.target.value))}
+              onBlur={() => setMemory((prev) => snapToBinaryRAM(prev, m.host_memory_mb))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setMemory((prev) => snapToBinaryRAM(prev, m.host_memory_mb));
+                }
+              }}
             />
           </Field>
           {!m.running ? (
-            <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', memory), 'Starting database server…')}>
+            <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', snapToBinaryRAM(memory, m.host_memory_mb)), 'Starting database server…')}>
               <Power className="h-3.5 w-3.5" /> {m.exists ? 'Start' : 'Set up'} database
             </PrimaryButton>
           ) : (
             <>
-              <GhostButton busy={busy === 'my-re' || data.mysql_task.running} onClick={() => act('my-re', () => backendApi.phpMysql('restart', memory), 'Restarting database server…')}>
+              <GhostButton busy={busy === 'my-re' || data.mysql_task.running} onClick={() => act('my-re', () => backendApi.phpMysql('restart', snapToBinaryRAM(memory, m.host_memory_mb)), 'Restarting database server…')}>
                 <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Apply / restart
               </GhostButton>
               <GhostButton tone="danger" busy={busy === 'my-off'} onClick={() => { if (window.confirm('Stop the database server? Sites that use databases will stop working until it is started again.')) void act('my-off', () => backendApi.phpMysql('disable'), 'Database server stopped'); }}>
                 Stop
               </GhostButton>
             </>
+          )}
+        </div>
+
+        {/* Quick Memory Presets */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-[10.5px] text-zinc-500">Quick presets:</span>
+          {[512, 1024, 2048, 4096, 8192]
+            .filter((p) => !m.host_memory_mb || p <= m.host_memory_mb)
+            .map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setMemory(p)}
+                className={`rounded px-2 py-0.5 font-mono text-[10.5px] transition cursor-pointer border ${
+                  memory === p
+                    ? 'border-orange-500/50 bg-orange-500/20 text-orange-300 font-semibold shadow-sm'
+                    : 'border-white/[0.06] bg-zinc-900/60 text-zinc-400 hover:border-white/[0.12] hover:text-zinc-200'
+                }`}
+              >
+                {p >= 1024 ? `${p / 1024} GB` : `${p} MB`}
+              </button>
+            ))}
+          {m.host_memory_mb > 0 && (
+            <button
+              type="button"
+              onClick={() => setMemory(Math.min(4096, Math.max(512, Math.floor((m.host_memory_mb / 4) / 128) * 128)))}
+              className="rounded px-2 py-0.5 font-mono text-[10.5px] transition cursor-pointer border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+              title="Recommended default: 25% of Host RAM"
+            >
+              Auto (25%)
+            </button>
           )}
         </div>
 

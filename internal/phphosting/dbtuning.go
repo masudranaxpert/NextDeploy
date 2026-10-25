@@ -30,6 +30,58 @@ const (
 	dbMemoryMaxMB = 4096
 )
 
+// SnapToBinaryRAM rounds memory up or down to the nearest standard binary RAM chunk (e.g. 1000 -> 1024, 2000 -> 2048, 4000 -> 4096).
+func SnapToBinaryRAM(mb, hostMaxMB int) int {
+	if mb < dbMemoryMinMB {
+		mb = dbMemoryMinMB
+	}
+	switch mb {
+	case 500:
+		mb = 512
+	case 1000:
+		mb = 1024
+	case 1500:
+		mb = 1536
+	case 2000:
+		mb = 2048
+	case 3000:
+		mb = 3072
+	case 4000:
+		mb = 4096
+	case 6000:
+		mb = 6144
+	case 8000:
+		mb = 8192
+	case 12000:
+		mb = 12288
+	case 16000:
+		mb = 16384
+	case 24000:
+		mb = 24576
+	case 32000:
+		mb = 32768
+	default:
+		rem := mb % 128
+		if rem != 0 {
+			if rem >= 64 {
+				mb += 128 - rem
+			} else {
+				mb -= rem
+			}
+		}
+	}
+	if hostMaxMB > 0 && mb > hostMaxMB {
+		mb = (hostMaxMB / 128) * 128
+		if mb < dbMemoryMinMB && hostMaxMB >= dbMemoryMinMB {
+			mb = dbMemoryMinMB
+		}
+	}
+	if mb < 256 {
+		mb = 256
+	}
+	return mb
+}
+
 // DBMemoryDefaultMB is the database container's memory when nobody chose one: a quarter of the
 // host's RAM (rounded to 128 MB), but not below 512 MB (small servers) or above 4 GB.
 func DBMemoryDefaultMB(hostRAMMB int) int {
