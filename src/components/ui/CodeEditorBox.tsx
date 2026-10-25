@@ -930,7 +930,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             autoCapitalize="off"
             autoComplete="off"
             wrap={wordWrap ? 'soft' : 'off'}
-            className={`relative z-10 h-full w-full resize-none bg-transparent py-3 px-4 font-mono ${fontSizeClass} text-transparent caret-orange-400 focus:outline-none selection:bg-orange-500/30 overflow-auto`}
+            className={`relative z-10 h-full w-full resize-none bg-transparent py-3 px-4 font-mono ${fontSizeClass} text-transparent caret-orange-400 focus:outline-none selection:bg-orange-500/30 selection:text-transparent selection:[-webkit-text-fill-color:transparent] [-webkit-text-fill-color:transparent] overflow-auto`}
           />
         </div>
       </div>

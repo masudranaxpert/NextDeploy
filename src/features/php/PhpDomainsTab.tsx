@@ -59,9 +59,9 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
   return (
     <div className="space-y-5">
       <Card title="Add domain">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <input
-            className={`${inputCls} min-w-[16rem] flex-1`}
+            className={`${inputCls} min-w-0 flex-1`}
             placeholder="example.com"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
@@ -89,31 +89,33 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
         ) : (
           <ul className="divide-y divide-white/[0.05]">
             {app.domains.map((d) => (
-              <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <li key={d.id} className="py-3 first:pt-0 last:pb-0">
+                <a
+                  href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-zinc-100 hover:text-orange-300"
+                >
                   <Globe className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                  <a
-                    href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex min-w-0 items-center gap-1 truncate font-mono text-xs text-zinc-100 hover:text-orange-300"
-                  >
-                    {d.domain}
-                    <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
-                  </a>
-                  {d.isPrimary && <Pill tone="orange">primary</Pill>}
-                  {d.forceHttps ? <Pill tone="green">HTTPS</Pill> : <Pill tone="amber">HTTP</Pill>}
-                  {d.enableWww && <Pill>www</Pill>}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {!d.isPrimary && (
-                    <GhostButton busy={busy === 'pri' + d.id} onClick={() => makePrimary(d.id)}>
-                      <Star className="h-3.5 w-3.5" /> Make primary
+                  <span className="truncate">{d.domain}</span>
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+                </a>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {d.isPrimary && <Pill tone="orange">primary</Pill>}
+                    {d.forceHttps ? <Pill tone="green">HTTPS</Pill> : <Pill tone="amber">HTTP</Pill>}
+                    {d.enableWww && <Pill>www</Pill>}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {!d.isPrimary && (
+                      <GhostButton busy={busy === 'pri' + d.id} onClick={() => makePrimary(d.id)} title="Make primary">
+                        <Star className="h-3.5 w-3.5" /> Primary
+                      </GhostButton>
+                    )}
+                    <GhostButton tone="danger" busy={busy === 'del' + d.id} onClick={() => remove(d.id, d.domain)} title="Remove">
+                      <Trash2 className="h-3.5 w-3.5" />
                     </GhostButton>
-                  )}
-                  <GhostButton tone="danger" busy={busy === 'del' + d.id} onClick={() => remove(d.id, d.domain)} title="Remove">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </GhostButton>
+                  </div>
                 </div>
               </li>
             ))}

@@ -199,61 +199,49 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
         {databases.length === 0 ? (
           <EmptyState icon={<Database className="h-6 w-6" />} text="No databases yet." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-[11px] text-zinc-500">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">Database</th>
-                  <th className="py-2 pr-4 font-medium">Size</th>
-                  <th className="py-2 pr-4 font-medium">Users with access</th>
-                  <th className="py-2 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {databases.map((d) => (
-                  <tr key={d.id}>
-                    <td className="py-2.5 pr-4 font-mono text-zinc-100">{d.db_name}</td>
-                    <td className="py-2.5 pr-4 font-mono text-zinc-400">{formatBytes(d.size_bytes)}</td>
-                    <td className="py-2.5 pr-4">
-                      {(d.users ?? []).length === 0 ? (
-                        <span className="text-zinc-500">none yet</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {d.users.map((u) => (
-                            <Pill key={u.user_id} tone={u.access === 'all' ? 'green' : 'zinc'}>{u.user} · {accessLabel(u.access)}</Pill>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5">
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <a
-                          href={backendApi.phpDbExportUrl(app.id, d.id)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
-                          title="Download .sql.gz"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                        </a>
-                        <GhostButton
-                          busy={busy === 'imp' + d.id}
-                          title="Import .sql / .sql.gz"
-                          onClick={() => {
-                            importTarget.current = d.id;
-                            fileRef.current?.click();
-                          }}
-                        >
-                          <Upload className="h-3.5 w-3.5" />
-                        </GhostButton>
-                        <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </GhostButton>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="divide-y divide-white/[0.05]">
+            {databases.map((d) => (
+              <li key={d.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 break-all font-mono text-xs text-zinc-100">{d.db_name}</span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <a
+                      href={backendApi.phpDbExportUrl(app.id, d.id)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800 transition-colors"
+                      title="Download .sql.gz"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+                    <GhostButton
+                      busy={busy === 'imp' + d.id}
+                      title="Import .sql / .sql.gz"
+                      onClick={() => {
+                        importTarget.current = d.id;
+                        fileRef.current?.click();
+                      }}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                    </GhostButton>
+                    <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </GhostButton>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
+                  <span className="font-mono text-zinc-400">{formatBytes(d.size_bytes)}</span>
+                  {(d.users ?? []).length === 0 ? (
+                    <span className="text-zinc-500">no users yet</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {d.users.map((u) => (
+                        <Pill key={u.user_id} tone={u.access === 'all' ? 'green' : 'zinc'}>{u.user} · {accessLabel(u.access)}</Pill>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
         <input ref={fileRef} aria-label="Import SQL file" type="file" accept=".sql,.gz" className="hidden" onChange={onFile} />
       </Card>
@@ -269,50 +257,37 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
         {users.length === 0 ? (
           <EmptyState icon={<UserRound className="h-6 w-6" />} text="No users yet." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-[11px] text-zinc-500">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">User</th>
-                  <th className="py-2 pr-4 font-medium">Access to</th>
-                  <th className="py-2 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="py-2.5 pr-4 font-mono text-zinc-100">{u.user_name}</td>
-                    <td className="py-2.5 pr-4">
-                      {u.grants.length === 0 ? (
-                        <span className="text-zinc-500">no database</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {u.grants.map((g) => (
-                            <Pill key={g.db_id} tone={g.access === 'all' ? 'green' : 'zinc'}>
-                              {dbById.get(g.db_id)?.db_name ?? `#${g.db_id}`} · {accessLabel(g.access)}
-                            </Pill>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5">
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <GhostButton onClick={() => openEditAccess(u)} title="Change access">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </GhostButton>
-                        <GhostButton busy={busy === 'pw' + u.id} onClick={() => resetPassword(u)} title="New password">
-                          <KeyRound className="h-3.5 w-3.5" />
-                        </GhostButton>
-                        <GhostButton tone="danger" busy={busy === 'deluser' + u.id} onClick={() => removeUser(u)} title="Delete user">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </GhostButton>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="divide-y divide-white/[0.05]">
+            {users.map((u) => (
+              <li key={u.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 break-all font-mono text-xs text-zinc-100">{u.user_name}</span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <GhostButton onClick={() => openEditAccess(u)} title="Change access">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </GhostButton>
+                    <GhostButton busy={busy === 'pw' + u.id} onClick={() => resetPassword(u)} title="New password">
+                      <KeyRound className="h-3.5 w-3.5" />
+                    </GhostButton>
+                    <GhostButton tone="danger" busy={busy === 'deluser' + u.id} onClick={() => removeUser(u)} title="Delete user">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </GhostButton>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {u.grants.length === 0 ? (
+                    <span className="text-[11px] text-zinc-500">no database access</span>
+                  ) : (
+                    u.grants.map((g) => (
+                      <Pill key={g.db_id} tone={g.access === 'all' ? 'green' : 'zinc'}>
+                        {dbById.get(g.db_id)?.db_name ?? `#${g.db_id}`} · {accessLabel(g.access)}
+                      </Pill>
+                    ))
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
 

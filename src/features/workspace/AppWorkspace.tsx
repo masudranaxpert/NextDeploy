@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -12,6 +13,7 @@ import {
   FileCode2,
   Terminal as TerminalIcon,
   HardDrive,
+  User,
   Users,
   CheckCircle2,
   ExternalLink,
@@ -79,11 +81,11 @@ import {
 } from '../../lib/dockerFormatters';
 import { XTermConsole } from '../../components/ui/XTermConsole';
 import { PhpSettingsTab } from '../php/PhpSettingsTab';
-import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { ProjectLimitsDialog, useAppLimits } from './ProjectLimitsDialog';
+import { DirTreePicker } from './DirTreePicker';
 import { PhpDomainsTab } from '../php/PhpDomainsTab';
 import { PhpSecurityTab } from '../php/PhpSecurityTab';
-import { prefetchPhpSite } from '../php/ui';
+import { prefetchPhpSite, SITE_TYPE_LABEL } from '../php/ui';
 import {
   Archive as PhpTabArchive,
   Clock as PhpTabClock,
@@ -110,7 +112,7 @@ import { ProjectDomainsTab } from './tabs/ProjectDomainsTab';
 import { ProjectGitTab } from './tabs/ProjectGitTab';
 import { ProjectVolumesTab } from './tabs/ProjectVolumesTab';
 import { ProjectBackupsTab } from './tabs/ProjectBackupsTab';
-import { SiteTypeBadge, SiteTypeIcon } from '../../components/ui/BrandIcons';
+import { SiteTypeIcon } from '../../components/ui/BrandIcons';
 
 interface AppWorkspaceProps {
   app: AppStack;
@@ -852,8 +854,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     const isExpanded = Boolean(expandedDirs[folder]);
     const isCurrent = currentDir === folder && !editingFilePath;
     const childFolders = treeIndex.folders.get(folder) ?? [];
-    const childFiles = treeIndex.files.get(folder) ?? [];
-    const count = childFolders.length + childFiles.length;
+    const count = childFolders.length;
     const small = depth > 0;
     return (
       <div key={folder} className="space-y-0.5">
@@ -889,6 +890,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               } else {
                 setExpandedDirs((prev) => ({ ...prev, [folder]: true }));
                 navigateToFolder(folder, { preserveTreeToggle: true });
+                setMobileTreeOpen(false);
               }
             }}
             className="flex flex-1 items-center justify-between gap-1.5 text-left min-w-0 py-0.5 cursor-pointer"
@@ -901,30 +903,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               )}
               <span className="truncate">{name}</span>
             </span>
-            <span className="text-[10px] text-zinc-500 group-hover:text-zinc-400 shrink-0">{count}</span>
+            {count > 0 && <span className="text-[10px] text-zinc-500 group-hover:text-zinc-400 shrink-0">{count}</span>}
           </button>
         </div>
         {isExpanded && count > 0 && (
           <div className="ml-3 border-l border-white/[0.07] pl-2 space-y-0.5">
             {childFolders.map((sub) => renderTreeFolder(sub, depth + 1))}
-            {childFiles.map((df) => {
-              const isFileOpen = editingFilePath === df.path;
-              return (
-                <button
-                  key={df.path}
-                  type="button"
-                  onClick={() => openFileInEditor(df)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left font-mono text-[11px] transition-colors cursor-pointer ${
-                    isFileOpen
-                      ? 'bg-orange-500/15 text-orange-300 font-semibold'
-                      : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-                  }`}
-                >
-                  {renderFileIcon(df.name)}
-                  <span className="truncate">{df.name}</span>
-                </button>
-              );
-            })}
           </div>
         )}
       </div>
@@ -2005,6 +1989,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
   const [isPinningSlot, setIsPinningSlot] = useState(false);
   const [isPromotingSlot, setIsPromotingSlot] = useState(false);
+  const [copiedOwner, setCopiedOwner] = useState(false);
+
+  const copyOwnerName = async () => {
+    if (await copyToClipboard(app.owner)) {
+      setCopiedOwner(true);
+      setTimeout(() => setCopiedOwner(false), 1600);
+    }
+  };
 
   const handleTogglePinSlot = async () => {
     setIsPinningSlot(true);
@@ -2154,7 +2146,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* PROJECT HERO HEADER                                                   */}
       {/* ===================================================================== */}
       <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className={app.php ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'}>
           <div className="flex items-center gap-3.5 min-w-0">
             <button
               type="button"
@@ -2175,7 +2167,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-base font-semibold tracking-tight text-zinc-100">
+                <h1 className="truncate font-mono text-lg font-semibold leading-none tracking-tight text-zinc-100">
                   {app.name}
                 </h1>
                 <StatusBadge
@@ -2189,14 +2181,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       : 'stopped'
                   }
                 />
-                {app.php ? (
-                  <SiteTypeBadge type={app.php.siteType} phpVersion={app.php.phpVersion} />
-                ) : (
-                  <span className="rounded-md border border-white/[0.1] bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
-                    production · {activeSlotLower.toUpperCase()}
-                  </span>
-                )}
-                <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                 {isPinnedProduction && (
                   <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
                     <Pin className="h-2.5 w-2.5" />
@@ -2204,41 +2188,22 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   </span>
                 )}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-                {productionUrl && (                <a
+              {productionUrl && (
+                <a
                   href={productionUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-mono text-zinc-300 hover:text-orange-400 transition-colors"
+                  className="group mt-1.5 inline-flex max-w-full items-center gap-1.5 font-mono text-xs text-zinc-400 transition-colors hover:text-orange-300"
                 >
-                  <Globe className="h-3 w-3 text-emerald-400" />
-                  {productionUrl}
-                  <ArrowUpRight className="h-3 w-3 opacity-60" />
-                </a>)}
-                {hasGitConnection && app.gitBranch && (
-                  <button
-                    type="button"
-                    onClick={() => setGitModalOpen(true)}
-                    className="inline-flex items-center gap-1 font-mono text-[11px] text-zinc-400 hover:text-orange-400 cursor-pointer"
-                  >
-                    <GitBranch className="h-3 w-3 text-orange-400" />
-                    {app.gitBranch}
-                    {app.gitCommitSha && app.gitCommitSha !== 'blue' && app.gitCommitSha !== 'green' && (
-                      <span>@{app.gitCommitSha.slice(0, 7)}</span>
-                    )}
-                  </button>
-                )}
-                {!app.php && (
-                  <span className="font-mono text-[11px] text-zinc-500">
-                    {runningContainersCount}/{app.services.length} containers · {app.cpuPct.toFixed(2)}% CPU ·{' '}
-                    {app.memMB} MB
-                  </span>
-                )}
-              </div>
+                  <Globe className="h-3 w-3 shrink-0 text-emerald-400" />
+                  <span className="truncate">{productionUrl.replace(/^https?:\/\//, '')}</span>
+                  <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                </a>
+              )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {!app.php && (
             <button
               type="button"
@@ -2310,9 +2275,59 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Underline Navigation Tabs */}
-        <div className="mt-5 -mb-5 border-t border-white/[0.06] pt-1 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-0.5 min-w-max">
+        {/* Compact metadata strip — quick facts as tappable chips */}
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+          {app.php ? (
+            <button
+              type="button"
+              onClick={() => setActiveTab('php-settings')}
+              title="Change PHP version in Settings"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-sky-500/20 bg-sky-500/[0.07] px-2.5 py-1 font-mono text-[12px] text-sky-200/90 transition-colors hover:border-sky-500/40 hover:text-sky-100 cursor-pointer"
+            >
+              <SiteTypeIcon type={app.php.siteType} className="h-3.5 w-3.5" />
+              {SITE_TYPE_LABEL[app.php.siteType] ?? app.php.siteType}
+              <span className="text-zinc-600" aria-hidden="true">·</span>
+              <span>PHP {app.php.phpVersion}</span>
+            </button>
+          ) : (
+            <span className="whitespace-nowrap rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 font-mono text-[12px] text-zinc-300">
+              production · {activeSlotLower.toUpperCase()}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void copyOwnerName()}
+            title="Click to copy owner name"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 font-mono text-[12px] text-zinc-300 transition-colors hover:border-white/[0.14] hover:text-zinc-100 cursor-pointer"
+          >
+            <User className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+            {app.owner}
+            {copiedOwner && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+          </button>
+          {hasGitConnection && app.gitBranch && (
+            <button
+              type="button"
+              onClick={() => setGitModalOpen(true)}
+              title="Open Git settings"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 font-mono text-[12px] text-zinc-300 transition-colors hover:border-white/[0.14] hover:text-zinc-100 cursor-pointer"
+            >
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-orange-400" />
+              {app.gitBranch}
+              {app.gitCommitSha && app.gitCommitSha !== 'blue' && app.gitCommitSha !== 'green' && (
+                <span className="text-zinc-500">@{app.gitCommitSha.slice(0, 7)}</span>
+              )}
+            </button>
+          )}
+          {!app.php && (
+            <span className="ml-auto hidden whitespace-nowrap font-mono text-[11px] text-zinc-500 sm:inline">
+              {runningContainersCount}/{app.services.length} containers · {app.cpuPct.toFixed(2)}% CPU · {app.memMB} MB
+            </span>
+          )}
+        </div>
+
+        {/* Underline Navigation Tabs — aligned grid on small panes (no ragged wrap), inline row on wide screens */}
+        <div className="mt-5 -mb-5 border-t border-white/[0.06] pt-1">
+          <div className="grid grid-cols-2 gap-y-1 sm:grid-cols-3 md:flex md:flex-wrap md:items-center md:gap-x-1">
             {tabs.map((t) => {
               const active = activeTab === t.id;
               return (
@@ -2320,25 +2335,29 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   key={t.id}
                   type="button"
                   onClick={() => setActiveTab(t.id)}
-                  className={`relative inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    active ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  className={`group relative flex h-12 items-center justify-center gap-2.5 px-3 text-[13.5px] transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-orange-500 md:h-auto md:justify-start md:gap-1.5 md:py-2.5 md:text-xs ${
+                    active ? 'font-medium text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  {t.icon && <span className={active ? 'text-orange-400' : 'text-zinc-500'}>{t.icon}</span>}
+                  {t.icon && <span className={`shrink-0 transition-colors ${active ? 'text-orange-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>{t.icon}</span>}
                   <span>{t.label}</span>
                   {typeof t.count === 'number' && (
                     <span
-                      className={`rounded-md px-1.5 py-0.2 font-mono text-[10px] ${
+                      className={`inline-flex h-[18px] min-w-[21px] items-center justify-center rounded-full px-1.5 font-mono text-[10.5px] tabular-nums transition-colors ${
                         active
-                          ? 'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30'
-                          : 'bg-white/[0.05] text-zinc-500'
+                          ? 'border border-orange-500/30 bg-orange-500/20 text-orange-300'
+                          : 'bg-white/[0.05] text-zinc-500 group-hover:bg-white/[0.09] group-hover:text-zinc-300'
                       }`}
                     >
                       {t.count}
                     </span>
                   )}
                   {active && (
-                    <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-orange-500" />
+                    <motion.span
+                      layoutId="workspaceTabUnderline"
+                      transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                      className="absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
+                    />
                   )}
                 </button>
               );
@@ -3576,7 +3595,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} />
       )}
       {activeTab === 'php-settings' && app.php && (
-        <PhpSettingsTab app={app} onChanged={() => onRefresh?.()} onDelete={() => setDeleteDialogOpen(true)} />
+        <PhpSettingsTab app={app} onChanged={() => onRefresh?.()} onDelete={() => setDeleteDialogOpen(true)} onOpenFiles={() => setActiveTab('files')} />
       )}
       {activeTab === 'php-databases' && app.php && <PhpDatabasesTab app={app} />}
       {activeTab === 'php-cron' && app.php && <PhpCronTab app={app} />}
@@ -4112,7 +4131,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => navigateToFolder('')}
+                  onClick={() => {
+                    navigateToFolder('');
+                    setMobileTreeOpen(false);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -4593,37 +4615,39 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                     permissions={formatPermOctal(filePermissions[selectedFile.path], false)}
                     height={420}
                     actions={
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const res = await backendApi.fileSave(
-                            app.id,
-                            selectedFile.path,
-                            selectedFile.content
-                          );
-                          if (!res.ok) {
-                            toast.error(
-                              res.error || res.message || `Failed to save ${selectedFile.path}`
+                      !app.php ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await backendApi.fileSave(
+                              app.id,
+                              selectedFile.path,
+                              selectedFile.content
                             );
-                            return;
-                          }
-                          if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
-                            void backendApi.setGitSync(app.id, false, false);
-                            onUpdateApp({
-                              ...app,
-                              sourceType: 'compose',
-                              gitSync: false,
-                            });
-                          }
-                          await syncWorkspaceFilesFromDisk();
-                          void triggerDeploy();
-                        }}
-                        className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/25 cursor-pointer"
-                      >
-                        <RotateCw className="h-3 w-3" />
-                        <span className="hidden sm:inline">Save & Deploy</span>
-                        <span className="sm:hidden">Deploy</span>
-                      </button>
+                            if (!res.ok) {
+                              toast.error(
+                                res.error || res.message || `Failed to save ${selectedFile.path}`
+                              );
+                              return;
+                            }
+                            if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
+                              void backendApi.setGitSync(app.id, false, false);
+                              onUpdateApp({
+                                ...app,
+                                sourceType: 'compose',
+                                gitSync: false,
+                              });
+                            }
+                            await syncWorkspaceFilesFromDisk();
+                            void triggerDeploy();
+                          }}
+                          className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/25 cursor-pointer"
+                        >
+                          <RotateCw className="h-3 w-3" />
+                          <span className="hidden sm:inline">Save & Deploy</span>
+                          <span className="sm:hidden">Deploy</span>
+                        </button>
+                      ) : null
                     }
                   />
                 </div>
@@ -5521,23 +5545,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </div>
             </div>
             <div className="relative">
-              <select
+              <DirTreePicker
+                rootLabel={`/${app.slug} (Root)`}
+                paths={allFolderPaths}
                 value={newFileTargetDir}
-                onChange={(e) => setNewFileTargetDir(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 pr-9 font-mono text-xs text-zinc-200 focus:border-amber-500 focus:outline-none cursor-pointer"
-              >
-                <option value="">📁 /{app.slug} (Root)</option>
-                {allFolderPaths.map((dir) => {
-                  const depth = dir.split('/').length;
-                  const indent = '\u00A0\u00A0'.repeat(depth);
-                  return (
-                    <option key={dir} value={dir}>
-                      {indent}📁 /{dir}
-                    </option>
-                  );
-                })}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+                onChange={setNewFileTargetDir}
+              />
             </div>
           </div>
 
@@ -5618,23 +5631,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </div>
             </div>
             <div className="relative">
-              <select
+              <DirTreePicker
+                rootLabel={`/${app.slug} (Root)`}
+                paths={allFolderPaths}
                 value={newFolderTargetDir}
-                onChange={(e) => setNewFolderTargetDir(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 pr-9 font-mono text-xs text-zinc-200 focus:border-amber-500 focus:outline-none cursor-pointer"
-              >
-                <option value="">📁 /{app.slug} (Root)</option>
-                {allFolderPaths.map((dir) => {
-                  const depth = dir.split('/').length;
-                  const indent = '\u00A0\u00A0'.repeat(depth);
-                  return (
-                    <option key={dir} value={dir}>
-                      {indent}📁 /{dir}
-                    </option>
-                  );
-                })}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+                onChange={setNewFolderTargetDir}
+              />
             </div>
           </div>
 
@@ -6232,38 +6234,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   Click any folder below
                 </span>
               </div>
-              <div className="max-h-44 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#09090b] p-1.5 space-y-1">
-                {['', ...allFolderPaths].map((dir) => {
-                  const normalizedCurrent = extractDestDir.trim().replace(/^\/+|\/+$/g, '');
-                  const active = normalizedCurrent === dir;
-                  const depth = dir ? dir.split('/').length : 0;
-                  return (
-                    <button
-                      key={dir || 'root'}
-                      type="button"
-                      onClick={() => setExtractDestDir(dir)}
-                      style={{ paddingLeft: `${depth * 14 + 10}px` }}
-                      className={`flex w-full items-center justify-between rounded-md pr-2.5 py-1.5 text-left font-mono text-xs transition-colors cursor-pointer ${
-                        active
-                          ? 'bg-emerald-500/15 text-emerald-300 font-semibold ring-1 ring-emerald-500/35'
-                          : 'text-zinc-300 hover:bg-white/[0.04] hover:text-white'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        {active ? (
-                          <FolderOpen className="h-3.5 w-3.5 text-emerald-400 fill-emerald-400/20 shrink-0" />
-                        ) : (
-                          <Folder className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          {dir ? `/${dir}` : `/data/apps/${app.slug} (Root)`}
-                        </span>
-                      </span>
-                      {active && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
+              <DirTreePicker
+                rootLabel={`/data/apps/${app.slug} (Root)`}
+                paths={allFolderPaths}
+                value={extractDestDir.trim().replace(/^\/+|\/+$/g, '')}
+                onChange={setExtractDestDir}
+              />
             </div>
 
             <div>
@@ -6513,48 +6489,12 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 </div>
               )}
 
-              <div className="max-h-48 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#09090b] p-1.5 space-y-1">
-                {['', ...allFolderPaths].map((dir) => {
-                  const normalizedDest = moveDestInput.trim().replace(/^\/+|\/+$/g, '');
-                  const active = normalizedDest === dir;
-                  const depth = dir ? dir.split('/').length : 0;
-                  const fileCountInDir = defaultRichFiles.filter((f) => {
-                    const lastSlash = f.path.lastIndexOf('/');
-                    return (lastSlash === -1 ? '' : f.path.slice(0, lastSlash)) === dir;
-                  }).length;
-
-                  return (
-                    <button
-                      key={dir || 'root'}
-                      type="button"
-                      onClick={() => setMoveDestInput(dir)}
-                      style={{ paddingLeft: `${depth * 14 + 10}px` }}
-                      className={`flex w-full items-center justify-between rounded-md pr-2.5 py-1.5 text-left font-mono text-xs transition-colors cursor-pointer ${
-                        active
-                          ? 'bg-orange-500/15 text-orange-300 font-semibold ring-1 ring-orange-500/35'
-                          : 'text-zinc-300 hover:bg-white/[0.04] hover:text-white'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        {active ? (
-                          <FolderOpen className="h-3.5 w-3.5 text-amber-400 fill-amber-400/25 shrink-0" />
-                        ) : (
-                          <Folder className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          {dir ? `/${dir}` : `/ (Root Directory)`}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] text-zinc-500">{fileCountInDir} files</span>
-                        {active && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <DirTreePicker
+                rootLabel="/ (Root Directory)"
+                paths={allFolderPaths}
+                value={moveDestInput.trim().replace(/^\/+|\/+$/g, '')}
+                onChange={setMoveDestInput}
+              />
             </div>
 
             {/* Custom Path Input + Live Target Preview */}

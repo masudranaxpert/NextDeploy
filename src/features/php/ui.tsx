@@ -25,7 +25,7 @@ export const Card: React.FC<{
           {title && <h2 className="text-sm font-semibold leading-5 text-zinc-100">{title}</h2>}
           {description && <p className="mt-0.5 text-xs leading-4 text-zinc-500">{description}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
       </header>
     )}
     <div className="p-4">{children}</div>
@@ -79,7 +79,7 @@ export const PrimaryButton: React.FC<BtnProps> = ({ busy, children, className = 
     type="button"
     {...rest}
     disabled={disabled || busy}
-    className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-orange-500 px-3.5 text-xs font-semibold text-white shadow-lg shadow-orange-500/15 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${className}`}
+    className={`inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-orange-500 px-3.5 text-xs font-semibold text-white shadow-lg shadow-orange-500/15 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${className}`}
   >
     {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
     {children}
@@ -98,7 +98,7 @@ export const GhostButton: React.FC<BtnProps & { tone?: 'default' | 'danger' }> =
     type="button"
     {...rest}
     disabled={disabled || busy}
-    className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
+    className={`inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
       tone === 'danger'
         ? 'border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20'
         : 'border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800'

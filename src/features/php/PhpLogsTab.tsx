@@ -42,14 +42,14 @@ export const PhpLogsTab: React.FC<{ app: AppStack }> = ({ app }) => {
       title="Logs"
       actions={
         <>
-          <select aria-label="Log source" className={`${selectCls} !w-56`} value={source} onChange={(e) => setSource(e.target.value as 'php' | 'runtime')}>
+          <select aria-label="Log source" className={`${selectCls} sm:!w-56`} value={source} onChange={(e) => setSource(e.target.value as 'php' | 'runtime')}>
             <option value="php">PHP errors</option>
             <option value="runtime">PHP-FPM output</option>
           </select>
-          <select aria-label="Number of lines" className={`${selectCls} !w-24`} value={lines} onChange={(e) => setLines(Number(e.target.value))}>
+          <select aria-label="Number of lines" className={`${selectCls} !w-28`} value={lines} onChange={(e) => setLines(Number(e.target.value))}>
             {[100, 200, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n} lines</option>)}
           </select>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-zinc-300">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs text-zinc-300">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-orange-500" />
             Live
           </label>
