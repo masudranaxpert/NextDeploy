@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Pin,
   RefreshCw,
@@ -12,14 +12,16 @@ import { toast } from 'sonner';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { AppStack, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
+import { backendApi } from '../../lib/backendApi';
 
 interface MonitorViewProps {
   telemetry: TelemetryPoint[];
   apps: AppStack[];
-  onStreamTick: () => void;
+  onStreamTick?: () => void;
+  onUpdateTelemetry?: (pts: TelemetryPoint[]) => void;
 }
 
-export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStreamTick }) => {
+export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStreamTick, onUpdateTelemetry }) => {
   const [pinnedApps, setPinnedApps] = useState<string[]>([]);
   const [monitorSearch, setMonitorSearch] = useState('');
   const [monitorStatusFilter, setMonitorStatusFilter] = useState<
@@ -28,6 +30,43 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
   const [showCpuChart, setShowCpuChart] = useState(true);
   const [showMemChart, setShowMemChart] = useState(true);
   const [showNetChart, setShowNetChart] = useState(true);
+  const [sessionStart, setSessionStart] = useState(() => Date.now());
+  const [isLivePaused, setIsLivePaused] = useState(false);
+
+  const fetchLatestMetrics = async () => {
+    try {
+      const res = await backendApi.metricsHistory();
+      if (res.ok && Array.isArray(res.data?.history) && res.data.history.length > 0) {
+        onUpdateTelemetry?.(res.data.history);
+      }
+    } catch {
+      // ignore network errors
+    }
+  };
+
+  useEffect(() => {
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    void fetchLatestMetrics();
+
+    const timer = setInterval(() => {
+      if (Date.now() - sessionStart >= FIVE_MINUTES_MS) {
+        setIsLivePaused(true);
+        clearInterval(timer);
+        return;
+      }
+      void fetchLatestMetrics();
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [sessionStart]);
+
+  const handleRefreshOrResume = () => {
+    setSessionStart(Date.now());
+    setIsLivePaused(false);
+    void fetchLatestMetrics();
+    onStreamTick?.();
+    toast.success('Telemetry updated — live 5m stream resumed');
+  };
 
   const togglePin = (slug: string) => {
     setPinnedApps((prev) =>
@@ -141,12 +180,29 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
             </button>
           </div>
 
+          {isLivePaused ? (
+            <button
+              type="button"
+              onClick={handleRefreshOrResume}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
+              title="Streaming paused after 5 minutes of continuous monitoring to save resources. Click to resume."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              Stream paused (5m limit) · Resume
+            </button>
+          ) : (
+            <div
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400"
+              title="Real-time telemetry is actively streaming. Auto-pauses after 5m of monitoring."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Live stream
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={() => {
-              onStreamTick();
-              toast.success('Updated telemetry');
-            }}
+            onClick={handleRefreshOrResume}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5 text-orange-400" />

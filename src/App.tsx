@@ -966,30 +966,6 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [exportRunning]);
 
-  // Live real-time telemetry stream for Monitor & Overview views
-  React.useEffect(() => {
-    if (activeNav !== 'monitor' && activeNav !== 'overview') return;
-    let cancelled = false;
-
-    const pollMetrics = async () => {
-      try {
-        const r = await backendApi.metricsHistory();
-        if (!cancelled && r.ok && Array.isArray(r.data?.history) && r.data.history.length > 0) {
-          setTelemetry(r.data.history);
-        }
-      } catch {
-        // network error / abort
-      }
-    };
-
-    void pollMetrics();
-    const timer = window.setInterval(pollMetrics, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeNav]);
-
   const appendTelemetryTick = () => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
@@ -1208,9 +1184,7 @@ export default function App() {
   if (isBootstrapping) {
     return (
       <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10 border border-orange-500/20">
-          <div className="font-mono text-lg font-bold text-orange-400">ND</div>
-        </div>
+        <img src="/nextdeploy-icon.svg" alt="NextDeploy" className="h-12 w-12 rounded-xl shadow-lg" />
         <div className="flex items-center gap-2.5 font-mono text-xs text-zinc-400">
           <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
           <span>Loading NextDeploy...</span>
@@ -1245,9 +1219,7 @@ export default function App() {
             }}
             className="flex flex-1 items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-1.5 text-left hover:border-white/[0.14] transition-all cursor-pointer"
           >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 font-display text-[11px] font-bold text-white shadow-sm">
-              ND
-            </div>
+            <img src="/nextdeploy-icon.svg" alt="NextDeploy" className="h-7 w-7 shrink-0 rounded-lg shadow-sm" />
             <div className="min-w-0 flex-1 leading-tight">
               <div className="flex items-center gap-1.5">
                 <span className="truncate font-display text-xs font-semibold text-zinc-100">
@@ -1526,6 +1498,7 @@ export default function App() {
                 telemetry={telemetry}
                 apps={apps}
                 onStreamTick={appendTelemetryTick}
+                onUpdateTelemetry={setTelemetry}
               />
             ) : activeNav === 'containers' ? (
               <ContainersView
