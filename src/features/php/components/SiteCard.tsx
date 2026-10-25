@@ -77,11 +77,6 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite, onDelete }
             </span>
           )}
 
-          {site.updatedAt && (
-            <span className="ml-auto text-[10px] text-zinc-500 font-mono">
-              {site.updatedAt}
-            </span>
-          )}
           {onDelete && (
             <button
               type="button"
@@ -91,7 +86,7 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite, onDelete }
                 e.stopPropagation();
                 onDelete(site);
               }}
-              className={`${site.updatedAt ? '' : 'ml-auto '}flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 cursor-pointer`}
+              className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 cursor-pointer"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>

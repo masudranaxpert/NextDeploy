@@ -104,6 +104,7 @@ import {
   formatSlotPreviewDomain,
   formatWildcardDomain,
 } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 import { ProjectDomainsTab } from './tabs/ProjectDomainsTab';
 import { ProjectGitTab } from './tabs/ProjectGitTab';
 import { ProjectVolumesTab } from './tabs/ProjectVolumesTab';
@@ -2274,9 +2275,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 {
                   label: 'Copy Project ID',
                   icon: <Copy className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    navigator.clipboard?.writeText(app.id);
-                    toast.success(`Copied ${app.id}`);
+                  onClick: async () => {
+                    const ok = await copyToClipboard(app.id);
+                    if (ok) toast.success(`Copied ${app.id}`);
                   },
                 },
                 {
@@ -2609,9 +2610,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(app.id);
-                    toast.success(`Copied ${app.id}`);
+                  onClick={async () => {
+                    const ok = await copyToClipboard(app.id);
+                    if (ok) toast.success(`Copied ${app.id}`);
                   }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-[#09090b] px-2.5 py-1.5 font-mono text-[11px] text-zinc-400 hover:border-white/[0.14] hover:text-zinc-200 transition-colors cursor-pointer"
                   title="Copy Project ID"
@@ -3013,7 +3014,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                     label: 'Copy Container ID',
                                     icon: <Copy className="h-3.5 w-3.5" />,
                                     onClick: () => {
-                                      navigator.clipboard?.writeText(svc.id || svc.name);
+                                      void copyToClipboard(svc.id || svc.name);
                                       toast.success(`Copied ID`);
                                     },
                                   },
@@ -3507,7 +3508,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                                       label: 'Copy Commit SHA',
                                       icon: <Copy className="h-3.5 w-3.5" />,
                                       onClick: () => {
-                                        navigator.clipboard?.writeText(dep.commitSha);
+                                        void copyToClipboard(dep.commitSha);
                                         toast.success(`Copied SHA ${dep.commitSha.slice(0, 7)}`);
                                       },
                                     },
@@ -3712,7 +3713,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            navigator.clipboard?.writeText(`${ev.key}=${ev.value}`);
+                            void copyToClipboard(`${ev.key}=${ev.value}`);
                             toast.success(`Copied ${ev.key}`);
                           }}
                           className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors cursor-pointer"
@@ -4783,7 +4784,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard?.writeText(
+                    void copyToClipboard(
                       `/data/apps/${app.slug}/${contextMenu.targetPath}`
                     );
                     toast.success(`Copied path /data/apps/${app.slug}/${contextMenu.targetPath}`);
@@ -5064,7 +5065,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard?.writeText(
+                      void copyToClipboard(
                         `${l.timestamp} [${l.level.toUpperCase()}] [${l.container}] ${l.message}`
                       );
                       toast.success('Copied log line');
@@ -5839,7 +5840,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard?.writeText(mergedComposeYaml);
+                void copyToClipboard(mergedComposeYaml);
                 toast.success('Copied merged Compose YAML');
               }}
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
@@ -6765,7 +6766,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard?.writeText(caddyLabelsPreview.snippet);
+                  void copyToClipboard(caddyLabelsPreview.snippet);
                   toast.success('Copied Caddy Compose labels');
                 }}
                 className="rounded-lg bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"

@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 import { AppStack, ContainerService } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatters';
@@ -217,17 +218,17 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                           {
                             label: 'Copy Container ID',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(c.id);
-                              toast.success(`Copied ID: ${c.id}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(c.id);
+                              if (ok) toast.success(`Copied ID: ${c.id}`);
                             },
                           },
                           {
                             label: 'Copy Image Tag',
                             icon: <FileCode2 className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(c.image);
-                              toast.success(`Copied ${c.image}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(c.image);
+                              if (ok) toast.success(`Copied ${c.image}`);
                             },
                           },
                           {
@@ -273,9 +274,9 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                   <span>{inspectedContainer.id}</span>
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(inspectedContainer.id);
-                      toast.success('Copied ID');
+                    onClick={async () => {
+                      const ok = await copyToClipboard(inspectedContainer.id);
+                      if (ok) toast.success('Copied ID');
                     }}
                     className="text-orange-400 hover:underline cursor-pointer"
                   >

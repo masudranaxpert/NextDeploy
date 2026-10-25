@@ -1202,9 +1202,9 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           {
                             label: 'Copy Server URL',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(r.registryUrl);
-                              toast.success(`Copied ${r.registryUrl}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(r.registryUrl);
+                              if (ok) toast.success(`Copied ${r.registryUrl}`);
                             },
                           },
                           {

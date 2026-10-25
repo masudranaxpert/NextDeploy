@@ -22,6 +22,7 @@ import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { DockerVolumeItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface VolumesViewProps {
   volumes: DockerVolumeItem[];
@@ -166,9 +167,9 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
     {
       label: 'Copy Mount Path',
       icon: <Copy className="h-3.5 w-3.5" />,
-      onClick: () => {
-        navigator.clipboard?.writeText(v.mountPoint);
-        toast.success('Copied volume mount path');
+      onClick: async () => {
+        const ok = await copyToClipboard(v.mountPoint);
+        if (ok) toast.success('Copied volume mount path');
       },
     },
     {

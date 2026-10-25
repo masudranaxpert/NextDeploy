@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
 import { ShadcnDialog, ShadcnSwitch, StatusBadge } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
+import { copyToClipboard } from '../../../lib/clipboard';
 
 interface ProjectGitTabProps {
   app: AppStack;
@@ -449,9 +450,9 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(webhookUrl);
-                  toast.success('Copied webhook URL');
+                onClick={async () => {
+                  const ok = await copyToClipboard(webhookUrl);
+                  if (ok) toast.success('Copied webhook URL');
                 }}
                 className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
               >

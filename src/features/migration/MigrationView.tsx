@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { AppStack, MigrationExportBundle } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface MigrationViewProps {
   apps: AppStack[];
@@ -195,12 +196,12 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const url =
                     activeBundle.downloadUrl ||
                     `${window.location.origin}/migrate/download/${activeBundle.token}`;
-                  navigator.clipboard?.writeText(url);
-                  toast.success('Copied one-time download URL');
+                  const ok = await copyToClipboard(url);
+                  if (ok) toast.success('Copied one-time download URL');
                 }}
                 className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:text-white cursor-pointer"
               >
@@ -208,15 +209,15 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const cmd =
                     activeBundle.migrateCmd ||
                     `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
                       activeBundle.downloadUrl ||
                       `${window.location.origin}/migrate/download/${activeBundle.token}`
                     }"`;
-                  navigator.clipboard?.writeText(cmd);
-                  toast.success('Copied target VPS migrate.sh command');
+                  const ok = await copyToClipboard(cmd);
+                  if (ok) toast.success('Copied target VPS migrate.sh command');
                 }}
                 className="inline-flex items-center gap-1 rounded-lg bg-orange-500/15 border border-orange-500/30 px-2.5 py-1 font-mono text-[11px] font-medium text-orange-300 hover:bg-orange-500/25 cursor-pointer"
               >
@@ -292,23 +293,23 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                         {
                           label: 'Copy Target VPS Command',
                           icon: <Terminal className="h-3.5 w-3.5" />,
-                          onClick: () => {
+                          onClick: async () => {
                             const cmd =
                               b.migrateCmd ||
                               `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
                                 b.downloadUrl ||
                                 `${window.location.origin}/migrate/download/${b.token}`
                               }"`;
-                            navigator.clipboard?.writeText(cmd);
-                            toast.success('Copied target VPS migrate.sh command');
+                            const ok = await copyToClipboard(cmd);
+                            if (ok) toast.success('Copied target VPS migrate.sh command');
                           },
                         },
                         {
                           label: 'Copy One-Time Token',
                           icon: <Copy className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(b.token);
-                            toast.success('Copied migration token');
+                          onClick: async () => {
+                            const ok = await copyToClipboard(b.token);
+                            if (ok) toast.success('Copied migration token');
                           },
                         },
                         {

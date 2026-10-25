@@ -119,6 +119,12 @@ export const CaddyProxyView: React.FC<{
     succeeded: boolean;
     status: string;
   } | null>(null);
+  // every Docker volume of the projects, offered for read-only mounting in Caddy
+  const allDockerVolumes = useMemo(() => {
+    const set = new Set<string>();
+    apps.forEach((a) => a.volumes.forEach((v) => set.add(v.name)));
+    return Array.from(set);
+  }, [apps]);
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)
@@ -740,10 +746,10 @@ ${externalVolDefs}`;
 
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               const text = codeTab === 'root_compose' ? rootComposeYaml : liveConfigJson;
-              navigator.clipboard?.writeText(text);
-              toast.success('Copied to clipboard');
+              const ok = await copyToClipboard(text);
+              if (ok) toast.success('Copied to clipboard');
             }}
             className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
           >

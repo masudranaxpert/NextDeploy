@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack, DomainRoute } from '../../../types/nextdeploy';
 import { backendApi } from '../../../lib/backendApi';
+import { copyToClipboard } from '../../../lib/clipboard';
 
 interface ProjectDomainsTabProps {
   app: AppStack;
@@ -712,10 +713,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(caddyModal.yaml);
-                  setCopiedCaddy(true);
-                  setTimeout(() => setCopiedCaddy(false), 1800);
+                onClick={async () => {
+                  const ok = await copyToClipboard(caddyModal.yaml);
+                  if (ok) {
+                    setCopiedCaddy(true);
+                    setTimeout(() => setCopiedCaddy(false), 1800);
+                  }
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium cursor-pointer"
               >

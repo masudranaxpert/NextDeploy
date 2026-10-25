@@ -654,6 +654,17 @@ CREATE TABLE IF NOT EXISTS cli_sessions (
 	}
 
 	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS app_limits (
+  app_id TEXT PRIMARY KEY,
+  memory_mb INTEGER NOT NULL DEFAULT 0,
+  cpus REAL NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE
+);`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS allocated_ports (
   port INTEGER PRIMARY KEY,
   bind_ip TEXT NOT NULL DEFAULT '0.0.0.0',

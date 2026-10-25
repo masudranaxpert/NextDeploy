@@ -12,6 +12,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../../lib/clipboard';
 import { StatusBadge } from './Primitives';
 
 export interface TerminalServiceItem {
@@ -542,9 +543,9 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => {
-              navigator.clipboard?.writeText(historyRef.current.join('\n'));
-              toast.success('Copied command history');
+            onClick={async () => {
+              const ok = await copyToClipboard(historyRef.current.join('\n'));
+              if (ok) toast.success('Copied command history');
             }}
             className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
           >

@@ -135,7 +135,7 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		}
 		base = limited
 	}
-	cgroupParent := p.UserCgroupParent(ctx, owner)
+	cgroupParent := p.AppCgroupParent(ctx, owner, appID)
 
 	if err := p.WriteDockerRegistryConfig(ctx, appID, app.OwnerID); err != nil {
 		log.Printf("failed to write docker registry config for app %s: %v", appID, err)

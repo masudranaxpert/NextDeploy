@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { DockerImageItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface ImagesViewProps {
   images: DockerImageItem[];
@@ -225,17 +226,18 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                           {
                             label: 'Copy Image ID',
                             icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(img.id);
-                              toast.success(`Copied Image ID: ${img.id}`);
+                            onClick: async () => {
+                              const ok = await copyToClipboard(img.id);
+                              if (ok) toast.success(`Copied Image ID: ${img.id}`);
                             },
                           },
                           {
                             label: 'Copy Image Tag',
                             icon: <FileCode2 className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard?.writeText(`${img.repository}:${img.tag}`);
-                              toast.success(`Copied ${img.repository}:${img.tag}`);
+                            onClick: async () => {
+                              const tag = `${img.repository}:${img.tag}`;
+                              const ok = await copyToClipboard(tag);
+                              if (ok) toast.success(`Copied ${tag}`);
                             },
                           },
                           {

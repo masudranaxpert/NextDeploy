@@ -16,6 +16,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../../lib/clipboard';
 
 export type SupportedEditorLanguage =
   | 'yaml'
@@ -774,11 +775,13 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
     setCursorLine(textBefore.split('\n').length);
   };
 
-  const handleCopy = () => {
-    navigator.clipboard?.writeText(value);
-    setCopied(true);
-    toast.success(`Copied ${filename}`);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(value);
+    if (ok) {
+      setCopied(true);
+      toast.success(`Copied ${filename}`);
+      setTimeout(() => setCopied(false), 1500);
+    }
   };
 
   const handleDownload = () => {

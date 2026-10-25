@@ -30,6 +30,7 @@ import {
 } from '../../components/ui/Primitives';
 import { PhpIcon, SiteTypeBadge } from '../../components/ui/BrandIcons';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface BackupsViewProps {
   apps?: AppStack[];
@@ -462,9 +463,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         {
                           label: 'Copy Destination Name',
                           icon: <Copy className="h-3.5 w-3.5" />,
-                          onClick: () => {
-                            navigator.clipboard?.writeText(d.name);
-                            toast.success(`Copied "${d.name}"`);
+                          onClick: async () => {
+                            const ok = await copyToClipboard(d.name);
+                            if (ok) toast.success(`Copied "${d.name}"`);
                           },
                         },
                         {
@@ -843,9 +844,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                   <span>Authorized Redirect URI</span>
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(gdriveRedirectUrl);
-                      toast.success('Copied Google OAuth redirect URI');
+                    onClick={async () => {
+                      const ok = await copyToClipboard(gdriveRedirectUrl);
+                      if (ok) toast.success('Copied Google OAuth redirect URI');
                     }}
                     className="inline-flex items-center gap-1 text-emerald-400 hover:underline cursor-pointer"
                   >

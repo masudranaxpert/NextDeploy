@@ -20,6 +20,7 @@ import { AppStack } from '../../types/nextdeploy';
 import { ActionMenu, StatusBadge } from '../../components/ui/Primitives';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 import { DeleteSiteDialog } from '../php/components/DeleteSiteDialog';
 
 interface ProjectsListViewProps {
@@ -82,9 +83,13 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     {
       label: 'Copy App ID',
       icon: <Copy className="h-3.5 w-3.5" />,
-      onClick: () => {
-        navigator.clipboard?.writeText(app.id);
-        toast.success(`Copied ${app.id}`);
+      onClick: async () => {
+        const ok = await copyToClipboard(app.id);
+        if (ok) {
+          toast.success(`Copied ${app.id}`);
+        } else {
+          toast.error(`Could not copy ID`);
+        }
       },
     },
     {
