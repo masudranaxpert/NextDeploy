@@ -1840,7 +1840,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       <ShadcnDialog
         open={showStorageKnowledgeModal}
         onClose={() => setShowStorageKnowledgeModal(false)}
-        title="Storage Allocation & Overselling Guide"
+        title="Storage Allocation Guide"
         icon={<HardDrive className="h-4 w-4 text-orange-400" />}
         maxWidth="md"
       >
