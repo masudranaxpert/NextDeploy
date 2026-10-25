@@ -132,13 +132,24 @@ func main() {
 			Browse: false,
 		}))
 	}
-	app.Get("/nextdeploy.ico", func(c *fiber.Ctx) error {
-		if ico, err := fs.ReadFile(distFS, "nextdeploy.ico"); err == nil {
-			c.Set("Content-Type", "image/x-icon")
-			c.Set("Cache-Control", "public, max-age=86400")
-			return c.Send(ico)
+	// Serve public root brand assets (icons, logos, favicons) directly from embedded web/dist
+	app.Use(func(c *fiber.Ctx) error {
+		p := strings.TrimPrefix(c.Path(), "/")
+		if strings.HasPrefix(p, "nextdeploy") || strings.HasPrefix(p, "apple-touch") || p == "favicon.ico" {
+			if data, err := fs.ReadFile(distFS, p); err == nil {
+				switch {
+				case strings.HasSuffix(p, ".svg"):
+					c.Set("Content-Type", "image/svg+xml")
+				case strings.HasSuffix(p, ".png"):
+					c.Set("Content-Type", "image/png")
+				case strings.HasSuffix(p, ".ico"):
+					c.Set("Content-Type", "image/x-icon")
+				}
+				c.Set("Cache-Control", "public, max-age=86400")
+				return c.Send(data)
+			}
 		}
-		return c.SendStatus(fiber.StatusNotFound)
+		return c.Next()
 	})
 
 	if err := p.SyncRootStackComposeOnStart(); err != nil {

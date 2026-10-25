@@ -1,5 +1,7 @@
 # Multi-stage build for NextDeploy Panel
-FROM golang:1.24-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 
 # Download dependencies
@@ -9,8 +11,8 @@ RUN go mod download
 # Copy source code and embedded web assets
 COPY . .
 
-# Compile static Go binary with embedded web/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /panel .
+# Compile static Go binary natively with target architecture (bypasses slow QEMU emulation)
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /panel .
 
 # Runtime container
 FROM docker:27-cli

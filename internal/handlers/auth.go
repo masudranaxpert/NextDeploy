@@ -65,7 +65,12 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	// Always allow static assets, SPA bundle assets, MCP API endpoints, API v1 routes, and auth routes
 	if strings.HasPrefix(path, "/static/") ||
 		strings.HasPrefix(path, "/assets/") ||
-		path == "/nextdeploy.ico" ||
+		strings.HasPrefix(path, "/nextdeploy") ||
+		strings.HasPrefix(path, "/apple-touch") ||
+		path == "/favicon.ico" ||
+		strings.HasSuffix(path, ".svg") ||
+		strings.HasSuffix(path, ".png") ||
+		strings.HasSuffix(path, ".ico") ||
 		path == "/mcp" || strings.HasPrefix(path, "/mcp/") ||
 		strings.HasPrefix(path, "/api/v1/") ||
 		path == "/login" || path == "/setup" {
