@@ -160,6 +160,12 @@ fi
 
 echo "==> [2/4] Generating optimized Caddy reverse-proxy configuration..."
 mkdir -p /etc/caddy
+if [ -f /etc/caddy/Caddyfile ]; then
+    BACKUP_FILE="/etc/caddy/Caddyfile.backup.$(date +%%Y%%m%%d_%%H%%M%%S)"
+    echo "==> [Notice] Existing Caddyfile detected! Safely backed up to: $BACKUP_FILE"
+    cp /etc/caddy/Caddyfile "$BACKUP_FILE"
+fi
+
 cat << 'EOF' > /etc/caddy/Caddyfile
 {
     # Global On-Demand TLS with NextDeploy verification
