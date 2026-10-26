@@ -444,14 +444,6 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onOpenLogs?.(svc.service)}
-                      title="View logs"
-                      className="inline-flex h-9 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
-                    >
-                      Logs
-                    </button>
-                    <button
-                      type="button"
                       onClick={async () => {
                         await backendApi.appContainerAction(app.id, name, 'restart');
                         toast.success(`Restarted ${name}`);
