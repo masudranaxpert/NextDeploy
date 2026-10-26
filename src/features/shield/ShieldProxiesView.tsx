@@ -885,6 +885,28 @@ export function ShieldProxiesView() {
               </div>
             </div>
 
+            {/* Step 4: Uninstaller & Cleanup */}
+            <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
+              <span className="font-semibold text-zinc-400 text-xs block">Uninstall & Restore Original Node (If unlinking):</span>
+              <div className="relative rounded-lg border border-white/[0.08] bg-zinc-950 p-2.5 font-mono text-xs">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-zinc-400">
+                  {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${selectedScriptNode.node.token}" | bash`}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${selectedScriptNode.node.token}" | bash`, 'modal-uninstall-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-white/[0.08] bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                  title="Copy uninstall command"
+                >
+                  {copied === 'modal-uninstall-cmd' ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
             <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
               <div className="font-semibold text-white flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />

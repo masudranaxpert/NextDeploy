@@ -197,3 +197,10 @@ func (s *Store) UpdateShieldNodeHeartbeat(ctx context.Context, id int64) error {
 	`, id)
 	return err
 }
+
+func (s *Store) UpdateShieldNodeStatus(ctx context.Context, id int64, status string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE shield_nodes SET status = ? WHERE id = ?
+	`, status, id)
+	return err
+}

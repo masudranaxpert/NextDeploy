@@ -15,6 +15,7 @@ import {
   Search,
   Trash2,
   Upload,
+  Wrench,
 } from 'lucide-react';
 import type { ComposeFileNode } from '../../../../types/nextdeploy';
 import { ActionMenu } from '../../../../components/ui/Primitives';
@@ -129,127 +130,170 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
       )}
 
       {/* 2. MAIN ACTION TOOLBAR */}
-      <div className="border-b border-white/[0.07] bg-[#0c0c0f] px-3 sm:px-4 py-2">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-          {/* Action Buttons: Unified Creation & Utilities */}
-          <div className="flex items-center justify-between sm:justify-start gap-1.5 w-full md:w-auto">
-            {/* Primary Creation Actions */}
-            <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
-              <button
-                type="button"
-                onClick={onOpenNewFile}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium px-2.5 text-xs shadow-sm shadow-orange-950/40 border border-orange-400/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
-              >
-                <FilePlus className="h-3.5 w-3.5 shrink-0" />
-                <span>New File</span>
-              </button>
+      <div className="border-b border-white/[0.07] bg-[#0c0c0f] px-3 sm:px-4 py-2.5">
+        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+          {/* MOBILE & TABLET VIEW: 2 rows with 3 buttons each (grid-cols-3) (< xl) */}
+          <div className="grid grid-cols-3 gap-2 w-full xl:hidden">
+            {/* Row 1: Item 1 - New File */}
+            <button
+              type="button"
+              onClick={onOpenNewFile}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold px-2 text-xs shadow-sm shadow-orange-950/40 border border-orange-400/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+            >
+              <FilePlus className="h-4 w-4 shrink-0" />
+              <span className="truncate">New File</span>
+            </button>
 
-              <button
-                type="button"
-                onClick={onOpenNewFolder}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 sm:px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
-              >
-                <FolderPlus className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                <span>New Folder</span>
-              </button>
+            {/* Row 1: Item 2 - New Folder */}
+            <button
+              type="button"
+              onClick={onOpenNewFolder}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+            >
+              <FolderPlus className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="truncate">New Folder</span>
+            </button>
 
-              <button
-                type="button"
-                onClick={onOpenUpload}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 sm:px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
-              >
-                <Upload className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                <span>Upload</span>
-              </button>
-            </div>
+            {/* Row 1: Item 3 - Upload */}
+            <button
+              type="button"
+              onClick={onOpenUpload}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+            >
+              <Upload className="h-4 w-4 text-sky-400 shrink-0" />
+              <span className="truncate">Upload</span>
+            </button>
 
-            {/* Mobile Archive Tools ActionMenu (< md) */}
-            <div className="md:hidden shrink-0">
-              <ActionMenu
-                ariaLabel="Archive & Workspace Tools"
-                trigger={
-                  <div className="inline-flex h-8 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900/90 px-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer">
-                    <Archive className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>Tools</span>
-                    <ChevronDown className="h-3 w-3 text-zinc-500" />
-                  </div>
-                }
-                items={[
-                  {
-                    label: 'Compress files (.zip/.tar.gz)',
-                    icon: <Archive className="h-4 w-4 text-purple-400" />,
-                    onClick: onOpenCompress,
+            {/* Row 2: Item 1 - Compress */}
+            <button
+              type="button"
+              onClick={onOpenCompress}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+            >
+              <Archive className="h-4 w-4 text-purple-400 shrink-0" />
+              <span className="truncate">Compress</span>
+            </button>
+
+            {/* Row 2: Item 2 - Extract */}
+            <button
+              type="button"
+              onClick={onOpenExtract}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+            >
+              <FolderOpen className="h-4 w-4 text-emerald-400 shrink-0" />
+              <span className="truncate">Extract</span>
+            </button>
+
+            {/* Row 2: Item 3 - Tools (Click opens Export & Restore) */}
+            <ActionMenu
+              ariaLabel="Tools"
+              className="w-full"
+              triggerClassName="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white px-2 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+              trigger={
+                <div className="flex items-center justify-center gap-1.5 w-full">
+                  <Wrench className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                  <span className="truncate">Tools</span>
+                  <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
+                </div>
+              }
+              items={[
+                {
+                  label: 'Export workspace (.tar.gz)',
+                  icon: <Download className="h-4 w-4 text-sky-400" />,
+                  onClick: () => {
+                    window.location.href = `/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`;
                   },
-                  {
-                    label: 'Extract archive',
-                    icon: <FolderOpen className="h-4 w-4 text-emerald-400" />,
-                    onClick: onOpenExtract,
+                },
+                {
+                  label: 'Restore archive',
+                  icon: <RotateCcw className="h-4 w-4 text-amber-400" />,
+                  onClick: onOpenRestoreArchive,
+                },
+              ]}
+            />
+          </div>
+
+          {/* DESKTOP VIEW: Unified single-row action bar (>= xl) */}
+          <div className="hidden xl:flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onOpenNewFile}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 text-xs shadow-sm shadow-orange-950/40 border border-orange-400/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+            >
+              <FilePlus className="h-4 w-4 shrink-0" />
+              <span>New File</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenNewFolder}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-3 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+            >
+              <FolderPlus className="h-4 w-4 text-amber-400 shrink-0" />
+              <span>New Folder</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenUpload}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-3 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+            >
+              <Upload className="h-4 w-4 text-sky-400 shrink-0" />
+              <span>Upload</span>
+            </button>
+
+            <div className="h-4 w-px bg-white/[0.08] mx-1" />
+
+            <button
+              type="button"
+              onClick={onOpenCompress}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+              title="Compress files or folders into .zip or .tar.gz"
+            >
+              <Archive className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <span>Compress</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenExtract}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+              title="Extract .zip or .tar.gz archive"
+            >
+              <FolderOpen className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <span>Extract</span>
+            </button>
+
+            <ActionMenu
+              ariaLabel="Workspace Tools"
+              triggerClassName="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white px-3 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+              trigger={
+                <div className="flex items-center gap-1.5">
+                  <Wrench className="h-3.5 w-3.5 text-zinc-400" />
+                  <span>Tools</span>
+                  <ChevronDown className="h-3 w-3 text-zinc-500" />
+                </div>
+              }
+              items={[
+                {
+                  label: 'Export workspace (.tar.gz)',
+                  icon: <Download className="h-4 w-4 text-sky-400" />,
+                  onClick: () => {
+                    window.location.href = `/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`;
                   },
-                  {
-                    label: 'Export workspace (.tar.gz)',
-                    icon: <Download className="h-4 w-4 text-sky-400" />,
-                    onClick: () => {
-                      window.location.href = `/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`;
-                    },
-                  },
-                  {
-                    label: 'Restore archive',
-                    icon: <RotateCcw className="h-4 w-4 text-amber-400" />,
-                    onClick: onOpenRestoreArchive,
-                  },
-                ]}
-              />
-            </div>
-
-            <div className="hidden md:block h-4 w-px bg-white/[0.08] mx-1" />
-
-            {/* Desktop Full Archive & Backup Group (>= md) */}
-            <div className="hidden md:flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={onOpenCompress}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
-                title="Compress files or folders into .zip or .tar.gz"
-              >
-                <Archive className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                <span>Compress</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onOpenExtract}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
-                title="Extract .zip or .tar.gz archive"
-              >
-                <FolderOpen className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                <span>Extract</span>
-              </button>
-
-              <a
-                href={`/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`}
-                download={`${appSlug}-workspace.tar.gz`}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
-                title="Download full workspace backup (.tar.gz archive)"
-              >
-                <Download className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                <span>Export Workspace</span>
-              </a>
-
-              <button
-                type="button"
-                onClick={onOpenRestoreArchive}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
-                title="Restore full workspace from a .tar.gz or .zip archive"
-              >
-                <RotateCcw className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                <span>Restore Archive</span>
-              </button>
-            </div>
+                },
+                {
+                  label: 'Restore archive',
+                  icon: <RotateCcw className="h-4 w-4 text-amber-400" />,
+                  onClick: onOpenRestoreArchive,
+                },
+              ]}
+            />
           </div>
 
           {/* Search Filter */}
-          <div className="relative w-full md:w-52 shrink-0">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+          <div className="relative w-full xl:w-56 shrink-0">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
             <input
               type="text"
               value={fileSearch}
@@ -258,7 +302,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
                 if (e.target.value.trim()) setEditingFilePath(null);
               }}
               placeholder="Search files..."
-              className="h-8 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-2.5 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none transition-colors"
+              className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-9 pr-3 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none transition-colors"
             />
           </div>
         </div>

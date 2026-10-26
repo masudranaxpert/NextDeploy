@@ -223,6 +223,7 @@ func main() {
 	// Edge Shield Node integration endpoints (token-authenticated)
 	app.Get("/api/v1/edge/verify-domain", p.EdgeVerifyDomain)
 	app.Get("/api/v1/edge/setup.sh", p.GetEdgeShieldSetupScript)
+	app.Get("/api/v1/edge/uninstall.sh", p.GetEdgeShieldUninstallScript)
 	app.Post("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
 	app.Get("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
 

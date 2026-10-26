@@ -97,6 +97,12 @@ func (p *Panel) EdgeShieldHeartbeat(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "invalid token"})
 	}
 
+	action := strings.TrimSpace(c.Query("action"))
+	if action == "uninstall" || action == "unregistered" {
+		_ = p.DB.UpdateShieldNodeStatus(ctx, node.ID, "unregistered")
+		return c.JSON(fiber.Map{"ok": true, "status": "unregistered", "node": node.Name})
+	}
+
 	_ = p.DB.UpdateShieldNodeHeartbeat(ctx, node.ID)
 	return c.JSON(fiber.Map{"ok": true, "status": "connected", "node": node.Name})
 }
@@ -234,6 +240,76 @@ echo "==========================================================================
 	return c.SendString(script)
 }
 
+// GetEdgeShieldUninstallScript returns a complete, automated bash uninstaller for a Shield VPS node.
+// GET /api/v1/edge/uninstall.sh?token=shld_...
+func (p *Panel) GetEdgeShieldUninstallScript(c *fiber.Ctx) error {
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
+	}
+
+	ctx := c.UserContext()
+	node, err := p.DB.GetShieldNodeByToken(ctx, token)
+	if err != nil || node == nil {
+		return c.Status(fiber.StatusUnauthorized).SendString("Invalid shield token")
+	}
+
+	panelHost := c.Hostname()
+	scheme := "http"
+	if c.Secure() || c.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+
+	unregURL := fmt.Sprintf("%s://%s/api/v1/edge/shield-heartbeat?token=%s&action=uninstall", scheme, panelHost, token)
+
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+# ==============================================================================
+# NextDeploy Shield Node Automated Uninstall & Cleanup Script
+# Node: %s (IP: %s)
+# ==============================================================================
+set -e
+
+echo "==> [1/3] Restoring original Caddy configuration..."
+LATEST_BACKUP=$(ls -t /etc/caddy/Caddyfile.backup.* 2>/dev/null | head -n 1 || true)
+
+if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
+    echo "==> Found backup configuration: $LATEST_BACKUP"
+    cp -f "$LATEST_BACKUP" /etc/caddy/Caddyfile
+    echo "==> Restored original /etc/caddy/Caddyfile from backup."
+    
+    echo "==> [2/3] Reloading Caddy with restored configuration..."
+    if command -v systemctl &> /dev/null; then
+        systemctl reload caddy || systemctl restart caddy || true
+    else
+        caddy reload --config /etc/caddy/Caddyfile || true
+    fi
+else
+    echo "==> No prior Caddyfile backup found."
+    if [ -f /etc/caddy/Caddyfile ]; then
+        rm -f /etc/caddy/Caddyfile
+        echo "==> Removed NextDeploy Caddyfile."
+    fi
+    echo "==> [2/3] Stopping and disabling Caddy service..."
+    if command -v systemctl &> /dev/null; then
+        systemctl stop caddy || true
+        systemctl disable caddy || true
+    fi
+fi
+
+echo "==> [3/3] Notifying NextDeploy origin..."
+curl -sS -X POST "%s" || true
+
+echo ""
+echo "=========================================================================="
+echo " [✓] NextDeploy Shield Node '%s' uninstalled successfully!"
+echo " Caddy configuration restored and Edge Shield unlinked."
+echo "=========================================================================="
+`, node.Name, node.IP, unregURL, node.Name)
+
+	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	return c.SendString(script)
+}
+
 // ListShieldNodes returns all registered shield nodes with domain counts.
 // GET /api/v1/shield-nodes
 func (p *Panel) ListShieldNodes(c *fiber.Ctx) error {
@@ -293,11 +369,13 @@ func (p *Panel) CreateShieldNode(c *fiber.Ctx) error {
 		scheme = "https"
 	}
 	setupCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/setup.sh?token=%s\" | bash", scheme, panelHost, node.Token)
+	uninstallCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/uninstall.sh?token=%s\" | bash", scheme, panelHost, node.Token)
 
 	return c.JSON(fiber.Map{
-		"ok":            true,
-		"node":          node,
-		"setup_command": setupCmd,
+		"ok":                true,
+		"node":              node,
+		"setup_command":     setupCmd,
+		"uninstall_command": uninstallCmd,
 	})
 }
 

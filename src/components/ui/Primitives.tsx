@@ -353,6 +353,7 @@ interface ActionMenuProps {
   items: ActionMenuItem[];
   trigger?: React.ReactNode;
   triggerClassName?: string;
+  className?: string;
   ariaLabel?: string;
 }
 
@@ -360,6 +361,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   items,
   trigger,
   triggerClassName,
+  className,
   ariaLabel,
 }) => {
   const [open, setOpen] = useState(false);
@@ -370,7 +372,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   const updateCoords = () => {
     if (!btnRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
-    const menuWidth = 208;
+    const menuWidth = 224;
     const estimatedHeight = items.length * 36 + 16;
     const spaceBelow = window.innerHeight - rect.bottom;
     const top =
@@ -408,7 +410,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   }, [open]);
 
   return (
-    <div className="inline-block text-left" onClick={(e) => e.stopPropagation()}>
+    <div className={`text-left ${className || 'inline-block'}`} onClick={(e) => e.stopPropagation()}>
       <button
         ref={btnRef}
         type="button"
@@ -432,7 +434,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
             ref={menuRef}
             style={{ top: coords.top, left: coords.left }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed z-[9999] w-48 origin-top-right rounded-xl border border-white/[0.09] bg-[#111115]/95 p-1 shadow-[0_16px_48px_rgba(0,0,0,0.85)] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+            className="fixed z-[9999] w-56 origin-top-right rounded-xl border border-white/[0.09] bg-[#111115]/95 p-1 shadow-[0_16px_48px_rgba(0,0,0,0.85)] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
           >
             {items.map((item, idx) => (
               <button
@@ -443,7 +445,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
                   setOpen(false);
                   item.onClick();
                 }}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
                   item.variant === 'danger'
                     ? 'text-rose-400 hover:bg-rose-500/12'
                     : 'text-zinc-200 hover:bg-white/[0.06] hover:text-white'
