@@ -414,7 +414,14 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         <ProjectDomainsTab app={app} onUpdateApp={onUpdateApp} />
       )}
       {activeTab === 'domains' && app.php && (
-        <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} onUpdateApp={onUpdateApp} />
+        <PhpDomainsTab
+          app={app}
+          onChanged={async () => {
+            await refreshAppFromBackend();
+            await onRefresh?.();
+          }}
+          onUpdateApp={onUpdateApp}
+        />
       )}
 
       {activeTab === 'php-settings' && app.php && (

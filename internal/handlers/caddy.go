@@ -487,14 +487,10 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if v := c.FormValue("is_primary"); v != "" {
 		isPrimary = v == "on" || v == "true" || v == "1"
 	}
-	var shieldIDPtr *int64 = current.ShieldNodeID
-	if sVal := c.FormValue("shield_node_id"); sVal != "" {
-		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil {
-			if sID > 0 {
-				shieldIDPtr = &sID
-			} else {
-				shieldIDPtr = nil
-			}
+	var shieldIDPtr *int64 = nil
+	if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
+		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
+			shieldIDPtr = &sID
 		}
 	}
 

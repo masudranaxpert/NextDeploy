@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+export { ShadcnSelect } from './ShadcnSelect';
+export type { ShadcnSelectOption, ShadcnSelectProps } from './ShadcnSelect';
 import {
   Search,
   Terminal,

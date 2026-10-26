@@ -22,6 +22,7 @@ import { AppStack, DomainRoute } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
 import { backendApi } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
+import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 
 interface ProjectDomainsTabProps {
   app: AppStack;
@@ -442,12 +443,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 </div>
 
                 {/* Actions */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                <div className="mt-2.5 flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => handleCheckDns(d)}
                     disabled={dnsLoadingId === d.id}
-                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw
                       className={`h-3.5 w-3.5 shrink-0 ${
@@ -460,7 +461,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <button
                     type="button"
                     onClick={() => handleInspectLabels(d)}
-                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
                   >
                     <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                     Caddy
@@ -469,7 +470,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <button
                     type="button"
                     onClick={() => openEditModal(d)}
-                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
                   >
                     <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                     Edit
@@ -479,7 +480,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     type="button"
                     onClick={() => handleDeleteDomain(d)}
                     title="Remove domain"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -640,18 +641,28 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   </label>
                   <span className="text-[11px] text-zinc-500">Origin Masking</span>
                 </div>
-                <select
-                  value={domainShieldNodeId ?? ''}
-                  onChange={(e) => setDomainShieldNodeId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-zinc-950 border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 cursor-pointer"
-                >
-                  <option value="">Direct Origin (Server IP)</option>
-                  {shieldNodes.map((s) => (
-                    <option key={s.id} value={s.id} disabled={s.status !== 'connected' && s.id !== domainShieldNodeId}>
-                      {s.name} ({s.ip}){s.status === 'connected' ? '' : ` • ${s.status === 'pending' ? 'Pending Setup' : 'Offline'}`}
-                    </option>
-                  ))}
-                </select>
+                <div className="pt-1">
+                  <ShadcnSelect
+                    value={domainShieldNodeId ?? ''}
+                    onChange={(val) => setDomainShieldNodeId(val ? Number(val) : null)}
+                    options={[
+                      { value: '', label: 'Direct Origin (Server IP)' },
+                      ...shieldNodes.map((s) => ({
+                        value: s.id,
+                        label: s.name,
+                        sublabel: s.ip,
+                        disabled: s.status !== 'connected' && s.id !== domainShieldNodeId,
+                        badge:
+                          s.status !== 'connected'
+                            ? {
+                                text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                                tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                              }
+                            : undefined,
+                      })),
+                    ]}
+                  />
+                </div>
               </div>
 
               {/* Static File Serving */}

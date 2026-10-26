@@ -1,6 +1,6 @@
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import React, { useState } from 'react';
-import { GitBranch, Server, Shield } from 'lucide-react';
+import { GitBranch, Server, Shield, User } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 
@@ -387,10 +387,23 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                           </span>
                         </div>
 
-                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-600/50 bg-[#281b0a]/80 px-2 py-0.5 text-xs font-medium text-amber-400 shrink-0">
-                          <Shield className="h-3 w-3 text-amber-400" />
-                          <span>{dep.appOwner || 'admin'}</span>
-                        </span>
+                        {(() => {
+                          const matchedApp = apps.find((a: any) => a.id === dep.appId || a.name === dep.appName);
+                          const ownerName = dep.appOwner || matchedApp?.owner || 'admin';
+                          const isOwnerAdmin = ownerName === 'admin' || matchedApp?.ownerRole === 'admin';
+
+                          return isOwnerAdmin ? (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 shrink-0">
+                              <Shield className="h-3 w-3 text-amber-400" />
+                              <span>{ownerName}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-300 shrink-0">
+                              <User className="h-3 w-3 text-sky-400" />
+                              <span>{ownerName}</span>
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       {/* Line 2: Deploy · main@latest on Left, Duration + Time on Right */}

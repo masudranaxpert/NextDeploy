@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BookOpen, Database, Download, Power, RotateCw, Server, Trash2 } from 'lucide-react';
+import { BookOpen, Check, Clock, Database, Download, ExternalLink, Gauge, Power, RotateCw, Server, Shield, Trash2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpInstanceData } from '../../lib/api/phpApi';
@@ -293,16 +293,27 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         {data.pma_task.error && (
           <div className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">{data.pma_task.error}</div>
         )}
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Image"><ValueBox>{data.pma.image}</ValueBox></Field>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-xs font-medium text-zinc-400 shrink-0">Image:</span>
+            <code className="rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 py-1.5 font-mono text-xs text-zinc-300 truncate">
+              {data.pma.image}
+            </code>
+          </div>
+
           {!data.pma.enabled ? (
-            <PrimaryButton disabled={!m.ready} busy={busy === 'pma-on' || data.pma_task.running} onClick={() => act('pma-on', () => backendApi.phpPma('enable'), 'Starting phpMyAdmin…')}>
+            <PrimaryButton
+              disabled={!m.ready}
+              busy={busy === 'pma-on' || data.pma_task.running}
+              onClick={() => act('pma-on', () => backendApi.phpPma('enable'), 'Starting phpMyAdmin…')}
+            >
               <Power className="h-3.5 w-3.5" /> Enable phpMyAdmin
             </PrimaryButton>
           ) : (
-            <>
-              <GhostButton
-                busy={busy === 'pma-open'}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy === 'pma-open'}
                 onClick={async () => {
                   setBusy('pma-open');
                   const r = await backendApi.phpPmaOpenAll();
@@ -310,16 +321,31 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
                   if (r.ok && r.data?.url) window.open(r.data.url, '_blank', 'noopener');
                   else toast.error(r.error || 'Could not open phpMyAdmin');
                 }}
+                className="inline-flex h-8.5 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer flex-1 sm:flex-initial"
               >
-                Open (all databases)
-              </GhostButton>
-              <GhostButton busy={busy === 'pma-re' || data.pma_task.running} onClick={() => act('pma-re', () => backendApi.phpPma('restart'), 'Restarting phpMyAdmin…')}>
-                <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart
-              </GhostButton>
-              <GhostButton tone="danger" busy={busy === 'pma-off'} onClick={() => void act('pma-off', () => backendApi.phpPma('disable'), 'phpMyAdmin stopped')}>
+                <ExternalLink className="h-3.5 w-3.5 text-orange-400" />
+                <span>Open (all databases)</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={busy === 'pma-re' || data.pma_task.running}
+                onClick={() => act('pma-re', () => backendApi.phpPma('restart'), 'Restarting phpMyAdmin…')}
+                className="inline-flex h-8.5 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer shrink-0"
+              >
+                <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
+                <span>Restart</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={busy === 'pma-off'}
+                onClick={() => void act('pma-off', () => backendApi.phpPma('disable'), 'phpMyAdmin stopped')}
+                className="inline-flex h-8.5 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
+              >
                 Disable
-              </GhostButton>
-            </>
+              </button>
+            </div>
           )}
         </div>
         {!m.ready && <p className="mt-3 text-[11px] text-zinc-500">Start the database server first.</p>}
@@ -458,37 +484,203 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         )}
       </Card>
 
-      <Card title="Limits">
-        <div className="mb-4 flex flex-wrap items-end gap-3">
-          <div>
-            <Field label="Minimum cron interval (minutes)">
-              <input type="number" min={1} max={1440} className={`${inputCls} !w-32`} value={minCron} onChange={(e) => setMinCron(Number(e.target.value))} />
-            </Field>
+      <Card
+        title={
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md border border-orange-500/25 bg-orange-500/10 text-orange-400">
+              <Gauge className="h-3.5 w-3.5" />
+            </span>
+            <span>Instance Limits & Quotas</span>
           </div>
-          <GhostButton busy={busy === 'cron'} onClick={() => act('cron', () => backendApi.phpInstanceSettings(minCron), 'Saved')}>Save</GhostButton>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="text-[11px] text-zinc-500">
-              <tr><th className="py-2 pr-4 font-medium">User</th><th className="py-2 pr-4 font-medium">Max databases <span className="text-zinc-600">(0 = ∞)</span></th><th className="py-2 pr-4 font-medium">Max cron jobs <span className="text-zinc-600">(0 = ∞)</span></th><th /></tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
+        }
+        description="Global execution thresholds and per-user database and cron job allocation."
+      >
+        <div className="space-y-4">
+          {/* Minimum Cron Frequency Setting */}
+          <div className="flex flex-col gap-3 rounded-xl border border-white/[0.08] bg-zinc-950/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-3.5">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-400">
+                <Clock className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-zinc-100">Minimum Cron Interval</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+                  Global minimum execution frequency across all user cron jobs to protect CPU stability.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <div className="flex h-8 items-center rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 focus-within:border-amber-500/50">
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  className="w-14 bg-transparent font-mono text-xs font-medium text-zinc-100 text-right focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  value={minCron}
+                  onChange={(e) => setMinCron(Number(e.target.value))}
+                />
+                <span className="ml-1.5 font-mono text-[11px] text-zinc-500">min</span>
+              </div>
+              <button
+                type="button"
+                disabled={minCron === data.min_cron_interval_minutes || busy === 'cron'}
+                onClick={() => act('cron', () => backendApi.phpInstanceSettings(minCron), 'Saved cron interval')}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                  minCron !== data.min_cron_interval_minutes
+                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600'
+                    : 'border border-white/[0.08] bg-zinc-900 text-zinc-400'
+                }`}
+              >
+                {busy === 'cron' ? (
+                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                ) : minCron !== data.min_cron_interval_minutes ? (
+                  <span>Save</span>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Saved</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* User Resource Quotas */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between px-1">
+              <div className="text-xs font-medium text-zinc-300">User Resource Quotas</div>
+              <div className="text-[11px] text-zinc-500 font-mono">
+                Set to <span className="text-zinc-300 font-semibold">0</span> for unlimited (<span className="text-cyan-400 font-bold">∞</span>)
+              </div>
+            </div>
+
+            <div className="space-y-2">
               {(data.user_limits ?? []).map((u) => {
                 const cur = limits[u.user_id] ?? { d: u.max_databases, c: u.max_cron_jobs };
                 const dirty = cur.d !== u.max_databases || cur.c !== u.max_cron_jobs;
+
                 return (
-                  <tr key={u.user_id}>
-                    <td className="py-2 pr-4 text-zinc-100">{u.username} {u.role === 'admin' && <Pill tone="orange">admin · unlimited</Pill>}</td>
-                    <td className="py-2 pr-4"><input type="number" min={0} className={`${inputCls} !w-24`} value={cur.d} onChange={(e) => setLimits({ ...limits, [u.user_id]: { ...cur, d: Number(e.target.value) } })} /></td>
-                    <td className="py-2 pr-4"><input type="number" min={0} className={`${inputCls} !w-24`} value={cur.c} onChange={(e) => setLimits({ ...limits, [u.user_id]: { ...cur, c: Number(e.target.value) } })} /></td>
-                    <td className="py-2 text-right">
-                      {dirty && <PrimaryButton busy={busy === 'ul' + u.user_id} onClick={async () => { await act('ul' + u.user_id, () => backendApi.phpUserLimits(u.user_id, cur.d, cur.c), 'Limits saved'); setLimits((l) => { const n = { ...l }; delete n[u.user_id]; return n; }); }}>Save</PrimaryButton>}
-                    </td>
-                  </tr>
+                  <div
+                    key={u.user_id}
+                    className={`rounded-xl border p-3 transition-colors ${
+                      dirty
+                        ? 'border-orange-500/40 bg-orange-500/[0.04]'
+                        : 'border-white/[0.07] bg-zinc-950/60 hover:border-white/[0.12]'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      {/* User Identity */}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
+                            u.role === 'admin'
+                              ? 'border-orange-500/30 bg-orange-500/10 text-orange-400'
+                              : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
+                          }`}
+                        >
+                          {u.role === 'admin' ? <Shield className="h-4 w-4" /> : <User className="h-4 w-4" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-semibold text-xs text-zinc-100">{u.username}</span>
+                            {u.role === 'admin' && (
+                              <span className="inline-flex items-center gap-1 rounded-md border border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-orange-400">
+                                Admin · Unlimited
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-zinc-500 font-mono">ID #{u.user_id}</span>
+                        </div>
+                      </div>
+
+                      {/* Quotas & Action */}
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:justify-end">
+                        {/* Databases Input Group */}
+                        <div
+                          className="flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 transition-colors focus-within:border-cyan-500/50"
+                          title="Max databases (0 = unlimited)"
+                        >
+                          <Database className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                          <span className="text-[11px] text-zinc-400">DBs:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={cur.d}
+                            onChange={(e) =>
+                              setLimits({
+                                ...limits,
+                                [u.user_id]: { ...cur, d: Math.max(0, Number(e.target.value)) },
+                              })
+                            }
+                            className="w-12 bg-transparent font-mono text-xs font-semibold text-zinc-100 text-right focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <span className="text-[11px] font-mono text-zinc-500 w-4 text-center">
+                            {cur.d === 0 ? <span className="font-bold text-cyan-400">∞</span> : 'max'}
+                          </span>
+                        </div>
+
+                        {/* Cron Jobs Input Group */}
+                        <div
+                          className="flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 transition-colors focus-within:border-amber-500/50"
+                          title="Max cron jobs (0 = unlimited)"
+                        >
+                          <Clock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                          <span className="text-[11px] text-zinc-400">Crons:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={cur.c}
+                            onChange={(e) =>
+                              setLimits({
+                                ...limits,
+                                [u.user_id]: { ...cur, c: Math.max(0, Number(e.target.value)) },
+                              })
+                            }
+                            className="w-12 bg-transparent font-mono text-xs font-semibold text-zinc-100 text-right focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <span className="text-[11px] font-mono text-zinc-500 w-4 text-center">
+                            {cur.c === 0 ? <span className="font-bold text-amber-400">∞</span> : 'max'}
+                          </span>
+                        </div>
+
+                        {/* Save Action */}
+                        <button
+                          type="button"
+                          disabled={!dirty || busy === 'ul' + u.user_id}
+                          onClick={async () => {
+                            await act(
+                              'ul' + u.user_id,
+                              () => backendApi.phpUserLimits(u.user_id, cur.d, cur.c),
+                              `Limits saved for ${u.username}`
+                            );
+                            setLimits((l) => {
+                              const n = { ...l };
+                              delete n[u.user_id];
+                              return n;
+                            });
+                          }}
+                          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed ${
+                            dirty
+                              ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600'
+                              : 'border border-white/[0.06] bg-zinc-900/40 text-zinc-600 opacity-60'
+                          }`}
+                        >
+                          {busy === 'ul' + u.user_id ? (
+                            <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                          ) : dirty ? (
+                            <span>Save</span>
+                          ) : (
+                            <span className="text-[11px]">Saved</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
       </Card>
 

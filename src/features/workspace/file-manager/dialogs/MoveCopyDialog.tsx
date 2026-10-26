@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Copy, Folder, FolderPlus } from 'lucide-react';
+import { Check, Copy, Folder, FolderPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ShadcnDialog } from '../../../../components/ui/Primitives';
 import { DevFileIcon } from '../../../../components/ui/CodeEditorBox';
 import { DirTreePicker } from '../../DirTreePicker';
+import { copyToClipboard } from '../../../../lib/clipboard';
 
 interface MoveTarget {
   paths: string[];
@@ -37,6 +38,7 @@ export const MoveCopyDialog: React.FC<MoveCopyDialogProps> = ({
 }) => {
   const [showInlineFolderCreator, setShowInlineFolderCreator] = useState(false);
   const [inlineNewDestFolder, setInlineNewDestFolder] = useState('');
+  const [copiedPath, setCopiedPath] = useState(false);
 
   if (!moveTarget) return null;
 
@@ -145,8 +147,8 @@ export const MoveCopyDialog: React.FC<MoveCopyDialogProps> = ({
         </div>
 
         {/* Custom Path Input + Live Target Preview */}
-        <div>
-          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+        <div className="space-y-2">
+          <label className="block text-[11px] font-medium text-zinc-300">
             Destination Folder Path
           </label>
           <input
@@ -156,15 +158,50 @@ export const MoveCopyDialog: React.FC<MoveCopyDialogProps> = ({
             placeholder="/ (Root) or src/routes"
             className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
           />
-          <div className="mt-1.5 flex items-center justify-between rounded-md bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
-            <span>Destination Folder:</span>
-            <span className="text-emerald-400 font-semibold truncate ml-2">
-              /data/apps/{appSlug}/
-              {moveDestInput.trim().replace(/^\/+|\/+$/g, '')
-                ? `${moveDestInput.trim().replace(/^\/+|\/+$/g, '')}/`
-                : '(Root)'}
-            </span>
-          </div>
+
+          {(() => {
+            const cleanSub = moveDestInput.trim().replace(/^\/+|\/+$/g, '');
+            const fullPath = `/data/apps/${appSlug}${cleanSub ? `/${cleanSub}` : ''}`;
+
+            return (
+              <div className="flex items-center justify-between gap-2.5 rounded-lg border border-white/[0.08] bg-[#09090b] p-2.5 transition-colors hover:border-white/[0.12]">
+                <div className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                    Full Destination Path
+                  </span>
+                  <div
+                    className="font-mono text-xs font-semibold text-emerald-400 break-all select-all pt-0.5 leading-snug"
+                    title={fullPath}
+                  >
+                    {fullPath}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await copyToClipboard(fullPath);
+                    if (ok) {
+                      setCopiedPath(true);
+                      setTimeout(() => setCopiedPath(false), 1500);
+                    }
+                  }}
+                  title="Copy full path"
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-all cursor-pointer ${
+                    copiedPath
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:border-white/[0.15] hover:text-white'
+                  }`}
+                >
+                  {copiedPath ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400 animate-in zoom-in-75 duration-150" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">

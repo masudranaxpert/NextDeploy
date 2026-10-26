@@ -1,11 +1,13 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
 import { backendApi } from '../../lib/backendApi';
+import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
-import { Card, EmptyState, GhostButton, Pill, PrimaryButton, inputCls } from './ui';
+import { ShadcnSelect } from '../../components/ui/Primitives';
+import { Card, EmptyState, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
@@ -21,6 +23,7 @@ export const PhpDomainsTab: React.FC<{
   const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [busy, setBusy] = useState('');
+  const [copiedDomainId, setCopiedDomainId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -151,7 +154,7 @@ export const PhpDomainsTab: React.FC<{
 
         {/* Edge Shield Proxy (Admin Only) */}
         {isAdmin && (
-          <div className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5">
+          <div className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5 space-y-1.5">
             <div className="flex items-center justify-between text-xs font-medium text-zinc-300">
               <span className="inline-flex items-center gap-1.5">
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
@@ -159,18 +162,28 @@ export const PhpDomainsTab: React.FC<{
               </span>
               <span className="text-[11px] text-zinc-500 font-normal">Origin Masking</span>
             </div>
-            <select
-              value={shieldNodeId ?? ''}
-              onChange={(e) => setShieldNodeId(e.target.value ? Number(e.target.value) : null)}
-              className="w-full mt-1.5 h-8 px-2.5 rounded-md bg-[#09090b] border border-white/[0.08] text-xs text-zinc-200 focus:outline-none focus:border-emerald-500 cursor-pointer"
-            >
-              <option value="">Direct Origin (Server IP)</option>
-              {shieldNodes.map((s) => (
-                <option key={s.id} value={s.id} disabled={s.status !== 'connected'}>
-                  {s.name} ({s.ip}){s.status === 'connected' ? '' : ` • ${s.status === 'pending' ? 'Pending Setup' : 'Offline'}`}
-                </option>
-              ))}
-            </select>
+            <div className="pt-0.5">
+              <ShadcnSelect
+                value={shieldNodeId ?? ''}
+                onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                options={[
+                  { value: '', label: 'Direct Origin (Server IP)' },
+                  ...shieldNodes.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    sublabel: s.ip,
+                    disabled: s.status !== 'connected',
+                    badge:
+                      s.status !== 'connected'
+                        ? {
+                            text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                            tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                          }
+                        : undefined,
+                  })),
+                ]}
+              />
+            </div>
           </div>
         )}
       </Card>
@@ -179,104 +192,189 @@ export const PhpDomainsTab: React.FC<{
         {app.domains.length === 0 ? (
           <EmptyState icon={<Globe className="h-6 w-6" />} text="No domains yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.06]">
-            {app.domains.map((d) => (
-              <li key={d.id} className="py-3">
-                <a
-                  href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-zinc-100 hover:text-orange-300"
+          <div className="space-y-2.5">
+            {app.domains.map((d) => {
+              const matchedShield = d.shield_node_id ? shieldNodes.find((s) => s.id === d.shield_node_id) : null;
+              const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
+
+              return (
+                <div
+                  key={d.id}
+                  className="rounded-xl border border-white/[0.08] bg-zinc-950/70 p-3 sm:p-3.5 transition-colors hover:border-white/[0.12] space-y-2.5"
                 >
-                  <Globe className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                  <span className="truncate">{d.domain}</span>
-                  <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
-                </a>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    {d.isPrimary && <Pill tone="orange">primary</Pill>}
-                    {d.forceHttps ? <Pill tone="green">HTTPS</Pill> : <Pill tone="amber">HTTP</Pill>}
-                    {d.enableWww && <Pill>www</Pill>}
+                  {/* Line 1: Domain Name (Full Width) + External link & Copy */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <Globe className="h-4 w-4 shrink-0 text-emerald-400" />
+                      <a
+                        href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate font-mono text-xs font-semibold text-zinc-100 hover:text-orange-400 transition-colors"
+                        title={d.domain}
+                      >
+                        {d.domain}
+                      </a>
+                      <a
+                        href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
+                        title="Open in new tab"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await copyToClipboard(d.domain);
+                          if (ok) {
+                            setCopiedDomainId(d.id);
+                            setTimeout(() => setCopiedDomainId((cur) => (cur === d.id ? null : cur)), 1500);
+                          }
+                        }}
+                        className={`shrink-0 transition-colors cursor-pointer ${
+                          copiedDomainId === d.id ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                        title={copiedDomainId === d.id ? 'Copied!' : 'Copy domain'}
+                      >
+                        {copiedDomainId === d.id ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-400 animate-in zoom-in-75 duration-150" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
 
-                    {/* Shield Routing status for admin */}
-                    {isAdmin && (() => {
-                      const matched = d.shield_node_id ? shieldNodes.find((s) => s.id === d.shield_node_id) : null;
-                      const isBroken = Boolean(matched && matched.status !== 'connected');
+                  {/* Line 2: HTTPS / Primary / Delete in one row */}
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span
+                        className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+                          d.forceHttps
+                            ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
+                            : 'border-amber-500/25 bg-amber-500/10 text-amber-400'
+                        }`}
+                      >
+                        {d.forceHttps ? 'HTTPS' : 'HTTP'}
+                      </span>
 
-                      return (
-                        <select
-                          value={d.shield_node_id ?? ''}
-                          disabled={busy === 'shield' + d.id}
-                          onChange={async (e) => {
-                            const val = e.target.value;
-                            const newId = val ? Number(val) : null;
-                            if (newId) {
-                              const target = shieldNodes.find((s) => s.id === newId);
-                              if (target && target.status !== 'connected') {
-                                toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
-                                return;
-                              }
-                            }
-                            setBusy('shield' + d.id);
-                            const res = await backendApi.domainEdit(app.id, d.id, {
-                              domain: d.domain,
-                              service: 'php',
-                              port: 80,
-                              enable_https: d.forceHttps,
-                              enable_www: d.enableWww,
-                              shield_node_id: newId,
-                            });
-                            setBusy('');
-                            if (!res.ok) {
-                              toast.error(res.error || 'Failed to update route');
+                      {d.isPrimary && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                          <Star className="h-2.5 w-2.5 fill-amber-300 text-amber-300" />
+                          Primary
+                        </span>
+                      )}
+
+                      {d.enableWww && (
+                        <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                          +www
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!d.isPrimary && (
+                        <button
+                          type="button"
+                          disabled={busy === 'pri' + d.id}
+                          onClick={() => makePrimary(d.id)}
+                          title="Set as primary domain"
+                          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {busy === 'pri' + d.id ? (
+                            <span className="h-3 w-3 animate-spin rounded-full border border-zinc-400 border-t-transparent" />
+                          ) : (
+                            <Star className="h-3 w-3 text-amber-400" />
+                          )}
+                          <span>Make primary</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => remove(d.id, d.domain)}
+                        disabled={busy === 'del' + d.id}
+                        title="Remove domain"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {busy === 'del' + d.id ? (
+                          <span className="h-3 w-3 animate-spin rounded-full border border-rose-400 border-t-transparent" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Line 3: Dedicated Full-Width Route Selector (Admin Only) */}
+                  {isAdmin && (
+                    <div className="pt-0.5">
+                      <ShadcnSelect
+                        value={d.shield_node_id ?? ''}
+                        disabled={busy === 'shield' + d.id}
+                        tone={isBroken ? 'danger' : d.shield_node_id ? 'cyan' : 'default'}
+                        title={
+                          isBroken
+                            ? `Warning: Shield node '${matchedShield?.name}' is ${matchedShield?.status}!`
+                            : 'Change Route: Direct Origin or Edge Shield'
+                        }
+                        onChange={async (val) => {
+                          const newId = val ? Number(val) : null;
+                          if (newId) {
+                            const target = shieldNodes.find((s) => s.id === newId);
+                            if (target && target.status !== 'connected') {
+                              toast.error(
+                                `Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`
+                              );
                               return;
                             }
-                            const updated = app.domains.map((dom) =>
-                              dom.id === d.id ? { ...dom, shield_node_id: newId } : dom
-                            );
-                            onUpdateApp?.({ ...app, domains: updated });
-                            toast.success(`Updated ${d.domain} shield route`);
-                            await onChanged();
-                          }}
-                          className={`h-6 rounded-md border px-2 text-[11px] font-medium transition-colors cursor-pointer focus:outline-none ${
-                            isBroken
-                              ? 'border-rose-500/40 bg-rose-500/10 text-rose-300 focus:border-rose-400'
-                              : d.shield_node_id
-                              ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 focus:border-cyan-400'
-                              : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 focus:border-zinc-700'
-                          }`}
-                          title={isBroken ? `Warning: Shield node '${matched?.name}' is ${matched?.status}!` : 'Change Route: Direct Origin or Edge Shield'}
-                        >
-                          <option value="">Direct Origin</option>
-                          {shieldNodes.map((s) => (
-                            <option key={s.id} value={s.id} disabled={s.status !== 'connected' && s.id !== d.shield_node_id}>
-                              Shield: {s.name} ({s.ip}){s.status === 'connected' ? '' : ` [${s.status}]`}
-                            </option>
-                          ))}
-                        </select>
-                      );
-                    })()}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {!d.isPrimary && (
-                      <GhostButton busy={busy === 'pri' + d.id} onClick={() => makePrimary(d.id)} title="Make primary">
-                        <Star className="h-3.5 w-3.5" /> Make primary
-                      </GhostButton>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => remove(d.id, d.domain)}
-                      disabled={busy === 'del' + d.id}
-                      title="Remove"
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 transition-colors hover:bg-rose-500/20 cursor-pointer disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                          }
+                          setBusy('shield' + d.id);
+                          const res = await backendApi.domainEdit(app.id, d.id, {
+                            domain: d.domain,
+                            service: 'php',
+                            port: 80,
+                            enable_https: d.forceHttps,
+                            enable_www: d.enableWww,
+                            shield_node_id: newId,
+                          });
+                          setBusy('');
+                          if (!res.ok) {
+                            toast.error(res.error || 'Failed to update route');
+                            return;
+                          }
+                          const updated = app.domains.map((dom) =>
+                            dom.id === d.id ? { ...dom, shield_node_id: newId } : dom
+                          );
+                          onUpdateApp?.({ ...app, domains: updated });
+                          toast.success(`Updated ${d.domain} route`);
+                          await onChanged();
+                        }}
+                        options={[
+                          { value: '', label: 'Direct Origin (Server IP)' },
+                          ...shieldNodes.map((s) => ({
+                            value: s.id,
+                            label: s.name,
+                            sublabel: s.ip,
+                            disabled: s.status !== 'connected' && s.id !== d.shield_node_id,
+                            badge:
+                              s.status !== 'connected'
+                                ? {
+                                    text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                                    tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                                  }
+                                : undefined,
+                          })),
+                        ]}
+                      />
+                    </div>
+                  )}
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
       </Card>
     </div>
