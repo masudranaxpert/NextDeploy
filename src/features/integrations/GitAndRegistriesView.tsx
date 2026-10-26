@@ -324,7 +324,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   if (mode === 'git') {
     return (
       <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
               <FolderGit2 className="h-4 w-4 text-orange-400" />
@@ -332,22 +332,22 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Git Providers</h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setGitlabModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 cursor-pointer"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 cursor-pointer"
             >
               <GitLabIcon className="h-3.5 w-3.5 text-orange-400" />
-              Connect GitLab
+              <span>Connect GitLab</span>
             </button>
             <button
               type="button"
               onClick={() => setGithubModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
               <Github className="h-3.5 w-3.5" />
-              Connect GitHub
+              <span>Connect GitHub</span>
             </button>
           </div>
         </div>
@@ -504,46 +504,46 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         </div>
 
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+            <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setGitSubTab('repos')}
-                className={`rounded-md px-3 py-1 text-xs font-medium cursor-pointer ${
+                className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer truncate ${
                   gitSubTab === 'repos'
-                    ? 'bg-zinc-800 text-zinc-100'
+                    ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                Synced Repositories ({filteredRepos.length})
+                Repositories ({filteredRepos.length})
               </button>
               <button
                 type="button"
                 onClick={() => setGitSubTab('webhooks')}
-                className={`rounded-md px-3 py-1 text-xs font-medium cursor-pointer ${
+                className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer truncate ${
                   gitSubTab === 'webhooks'
-                    ? 'bg-zinc-800 text-zinc-100'
+                    ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                Webhook Deliveries ({webhookEvents.length})
+                Webhooks ({webhookEvents.length})
               </button>
             </div>
 
             {gitSubTab === 'repos' && (
-              <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+              <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
                 {(['all', 'GitHub', 'GitLab'] as const).map((f) => (
                   <button
                     key={f}
                     type="button"
                     onClick={() => setRepoProviderFilter(f)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                    className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer capitalize ${
                       repoProviderFilter === f
-                        ? 'bg-zinc-800 text-zinc-100'
+                        ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                         : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    {f === 'all' ? 'All' : f}
+                    {f}
                   </button>
                 ))}
               </div>
@@ -1082,54 +1082,55 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      {/* Tier 1: Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
             <HardDrive className="h-4 w-4 text-orange-400" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">
               Container Registries
             </h1>
-            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+            <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
               {filteredRegistries.length}
             </span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Scope Filter (All / Global / Personal) */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-            {(
-              [
-                { id: 'all', label: 'All' },
-                { id: 'global', label: 'Global' },
-                { id: 'personal', label: 'Personal' },
-              ] as const
-            ).map((sc) => (
-              <button
-                key={sc.id}
-                type="button"
-                onClick={() => setRegScopeFilter(sc.id)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
-                  regScopeFilter === sc.id
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {sc.label}
-              </button>
-            ))}
-          </div>
+        <button
+          type="button"
+          onClick={() => setRegistryModalOpen(true)}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span>Add Registry</span>
+        </button>
+      </div>
 
-          <button
-            type="button"
-            onClick={() => setRegistryModalOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Registry
-          </button>
+      {/* Tier 2: Filter Toolbar */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="grid grid-cols-3 sm:flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
+          {(
+            [
+              { id: 'all', label: 'All' },
+              { id: 'global', label: 'Global' },
+              { id: 'personal', label: 'Personal' },
+            ] as const
+          ).map((sc) => (
+            <button
+              key={sc.id}
+              type="button"
+              onClick={() => setRegScopeFilter(sc.id)}
+              className={`rounded-md px-3 py-1 text-center text-xs font-medium cursor-pointer ${
+                regScopeFilter === sc.id
+                  ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              {sc.label}
+            </button>
+          ))}
         </div>
       </div>
 

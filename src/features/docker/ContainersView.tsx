@@ -10,6 +10,7 @@ import {
   Network,
   FileCode2,
   Info,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
@@ -78,46 +79,59 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      {/* Header Row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 shrink-0">
             <Box className="h-4 w-4 text-orange-400" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">Containers</h1>
-            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">Containers</h1>
+            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-xs text-zinc-400 shrink-0">
               {filtered.length}
             </span>
           </div>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter containers..."
-              className="h-8 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none"
-            />
-          </div>
-          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-            {(['all', 'running', 'exited'] as const).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setStateFilter(st)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors cursor-pointer whitespace-nowrap ${
-                  stateFilter === st
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {st}
-              </button>
-            ))}
-          </div>
+      {/* Toolbar Row */}
+      <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter containers..."
+            className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-8 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-2.5 rounded text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              title="Clear filter"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 w-full md:w-auto md:flex md:items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+          {(['all', 'running', 'exited'] as const).map((st) => (
+            <button
+              key={st}
+              type="button"
+              onClick={() => setStateFilter(st)}
+              className={`flex items-center justify-center rounded-md px-3 py-1.5 md:py-1 text-xs font-medium capitalize transition-colors cursor-pointer ${
+                stateFilter === st
+                  ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              {st}
+            </button>
+          ))}
         </div>
       </div>
 

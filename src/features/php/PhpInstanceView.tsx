@@ -46,6 +46,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   const [minCron, setMinCron] = useState(1);
   const [logVersion, setLogVersion] = useState<string | null>(null);
   const [limits, setLimits] = useState<Record<number, { d: number; c: number }>>({});
+  const [restartAllBusy, setRestartAllBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await backendApi.phpInstance();
@@ -91,7 +92,6 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   const m = data.mysql;
   const serviceList = (data.containers ?? []).filter((c) => c.kind !== 'route');
   const runningCount = serviceList.filter((c) => c.state === 'running').length;
-  const [restartAllBusy, setRestartAllBusy] = useState(false);
 
   const restartAllServices = async () => {
     if (runningCount === 0) return;

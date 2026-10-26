@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import {
   RotateCcw,
   Copy,
+  Check,
   Maximize2,
   Minimize2,
   Box,
@@ -85,6 +86,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   const [expanded, setExpanded] = useState(false);
   const [serviceMenuOpen, setServiceMenuOpen] = useState(false);
   const [wsConnectedState, setWsConnectedState] = useState(false);
+  const [copiedHistory, setCopiedHistory] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -523,34 +525,34 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   return (
     <div className="rounded-xl border border-white/[0.08] bg-[#070709] overflow-hidden shadow-2xl">
       {/* Clean Terminal Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#0d0d11] px-3 py-2">
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center gap-1.5 pr-2 border-r border-white/[0.08]">
+      <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] bg-[#0d0d11] px-3 py-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 pr-2 border-r border-white/[0.08] shrink-0">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500/80" />
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
           </div>
 
           {hasMultiServices && activeServiceObj ? (
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative min-w-0" ref={dropdownRef}>
               <button
                 type="button"
                 onClick={() => setServiceMenuOpen((prev) => !prev)}
-                className="inline-flex h-7 items-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                className="inline-flex h-7 max-w-[190px] sm:max-w-xs items-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
               >
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${
+                  className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                     activeServiceObj.state === 'running' ? 'bg-emerald-400' : 'bg-zinc-500'
                   }`}
                 />
-                <Box className="h-3.5 w-3.5 text-orange-400" />
-                <span>{activeServiceObj.service}</span>
+                <Box className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                <span className="truncate">{activeServiceObj.service}</span>
                 {activeServiceObj.image && (
-                  <span className="hidden sm:inline text-[11px] font-mono text-zinc-500">
+                  <span className="hidden sm:inline text-[11px] font-mono text-zinc-500 truncate">
                     ({activeServiceObj.image})
                   </span>
                 )}
-                <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
+                <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0 ml-auto" />
               </button>
 
               {serviceMenuOpen && (
@@ -589,18 +591,18 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
               )}
             </div>
           ) : (
-            <div className="inline-flex h-7 items-center gap-2 rounded-lg bg-zinc-900/80 px-2.5 text-xs font-medium text-zinc-200 border border-white/[0.06]">
-              <TerminalIcon className="h-3.5 w-3.5 text-orange-400" />
-              <span className="font-mono">{hostLabel}</span>
+            <div className="inline-flex h-7 items-center gap-2 rounded-lg bg-zinc-900/80 px-2.5 text-xs font-medium text-zinc-200 border border-white/[0.06] truncate">
+              <TerminalIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+              <span className="font-mono truncate">{hostLabel}</span>
             </div>
           )}
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <StatusBadge
             status={wsConnectedState ? 'connected' : 'stopped'}
-            label={wsConnectedState ? 'Connected' : 'Connecting...'}
+            label={wsConnectedState ? 'Connected' : 'Offline'}
           />
           <button
             type="button"
@@ -609,18 +611,22 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
             title="Clear terminal"
           >
             <RotateCcw className="h-3 w-3" />
-            Clear
+            <span className="hidden sm:inline">Clear</span>
           </button>
           <button
             type="button"
             onClick={async () => {
               const ok = await copyToClipboard(historyRef.current.join('\n'));
-              if (ok) toast.success('Copied command history');
+              if (ok) {
+                setCopiedHistory(true);
+                setTimeout(() => setCopiedHistory(false), 2000);
+              }
             }}
             className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+            title="Copy command history"
           >
-            <Copy className="h-3 w-3" />
-            Copy
+            {copiedHistory ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+            <span className="hidden sm:inline">{copiedHistory ? 'Copied' : 'Copy'}</span>
           </button>
           <button
             type="button"

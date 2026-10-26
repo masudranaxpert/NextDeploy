@@ -103,110 +103,116 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      {/* Header Row: Title & Count on Left, Live Stream Status & Refresh on Right */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 shrink-0">
             <Activity className="h-4 w-4 text-orange-400" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">Monitoring</h1>
-            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">Monitoring</h1>
+            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-xs text-zinc-400 shrink-0">
               {sortedApps.length}
             </span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={monitorSearch}
-              onChange={(e) => setMonitorSearch(e.target.value)}
-              placeholder="Search projects or services..."
-              className="h-8 w-52 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-7 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
-            />
-            {monitorSearch && (
-              <button
-                type="button"
-                onClick={() => setMonitorSearch('')}
-                className="absolute right-2 top-2 text-zinc-500 hover:text-zinc-200 cursor-pointer"
-                title="Clear search"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-1">
-            <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Charts
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowCpuChart((p) => !p)}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                showCpuChart
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {showCpuChart ? <Eye className="h-3 w-3 text-emerald-400" /> : <EyeOff className="h-3 w-3" />}
-              CPU
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowMemChart((p) => !p)}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                showMemChart
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {showMemChart ? <Eye className="h-3 w-3 text-sky-400" /> : <EyeOff className="h-3 w-3" />}
-              RAM
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNetChart((p) => !p)}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                showNetChart
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {showNetChart ? <Eye className="h-3 w-3 text-orange-400" /> : <EyeOff className="h-3 w-3" />}
-              Network
-            </button>
-          </div>
-
+        {/* Live Stream Status & Refresh Button */}
+        <div className="flex items-center gap-2 shrink-0">
           {isLivePaused ? (
             <button
               type="button"
               onClick={handleRefreshOrResume}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
-              title="Streaming paused after 5 minutes of continuous monitoring to save resources. Click to resume."
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 sm:px-3 text-xs font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
+              title="Streaming paused after 5m limit. Click to resume."
             >
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              Stream paused (5m limit) · Resume
+              <span className="hidden sm:inline">Stream paused · </span>Resume
             </button>
           ) : (
             <div
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400"
-              title="Real-time telemetry is actively streaming. Auto-pauses after 5m of monitoring."
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 sm:px-3 text-xs font-medium text-emerald-400"
+              title="Real-time telemetry streaming"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Live stream
+              <span className="hidden sm:inline">Live stream</span>
+              <span className="sm:hidden">Live</span>
             </div>
           )}
 
           <button
             type="button"
             onClick={handleRefreshOrResume}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            title="Refresh telemetry"
           >
             <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Toolbar Row: Search + Chart Toggles */}
+      <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+        {/* Search input: full width on mobile, w-72 on desktop */}
+        <div className="relative w-full md:w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+          <input
+            type="text"
+            value={monitorSearch}
+            onChange={(e) => setMonitorSearch(e.target.value)}
+            placeholder="Search projects or services..."
+            className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-8 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
+          />
+          {monitorSearch && (
+            <button
+              type="button"
+              onClick={() => setMonitorSearch('')}
+              className="absolute right-2.5 top-2.5 rounded text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              title="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Chart Visibility Toggles: full width 3-col grid on mobile, inline segmented pill on desktop */}
+        <div className="grid grid-cols-3 w-full md:w-auto md:flex md:items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+          <button
+            type="button"
+            onClick={() => setShowCpuChart((p) => !p)}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 md:py-1 text-xs font-medium transition-colors cursor-pointer ${
+              showCpuChart
+                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {showCpuChart ? <Eye className="h-3.5 w-3.5 text-emerald-400" /> : <EyeOff className="h-3.5 w-3.5 text-zinc-500" />}
+            <span>CPU</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMemChart((p) => !p)}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 md:py-1 text-xs font-medium transition-colors cursor-pointer ${
+              showMemChart
+                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {showMemChart ? <Eye className="h-3.5 w-3.5 text-sky-400" /> : <EyeOff className="h-3.5 w-3.5 text-zinc-500" />}
+            <span>RAM</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNetChart((p) => !p)}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 md:py-1 text-xs font-medium transition-colors cursor-pointer ${
+              showNetChart
+                ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {showNetChart ? <Eye className="h-3.5 w-3.5 text-orange-400" /> : <EyeOff className="h-3.5 w-3.5 text-zinc-500" />}
+            <span>Network</span>
           </button>
         </div>
       </div>

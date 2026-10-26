@@ -186,66 +186,84 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      {/* Header Row: Title & Count on Left, Layout & Action on Right */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 shrink-0">
             <HardDrive className="h-4 w-4 text-orange-400" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">Volumes</h1>
-            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] tabular-nums text-zinc-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">Volumes</h1>
+            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-xs tabular-nums text-zinc-400 shrink-0">
               {filteredVolumes.length}
             </span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 sm:flex-initial">
-            <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search volumes..."
-              className="h-8 w-full sm:w-48 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none"
-            />
-          </div>
-
+        {/* View Toggle + Restore Button */}
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer whitespace-nowrap ${
+              title="Table View"
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap ${
                 viewMode === 'table'
-                  ? 'bg-zinc-800 text-zinc-100'
+                  ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <List className="h-3.5 w-3.5" />
-              Table
+              <span className="hidden sm:inline">Table</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('grid')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer whitespace-nowrap ${
+              title="Grid View"
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap ${
                 viewMode === 'grid'
-                  ? 'bg-zinc-800 text-zinc-100'
+                  ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-2xs'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
-              Grid
+              <span className="hidden sm:inline">Grid</span>
             </button>
           </div>
 
           <button
             type="button"
             onClick={() => openRestoreModal('')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer whitespace-nowrap"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer whitespace-nowrap"
           >
             <Upload className="h-3.5 w-3.5 text-orange-400" />
-            Restore Archive
+            <span className="hidden sm:inline">Restore Archive</span>
+            <span className="sm:hidden">Restore</span>
           </button>
+        </div>
+      </div>
+
+      {/* Toolbar Row: Full-width Search on Mobile, w-72 on Desktop */}
+      <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search volumes..."
+            className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-8 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-2.5 rounded text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              title="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
