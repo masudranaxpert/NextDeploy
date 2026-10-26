@@ -814,6 +814,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
             void deleteEntries(selectedEntries);
             setSelectedEntries([]);
           }}
+          onClearSelection={() => setSelectedEntries([])}
           mobileTreeOpen={mobileTreeOpen}
           setMobileTreeOpen={setMobileTreeOpen}
           currentSubfoldersCount={currentSubfolders.length}

@@ -351,9 +351,17 @@ export interface ActionMenuItem {
 
 interface ActionMenuProps {
   items: ActionMenuItem[];
+  trigger?: React.ReactNode;
+  triggerClassName?: string;
+  ariaLabel?: string;
 }
 
-export const ActionMenu: React.FC<ActionMenuProps> = ({ items }) => {
+export const ActionMenu: React.FC<ActionMenuProps> = ({
+  items,
+  trigger,
+  triggerClassName,
+  ariaLabel,
+}) => {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -362,8 +370,8 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ items }) => {
   const updateCoords = () => {
     if (!btnRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
-    const menuWidth = 192;
-    const estimatedHeight = items.length * 34 + 16;
+    const menuWidth = 208;
+    const estimatedHeight = items.length * 36 + 16;
     const spaceBelow = window.innerHeight - rect.bottom;
     const top =
       spaceBelow < estimatedHeight && rect.top > estimatedHeight
@@ -405,14 +413,17 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ items }) => {
         ref={btnRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
-          open
-            ? 'border-white/[0.18] bg-zinc-800 text-zinc-100'
-            : 'border-transparent bg-transparent text-zinc-400 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-zinc-100'
-        }`}
-        aria-label="Actions"
+        className={
+          triggerClassName ||
+          `flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+            open
+              ? 'border-white/[0.18] bg-zinc-800 text-zinc-100'
+              : 'border-transparent bg-transparent text-zinc-400 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-zinc-100'
+          }`
+        }
+        aria-label={ariaLabel || 'Actions'}
       >
-        <MoreHorizontal className="h-4 w-4" />
+        {trigger || <MoreHorizontal className="h-4 w-4" />}
       </button>
 
       {open &&
