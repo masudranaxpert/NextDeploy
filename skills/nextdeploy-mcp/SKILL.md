@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-mcp
-description: Guide and tool reference for AI coding agents connecting to NextDeploy via Model Context Protocol (MCP). Covers inspecting apps, managing workspace files, editing environment variables, running non-blocking deployments, and polling deploy logs.
-version: 1.0.0
+description: Guide and tool reference for AI coding agents connecting to NextDeploy via Model Context Protocol (MCP). Covers inspecting apps, managing workspace files, editing environment variables, running non-blocking deployments, PHP runtime support, and polling deploy logs.
+version: 2.5.0
 ---
 
 # NextDeploy MCP (Model Context Protocol) Skill
@@ -137,13 +137,13 @@ All file paths are strictly sandboxed inside the app workspace.
   - Arguments: `job_id` (string, optional), `app_id` (string, optional), `summary_only` (boolean, default true).
 
 ### Area 5: Logs & Diagnosis
-- **`container_logs`**: Fetches recent stdout/stderr lines from any service container.
+- **`container_logs`**: Fetches recent stdout/stderr lines from any service container or PHP-FPM runtime container. Automatically detects PHP sites and streams their runtime logs.
   - Arguments: `app_id` (string, required), `service` (string, optional), `tail` (integer, default 100).
 - **`deploy_log_tail`**: Inspects recent historical deployment logs or live ongoing deployment output.
   - Arguments: `app_id` (string, required), `limit` (integer, default 5).
 
 ### Area 6: Terminal & Command Execution
-- **`container_exec`**: Runs commands inside an application container (or specific compose service) and returns stdout/stderr with exit status. Essential for running database migrations (`php artisan migrate`, `python manage.py migrate`, `npx prisma migrate deploy`), executing test suites (`npm test`, `pytest`, `go test`), and inspecting live container states.
+- **`container_exec`**: Runs commands inside an application container, specific compose service, or PHP-FPM runtime container and returns stdout/stderr with exit status. Fully supports PHP/WordPress sites by targeting the site's isolated runtime container and document root. Essential for running database migrations (`php artisan migrate`, `python manage.py migrate`, `npx prisma migrate deploy`), executing test suites (`npm test`, `pytest`, `go test`), and inspecting live container states.
   - Arguments:
     - `app_id` (string, required)
     - `command` (string, required, e.g. `"npm test"` or `"php artisan migrate"`)
