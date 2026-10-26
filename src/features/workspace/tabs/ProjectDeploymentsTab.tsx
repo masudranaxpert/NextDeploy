@@ -407,12 +407,12 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
             <button
               type="button"
               disabled={liveDeployState.running}
               onClick={() => triggerDeploy()}
-              className="inline-flex h-8.5 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white transition-all cursor-pointer disabled:opacity-50 shadow-sm whitespace-nowrap"
+              className="inline-flex h-8.5 w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white transition-all cursor-pointer disabled:opacity-50 shadow-sm whitespace-nowrap"
             >
               {liveDeployState.running ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -426,7 +426,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
               disabled={liveDeployState.running}
               onClick={() => triggerDeploy({ noCache: true })}
               title="Rebuild and deploy without Docker layer cache"
-              className="inline-flex h-8.5 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:border-orange-500/40 hover:bg-zinc-800 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              className="inline-flex h-8.5 w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:border-orange-500/40 hover:bg-zinc-800 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
             >
               <RefreshCw className={`h-3.5 w-3.5 text-orange-400 shrink-0 ${liveDeployState.running ? 'animate-spin' : ''}`} />
               <span>No-Cache Build</span>
