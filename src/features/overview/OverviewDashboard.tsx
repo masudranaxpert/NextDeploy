@@ -139,13 +139,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-[11px] font-medium text-zinc-400">{c.label}</p>
+                  <p className="text-xs font-medium text-zinc-400">{c.label}</p>
                   <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                     {c.value} <span className="text-xs font-normal text-zinc-500">/ {c.limit}</span>
                   </p>
                 </div>
                 <span
-                  className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium ring-1 ${
+                  className={`rounded-md px-1.5 py-0.5 font-mono text-xs font-medium ring-1 ${
                     c.p >= 90
                       ? 'bg-rose-500/10 text-rose-400 ring-rose-500/20'
                       : c.p >= 70
@@ -177,12 +177,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">Host Memory</p>
+              <p className="text-xs font-medium text-zinc-400">Host Memory</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
               </p>
             </div>
-            <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-400 ring-1 ring-sky-500/20">
+            <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-sky-400 ring-1 ring-sky-500/20">
               {memPct}%
             </span>
           </div>
@@ -197,12 +197,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">Storage (/)</p>
+              <p className="text-xs font-medium text-zinc-400">Storage (/)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {diskUsedGB} <span className="text-xs font-normal text-zinc-500">/ {diskTotalGB} GB</span>
               </p>
             </div>
-            <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-400 ring-1 ring-orange-500/20">
+            <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-orange-400 ring-1 ring-orange-500/20">
               {diskPct}%
             </span>
           </div>
@@ -217,13 +217,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
+              <p className="text-xs font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {cpuPct}
                 <span className="text-xs font-normal text-zinc-500">%</span>
               </p>
             </div>
-            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-500/20">
+            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
               Healthy
             </span>
           </div>
@@ -238,14 +238,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium text-zinc-400">Containers & TLS</p>
+              <p className="text-xs font-medium text-zinc-400">Containers & TLS</p>
               <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                 {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
               </p>
             </div>
             <StatusBadge status="active" label="TLS 1.3" />
           </div>
-          <div className="mt-3 flex items-center justify-between font-mono text-[11px] text-zinc-500">
+          <div className="mt-3 flex items-center justify-between font-mono text-xs text-zinc-500">
             <span>{apps.length} projects</span>
             <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
           </div>
@@ -322,7 +322,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
       {/* Row 3: Recent Deployments & System Daemons */}
       <div className="grid grid-cols-1 gap-4 xl:gap-5 lg:grid-cols-3">
-        <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} rounded-2xl border border-zinc-800/80 bg-[#0d0d11] overflow-hidden flex flex-col justify-between shadow-sm`}>
+        <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} rounded-xl border border-zinc-800/80 bg-[#0d0d11] overflow-hidden flex flex-col justify-between shadow-sm`}>
           <div>
             <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3.5">
               <div className="flex items-center gap-2">
@@ -366,17 +366,17 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
                           {isFailed ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-[#2b0f15] px-2.5 py-0.5 text-xs font-medium text-rose-400 shrink-0">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-[#2b0f15] px-2 py-0.5 text-xs font-medium text-rose-400 shrink-0">
                               <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
                               <span>Failed</span>
                             </span>
                           ) : isBuilding ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-[#0c1f2f] px-2.5 py-0.5 text-xs font-medium text-sky-400 shrink-0">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/40 bg-[#0c1f2f] px-2 py-0.5 text-xs font-medium text-sky-400 shrink-0">
                               <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
                               <span>Building</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-[#0c2419] px-2.5 py-0.5 text-xs font-medium text-emerald-400 shrink-0">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-[#0c2419] px-2 py-0.5 text-xs font-medium text-emerald-400 shrink-0">
                               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                               <span>Ready</span>
                             </span>
@@ -387,7 +387,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                           </span>
                         </div>
 
-                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-600/50 bg-[#281b0a]/80 px-2.5 py-0.5 text-xs font-medium text-amber-400 shrink-0">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-600/50 bg-[#281b0a]/80 px-2 py-0.5 text-xs font-medium text-amber-400 shrink-0">
                           <Shield className="h-3 w-3 text-amber-400" />
                           <span>{dep.appOwner || 'admin'}</span>
                         </span>
@@ -423,7 +423,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 <Server className="h-3.5 w-3.5 text-emerald-400" />
                 <span className="text-xs font-semibold text-zinc-100">System Daemons</span>
               </div>
-              <span className={`font-mono text-[10px] ${services.every((d) => d.ok) ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <span className={`font-mono text-xs ${services.every((d) => d.ok) ? 'text-emerald-400' : 'text-amber-400'}`}>
                 {services.filter((d) => d.ok).length}/{services.length} online
               </span>
             </div>
@@ -437,12 +437,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-zinc-100 font-semibold">{d.name}</span>
-                      <span className="text-[10px] text-zinc-500">{d.ver}</span>
+                      <span className="text-xs text-zinc-500">{d.ver}</span>
                     </div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">{d.meta}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">{d.meta}</div>
                   </div>
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ring-1 ${
                       d.ok ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20' : 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
                     }`}
                   >

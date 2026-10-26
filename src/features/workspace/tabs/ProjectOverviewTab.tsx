@@ -78,19 +78,19 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
       <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5 min-w-0">
           {isGitSyncActive ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
               <GitBranch className="h-3.5 w-3.5" />
               Git Sync ON
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300">
               <Folder className="h-3.5 w-3.5" />
               {hasGitConnection ? 'Manual Files (Git Sync OFF)' : 'Manual Workspace'}
             </span>
           )}
 
           {hasGitConnection && !isGitSyncActive && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-medium text-amber-300">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-xs font-medium text-amber-300">
               Git connected · {app.gitBranch || 'main'} (manual sync available)
             </span>
           )}

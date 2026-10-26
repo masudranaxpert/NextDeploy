@@ -384,14 +384,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     (() => {
                       const matchedShield = shieldNodes.find((s) => s.id === d.shield_node_id);
                       return (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-cyan-400">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
                           <ShieldCheck className="h-3 w-3" />
                           Shield: {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}
                         </span>
                       );
                     })()
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
                       <Globe className="h-3 w-3 text-zinc-500" />
                       Direct Origin
                     </span>
@@ -622,8 +622,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                   Shield Proxy Route (Origin IP Masking)
                 </label>
-                <p className="text-[11px] text-zinc-500">
-                  Route traffic through an offshore/DDoS shield node. Customer DNS A-Record will point to the shield node IP.
+                <p className="text-xs text-zinc-400">
+                  Route traffic through an edge shield node. Customer DNS A-Record will point to the shield node IP.
                 </p>
                 <select
                   value={domainShieldNodeId ?? ''}
