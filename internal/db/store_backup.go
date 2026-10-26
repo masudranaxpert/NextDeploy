@@ -111,6 +111,21 @@ func (s *Store) ListBackupSchedules(ctx context.Context, appID string) ([]Backup
 	return schedules, rows.Err()
 }
 
+// GetBackupSchedule retrieves a single backup schedule by its primary key.
+func (s *Store) GetBackupSchedule(ctx context.Context, id int64) (*BackupSchedule, error) {
+	var sched BackupSchedule
+	var lastRun sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, app_id, destination_id, backup_type, volume_names, cron_schedule, retention_count, enabled, pause_containers, last_run_at, created_at 
+		FROM backup_schedules WHERE id = ?`, id).
+		Scan(&sched.ID, &sched.AppID, &sched.DestinationID, &sched.BackupType, &sched.VolumeNames, &sched.CronExpression, &sched.RetentionCount, &sched.Enabled, &sched.PauseContainers, &lastRun, &sched.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	sched.LastRun = lastRun.String
+	return &sched, nil
+}
+
 func (s *Store) UpdateBackupSchedule(ctx context.Context, scheduleID int64, appID string, destID int64, backupType, volumeNames, cronExpr string, retention int, pauseContainers bool) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE backup_schedules SET destination_id = ?, backup_type = ?, volume_names = ?, cron_schedule = ?, retention_count = ?, pause_containers = ?, updated_at = datetime('now') WHERE id = ? AND app_id = ?`,

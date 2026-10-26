@@ -183,13 +183,31 @@ func (p *Panel) AppBackupManual(c *fiber.Ctx) error {
 	}
 
 	backupType := strings.TrimSpace(c.FormValue("type"))
+	rawVolumes := c.FormValue("volume_names")
+	if backupType == "" {
+		var j struct {
+			Type        string `json:"type"`
+			BackupType  string `json:"backup_type"`
+			VolumeNames string `json:"volume_names"`
+		}
+		_ = c.BodyParser(&j)
+		backupType = strings.TrimSpace(j.BackupType)
+		if backupType == "" {
+			backupType = strings.TrimSpace(j.Type)
+		}
+		if backupType == "" {
+			backupType = "app"
+		}
+		if rawVolumes == "" && j.VolumeNames != "" {
+			rawVolumes = j.VolumeNames
+		}
+	}
 	if !validBackupType(backupType) {
 		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
 	}
 	if msg := p.phpBackupTypeError(c.UserContext(), app.ID, backupType); msg != "" {
 		return c.Status(400).JSON(fiber.Map{"error": msg})
 	}
-	rawVolumes := c.FormValue("volume_names")
 	var volumeField string
 	switch backupType {
 	case "volume":
@@ -682,22 +700,55 @@ func (p *Panel) AppBackupScheduleCreate(c *fiber.Ctx) error {
 	}
 
 	backupType := strings.TrimSpace(c.FormValue("type"))
-	if !validBackupType(backupType) {
-		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
-	}
-	if msg := p.phpBackupTypeError(c.UserContext(), c.Params("id"), backupType); msg != "" {
-		return c.Status(400).JSON(fiber.Map{"error": msg})
-	}
-	volumeField, err := normalizeScheduleVolumeField(backupType, c.FormValue("volume_names"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-	}
+	rawVolNames := c.FormValue("volume_names")
 	cronExpr := strings.TrimSpace(c.FormValue("cron"))
 	retention := 7
 	if v := strings.TrimSpace(c.FormValue("retention")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
 			retention = n
 		}
+	}
+	if backupType == "" || cronExpr == "" {
+		var j struct {
+			Type        string `json:"type"`
+			BackupType  string `json:"backup_type"`
+			Cron        string `json:"cron"`
+			CronExpr    string `json:"cron_expression"`
+			Retention   int    `json:"retention"`
+			VolumeNames string `json:"volume_names"`
+		}
+		_ = c.BodyParser(&j)
+		if backupType == "" {
+			backupType = strings.TrimSpace(j.BackupType)
+			if backupType == "" {
+				backupType = strings.TrimSpace(j.Type)
+			}
+			if backupType == "" {
+				backupType = "app"
+			}
+		}
+		if cronExpr == "" {
+			cronExpr = strings.TrimSpace(j.Cron)
+			if cronExpr == "" {
+				cronExpr = strings.TrimSpace(j.CronExpr)
+			}
+		}
+		if rawVolNames == "" && j.VolumeNames != "" {
+			rawVolNames = j.VolumeNames
+		}
+		if j.Retention >= 1 {
+			retention = j.Retention
+		}
+	}
+	if !validBackupType(backupType) {
+		return c.Status(400).JSON(fiber.Map{"error": "type must be 'volume', 'app' or 'full'"})
+	}
+	if msg := p.phpBackupTypeError(c.UserContext(), c.Params("id"), backupType); msg != "" {
+		return c.Status(400).JSON(fiber.Map{"error": msg})
+	}
+	volumeField, err := normalizeScheduleVolumeField(backupType, rawVolNames)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if cronExpr == "" {

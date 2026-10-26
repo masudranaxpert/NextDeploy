@@ -26,6 +26,9 @@ func (p *Panel) APIAuthMiddleware(c *fiber.Ctx) error {
 	if token == "" {
 		token = strings.TrimSpace(c.Get("X-API-Key"))
 	}
+	if token == "" {
+		token = strings.TrimSpace(c.Query("token"))
+	}
 
 	ctx := c.UserContext()
 	if token != "" {
@@ -107,11 +110,20 @@ func (p *Panel) UploadWorkspaceArchive(c *fiber.Ctx) error {
 		filename = "archive.tar.gz"
 	}
 
-	count, totalBytes, err := p.Store.ExtractArchive(appID, reader, filename)
+	targetDir := p.Store.Path(appID)
+	if p.DB.IsPHPSite(ctx, appID) {
+		targetDir = filepath.Join(targetDir, "htdocs")
+	}
+
+	count, totalBytes, err := p.Store.ExtractArchiveDir(appID, targetDir, reader, filename)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": fmt.Sprintf("archive extraction failed: %v", err),
 		})
+	}
+
+	if p.DB.IsPHPSite(ctx, appID) && p.PHP != nil {
+		p.PHP.DebounceFixOwnership(appID)
 	}
 
 	p.InvalidateAfterAppWorkspaceChange(appID)
@@ -164,6 +176,8 @@ func (p *Panel) DownloadWorkspaceArchive(c *fiber.Ctx) error {
 	base := p.Store.Path(appID)
 	if isGit {
 		base = filepath.Clean(filepath.Join(p.Store.ReservedPath(appID), "repo"))
+	} else if p.DB.IsPHPSite(ctx, appID) {
+		base = filepath.Clean(filepath.Join(p.Store.Path(appID), "htdocs"))
 	}
 
 	targetDir := base

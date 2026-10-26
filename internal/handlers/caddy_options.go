@@ -77,6 +77,9 @@ func (p *Panel) CaddyOptionsSave(c *fiber.Ctx) error {
 func proxyRouteContainer(id int64) string { return "nd-route-" + strconv.FormatInt(id, 10) }
 
 func (p *Panel) syncProxyRoute(ctx context.Context, r db.ProxyRoute) error {
+	if p.PHP == nil {
+		return nil
+	}
 	name := proxyRouteContainer(r.ID)
 	if !r.Enabled {
 		p.PHP.RemoveHolder(ctx, name)
@@ -111,6 +114,23 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 	var r db.ProxyRoute
 	if err := c.BodyParser(&r); err != nil {
 		return phpJSONErr(c, 400, "invalid body")
+	}
+	var alt struct {
+		Upstream  string `json:"upstream"`
+		RouteType string `json:"route_type"`
+	}
+	_ = c.BodyParser(&alt)
+	if r.Target == "" && alt.Upstream != "" {
+		r.Target = strings.TrimSpace(alt.Upstream)
+	}
+	if r.Kind == "" && alt.RouteType != "" {
+		r.Kind = strings.TrimSpace(alt.RouteType)
+	}
+	if r.Kind == "reverse_proxy" {
+		r.Kind = "proxy"
+	}
+	if r.Kind == "" {
+		r.Kind = "proxy"
 	}
 	r.ID = 0
 	if idStr := c.Params("id"); idStr != "" {

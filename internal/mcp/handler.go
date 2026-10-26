@@ -26,6 +26,7 @@ import (
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
+	"panel/internal/phphosting"
 	"panel/internal/quota"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
@@ -852,6 +853,12 @@ func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, cont
 	var err error
 	if h.p.IsGitApp(ctx, app.ID) {
 		full, err = h.p.Store.SafeGitRepoFilePath(app.ID, path)
+	} else if h.p.DB.IsPHPSite(ctx, app.ID) {
+		clean := filepath.ToSlash(strings.Trim(path, "/"))
+		if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+			clean = "htdocs/" + clean
+		}
+		full, err = h.p.Store.SafeFilePath(app.ID, clean)
 	} else {
 		full, err = h.p.Store.SafeFilePath(app.ID, path)
 	}
@@ -872,6 +879,9 @@ func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, cont
 	}
 	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
 		return err
+	}
+	if h.p.DB.IsPHPSite(ctx, app.ID) && h.p.PHP != nil {
+		h.p.PHP.DebounceFixOwnership(app.ID)
 	}
 	h.p.InvalidateAfterAppWorkspaceChange(app.ID)
 	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == app.ComposeFile {
@@ -1005,7 +1015,14 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 		if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" {
 			return errorResult(fmt.Errorf("cannot delete protected file %q", d))
 		}
-		if _, err := h.p.Store.SafeFilePath(appID, d); err != nil {
+		delPath := d
+		if h.p.DB.IsPHPSite(ctx, appID) {
+			clean := filepath.ToSlash(strings.Trim(d, "/"))
+			if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+				delPath = "htdocs/" + clean
+			}
+		}
+		if _, err := h.p.Store.SafeFilePath(appID, delPath); err != nil {
 			return errorResult(fmt.Errorf("invalid delete path %q: %w", d, err))
 		}
 	}
@@ -1014,7 +1031,14 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 		if filepath.Base(w.Path) == ".nextdeploy.generated.compose.yml" || filepath.Base(w.Path) == ".panel-meta" {
 			return errorResult(fmt.Errorf("cannot write to protected file %q", w.Path))
 		}
-		if _, err := h.p.Store.SafeFilePath(appID, w.Path); err != nil {
+		writePath := w.Path
+		if h.p.DB.IsPHPSite(ctx, appID) {
+			clean := filepath.ToSlash(strings.Trim(w.Path, "/"))
+			if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+				writePath = "htdocs/" + clean
+			}
+		}
+		if _, err := h.p.Store.SafeFilePath(appID, writePath); err != nil {
 			return errorResult(fmt.Errorf("invalid write path %q: %w", w.Path, err))
 		}
 		cleanRel := filepath.ToSlash(strings.Trim(w.Path, "/"))
@@ -1041,7 +1065,14 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 	// Apply deletes first
 	var deletedPaths []string
 	for _, d := range deletes {
-		if err := h.p.Store.RemoveRel(appID, d); err != nil && !os.IsNotExist(err) {
+		delPath := d
+		if h.p.DB.IsPHPSite(ctx, appID) {
+			clean := filepath.ToSlash(strings.Trim(d, "/"))
+			if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+				delPath = "htdocs/" + clean
+			}
+		}
+		if err := h.p.Store.RemoveRel(appID, delPath); err != nil && !os.IsNotExist(err) {
 			return errorResult(fmt.Errorf("failed deleting %s: %w", d, err))
 		}
 		deletedPaths = append(deletedPaths, d)
@@ -1054,6 +1085,10 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 			return errorResult(fmt.Errorf("failed writing %s: %w", w.Path, err))
 		}
 		writtenPaths = append(writtenPaths, w.Path)
+	}
+
+	if h.p.DB.IsPHPSite(ctx, appID) && h.p.PHP != nil {
+		h.p.PHP.DebounceFixOwnership(appID)
 	}
 
 	InvalidateManifestCache(appID, "")
@@ -1591,19 +1626,34 @@ func (h *Handler) handleContainerLogs(ctx context.Context, u db.User, args map[s
 	if err != nil {
 		return errorResult(err)
 	}
-	project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
-	logRef := service
-	if service != "" {
-		if composeRes.OK && h.p.ComposeServiceInRows(composeRows, service) {
-			cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, service)
-			if rerr == nil && cid != "" {
-				logRef = cid
+
+	var logRef string
+	if h.p.PHP != nil && h.p.DB.IsPHPSite(ctx, appID) {
+		if site, serr := h.p.DB.GetPHPSite(ctx, appID); serr == nil {
+			if site.SiteType == phphosting.SiteTypeStatic {
+				return CallToolResult{Content: []ContentItem{{Type: "text", Text: "Static sites do not have a running container."}}}, nil
 			}
+			logRef = h.p.PHP.RuntimeName(site)
 		}
-	} else if len(composeRows) > 0 {
-		logRef = composeRows[0].Name
-	} else {
-		logRef = project
+	}
+
+	if logRef == "" {
+		project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
+		if service != "" {
+			if composeRes.OK && h.p.ComposeServiceInRows(composeRows, service) {
+				cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, service)
+				if rerr == nil && cid != "" {
+					logRef = cid
+				}
+			}
+			if logRef == "" {
+				logRef = service
+			}
+		} else if len(composeRows) > 0 {
+			logRef = composeRows[0].Name
+		} else {
+			logRef = project
+		}
 	}
 	raw, ferr := dockerapi.FetchContainerLogsText(ctx, logRef, tail)
 	if ferr != nil && strings.TrimSpace(raw) == "" {
@@ -1780,46 +1830,63 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 		timeoutSec = 3600
 	}
 
-	project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
 	targetContainer := ""
 	matchedService := service
+	var execUser string
 
-	if service != "" {
-		if composeRes.OK && h.p.ComposeServiceInRows(composeRows, service) {
-			cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, service)
-			if rerr == nil && cid != "" {
-				targetContainer = cid
+	if h.p.PHP != nil {
+		if site, serr := h.p.DB.GetPHPSite(ctx, appID); serr == nil {
+			if site.SiteType == "static" {
+				return errorResult(fmt.Errorf("static sites have no PHP runtime to execute commands in"))
+			}
+			targetContainer = h.p.PHP.RuntimeName(site)
+			matchedService = "php"
+			execUser = fmt.Sprintf("%d:%d", site.UID, site.UID)
+			if workDir == "" {
+				workDir = h.p.PHP.DocRootFor(site)
 			}
 		}
-		if targetContainer == "" {
+	}
+
+	if targetContainer == "" {
+		project, composeRows, composeRes := h.p.ComposeProjectAndPS(ctx, app, appID)
+		if service != "" {
+			if composeRes.OK && h.p.ComposeServiceInRows(composeRows, service) {
+				cid, rerr := dockerapi.ContainerIDForComposeService(ctx, project, service)
+				if rerr == nil && cid != "" {
+					targetContainer = cid
+				}
+			}
+			if targetContainer == "" {
+				for _, row := range composeRows {
+					if strings.EqualFold(row.Name, service) || strings.EqualFold(row.Service, service) {
+						targetContainer = row.Name
+						matchedService = row.Service
+						break
+					}
+				}
+			}
+			if targetContainer == "" && h.p.ContainerBelongsToApp(ctx, appID, service) {
+				targetContainer = service
+			}
+			if targetContainer == "" {
+				return errorResult(fmt.Errorf("service or container %q not found for app %q", service, appID))
+			}
+		} else {
 			for _, row := range composeRows {
-				if strings.EqualFold(row.Name, service) || strings.EqualFold(row.Service, service) {
+				if strings.EqualFold(row.State, "running") {
 					targetContainer = row.Name
 					matchedService = row.Service
 					break
 				}
 			}
-		}
-		if targetContainer == "" && h.p.ContainerBelongsToApp(ctx, appID, service) {
-			targetContainer = service
-		}
-		if targetContainer == "" {
-			return errorResult(fmt.Errorf("service or container %q not found for app %q", service, appID))
-		}
-	} else {
-		for _, row := range composeRows {
-			if strings.EqualFold(row.State, "running") {
-				targetContainer = row.Name
-				matchedService = row.Service
-				break
+			if targetContainer == "" && len(composeRows) > 0 {
+				targetContainer = composeRows[0].Name
+				matchedService = composeRows[0].Service
 			}
-		}
-		if targetContainer == "" && len(composeRows) > 0 {
-			targetContainer = composeRows[0].Name
-			matchedService = composeRows[0].Service
-		}
-		if targetContainer == "" {
-			return errorResult(fmt.Errorf("no running container found for app %q. Deploy the application stack first", appID))
+			if targetContainer == "" {
+				return errorResult(fmt.Errorf("no running container found for app %q. Deploy the application stack first", appID))
+			}
 		}
 	}
 
@@ -1828,9 +1895,17 @@ func (h *Handler) handleContainerExec(ctx context.Context, u db.User, args map[s
 
 	var res dockerx.Result
 	if len(cmdArgs) > 0 {
-		res = dockerx.DockerExecArgs(execCtx, targetContainer, cmdArgs, workDir, stdinReader)
+		if execUser != "" {
+			res = dockerx.DockerExecUserArgs(execCtx, targetContainer, execUser, cmdArgs, workDir, stdinReader)
+		} else {
+			res = dockerx.DockerExecArgs(execCtx, targetContainer, cmdArgs, workDir, stdinReader)
+		}
 	} else {
-		res = dockerx.DockerExecWorkDirWithStdin(execCtx, targetContainer, command, workDir, stdinReader)
+		if execUser != "" {
+			res = dockerx.DockerExecUserWorkDirWithStdin(execCtx, targetContainer, execUser, command, workDir, stdinReader)
+		} else {
+			res = dockerx.DockerExecWorkDirWithStdin(execCtx, targetContainer, command, workDir, stdinReader)
+		}
 	}
 
 	go func() {

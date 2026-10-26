@@ -21,7 +21,12 @@ const maxArchiveUncompressedBytes = 2 << 30 // 2 GB limit to prevent decompressi
 // ExtractArchive safely extracts a tar.gz, tar, or zip archive into the workspace.
 // Guards against path traversal, symlink attacks, and decompression bombs.
 func (s *Store) ExtractArchive(wsID string, r io.Reader, filename string) (int, int64, error) {
-	base := filepath.Clean(s.Path(wsID))
+	return s.ExtractArchiveDir(wsID, s.Path(wsID), r, filename)
+}
+
+// ExtractArchiveDir safely extracts an archive into a specific target directory.
+func (s *Store) ExtractArchiveDir(wsID, targetDir string, r io.Reader, filename string) (int, int64, error) {
+	base := filepath.Clean(targetDir)
 	if err := os.MkdirAll(base, 0750); err != nil {
 		return 0, 0, err
 	}

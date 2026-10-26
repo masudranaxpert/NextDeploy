@@ -177,8 +177,28 @@ func run() int {
 		err = cmd.RunLogs(cl, rest)
 	case "exec", "run":
 		err = cmd.RunExec(cl, rest)
+	case "shell":
+		err = cmd.RunShell(cl, rest)
 	case "server-exec":
 		err = cmd.RunServerExec(cl, rest)
+	case "server-shell":
+		err = cmd.RunServerShell(cl, rest)
+	case "php":
+		err = cmd.RunPHP(cl, rest)
+	case "volume", "volumes":
+		err = cmd.RunVolume(cl, rest)
+	case "backup", "backups":
+		err = cmd.RunBackup(cl, rest)
+	case "proxy":
+		err = cmd.RunProxy(cl, rest)
+	case "shield":
+		err = cmd.RunShield(cl, rest)
+	case "top", "stats":
+		err = cmd.RunTop(cl, rest)
+	case "clean":
+		err = cmd.RunClean(cl, rest)
+	case "audit":
+		err = cmd.RunAudit(cl, rest)
 	case "env":
 		err = cmd.RunEnv(cl, rest)
 	case "domain", "domains":

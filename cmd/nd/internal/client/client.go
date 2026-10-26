@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"nd/internal/config"
 )
@@ -109,6 +112,7 @@ func (c *Client) DoRaw(method, path string, contentType string, body io.Reader) 
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("X-NextDeploy-Client", "cli")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("Content-Type", contentType)
 
@@ -174,4 +178,29 @@ func JSONError(body []byte) string {
 		return e
 	}
 	return string(body)
+}
+
+// DialWebSocket establishes an authenticated WebSocket connection to the server.
+func (c *Client) DialWebSocket(path string, query url.Values) (*websocket.Conn, *http.Response, error) {
+	u, err := url.Parse(c.cfg.ServerURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid server URL: %w", err)
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		u.Scheme = "wss"
+	} else {
+		u.Scheme = "ws"
+	}
+	u.Path = path
+	if query != nil {
+		u.RawQuery = query.Encode()
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+c.cfg.Token)
+	header.Set("User-Agent", c.userAgent())
+	header.Set("X-NextDeploy-Client", "cli")
+
+	dialer := websocket.DefaultDialer
+	return dialer.Dial(u.String(), header)
 }

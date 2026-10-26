@@ -400,6 +400,66 @@ func DockerExecArgs(ctx context.Context, container string, cmdArgs []string, wor
 	return runutil.RunWithStdin(ctx, ".", nil, stdin, append(base, cmdArgs...)...)
 }
 
+// DockerExecUserWorkDirWithStdin executes a command inside a container with specific user, workDir, and stdin.
+func DockerExecUserWorkDirWithStdin(ctx context.Context, container, user, shellCmd, workDir string, stdin io.Reader) Result {
+	container = strings.TrimSpace(container)
+	shellCmd = strings.TrimSpace(shellCmd)
+	workDir = strings.TrimSpace(workDir)
+	user = strings.TrimSpace(user)
+	if container == "" {
+		return Result{OK: false, Output: "no container selected"}
+	}
+	if shellCmd == "" {
+		return Result{OK: false, Output: "empty command"}
+	}
+	base := []string{"docker", "exec", "-i"}
+	if user != "" {
+		base = append(base, "-u", user)
+	}
+	if workDir != "" {
+		base = append(base, "-w", workDir)
+	}
+	base = append(base, container, "sh", "-c", shellCmd)
+	r := runutil.RunWithStdin(ctx, ".", nil, stdin, base...)
+	if !r.OK && strings.Contains(r.Output, "executable file not found") {
+		parts := strings.Fields(shellCmd)
+		if len(parts) > 0 {
+			fallback := []string{"docker", "exec", "-i"}
+			if user != "" {
+				fallback = append(fallback, "-u", user)
+			}
+			if workDir != "" {
+				fallback = append(fallback, "-w", workDir)
+			}
+			fallback = append(fallback, container)
+			r = runutil.RunWithStdin(ctx, ".", nil, stdin, append(fallback, parts...)...)
+		}
+	}
+	return r
+}
+
+// DockerExecUserArgs executes a command with direct args with specific user, workDir, and stdin.
+func DockerExecUserArgs(ctx context.Context, container, user string, cmdArgs []string, workDir string, stdin io.Reader) Result {
+	container = strings.TrimSpace(container)
+	workDir = strings.TrimSpace(workDir)
+	user = strings.TrimSpace(user)
+	if container == "" {
+		return Result{OK: false, Output: "no container selected"}
+	}
+	if len(cmdArgs) == 0 {
+		return Result{OK: false, Output: "empty command"}
+	}
+	base := []string{"docker", "exec", "-i"}
+	if user != "" {
+		base = append(base, "-u", user)
+	}
+	if workDir != "" {
+		base = append(base, "-w", workDir)
+	}
+	base = append(base, container)
+	return runutil.RunWithStdin(ctx, ".", nil, stdin, append(base, cmdArgs...)...)
+}
+
 func DockerExecWorkDir(ctx context.Context, container, shellCmd, workDir string) Result {
 	return DockerExecWorkDirWithStdin(ctx, container, shellCmd, workDir, nil)
 }

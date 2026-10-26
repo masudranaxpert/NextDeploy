@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -370,7 +371,7 @@ func (p *Panel) PHPDatabaseExport(c *fiber.Ctx) error {
 	return nil
 }
 
-// POST /apps/:id/php/databases/:dbid/import (multipart field "file": .sql or .sql.gz)
+// POST /apps/:id/php/databases/:dbid/import (multipart field "file": .sql or .sql.gz, or raw stream)
 func (p *Panel) PHPDatabaseImport(c *fiber.Ctx) error {
 	_, site, err := p.phpSiteFor(c)
 	if site.AppID == "" {
@@ -380,23 +381,44 @@ func (p *Panel) PHPDatabaseImport(c *fiber.Ctx) error {
 	if !ok {
 		return nil
 	}
+
+	var r io.Reader
+	var gz bool
 	fh, err := c.FormFile("file")
-	if err != nil {
-		return phpJSONErr(c, 400, "missing file")
+	if err == nil && fh != nil {
+		f, ferr := fh.Open()
+		if ferr != nil {
+			return phpJSONErr(c, 400, ferr.Error())
+		}
+		defer f.Close()
+		r = f
+		gz = strings.HasSuffix(strings.ToLower(fh.Filename), ".gz")
+	} else if fh2, err2 := c.FormFile("sql"); err2 == nil && fh2 != nil {
+		f, ferr := fh2.Open()
+		if ferr != nil {
+			return phpJSONErr(c, 400, ferr.Error())
+		}
+		defer f.Close()
+		r = f
+		gz = strings.HasSuffix(strings.ToLower(fh2.Filename), ".gz")
+	} else {
+		body := c.Body()
+		if len(body) == 0 {
+			return phpJSONErr(c, 400, "missing file or empty request body")
+		}
+		if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+			gz = true
+		}
+		r = bytes.NewReader(body)
 	}
-	f, err := fh.Open()
-	if err != nil {
-		return phpJSONErr(c, 400, err.Error())
-	}
-	defer f.Close()
-	gz := strings.HasSuffix(strings.ToLower(fh.Filename), ".gz")
+
 	ctx, cancel := context.WithTimeout(c.UserContext(), 45*time.Minute)
 	defer cancel()
-	if err := p.PHP.ImportDatabase(ctx, d.DBName, f, gz); err != nil {
+	if err := p.PHP.ImportDatabase(ctx, d.DBName, r, gz); err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
 	p.RecordAuditLog(c, "php_db_import", "app", site.AppID, "Imported into "+d.DBName)
-	return c.JSON(fiber.Map{"ok": true})
+	return c.JSON(fiber.Map{"ok": true, "message": "Imported database successfully"})
 }
 
 // ---- cron ----

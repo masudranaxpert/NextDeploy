@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,6 +124,9 @@ func (p *Panel) APIManifest(c *fiber.Ctx) error {
 	relPath := c.Query("path", "")
 
 	wsRoot := p.Store.Path(appID)
+	if p.DB.IsPHPSite(ctx, appID) && relPath == "" {
+		wsRoot = filepath.Join(wsRoot, "htdocs")
+	}
 	res, err := wsmanifest.BuildWorkspaceManifest(wsRoot, appID, relPath, depth, computeHash, includeLocks, fullHash, nil, 5000)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("manifest failed: %v", err)})

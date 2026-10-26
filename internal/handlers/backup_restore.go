@@ -91,7 +91,7 @@ func parseVolumeRestoreMultipart(c *fiber.Ctx, saveBackupToTemp bool) (vol strin
 		}
 
 		switch part.FormName() {
-		case "name":
+		case "name", "volume":
 			b, err := io.ReadAll(io.LimitReader(part, 512))
 			_ = part.Close()
 			if err != nil {
@@ -193,7 +193,7 @@ func volumeRestoreFlashAfterSuccess(ctx context.Context, vol string) string {
 // the archive is saved and restore runs in the background; the response is 202 + job_id.
 // Without that header, restore runs synchronously and redirects back to browse (legacy).
 func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
-	wantJSON := strings.Contains(c.Get("Accept"), "application/json")
+	wantJSON := strings.Contains(c.Get("Accept"), "application/json") || c.Get("X-NextDeploy-Client") == "cli"
 	vol, fromApp, tmpPath, syncR, archKind, err := parseVolumeRestoreMultipart(c, wantJSON)
 	if err != nil {
 		if wantJSON {
@@ -296,6 +296,12 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 // VolumeRestoreStatus returns JSON progress for a background volume restore job.
 func (p *Panel) VolumeRestoreStatus(c *fiber.Ctx) error {
 	id := strings.TrimSpace(c.Query("id"))
+	if id == "" {
+		id = strings.TrimSpace(c.Query("job"))
+	}
+	if id == "" {
+		id = strings.TrimSpace(c.Params("job"))
+	}
 	if id == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "missing job id"})
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/logview"
+	"panel/internal/phphosting"
 
 	"github.com/fasthttp/websocket"
 	fws "github.com/gofiber/contrib/websocket"
@@ -38,13 +41,43 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 		return
 	}
 
+	u, uOk := c.Locals(contextUserKey).(db.User)
+	if !uOk {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("unauthorized: valid session or Bearer token required"))
+		_ = c.Close()
+		return
+	}
+	allowed, aerr := p.CanAccessApp(chkCtx, u.ID, u.Role, app.ID, db.CollabRoleViewer)
+	if aerr != nil || !allowed {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: viewer access required for logs"))
+		_ = c.Close()
+		return
+	}
+
 	tail := strings.TrimSpace(c.Query("tail"))
 	if tail == "" {
 		tail = "200"
 	}
 	since := strings.TrimSpace(c.Query("since"))
 
+	source := strings.ToLower(strings.TrimSpace(c.Query("source")))
+	isErrorLog := c.Query("error") == "true" || source == "error" || source == "php" || container == "error"
+
 	var logRef string
+	if p.PHP != nil {
+		if site, serr := p.DB.GetPHPSite(chkCtx, app.ID); serr == nil {
+			if isErrorLog {
+				p.streamPHPErrorLogWS(c, site, tail)
+				return
+			}
+			if site.SiteType == phphosting.SiteTypeStatic {
+				_ = c.WriteMessage(websocket.TextMessage, []byte("static sites do not have a PHP runtime container"))
+				_ = c.Close()
+				return
+			}
+			logRef = p.PHP.RuntimeName(site)
+		}
+	}
 	// 1. If container is explicitly provided and belongs to the app:
 	if container != "" && container != "all" {
 		if p.ContainerBelongsToApp(chkCtx, app.ID, container) {
@@ -246,4 +279,57 @@ func (p *Panel) AppLogsREST(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(fiber.Map{"ok": true, "logs": res, "container": logRef})
+}
+
+func (p *Panel) streamPHPErrorLogWS(c *fws.Conn, site db.PHPSite, tailStr string) {
+	n, _ := strconv.Atoi(tailStr)
+	if n < 10 {
+		n = 100
+	}
+	path := filepath.Join(p.PHP.SitePath(site.AppID), "logs", "php-error.log")
+	initial := tailFile(path, n)
+	if initial != "" {
+		_ = c.WriteMessage(websocket.TextMessage, []byte(initial+"\n"))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var lastOffset int64
+	if fi, err := os.Stat(path); err == nil {
+		lastOffset = fi.Size()
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fi, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			curSize := fi.Size()
+			if curSize < lastOffset {
+				lastOffset = 0
+			}
+			if curSize > lastOffset {
+				f, err := os.Open(path)
+				if err == nil {
+					diffBytes := make([]byte, curSize-lastOffset)
+					nRead, rerr := f.ReadAt(diffBytes, lastOffset)
+					f.Close()
+					if nRead > 0 && (rerr == nil || rerr == io.EOF) {
+						lastOffset += int64(nRead)
+						if err := c.WriteMessage(websocket.TextMessage, diffBytes[:nRead]); err != nil {
+							return
+						}
+					}
+				}
+			}
+		}
+	}
 }

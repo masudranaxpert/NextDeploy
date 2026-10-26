@@ -98,10 +98,22 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("app not found"))
 		return
 	}
-	if u, uOk := c.Locals(contextUserKey).(db.User); uOk {
-		allowed, aerr := p.CanAccessApp(chkCtx, u.ID, u.Role, app.ID, db.CollabRoleDeveloper)
-		if aerr != nil || !allowed {
-			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: developer access required for terminal"))
+	u, uOk := c.Locals(contextUserKey).(db.User)
+	if !uOk {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("unauthorized: valid session or Bearer token required"))
+		_ = c.Close()
+		return
+	}
+	allowed, aerr := p.CanAccessApp(chkCtx, u.ID, u.Role, app.ID, db.CollabRoleDeveloper)
+	if aerr != nil || !allowed {
+		_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: developer access required for terminal"))
+		_ = c.Close()
+		return
+	}
+	if tok, tokOk := c.Locals("api_token").(db.APIToken); tokOk && tok.ID > 0 {
+		if !tok.AllowContainerExec {
+			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: container execution is restricted for this API token. Enable 'Allow Container Exec' in CLI Sessions / MCP Docs."))
+			_ = c.Close()
 			return
 		}
 	}
@@ -159,11 +171,26 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	cmdQuery := strings.TrimSpace(c.Query("cmd"))
+	var execCmd []string
+	if cmdQuery != "" {
+		execCmd = []string{"/bin/sh", "-c", cmdQuery}
+	}
+
 	var sess *dockerapi.PTYExecSession
 	if phpPTY != nil {
-		sess, err = dockerapi.ExecPTYWithOptions(ctx, targetContainer, []string{"/bin/bash"}, rows, cols, *phpPTY)
+		shell := []string{"/bin/bash"}
+		if len(execCmd) > 0 {
+			shell = execCmd
+		}
+		sess, err = dockerapi.ExecPTYWithOptions(ctx, targetContainer, shell, rows, cols, *phpPTY)
 	} else {
-		sess, err = dockerapi.ExecPTYAutoShell(ctx, targetContainer, rows, cols)
+		if len(execCmd) > 0 {
+			sess, err = dockerapi.ExecPTY(ctx, targetContainer, execCmd, rows, cols)
+		} else {
+			sess, err = dockerapi.ExecPTYAutoShell(ctx, targetContainer, rows, cols)
+		}
 	}
 	if err != nil {
 		log.Printf("terminal exec: %v", err)
@@ -256,9 +283,16 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	u, ok := c.Locals(contextUserKey).(db.User)
 	if !ok || u.Role != db.RoleAdmin {
-		_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden"))
+		_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: admin privileges required"))
 		_ = c.Close()
 		return
+	}
+	if tok, tokOk := c.Locals("api_token").(db.APIToken); tokOk && tok.ID > 0 {
+		if !tok.AllowServerExec {
+			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: server execution is restricted for this API token. Enable 'Allow Server Exec' in CLI Sessions / MCP Docs."))
+			_ = c.Close()
+			return
+		}
 	}
 	cols := parseDim(c.Query("cols"), 80)
 	rows := parseDim(c.Query("rows"), 24)

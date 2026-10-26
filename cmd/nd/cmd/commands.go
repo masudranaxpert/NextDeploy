@@ -18,6 +18,8 @@ import (
 	"nd/internal/client"
 	"nd/internal/config"
 	"nd/internal/ui"
+
+	"github.com/gorilla/websocket"
 )
 
 // Version can be overwritten at build time or by main.
@@ -1703,6 +1705,7 @@ func RunLogs(cl *client.Client, args []string) error {
 	lines := 100
 	follow := false
 	isDeploy := false
+	isErrorLog := false
 	service := ""
 	var cleanArgs []string
 
@@ -1710,6 +1713,8 @@ func RunLogs(cl *client.Client, args []string) error {
 		arg := args[i]
 		if arg == "-f" || arg == "--follow" {
 			follow = true
+		} else if arg == "--error" || arg == "-e" {
+			isErrorLog = true
 		} else if arg == "--deploy" || arg == "-d" {
 			isDeploy = true
 		} else if (arg == "-s" || arg == "--service") && i+1 < len(args) {
@@ -1736,6 +1741,38 @@ func RunLogs(cl *client.Client, args []string) error {
 
 	if isDeploy {
 		return runDeployLogs(cl, appID, follow)
+	}
+
+	// Real-time zero-latency WebSocket streaming when follow is requested, or when error logs are requested
+	if follow || isErrorLog {
+		q := url.Values{}
+		q.Set("tail", strconv.Itoa(lines))
+		if service != "" {
+			q.Set("container", service)
+		}
+		if isErrorLog {
+			q.Set("error", "true")
+		}
+		ws, _, wsErr := cl.DialWebSocket("/api/v1/apps/"+appID+"/ws/logs", q)
+		if wsErr == nil {
+			defer ws.Close()
+			for {
+				msgType, data, rerr := ws.ReadMessage()
+				if rerr != nil {
+					return nil
+				}
+				if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+					os.Stdout.Write(data)
+				}
+				if !follow {
+					return nil
+				}
+			}
+		}
+		if isErrorLog {
+			return fmt.Errorf("could not connect to error log stream: %w", wsErr)
+		}
+		// If WS dial fails for container follow, fall through to polling
 	}
 
 	fetchLogs := func(tailCount int) (string, error) {
@@ -1971,9 +2008,10 @@ func RunExec(cl *client.Client, args []string) error {
 		service    string
 		workDir    string
 		timeoutStr string
-		stdinFlag  bool
-		isServer   bool
-		cmdTokens  []string
+		stdinFlag   bool
+		interactive bool
+		isServer    bool
+		cmdTokens   []string
 	)
 
 	// Check if local project is linked
@@ -1996,6 +2034,9 @@ func RunExec(cl *client.Client, args []string) error {
 			fmt.Println("  -t, --timeout <duration>         Command timeout (e.g. 300s, 5m, default: 300s)")
 			fmt.Println("  --server                         Run directly on the host VPS (requires allow_server_exec)")
 			return nil
+		} else if arg == "-it" || arg == "-ti" || arg == "--interactive" {
+			interactive = true
+			i++
 		} else if arg == "-i" || arg == "--stdin" {
 			stdinFlag = true
 			i++
@@ -2081,6 +2122,10 @@ func RunExec(cl *client.Client, args []string) error {
 
 	if len(cmdTokens) == 0 {
 		return fmt.Errorf("command required to execute inside container")
+	}
+
+	if interactive {
+		return runPTYSession(cl, "/api/v1/apps/"+appID+"/ws/terminal", service, strings.Join(cmdTokens, " "))
 	}
 
 	var stdinData string
@@ -2934,9 +2979,54 @@ Deployments & Lifecycle:
   nd down [app_id]                   Stop and remove application containers
   nd logs [app_id] [-s svc] [-n 50] [-f] Show container logs (--deploy to view deployment build logs)
 
-Execution & Command Run:
-  nd exec [flags] [app_id] <cmd...>  Run command inside container (supports -i/--stdin, -t/--timeout)
+Execution & Shell:
+  nd exec [flags] [app_id] <cmd...>  Run command inside container (supports -it, -i/--stdin, -t/--timeout)
+  nd shell [app_id] [-c container]   Open interactive bash/sh TTY shell into container or PHP site
   nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
+  nd server-shell                    Open interactive admin TTY root terminal on host VPS
+
+PHP & Database Hosting:
+  nd php list                        List all PHP hosting sites
+  nd php create <name> <domain>      Create a new PHP site (supports --php, --type, --db)
+  nd php info [app_id]               Show PHP runtime, extensions, docroot, and pool status
+  nd php set [app_id] [flags]        Update PHP version, upload limits, memory, extensions
+  nd php restart [app_id]            Restart PHP-FPM runtime container
+  nd php fix-perms [app_id]          Fix file permissions and ownership for web server
+  nd php pma [app_id]                Generate one-click auto-login SSO URL for phpMyAdmin
+  nd php db list|create|user|grant   Manage MariaDB databases and users
+  nd php cron list|add|rm            Manage scheduled cron jobs for PHP sites
+
+Volumes & Storage:
+  nd volume list [app_id]            List persistent Docker volumes and disk sizes
+  nd volume browse <vol> [path]      Browse files within a Docker volume
+  nd volume download <vol> <path>    Download file from volume to local machine
+  nd volume restore <vol> <tar.gz>   Restore volume contents from tar.gz backup
+  nd volume rm <vol>                 Remove a Docker volume
+  nd volume prune                    Prune unused Docker volumes
+
+Backups:
+  nd backup list [app_id]            List backup snapshots and statuses
+  nd backup create [app_id]          Trigger immediate manual backup snapshot
+  nd backup log <id>                 View backup run log
+  nd backup restore <id>             Restore application or system from backup
+  nd backup schedule [app_id]        Configure automated backup schedule
+  nd backup dest list|add            Manage remote S3/storage backup destinations
+
+Proxy & Edge Shield:
+  nd proxy list                      List Caddy reverse proxy upstream routes
+  nd proxy add <domain> <upstream>   Add custom reverse proxy upstream route
+  nd proxy rm <id>                   Remove proxy route
+  nd proxy reload                    Reload Caddy configuration without downtime
+  nd proxy logs [-f]                 View reverse proxy logs
+  nd shield list                     List edge shield proxy nodes
+  nd shield test <node_id>           Test edge shield proxy node connectivity
+  nd shield setup-script             Output bash setup script for edge shield server
+  nd shield reassign <app> <node>    Reassign app traffic through shield node
+
+System Monitoring & Maintenance:
+  nd top / stats                     Live system resource monitor (CPU, RAM, disk, containers)
+  nd clean [--all]                   Prune Docker build cache, dangling images, and containers
+  nd audit                           Audit panel security, active sessions, and permissions
 
 Environment Variables:
   nd env list [app_id] [--json]      List configured environment variable keys
@@ -2961,10 +3051,12 @@ Flags:
   -a, --app <app_id>                 Target application ID (overrides linked directory)
   -j, --json                         Output structured JSON (compatible with CI/CD and AI agents)
   -s, --service <service>            Target compose service for exec / logs / stop / restart
-  -c, --container <container>        Target specific container name for exec
+  -c, --container <container>        Target specific container name for exec / shell
   -w, --workdir <dir>                Working directory inside container
   -t, --timeout <secs>               Execution timeout in seconds (default: 300s, max: 3600s)
   -i, --stdin                        Forward stdin to command inside container
+  -it, --interactive                 Run interactive TTY session (for exec)
+  -e, --error                        Stream PHP error log (for logs)
   --recreate                         Force recreate containers during restart
   --server                           Execute on host VPS instead of container
 

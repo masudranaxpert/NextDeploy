@@ -211,6 +211,12 @@ func (p *Panel) APIAppFileContent(c *fiber.Ctx) error {
 	var pathErr error
 	if p.IsGitApp(ctx, appID) {
 		full, pathErr = p.Store.SafeGitRepoFilePath(appID, reqPath)
+	} else if p.DB.IsPHPSite(ctx, appID) {
+		clean := filepath.ToSlash(strings.Trim(reqPath, "/"))
+		if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+			clean = "htdocs/" + clean
+		}
+		full, pathErr = p.Store.SafeFilePath(appID, clean)
 	} else {
 		full, pathErr = p.Store.SafeFilePath(appID, reqPath)
 	}
@@ -344,6 +350,12 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	var pathErr error
 	if p.IsGitApp(ctx, appID) {
 		full, pathErr = p.Store.SafeGitRepoFilePath(appID, reqPath)
+	} else if p.DB.IsPHPSite(ctx, appID) {
+		clean := filepath.ToSlash(strings.Trim(reqPath, "/"))
+		if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+			clean = "htdocs/" + clean
+		}
+		full, pathErr = p.Store.SafeFilePath(appID, clean)
 	} else {
 		full, pathErr = p.Store.SafeFilePath(appID, reqPath)
 	}
@@ -356,6 +368,10 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	}
 	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed writing file: " + err.Error()})
+	}
+
+	if p.DB.IsPHPSite(ctx, appID) && p.PHP != nil {
+		p.PHP.DebounceFixOwnership(appID)
 	}
 
 	p.InvalidateAfterAppWorkspaceChange(appID)
@@ -423,6 +439,15 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 	var delErr error
 	if p.IsGitApp(ctx, appID) {
 		delErr = p.Store.RemoveGitRepoRel(appID, reqPath)
+	} else if p.DB.IsPHPSite(ctx, appID) {
+		clean := filepath.ToSlash(strings.Trim(reqPath, "/"))
+		if !strings.HasPrefix(clean, "htdocs/") && clean != "htdocs" {
+			clean = "htdocs/" + clean
+		}
+		delErr = p.Store.RemoveRel(appID, clean)
+		if p.PHP != nil {
+			p.PHP.DebounceFixOwnership(appID)
+		}
 	} else {
 		delErr = p.Store.RemoveRel(appID, reqPath)
 	}
