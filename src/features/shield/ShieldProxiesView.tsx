@@ -925,8 +925,8 @@ export function ShieldProxiesView() {
       <ShadcnDialog
         open={Boolean(reassignModalNode)}
         onClose={() => setReassignModalNode(null)}
-        title="Failover & Domain Reassignment"
-        description="Migrate all domains from this shield node to a standby node or direct origin."
+        title="Reassign Domains"
+        description="Switch all routed domains to another shield node or direct origin."
         icon={<ArrowLeftRight className="h-5 w-5 text-cyan-400" />}
         maxWidth="md"
         footer={
@@ -934,7 +934,7 @@ export function ShieldProxiesView() {
             <button
               type="button"
               onClick={() => setReassignModalNode(null)}
-              className="h-9 px-3.5 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              className="h-8 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -942,30 +942,29 @@ export function ShieldProxiesView() {
               type="submit"
               form="reassign-shield-form"
               disabled={reassigning}
-              className="h-9 px-4 rounded-md bg-cyan-600 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
+              className="h-8 px-3.5 rounded-lg bg-cyan-600 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
             >
               <ArrowLeftRight className="h-3.5 w-3.5" />
-              <span>{reassigning ? 'Migrating...' : 'Confirm Migration'}</span>
+              <span>{reassigning ? 'Reassigning...' : 'Reassign'}</span>
             </button>
           </div>
         }
       >
         {reassignModalNode && (
           <form id="reassign-shield-form" onSubmit={handleReassign} className="space-y-4">
-            <div className="rounded-lg bg-zinc-950 border border-zinc-800 p-3 text-xs space-y-1.5">
-              <div className="text-zinc-400">Current Active Source Node:</div>
-              <div className="font-semibold text-white flex items-center justify-between">
-                <span>{reassignModalNode.name}</span>
-                <span className="font-mono text-zinc-400">{reassignModalNode.ip}</span>
+            <div className="rounded-lg border border-white/[0.08] bg-zinc-950 p-3 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-zinc-100">{reassignModalNode.name}</div>
+                <div className="font-mono text-[11px] text-zinc-400">{reassignModalNode.ip}</div>
               </div>
-              <div className="text-xs text-amber-400 pt-0.5">
-                Routes currently assigned: <strong className="text-white">{reassignModalNode.assigned_domains || 0}</strong> domain(s).
-              </div>
+              <span className="inline-flex items-center gap-1 rounded-md bg-zinc-900 border border-white/[0.08] px-2 py-0.5 font-mono text-xs text-zinc-300">
+                {reassignModalNode.assigned_domains || 0} domain{reassignModalNode.assigned_domains === 1 ? '' : 's'}
+              </span>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                Migrate All Assigned Domains To:
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-zinc-300">
+                New Destination
               </label>
               <select
                 value={targetShieldId === null ? 'direct' : targetShieldId}
@@ -973,20 +972,17 @@ export function ShieldProxiesView() {
                   const val = e.target.value;
                   setTargetShieldId(val === 'direct' ? null : Number(val));
                 }}
-                className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                className="w-full h-8.5 rounded-lg border border-white/[0.08] bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-cyan-500 focus:outline-none cursor-pointer"
               >
-                <option value="direct">Direct Origin (Server Public IP - Direct Routing)</option>
+                <option value="direct">Direct Origin (Server IP)</option>
                 {nodes
                   .filter((n) => n.id !== reassignModalNode.id)
                   .map((n) => (
-                    <option key={n.id} value={n.id}>
-                      {n.name} ({n.ip}) - {n.status}
+                    <option key={n.id} value={n.id} disabled={n.status !== 'connected'}>
+                      {n.name} ({n.ip}){n.status === 'connected' ? '' : ` • ${n.status}`}
                     </option>
                   ))}
               </select>
-              <p className="mt-1.5 text-xs text-zinc-500">
-                Select another active shield VPS, or route domains directly to the host server IP.
-              </p>
             </div>
           </form>
         )}
