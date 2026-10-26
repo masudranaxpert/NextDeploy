@@ -210,7 +210,8 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
             <span>PHP {app.php.phpVersion}</span>
           </button>
         ) : (
-          <span className="whitespace-nowrap rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 font-mono text-[12px] text-zinc-300">
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-sky-500/25 bg-sky-500/[0.07] px-2.5 py-1 font-mono text-[12px] text-sky-300">
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-sky-400" />
             production · {activeSlotLower.toUpperCase()}
           </span>
         )}
@@ -255,7 +256,9 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => onSelectTab(t.id)}
-                className={`group relative flex h-12 items-center justify-center gap-2.5 rounded-xl px-3 text-[13.5px] transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-orange-500 md:h-auto md:justify-start md:gap-1.5 md:py-2.5 md:text-xs ${
+                className={`group relative flex h-12 items-center gap-2.5 rounded-xl px-3 text-[13.5px] transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-orange-500 md:h-auto md:py-2.5 md:text-xs ${
+                  t.icon ? 'justify-center md:justify-start' : 'justify-between'
+                } md:gap-1.5 ${
                   active
                     ? 'bg-white/[0.025] font-medium text-zinc-100'
                     : 'text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-200'
@@ -268,7 +271,9 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                     className={`inline-flex h-[18px] min-w-[21px] items-center justify-center rounded-full px-1.5 font-mono text-[10.5px] tabular-nums transition-colors ${
                       active
                         ? 'border border-orange-500/30 bg-orange-500/20 text-orange-300'
-                        : 'bg-white/[0.05] text-zinc-500 group-hover:bg-white/[0.09] group-hover:text-zinc-300'
+                        : t.count > 0
+                        ? 'bg-white/[0.1] text-zinc-300 group-hover:bg-white/[0.14]'
+                        : 'bg-white/[0.04] text-zinc-600'
                     }`}
                   >
                     {t.count}

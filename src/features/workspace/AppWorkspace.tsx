@@ -52,6 +52,7 @@ import {
   X,
   Loader2,
   AlertTriangle,
+  Save,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -248,6 +249,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     app.envVars.map((e) => `${e.key}=${e.value}`).join('\n')
   );
   const [envSearch, setEnvSearch] = useState('');
+  const [isEnvDirty, setIsEnvDirty] = useState(false);
 
   // =========================================================================
   // 2. Deployments State (Production, Preview URLs, Rollback & Live Progress)
@@ -1285,6 +1287,33 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
   const [selectedContainers, setSelectedContainers] = useState<string[]>([]);
   const [isDeletingContainers, setIsDeletingContainers] = useState(false);
+  const [containerFilter, setContainerFilter] = useState<'all' | 'running' | 'stopped'>('all');
+  const [restartAllBusy, setRestartAllBusy] = useState(false);
+
+  const containerRunningCount = app.services.filter((s) => s.state === 'running').length;
+  const filteredServices =
+    containerFilter === 'all'
+      ? app.services
+      : app.services.filter((s) =>
+          containerFilter === 'running' ? s.state === 'running' : s.state !== 'running'
+        );
+
+  const restartAllContainers = async () => {
+    const running = app.services.filter((s) => s.state === 'running');
+    if (running.length === 0) {
+      toast.info('No running containers to restart');
+      return;
+    }
+    setRestartAllBusy(true);
+    try {
+      await Promise.all(running.map((s) => backendApi.appContainerAction(app.id, s.name, 'restart')));
+      toast.success(`Restarted ${running.length} container(s)`);
+    } catch {
+      toast.error('Failed to restart containers');
+    } finally {
+      setRestartAllBusy(false);
+    }
+  };
 
   const toggleSelectContainer = (containerName: string) => {
     setSelectedContainers((prev) =>
@@ -1295,11 +1324,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   const toggleSelectAllContainers = () => {
-    if (selectedContainers.length === app.services.length) {
-      setSelectedContainers([]);
-    } else {
-      setSelectedContainers(app.services.map((s) => s.name || s.service));
-    }
+    const names = filteredServices.map((s) => s.name || s.service);
+    const allSelected = names.length > 0 && names.every((n) => selectedContainers.includes(n));
+    setSelectedContainers(
+      allSelected
+        ? selectedContainers.filter((n) => !names.includes(n))
+        : [...new Set([...selectedContainers, ...names])]
+    );
   };
 
   const handleRemoveSelectedContainers = async (targets?: string[]) => {
@@ -1374,6 +1405,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
   // Environment Variables Handlers
   const handleEnvChange = (id: string, field: 'key' | 'value', val: string) => {
+    setIsEnvDirty(true);
     const nextVars = app.envVars.map((ev) =>
       ev.id === id
         ? {
@@ -1386,6 +1418,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   const handleAddBlankEnvRow = () => {
+    setIsEnvDirty(true);
     const newId = `ev-${Date.now()}`;
     const nextVars = [
       ...app.envVars,
@@ -1413,6 +1446,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     if (lines.length === 0) return;
 
     e.preventDefault();
+    setIsEnvDirty(true);
     const parsed = lines.map((line, i) => {
       const idx = line.indexOf('=');
       const k = line
@@ -1438,6 +1472,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   };
 
   const handleDeleteEnv = (id: string) => {
+    setIsEnvDirty(true);
     onUpdateApp({
       ...app,
       envVars: app.envVars.filter((e) => e.id !== id),
@@ -1953,6 +1988,11 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       ev.value.toLowerCase().includes(envSearch.toLowerCase())
   );
 
+  const emptyEnvCount = useMemo(
+    () => app.envVars.filter((e) => !e.value || e.value.trim().length === 0).length,
+    [app.envVars]
+  );
+
   const runningContainersCount = app.services.filter((s) => s.state === 'running').length;
   const activeSlotLower = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
   const standbySlotName = (activeSlotLower === 'green' ? 'blue' : 'green') as 'blue' | 'green';
@@ -2231,33 +2271,35 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           {/* Row 2: Source Pipeline + Container Resource Limits & Styled Delete Button */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 flex flex-col justify-between gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {hasGitConnection ? (
-                    <GitBranch className="h-4 w-4 text-orange-400" />
-                  ) : (
-                    <Folder className="h-4 w-4 text-orange-400" />
-                  )}
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
-                    {hasGitConnection ? 'Git Source & Environments' : 'Manual Workspace Directory'}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
+                    {hasGitConnection ? (
+                      <GitBranch className="h-4 w-4 text-orange-400" />
+                    ) : (
+                      <Folder className="h-4 w-4 text-orange-400" />
+                    )}
+                  </span>
+                  <h3 className="truncate font-mono text-[13px] font-semibold uppercase tracking-wide text-zinc-100">
+                    {hasGitConnection ? 'Git Source & Environments' : 'Workspace Directory'}
                   </h3>
                 </div>
                 {hasGitConnection ? (
                   <button
                     type="button"
                     onClick={() => setGitModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
                   >
-                    <GitBranch className="h-3 w-3 text-orange-400" />
+                    <GitBranch className="h-3.5 w-3.5 text-orange-400" />
                     Change Branch / Repo
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setActiveTab('files')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
                   >
-                    <FolderOpen className="h-3 w-3 text-orange-400" />
+                    <FolderOpen className="h-3.5 w-3.5 text-orange-400" />
                     Manage Files
                   </button>
                 )}
@@ -2311,8 +2353,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-                  <div className="sm:col-span-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
                     <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                       Deploy Mode
                     </span>
@@ -2320,52 +2362,65 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       Manual Files Only
                     </div>
                   </div>
-                  <div className="sm:col-span-6 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                      Workspace Directory
-                    </span>
-                    <div className="mt-1 font-mono text-xs text-zinc-100 break-all">
-                      /data/apps/{app.slug}
-                    </div>
-                  </div>
-                  <div className="sm:col-span-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 min-w-0">
                     <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                       Compose Entry
                     </span>
-                    <div className="mt-1 font-mono text-xs text-emerald-400 break-all">
+                    <div className="mt-1 truncate font-mono text-xs text-emerald-400" title={app.composeFilePath || 'docker-compose.yml'}>
                       {app.composeFilePath || 'docker-compose.yml'}
+                    </div>
+                  </div>
+                  <div className="col-span-2 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Workspace Directory
+                    </span>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs text-zinc-100 break-all">
+                        /data/apps/{app.slug}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await copyToClipboard(`/data/apps/${app.slug}`);
+                          if (ok) toast.success('Copied workspace directory');
+                        }}
+                        title="Copy workspace directory"
+                        className="shrink-0 rounded-md border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-100 cursor-pointer"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Production & Preview URLs Bar + Quick Compose & File Manager Actions */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3 text-xs">
-                <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
-                  {productionUrl && (                  <a
+              {/* Production & Preview URLs + Quick Compose & File Manager Actions */}
+              <div className="space-y-2 border-t border-white/[0.06] pt-3 text-xs">
+                {productionUrl && (
+                  <a
                     href={productionUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-emerald-400 hover:underline"
+                    className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2 font-mono text-[11px] text-emerald-300 transition-colors hover:bg-emerald-500/10"
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    Prod: {productionUrl.replace('https://', '')}
-                    <ArrowUpRight className="h-3 w-3" />
-                  </a>)}
-                  <span className="text-zinc-700">|</span>
-                  {previewUrl && (                  <a
+                    <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                    <span className="min-w-0 flex-1 truncate">{productionUrl.replace('https://', '')}</span>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+                  </a>
+                )}
+                {previewUrl && (
+                  <a
                     href={previewUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-violet-300 hover:underline"
+                    className="flex items-center gap-2 rounded-lg border border-violet-500/25 bg-violet-500/[0.06] px-3 py-2 font-mono text-[11px] text-violet-300 transition-colors hover:bg-violet-500/10"
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-                    Standby ({standbySlotName}): {previewHost}
-                    <ArrowUpRight className="h-3 w-3" />
-                  </a>)}
-                </div>
-
-                <div className="flex items-center gap-2">
+                    <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+                    <span className="min-w-0 flex-1 truncate">Standby ({standbySlotName}): {previewHost}</span>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+                  </a>
+                )}
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={async () => {
@@ -2376,15 +2431,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       setMergedComposeYaml(res.yaml || fallbackYaml);
                       setMergedComposeModalOpen(true);
                     }}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-emerald-400 hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 cursor-pointer"
                   >
                     <Layers className="h-3.5 w-3.5" />
-                    Merged Caddy Compose
+                    Caddy Compose
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab('files')}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/[0.07] text-xs font-medium text-orange-300 hover:bg-orange-500/15 cursor-pointer"
                   >
                     <FileCode2 className="h-3.5 w-3.5" />
                     Open File Manager
@@ -2397,8 +2452,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 flex flex-col justify-between gap-4">
               <div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="h-3.5 w-3.5 text-orange-400" />
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
+                      <Sliders className="h-3.5 w-3.5 text-orange-400" />
+                    </span>
                     <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
                       Resource Limits
                     </span>
@@ -2645,29 +2702,76 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'containers' && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden shadow-sm">
-            {selectedContainers.length > 0 && (
-              <div className="flex items-center justify-between border-b border-white/[0.07] bg-[#0c0c0f] px-4 py-2.5">
-                <span className="text-xs text-zinc-300 font-medium">
-                  {selectedContainers.length} container(s) selected
-                </span>
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3">
+            <input
+              type="checkbox"
+              checked={filteredServices.length > 0 && selectedContainers.length === filteredServices.length}
+              onChange={toggleSelectAllContainers}
+              className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 accent-orange-500 cursor-pointer"
+              title="Select all containers"
+            />
+            <span className="text-sm font-semibold text-zinc-100">Containers</span>
+            <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] text-emerald-300">
+              {containerRunningCount}/{app.services.length} running
+            </span>
+            <button
+              type="button"
+              onClick={restartAllContainers}
+              disabled={restartAllBusy}
+              className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw className={`h-3.5 w-3.5 text-orange-400 ${restartAllBusy ? 'animate-spin' : ''}`} />
+              Restart All
+            </button>
+          </div>
+
+          <div className="flex items-center gap-0.5 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-1.5">
+            {(['all', 'running', 'stopped'] as const).map((f) => {
+              const count =
+                f === 'all'
+                  ? app.services.length
+                  : app.services.filter((s) => (f === 'running' ? s.state === 'running' : s.state !== 'running')).length;
+              const isActive = containerFilter === f;
+              return (
                 <button
+                  key={f}
                   type="button"
-                  disabled={isDeletingContainers}
-                  onClick={() => handleRemoveSelectedContainers()}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                  onClick={() => setContainerFilter(f)}
+                  className={`flex-1 rounded-lg px-3 py-1.5 text-center font-mono text-xs transition-colors cursor-pointer ${
+                    isActive
+                      ? 'border border-white/[0.1] bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>
-                    {isDeletingContainers
-                      ? 'Deleting...'
-                      : `Delete Selected (${selectedContainers.length})`}
-                  </span>
+                  {f === 'all' ? 'All' : f === 'running' ? 'Running' : 'Stopped'} ({count})
                 </button>
-              </div>
-            )}
+              );
+            })}
+          </div>
+
+          {selectedContainers.length > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#0c0c0f] px-4 py-2.5">
+              <span className="text-xs font-medium text-zinc-300">
+                {selectedContainers.length} container(s) selected
+              </span>
+              <button
+                type="button"
+                disabled={isDeletingContainers}
+                onClick={() => handleRemoveSelectedContainers()}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 transition-colors hover:bg-rose-500/20 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>
+                  {isDeletingContainers
+                    ? 'Deleting...'
+                    : `Delete Selected (${selectedContainers.length})`}
+                </span>
+              </button>
+            </div>
+          )}
+          <div className="hidden overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90 shadow-sm md:block">
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left text-xs">
+              <table className="w-full min-w-[760px] table-fixed text-left text-xs">
                 <thead>
                   <tr className="border-b border-white/[0.07] bg-[#09090b]/80 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
                     <th className="w-9 px-3 py-2.5 text-center">
@@ -2690,18 +2794,18 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {app.services.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center">
-                        <Box className="mx-auto h-8 w-8 text-zinc-600 mb-2" />
-                        <p className="text-xs font-medium text-zinc-300">No containers running</p>
-                        <p className="text-[11px] text-zinc-500 mt-1">
-                          Deploy this project to launch your compose services.
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    app.services.map((svc) => {
+                {filteredServices.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center">
+                      <Box className="mx-auto h-8 w-8 text-zinc-600 mb-2" />
+                      <p className="text-xs font-medium text-zinc-300">No containers running</p>
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        Deploy this project to launch your compose services.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                    filteredServices.map((svc) => {
                       const imgInfo = formatCompactImage(svc.image);
                       const shortPort = formatCompactPort(svc.ports);
                       const isSelected = selectedContainers.includes(svc.name || svc.service);
@@ -2866,6 +2970,146 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Mobile: container cards */}
+          <div className="space-y-2.5 md:hidden">
+            {filteredServices.length === 0 ? (
+              <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-8 text-center">
+                <Box className="mx-auto h-8 w-8 text-zinc-600" />
+                <p className="mt-2 text-xs font-medium text-zinc-300">No containers to show</p>
+              </div>
+            ) : (
+              filteredServices.map((svc) => {
+                const name = svc.name || svc.service;
+                const isSelected = selectedContainers.includes(name);
+                const n = (svc.name || '').toLowerCase();
+                const containerSlot = n.includes('-blue-')
+                  ? 'blue'
+                  : n.includes('-green-')
+                  ? 'green'
+                  : null;
+                const isProdSlot = containerSlot === activeSlotLower;
+                const imgInfo = formatCompactImage(svc.image);
+                const shortPort = formatCompactPort(svc.ports);
+
+                return (
+                  <div
+                    key={svc.id}
+                    className={`rounded-xl border p-3 space-y-2.5 transition-colors ${
+                      isSelected ? 'border-orange-500/40 bg-orange-500/[0.04]' : 'border-white/[0.07] bg-[#111115]/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectContainer(name)}
+                        className="h-4 w-4 shrink-0 rounded border-zinc-700 bg-zinc-900 accent-orange-500 cursor-pointer"
+                        title="Select container"
+                      />
+                      <StatusBadge status={svc.state} />
+                      {containerSlot && (
+                        <span
+                          className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                            isProdSlot
+                              ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-400'
+                              : 'border-violet-500/25 bg-violet-500/15 text-violet-300'
+                          }`}
+                        >
+                          {isProdSlot ? 'PROD' : 'PREVIEW'}
+                        </span>
+                      )}
+                      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLogContainerFilter(svc.service);
+                            setActiveTab('logs');
+                          }}
+                          title="View logs"
+                          className="inline-flex h-8 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                        >
+                          Logs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await backendApi.appContainerAction(app.id, name, 'restart');
+                            toast.success(`Restarted ${name}`);
+                          }}
+                          title="Restart container"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                        >
+                          <RotateCw className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await backendApi.appContainerAction(app.id, name, svc.state === 'running' ? 'stop' : 'start');
+                            toast.success(svc.state === 'running' ? `Stopped ${name}` : `Started ${name}`);
+                          }}
+                          title={svc.state === 'running' ? 'Stop container' : 'Start container'}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                            svc.state === 'running'
+                              ? 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          {svc.state === 'running' ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSelectedContainers([name])}
+                          title="Delete container"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-orange-500/25 bg-orange-500/10">
+                        <Box className="h-4 w-4 text-orange-400" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-zinc-100" title={name}>
+                        {name}
+                      </span>
+                      {svc.service && svc.service !== svc.name && (
+                        <span className="shrink-0 rounded border border-white/[0.08] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                          svc: {svc.service}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <span className="min-w-0 truncate font-mono text-[11px] text-zinc-400" title={svc.image}>
+                        {imgInfo.shortName}
+                        <span className="text-orange-400">:{imgInfo.tagPart}</span>
+                      </span>
+                      {shortPort && (
+                        <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
+                          {shortPort}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
+                      <span className="min-w-0 truncate text-zinc-500">
+                        {svc.id ? `#${svc.id.slice(0, 8)}` : '—'}
+                        {svc.uptime ? ` · ${formatCompactUptime(svc.uptime)}` : ''}
+                      </span>
+                      <span className="shrink-0 whitespace-nowrap">
+                        <span className="text-zinc-200">{svc.cpuPct}%</span>
+                        <span className="mx-1 text-zinc-600">·</span>
+                        <span className="text-zinc-400">{svc.memUsedMB}M</span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
@@ -2959,7 +3203,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-1.5 sm:shrink-0">
               {activeProductionDeployment && (
                 <button
                   type="button"
@@ -3026,32 +3270,15 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Filter & Action Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-              {(
-                [
-                  { id: 'all', label: 'All' },
-                  { id: 'production', label: 'Production' },
-                  { id: 'rollback', label: 'Rollbacks' },
-                ] as const
-              ).map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setDeployEnvFilter(f.id)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                    deployEnvFilter === f.id
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-1.5">
+          {/* Release History Header & Toolbar */}
+          <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-zinc-100">Release History</h2>
+                <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                  {enrichedDeployments.length}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={async () => {
@@ -3071,83 +3298,293 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                 <Trash2 className="h-3.5 w-3.5 text-zinc-400" />
                 Clear History
               </button>
-              <button
-                type="button"
-                disabled={liveDeployState.running}
-                onClick={() => triggerDeploy({ noCache: true })}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 text-orange-400 ${liveDeployState.running ? 'animate-spin' : ''}`} />
-                Rebuild (No Cache)
-              </button>
-              <button
-                type="button"
-                disabled={liveDeployState.running}
-                onClick={() => triggerDeploy()}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
-              >
-                {liveDeployState.running ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                )}
-                {liveDeployState.running ? 'Deploying...' : 'Deploy'}
-              </button>
             </div>
-          </div>
 
-          {/* Live Deployment Streaming Console Drawer */}
-          {(liveDeployState.running || liveDeployState.output) && (() => {
-            const isVisible = isBuildLogExpanded ?? liveDeployState.running;
-            return (
-              <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#09090b]">
-                <div
-                  className="flex items-center justify-between bg-zinc-900/70 px-3.5 py-2 cursor-pointer select-none"
-                  onClick={() => setIsBuildLogExpanded(!isVisible)}
-                >
-                  <div className="flex items-center gap-2">
-                    {liveDeployState.running ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-400" />
-                    ) : (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    )}
-                    <span className="font-mono text-xs font-medium text-zinc-200">
-                      {liveDeployState.running
-                        ? `Building · ${liveDeployState.action || 'Deploy'}`
-                        : `Build output · ${liveDeployState.action || 'Completed'}`}
-                    </span>
-                  </div>
+            {/* Filter Pills & Action Buttons */}
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-1 sm:flex sm:items-center sm:gap-0.5 sm:p-0.5">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'production', label: 'Production' },
+                    { id: 'rollback', label: 'Rollbacks' },
+                  ] as const
+                ).map((f) => (
                   <button
+                    key={f.id}
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsBuildLogExpanded(!isVisible);
-                    }}
-                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 cursor-pointer"
+                    onClick={() => setDeployEnvFilter(f.id)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors text-center cursor-pointer ${
+                      deployEnvFilter === f.id
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
                   >
-                    <span>{isVisible ? 'Hide' : 'Show'}</span>
-                    {isVisible ? (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    )}
+                    {f.label}
                   </button>
-                </div>
-                {isVisible && (
-                  <div
-                    ref={liveDeployLogRef}
-                    className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px] scroll-smooth"
-                  >
-                    {renderStyledBuildLog(liveDeployState.output || 'Waiting for output...')}
-                  </div>
-                )}
+                ))}
               </div>
-            );
-          })()}
 
-          {/* Deployments Table */}
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-            <table className="w-full table-fixed text-left text-xs">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1.5">
+                <button
+                  type="button"
+                  disabled={liveDeployState.running}
+                  onClick={() => triggerDeploy()}
+                  className="inline-flex h-9 sm:h-7 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
+                >
+                  {liveDeployState.running ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                  )}
+                  {liveDeployState.running ? 'Deploying...' : 'Deploy Now'}
+                </button>
+                <button
+                  type="button"
+                  disabled={liveDeployState.running}
+                  onClick={() => triggerDeploy({ noCache: true })}
+                  className="inline-flex h-9 sm:h-7 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 text-orange-400 ${liveDeployState.running ? 'animate-spin' : ''}`} />
+                  Rebuild (No Cache)
+                </button>
+              </div>
+            </div>
+
+            {/* Live Deployment Streaming Console Drawer */}
+            {(liveDeployState.running || liveDeployState.output) && (() => {
+              const isVisible = isBuildLogExpanded ?? liveDeployState.running;
+              return (
+                <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#09090b]">
+                  <div
+                    className="flex items-center justify-between bg-zinc-900/70 px-3.5 py-2 cursor-pointer select-none"
+                    onClick={() => setIsBuildLogExpanded(!isVisible)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {liveDeployState.running ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-400" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                      )}
+                      <span className="font-mono text-xs font-medium text-zinc-200">
+                        {liveDeployState.running
+                          ? `Building · ${liveDeployState.action || 'Deploy'}`
+                          : `Build output · ${liveDeployState.action || 'Completed'}`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsBuildLogExpanded(!isVisible);
+                      }}
+                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 cursor-pointer"
+                    >
+                      <span>{isVisible ? 'Hide' : 'Show'}</span>
+                      {isVisible ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                  {isVisible && (
+                    <div
+                      ref={liveDeployLogRef}
+                      className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px] scroll-smooth"
+                    >
+                      {renderStyledBuildLog(liveDeployState.output || 'Waiting for output...')}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Mobile Deployments Card List */}
+            <div className="block md:hidden divide-y divide-white/[0.06] rounded-xl border border-white/[0.07] bg-[#09090b]/40 overflow-hidden">
+              {enrichedDeployments.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="text-xs font-medium text-zinc-300">No deployments recorded yet</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Click Deploy to build and launch your project into an active slot.
+                  </p>
+                </div>
+              ) : (
+                enrichedDeployments.map((dep) => {
+                  const isCurrentProd = dep.isCurrentProd;
+                  const canRollbackThisRow = dep.canInstantRollback;
+                  const isPreviewLive =
+                    dep.isLatestStandby && isStandbyContainerRunning && dep.status === 'ready';
+                  const isRowLive =
+                    ((isCurrentProd && dep.status === 'ready') || isPreviewLive) &&
+                    Boolean(dep.previewUrl);
+                  const hasValidGitSha =
+                    hasGitConnection &&
+                    dep.commitSha &&
+                    dep.commitSha !== 'latest' &&
+                    dep.commitSha !== 'main';
+
+                  const formattedTime = (() => {
+                    if (!dep.startedAt) return '—';
+                    const parsed = new Date(dep.startedAt);
+                    if (Number.isNaN(parsed.getTime())) {
+                      return dep.startedAt.replace('T', ' ').replace('Z', '');
+                    }
+                    return (
+                      parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+                      ', ' +
+                      parsed.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      })
+                    );
+                  })();
+
+                  const statusDotColor =
+                    dep.status === 'ready'
+                      ? 'bg-emerald-400'
+                      : dep.status === 'building' || dep.status === 'running'
+                      ? 'bg-amber-400'
+                      : dep.status === 'failed' || dep.status === 'error'
+                      ? 'bg-rose-400'
+                      : 'bg-zinc-500';
+
+                  return (
+                    <div key={dep.id} className="p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`h-2 w-2 rounded-full shrink-0 ${statusDotColor}`} />
+                          <span className="font-mono text-xs font-semibold text-zinc-100 shrink-0">
+                            {dep.id}
+                          </span>
+                          {isCurrentProd ? (
+                            <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-400 shrink-0">
+                              {dep.envType === 'rollback' && <RotateCcw className="h-2.5 w-2.5" />}
+                              PROD · {dep.slot?.toUpperCase()}
+                            </span>
+                          ) : isPreviewLive || (dep.isLatestStandby && isPinnedProduction && standbySlotHasImage) ? (
+                            <span className="inline-flex items-center gap-1 rounded border border-violet-500/30 bg-violet-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-300 shrink-0">
+                              Slot {dep.slot?.toUpperCase()}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded border border-white/[0.08] bg-zinc-800/60 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 shrink-0">
+                              Slot {dep.slot ? dep.slot.toUpperCase() : 'BLUE'}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="font-mono text-[11px] text-zinc-400">
+                            {formattedTime}
+                          </span>
+                          <ActionMenu
+                            items={[
+                              {
+                                label: 'View Build Logs',
+                                icon: <TerminalIcon className="h-3.5 w-3.5" />,
+                                onClick: () => setBuildLogsDeployment(dep),
+                              },
+                              ...((dep.isLatestStandby || dep.slot?.toLowerCase() === standbySlotName) && !isCurrentProd
+                                ? [
+                                    {
+                                      label: `Promote Slot ${dep.slot?.toUpperCase()} to Prod`,
+                                      icon: <Rocket className="h-3.5 w-3.5" />,
+                                      onClick: () => handlePromotePreviewSlot(),
+                                    },
+                                  ]
+                                : []),
+                              ...(canRollbackThisRow && !isPinnedProduction
+                                ? [
+                                    {
+                                      label: `Rollback to Slot ${dep.slot?.toUpperCase()}`,
+                                      icon: <RotateCcw className="h-3.5 w-3.5" />,
+                                      onClick: () => triggerDeploy({ rollbackFrom: dep }),
+                                    },
+                                  ]
+                                : []),
+                              ...(hasValidGitSha && !isCurrentProd
+                                ? [
+                                    {
+                                      label: `Redeploy Commit (${dep.commitSha.slice(0, 7)})`,
+                                      icon: <RefreshCw className="h-3.5 w-3.5" />,
+                                      onClick: () => triggerDeploy({ rollbackFrom: dep }),
+                                    },
+                                  ]
+                                : []),
+                              ...(isRowLive
+                                ? [
+                                    {
+                                      label: 'Open Live URL',
+                                      icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                      onClick: () => window.open(dep.previewUrl, '_blank'),
+                                    },
+                                  ]
+                                : []),
+                              ...(hasValidGitSha
+                                ? [
+                                    {
+                                      label: 'Copy Commit SHA',
+                                      icon: <Copy className="h-3.5 w-3.5" />,
+                                      onClick: () => {
+                                        void copyToClipboard(dep.commitSha);
+                                        toast.success(`Copied SHA ${dep.commitSha.slice(0, 7)}`);
+                                      },
+                                    },
+                                  ]
+                                : []),
+                              {
+                                label: 'Delete Build Log',
+                                icon: <Trash2 className="h-3.5 w-3.5" />,
+                                variant: 'danger',
+                                onClick: async () => {
+                                  const rawLogId = String(dep.id).replace(/^dep-/, '');
+                                  const res = await backendApi.deployLogDelete(app.id, rawLogId);
+                                  if (!res.ok) {
+                                    toast.error(res.error || 'Failed to delete build log');
+                                    return;
+                                  }
+                                  onUpdateApp({
+                                    ...app,
+                                    deployments: app.deployments.filter((d) => d.id !== dep.id),
+                                  });
+                                  toast.success(`Deleted build log ${dep.id}`);
+                                },
+                              },
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="font-mono text-[11px] text-zinc-400 truncate">
+                          {dep.status === 'ready' ? 'Ready' : dep.status} · {hasGitConnection ? `${dep.branch}@${dep.commitSha.slice(0, 7)}` : 'Workspace'} · {dep.durationSec}s
+                        </span>
+                        {isRowLive ? (
+                          <a
+                            href={dep.previewUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-mono text-[11px] text-violet-400 hover:text-violet-300 transition-colors shrink-0"
+                          >
+                            <span>Live URL</span>
+                            <ArrowUpRight className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="font-mono text-[11px] text-zinc-500 shrink-0">
+                            History
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop Deployments Table */}
+            <div className="hidden md:block overflow-x-auto rounded-xl border border-white/[0.07] bg-[#09090b]/40">
+            <table className="w-full min-w-[760px] table-fixed text-left text-xs">
               <thead>
                 <tr className="border-b border-white/[0.07] bg-[#09090b]/80 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
                   <th className="w-[34%] px-3.5 py-2.5">Release</th>
@@ -3373,6 +3810,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             </table>
           </div>
         </div>
+      </div>
       )}
 
       {/* ===================================================================== */}
@@ -3396,57 +3834,62 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {/* TAB 4: ENVIRONMENT VARIABLES                                          */}
       {/* ===================================================================== */}
       {activeTab === 'env' && (
-        <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-zinc-100">Environment Variables</h2>
               <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
                 {app.envVars.length}
               </span>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {!envRawMode && (
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-                  <input
-                    type="text"
-                    value={envSearch}
-                    onChange={(e) => setEnvSearch(e.target.value)}
-                    placeholder="Filter keys..."
-                    className="h-7 w-40 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none"
-                  />
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setRevealAllEnv((prev) => !prev)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-              >
-                {revealAllEnv ? (
-                  <EyeOff className="h-3.5 w-3.5 text-orange-400" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5 text-zinc-400" />
-                )}
-                {revealAllEnv ? 'Mask All' : 'Reveal All'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!envRawMode) {
-                    setEnvRawText(app.envVars.map((e) => `${e.key}=${e.value}`).join('\n'));
-                  }
-                  setEnvRawMode((prev) => !prev);
-                }}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
-              >
-                <FileCode2 className="h-3.5 w-3.5 text-orange-400" />
-                {envRawMode ? 'Key-Value Rows' : 'Raw .env Editor'}
-              </button>
-            </div>
+            <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-mono text-[11px] font-medium text-amber-300">
+              Test Empty ({emptyEnvCount})
+            </span>
           </div>
+
+          {!envRawMode && (
+            <div className="space-y-2.5">
+              <div className="relative w-full">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+                <input
+                  type="text"
+                  value={envSearch}
+                  onChange={(e) => setEnvSearch(e.target.value)}
+                  placeholder="Filter keys..."
+                  className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-9 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setRevealAllEnv((prev) => !prev)}
+                  className="inline-flex h-9 sm:h-7 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+                >
+                  {revealAllEnv ? (
+                    <EyeOff className="h-3.5 w-3.5 text-orange-400" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5 text-zinc-400" />
+                  )}
+                  {revealAllEnv ? 'Mask All' : 'Reveal All'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!envRawMode) {
+                      setEnvRawText(app.envVars.map((e) => `${e.key}=${e.value}`).join('\n'));
+                    }
+                    setEnvRawMode((prev) => !prev);
+                  }}
+                  className="inline-flex h-9 sm:h-7 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+                >
+                  <FileCode2 className="h-3.5 w-3.5 text-orange-400" />
+                  {envRawMode ? 'Key-Value Rows' : 'Raw .env Editor'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {envRawMode ? (
             <div className="space-y-3">
@@ -3479,6 +3922,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       toast.error(res.error || 'Failed to save .env file');
                       return;
                     }
+                    setIsEnvDirty(false);
                     onUpdateApp({ ...app, envVars: parsed });
                     setEnvRawMode(false);
                     toast.success(`Saved ${parsed.length} variables to .env`);
@@ -3490,84 +3934,170 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
               </div>
             </div>
           ) : (
-            <div className="space-y-2">
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="space-y-3">
+              {/* Header labels */}
+              <div className="flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 sm:hidden">
+                <span>KEY / VARIABLEVALUE</span>
+                <span>ACTIONS</span>
+              </div>
+              <div className="hidden sm:grid sm:grid-cols-12 gap-2.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                 <div className="sm:col-span-5">Key</div>
                 <div className="sm:col-span-7">Value</div>
               </div>
 
-              {filteredEnvVars.map((ev) => {
-                const isRevealed = revealAllEnv || Boolean(revealedEnvIds[ev.id]);
-                return (
-                  <div
-                    key={ev.id}
-                    className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center"
-                  >
-                    <div className="sm:col-span-5">
-                      <input
-                        type="text"
-                        value={ev.key}
-                        onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
-                        onChange={(e) => handleEnvChange(ev.id, 'key', e.target.value)}
-                        placeholder="VARIABLE_NAME"
-                        className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-3 font-mono text-xs font-medium text-zinc-100 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none transition-colors"
-                      />
-                    </div>
+              {/* Mobile Card Rows */}
+              <div className="block sm:hidden space-y-3">
+                {filteredEnvVars.map((ev) => {
+                  const isRevealed = revealAllEnv || Boolean(revealedEnvIds[ev.id]);
+                  return (
+                    <div
+                      key={ev.id}
+                      className="rounded-xl border border-white/[0.07] bg-[#09090b]/60 p-3 space-y-2.5"
+                    >
+                      {/* Line 1: KEY badge + Key input + 3 action buttons */}
+                      <div className="flex items-center gap-2">
+                        <span className="rounded border border-orange-500/30 bg-orange-500/10 px-2 py-1 font-mono text-[10px] font-semibold text-orange-400 shrink-0">
+                          KEY
+                        </span>
+                        <input
+                          type="text"
+                          value={ev.key}
+                          onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
+                          onChange={(e) => handleEnvChange(ev.id, 'key', e.target.value)}
+                          placeholder="VARIABLE_NAME"
+                          className="flex-1 h-8 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 font-mono text-xs font-medium text-zinc-100 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none min-w-0"
+                        />
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevealedEnvIds((prev) => ({
+                                ...prev,
+                                [ev.id]: !prev[ev.id],
+                              }))
+                            }
+                            title={isRevealed ? 'Mask value' : 'Reveal value'}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/80 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                          >
+                            {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void copyToClipboard(`${ev.key}=${ev.value}`);
+                              toast.success(`Copied ${ev.key}`);
+                            }}
+                            title="Copy variable"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/80 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEnv(ev.id)}
+                            title="Delete variable"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="sm:col-span-7 relative flex items-center">
-                      <input
-                        type={isRevealed ? 'text' : 'password'}
-                        value={ev.value}
-                        onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
-                        onChange={(e) => handleEnvChange(ev.id, 'value', e.target.value)}
-                        placeholder="Value..."
-                        className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-3 pr-24 font-mono text-xs text-zinc-200 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none transition-colors"
-                      />
-                      <div className="absolute right-1.5 flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRevealedEnvIds((prev) => ({
-                              ...prev,
-                              [ev.id]: !prev[ev.id],
-                            }))
-                          }
-                          className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors cursor-pointer"
-                        >
-                          {isRevealed ? (
-                            <EyeOff className="h-3.5 w-3.5" />
-                          ) : (
-                            <Eye className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void copyToClipboard(`${ev.key}=${ev.value}`);
-                            toast.success(`Copied ${ev.key}`);
-                          }}
-                          className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors cursor-pointer"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteEnv(ev.id)}
-                          className="rounded-md p-1.5 text-zinc-500 hover:bg-rose-500/15 hover:text-rose-400 transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                      {/* Line 2: VAL badge + Value input */}
+                      <div className="flex items-center gap-2">
+                        <span className="rounded border border-white/[0.08] bg-zinc-800/80 px-2 py-1 font-mono text-[10px] font-semibold text-zinc-400 shrink-0">
+                          VAL
+                        </span>
+                        <input
+                          type={isRevealed ? 'text' : 'password'}
+                          value={ev.value}
+                          onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
+                          onChange={(e) => handleEnvChange(ev.id, 'value', e.target.value)}
+                          placeholder="Value..."
+                          className="flex-1 h-8 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none min-w-0"
+                        />
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.06]">
+              {/* Desktop Rows */}
+              <div className="hidden sm:block space-y-2">
+                {filteredEnvVars.map((ev) => {
+                  const isRevealed = revealAllEnv || Boolean(revealedEnvIds[ev.id]);
+                  return (
+                    <div
+                      key={ev.id}
+                      className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center"
+                    >
+                      <div className="sm:col-span-5">
+                        <input
+                          type="text"
+                          value={ev.key}
+                          onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
+                          onChange={(e) => handleEnvChange(ev.id, 'key', e.target.value)}
+                          placeholder="VARIABLE_NAME"
+                          className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-3 font-mono text-xs font-medium text-zinc-100 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none transition-colors"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-7 relative flex items-center">
+                        <input
+                          type={isRevealed ? 'text' : 'password'}
+                          value={ev.value}
+                          onPaste={(e) => handlePasteMultiEnv(e, ev.id)}
+                          onChange={(e) => handleEnvChange(ev.id, 'value', e.target.value)}
+                          placeholder="Value..."
+                          className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-3 pr-24 font-mono text-xs text-zinc-200 placeholder-zinc-600 focus:border-orange-500/70 focus:outline-none transition-colors"
+                        />
+                        <div className="absolute right-1.5 flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevealedEnvIds((prev) => ({
+                                ...prev,
+                                [ev.id]: !prev[ev.id],
+                              }))
+                            }
+                            className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors cursor-pointer"
+                          >
+                            {isRevealed ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void copyToClipboard(`${ev.key}=${ev.value}`);
+                              toast.success(`Copied ${ev.key}`);
+                            }}
+                            className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors cursor-pointer"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEnv(ev.id)}
+                            className="rounded-md p-1.5 text-zinc-500 hover:bg-rose-500/15 hover:text-rose-400 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/[0.06] sm:flex sm:items-center sm:justify-between">
                 <button
                   type="button"
                   onClick={handleAddBlankEnvRow}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.09] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+                  className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.09] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
                 >
                   <Plus className="h-3.5 w-3.5 text-orange-400" />
                   Add Variable
@@ -3585,11 +4115,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
                       toast.error(res.error || 'Failed to save .env variables');
                       return;
                     }
+                    setIsEnvDirty(false);
                     toast.success(`Saved ${app.envVars.length} variables to .env`);
                   }}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer"
+                  className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer"
                 >
-                  Save .env Variables
+                  <Save className="h-3.5 w-3.5" />
+                  Save .env {isEnvDirty ? '*' : ''}
                 </button>
               </div>
             </div>

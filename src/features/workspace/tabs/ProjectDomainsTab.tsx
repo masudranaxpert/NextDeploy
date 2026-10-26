@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
-  ExternalLink,
   Code2,
   RefreshCw,
   FolderOpen,
@@ -33,6 +32,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   onUpdateApp,
 }) => {
   const [showDomainModal, setShowDomainModal] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState('');
+
+  const copyDomainUrl = async (d: DomainRoute) => {
+    if (await copyToClipboard(`${d.forceHttps !== false ? 'https' : 'http'}://${d.domain}`)) {
+      setCopiedDomain(d.id);
+      setTimeout(() => setCopiedDomain((prev) => (prev === d.id ? '' : prev)), 1600);
+    }
+  };
   const [editingDomainId, setEditingDomainId] = useState<string | null>(null);
   const [domainHost, setDomainHost] = useState('');
   const [domainService, setDomainService] = useState('web');
@@ -235,57 +242,60 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   };
 
   const handleInspectLabels = async (d: DomainRoute) => {
+    const fallbackYaml = [
+      `# Caddy Docker proxy labels for ${d.domain}`,
+      `services:`,
+      `  ${d.targetService}:`,
+      `    labels:`,
+      `      caddy: "${d.forceHttps !== false ? '' : 'http://'}${d.domain}${d.enableWww ? `, www.${d.domain}` : ''}"`,
+      `      caddy.reverse_proxy: "{{upstreams ${d.targetPort}}}"`,
+      ...(d.serveStatic
+        ? [
+            `      caddy.handle_path_0: "${d.staticUrlPrefix || '/static/*'}*"`,
+            `      caddy.handle_path_0.root: "* ${d.staticPath || '/var/www/static'}"`,
+            `      caddy.handle_path_0.file_server: ""`,
+          ]
+        : []),
+      ...(d.serveMedia
+        ? [
+            `      caddy.handle_path_1: "${d.mediaUrlPrefix || '/media/*'}*"`,
+            `      caddy.handle_path_1.root: "* ${d.mediaPath || '/var/www/media'}"`,
+            `      caddy.handle_path_1.file_server: ""`,
+          ]
+        : []),
+    ].join('\n');
+
     try {
       const res = await backendApi.domainLabels(app.id, d.id);
-      const fallbackYaml = [
-        `# Caddy Docker proxy labels for ${d.domain}`,
-        `services:`,
-        `  ${d.targetService}:`,
-        `    labels:`,
-        `      caddy: "${d.forceHttps !== false ? '' : 'http://'}${d.domain}${d.enableWww ? `, www.${d.domain}` : ''}"`,
-        `      caddy.reverse_proxy: "{{upstreams ${d.targetPort}}}"`,
-        ...(d.serveStatic
-          ? [
-              `      caddy.handle_path_0: "${d.staticUrlPrefix || '/static/*'}*"`,
-              `      caddy.handle_path_0.root: "* ${d.staticPath || '/var/www/static'}"`,
-              `      caddy.handle_path_0.file_server: ""`,
-            ]
-          : []),
-        ...(d.serveMedia
-          ? [
-              `      caddy.handle_path_1: "${d.mediaUrlPrefix || '/media/*'}*"`,
-              `      caddy.handle_path_1.root: "* ${d.mediaPath || '/var/www/media'}"`,
-              `      caddy.handle_path_1.file_server: ""`,
-            ]
-          : []),
-      ].join('\n');
-
       setCaddyModal({
         domain: d.domain,
-        yaml: res?.snippet || res?.yaml || fallbackYaml,
+        yaml: (res.ok && (res.snippet || res.yaml)) || fallbackYaml,
       });
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to load Caddy labels');
+    } catch {
+      // never leave the click empty: show the generated Caddy block
+      setCaddyModal({ domain: d.domain, yaml: fallbackYaml });
     }
   };
 
   return (
     <div className="space-y-4">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4">
-        <div className="flex items-center gap-2">
-          <Globe className="h-4 w-4 text-orange-400" />
-          <h2 className="text-sm font-semibold text-zinc-100">
-            Caddy Reverse Proxy & Custom Domains
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
+            <Globe className="h-4 w-4 text-orange-400" />
+          </span>
+          <h2 className="min-w-0 truncate text-sm font-semibold text-zinc-100">
+            Caddy Reverse Proxy & Domains
           </h2>
-          <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-zinc-400 tabular-nums">
+          <span className="ml-auto inline-flex h-[18px] min-w-[21px] shrink-0 items-center justify-center rounded-full bg-white/[0.08] px-1.5 font-mono text-[10.5px] tabular-nums text-zinc-300">
             {app.domains.length}
           </span>
         </div>
         <button
           type="button"
           onClick={openAddModal}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer shrink-0"
+          className="mt-3.5 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-950 transition-colors hover:bg-white cursor-pointer"
         >
           <Plus className="h-3.5 w-3.5" />
           Add Domain Route
@@ -320,107 +330,113 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 key={d.id}
                 className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 transition-colors hover:border-white/[0.12]"
               >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-2 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <a
-                        href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-semibold text-zinc-100 hover:text-orange-400 inline-flex items-center gap-1.5 font-mono break-all"
-                      >
-                        {isHttps ? 'https://' : 'http://'}
-                        {d.domain}
-                        <ExternalLink className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-                      </a>
+                {/* URL Chip */}
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2.5">
+                  <a
+                    href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-w-0 flex-1 items-center font-mono text-xs"
+                    title={`Open ${d.domain}`}
+                  >
+                    <span className="shrink-0 text-emerald-400/70">{isHttps ? 'https://' : 'http://'}</span>
+                    <span className="truncate text-zinc-100">{d.domain}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void copyDomainUrl(d)}
+                    title="Copy domain URL"
+                    className="shrink-0 text-emerald-400/70 transition-colors hover:text-emerald-200 cursor-pointer"
+                  >
+                    {copiedDomain === d.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
 
-                      {d.enableWww && (
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700/70">
-                          + www.{d.domain}
-                        </span>
-                      )}
+                {/* Status Pills */}
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                  {isHttps ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+                      <Lock className="h-3 w-3" />
+                      Auto HTTPS
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-amber-400">
+                      <Lock className="h-3 w-3" />
+                      HTTP Only
+                    </span>
+                  )}
 
-                      <span
-                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-medium ${
-                          isHttps
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        }`}
-                      >
-                        <Lock className="h-3 w-3" />
-                        {isHttps ? 'Auto HTTPS' : 'HTTP Only'}
-                      </span>
-                    </div>
+                  {d.enableWww && (
+                    <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-[11px] text-zinc-300">
+                      + www.{d.domain}
+                    </span>
+                  )}
 
-                    {/* Upstream & Static/Media Routing Details */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-400">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Server className="h-3.5 w-3.5 text-zinc-500" />
-                        Upstream:{' '}
-                        <code className="font-mono text-orange-300 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 tabular-nums">
-                          {d.targetService}:{d.targetPort}
-                        </code>
-                      </span>
+                  <span className="inline-flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
+                    <Server className="h-3.5 w-3.5 text-zinc-500" />
+                    Upstream:
+                    <code className="rounded border border-orange-500/25 bg-orange-500/[0.07] px-1.5 py-0.5 font-mono text-[11px] text-orange-300 tabular-nums">
+                      {d.targetService}:{d.targetPort}
+                    </code>
+                  </span>
 
-                      {d.serveStatic && (
-                        <span className="inline-flex items-center gap-1 text-xs text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded font-mono">
-                          <FolderOpen className="h-3 w-3" />
-                          {d.staticUrlPrefix || '/static/'} → {d.staticPath}
-                        </span>
-                      )}
+                  {d.serveStatic && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] text-sky-300">
+                      <FolderOpen className="h-3 w-3" />
+                      {d.staticUrlPrefix || '/static/'} → {d.staticPath}
+                    </span>
+                  )}
 
-                      {d.serveMedia && (
-                        <span className="inline-flex items-center gap-1 text-xs text-violet-300 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded font-mono">
-                          <ImageIcon className="h-3 w-3" />
-                          {d.mediaUrlPrefix || '/media/'} → {d.mediaPath}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  {d.serveMedia && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 font-mono text-[11px] text-violet-300">
+                      <ImageIcon className="h-3 w-3" />
+                      {d.mediaUrlPrefix || '/media/'} → {d.mediaPath}
+                    </span>
+                  )}
+                </div>
 
-                  {/* Actions */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleCheckDns(d)}
-                      disabled={dnsLoadingId === d.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      <RefreshCw
-                        className={`h-3.5 w-3.5 ${
-                          dnsLoadingId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'
-                        }`}
-                      />
-                      Verify DNS
-                    </button>
+                {/* Actions */}
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleCheckDns(d)}
+                    disabled={dnsLoadingId === d.id}
+                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 shrink-0 ${
+                        dnsLoadingId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'
+                      }`}
+                    />
+                    Verify DNS
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleInspectLabels(d)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
-                    >
-                      <Code2 className="h-3.5 w-3.5 text-zinc-400" />
-                      Caddy YAML
-                    </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInspectLabels(d)}
+                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                    Caddy
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(d)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
-                    >
-                      <Edit2 className="h-3.5 w-3.5 text-zinc-400" />
-                      Edit
-                    </button>
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(d)}
+                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                    Edit
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDomain(d)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-medium transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Remove
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteDomain(d)}
+                    title="Remove domain"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
 
                 {/* Live DNS Diagnostic Result */}
