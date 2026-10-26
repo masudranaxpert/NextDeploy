@@ -442,9 +442,20 @@ export const FileManagerTable: React.FC<FileManagerTableProps> = ({
                 return (
                   <tr
                     key={file.path}
-                    onClick={() => openFileInEditor(file)}
-                    onMouseEnter={() => onPrefetchFile?.(file.path)}
-                    onPointerDown={() => onPrefetchFile?.(file.path)}
+                    onClick={() => {
+                      if (isArchive) {
+                        setExtractTargetFile(file);
+                        setExtractDestDir(currentDir || '');
+                        return;
+                      }
+                      openFileInEditor(file);
+                    }}
+                    onMouseEnter={() => {
+                      if (!isArchive) onPrefetchFile?.(file.path);
+                    }}
+                    onPointerDown={() => {
+                      if (!isArchive) onPrefetchFile?.(file.path);
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();

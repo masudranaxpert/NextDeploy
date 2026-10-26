@@ -408,6 +408,12 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       navigateToFolder(file.path);
       return;
     }
+    // If archive file (.zip, .tar.gz, .tgz, .tar, .gz), directly open Extract Dialog
+    if (isArchiveFile(file.name || file.path)) {
+      setExtractTargetFile(file);
+      setExtractDestDir(currentDir || '');
+      return;
+    }
     const filePath = file.path;
     setEditingFilePath(filePath);
     if (!openEditorTabs.includes(filePath)) {
