@@ -618,22 +618,22 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
               {/* Shield VPS Proxy Node Selector */}
               <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                  Shield Proxy Route (Origin IP Masking)
-                </label>
-                <p className="text-xs text-zinc-400">
-                  Route traffic through an edge shield node. Customer DNS A-Record will point to the shield node IP.
-                </p>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                    Edge Shield Proxy
+                  </label>
+                  <span className="text-[11px] text-zinc-500">Origin Masking</span>
+                </div>
                 <select
                   value={domainShieldNodeId ?? ''}
                   onChange={(e) => setDomainShieldNodeId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full mt-1.5 px-3 py-2 rounded-lg bg-zinc-950 border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full mt-1 px-3 py-2 rounded-lg bg-zinc-950 border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 cursor-pointer"
                 >
-                  <option value="">🌐 Direct Origin (Server Public IP)</option>
+                  <option value="">Direct Origin (Server IP)</option>
                   {shieldNodes.map((s) => (
                     <option key={s.id} value={s.id}>
-                      🛡️ {s.name} ({s.ip}) {s.status === 'connected' ? '• Active' : `• ${s.status}`}
+                      {s.name} ({s.ip})
                     </option>
                   ))}
                 </select>

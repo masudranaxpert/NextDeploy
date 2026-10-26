@@ -456,6 +456,7 @@ export default function App() {
           serveMedia: d.serve_media ?? false,
           mediaPath: d.media_path,
           mediaUrlPrefix: d.media_url_prefix,
+          shield_node_id: d.shield_node_id != null ? Number(d.shield_node_id) : null,
           gzip: true,
           createdAt: d.created_at || 'Active',
         }))

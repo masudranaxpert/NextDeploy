@@ -414,7 +414,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         <ProjectDomainsTab app={app} onUpdateApp={onUpdateApp} />
       )}
       {activeTab === 'domains' && app.php && (
-        <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} />
+        <PhpDomainsTab app={app} onChanged={() => onRefresh?.()} onUpdateApp={onUpdateApp} />
       )}
 
       {activeTab === 'php-settings' && app.php && (
