@@ -158,6 +158,7 @@ export interface DomainFormPayload {
   serve_media?: boolean;
   media_path?: string;
   media_url_prefix?: string;
+  shield_node_id?: number | null;
 }
 
 export interface BootstrapData {

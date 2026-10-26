@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuditLogEntry, PanelUser } from '../../types/nextdeploy';
+import { ShieldNode } from '../../types/shield';
 import {
   ActionMenu,
   ShadcnDialog,
@@ -133,6 +134,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [limitMaxMemoryMb, setLimitMaxMemoryMb] = useState('8192');
   const [limitMaxStorageMb, setLimitMaxStorageMb] = useState('51200');
   const [limitAllowDomainFileServer, setLimitAllowDomainFileServer] = useState(true);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const [limitDefaultShieldId, setLimitDefaultShieldId] = useState<number | null>(null);
 
   // Change Password Modal State (matches POST /users/:id/password in users_handler.go)
   const [passwordModalUser, setPasswordModalUser] = useState<PanelUser | null>(null);
@@ -265,6 +268,9 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         if (typeof info?.count === 'number') setTmpCount(info.count);
         if (info?.total_size) setTmpTotalSize(info.total_size);
       });
+      void backendApi.listShieldNodes().then((res) => {
+        if (res.ok && res.nodes) setShieldNodes(res.nodes);
+      }).catch(() => {});
     }
   }, [mode]);
 
@@ -275,6 +281,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setLimitMaxMemoryMb(String(user.maxMemoryMB ?? (user.memQuotaGB ? user.memQuotaGB * 1024 : 0)));
     setLimitMaxStorageMb(String(user.maxStorageMB ?? (user.diskQuotaGB ? user.diskQuotaGB * 1024 : 0)));
     setLimitAllowDomainFileServer(user.allowDomainFileServer ?? true);
+    setLimitDefaultShieldId(user.default_shield_id ?? null);
   };
 
   const handleToggleStorageOverselling = async (nextValue: boolean) => {
@@ -376,6 +383,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         max_memory_mb: maxMemoryMb,
         max_storage_mb: maxStorageMb,
         allow_domain_file_server: limitAllowDomainFileServer,
+        default_shield_id: limitDefaultShieldId,
       });
       if (!res.ok) {
         // e.g. a 2 GB quota on a server with 1 GB of RAM is refused by the backend
@@ -400,6 +408,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               maxStorageMB: maxStorageMb,
               diskQuotaGB: Math.round((maxStorageMb / 1024) * 10) / 10,
               allowDomainFileServer: limitAllowDomainFileServer,
+              default_shield_id: limitDefaultShieldId,
             }
           : item
       )
@@ -1188,6 +1197,28 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                     onChange={setLimitAllowDomainFileServer}
                   />
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+                  <Shield className="h-3.5 w-3.5 text-emerald-400" />
+                  Default Shield VPS Proxy (Origin Masking)
+                </div>
+                <div className="text-[11px] text-zinc-500">
+                  When this user deploys sites or adds domains, route them through this offshore/DDoS shield node instead of revealing the server origin IP.
+                </div>
+                <select
+                  value={limitDefaultShieldId ?? ''}
+                  onChange={(e) => setLimitDefaultShieldId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full mt-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="">🌐 Direct (Default Origin IP)</option>
+                  {shieldNodes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      🛡️ {s.name} ({s.ip}) {s.status === 'connected' ? '• Active' : `• ${s.status}`}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-4">

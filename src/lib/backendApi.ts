@@ -7,6 +7,7 @@ import { backupsAndMigrateApi } from './api/backupsAndMigrateApi';
 import { systemAndTokensApi } from './api/systemAndTokensApi';
 import { phpApi } from './api/phpApi';
 import { caddyApi } from './api/caddyApi';
+import { shieldApi } from './api/shieldApi';
 
 export {
   type ApiResult,
@@ -22,6 +23,7 @@ export const backendApi = {
   ...appsAndDockerApi,
   ...phpApi,
   ...caddyApi,
+  ...shieldApi,
   ...gitAndRegistryApi,
   ...backupsAndMigrateApi,
   ...systemAndTokensApi,

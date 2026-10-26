@@ -15,6 +15,7 @@ export type NavigationSection =
   | 'proxy'
   | 'proxy-options'
   | 'proxy-routes'
+  | 'shield-proxies'
   | 'settings'
   | 'audit-logs'
   | 'users'
@@ -87,6 +88,9 @@ export interface DomainRoute {
   mediaPath?: string;
   mediaUrlPrefix?: string;
   gzip: boolean;
+  shield_node_id?: number | null;
+  shield_node_name?: string;
+  shield_node_ip?: string;
   createdAt: string;
 }
 
@@ -410,6 +414,7 @@ export interface PanelUser {
   maxStorageMB?: number;
   bandwidthLimitMbps?: number;
   allowDomainFileServer?: boolean;
+  default_shield_id?: number | null;
   twoFactorEnabled: boolean;
   lastLoginAt: string;
 }

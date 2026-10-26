@@ -103,7 +103,8 @@ func calculateCPUPercent() float64 {
 	return lastCPUPct
 }
 
-func detectHostIP() string {
+// DetectHostIP discovers the public IP of the host machine.
+func DetectHostIP() string {
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
 	for _, endpoint := range []string{"https://api.ipify.org", "https://icanhazip.com"} {
 		resp, err := client.Get(endpoint)
@@ -124,6 +125,10 @@ func detectHostIP() string {
 		}
 	}
 	return "127.0.0.1"
+}
+
+func detectHostIP() string {
+	return DetectHostIP()
 }
 
 func initStatic() {

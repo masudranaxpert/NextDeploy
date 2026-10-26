@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Globe,
   Plus,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, DomainRoute } from '../../../types/nextdeploy';
+import { ShieldNode } from '../../../types/shield';
 import { backendApi } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 
@@ -52,7 +53,15 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const [domainMedia, setDomainMedia] = useState(false);
   const [domainMediaPath, setDomainMediaPath] = useState('/var/www/media');
   const [domainMediaPrefix, setDomainMediaPrefix] = useState('/media/');
+  const [domainShieldNodeId, setDomainShieldNodeId] = useState<number | null>(null);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    backendApi.listShieldNodes().then((res) => {
+      if (res.ok && res.nodes) setShieldNodes(res.nodes);
+    }).catch(() => {});
+  }, []);
 
   // DNS check state per domain ID
   const [dnsLoadingId, setDnsLoadingId] = useState<string | null>(null);
@@ -100,6 +109,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(false);
     setDomainMediaPath('/var/www/media');
     setDomainMediaPrefix('/media/');
+    setDomainShieldNodeId(null);
     setShowDomainModal(true);
   };
 
@@ -116,6 +126,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(Boolean(d.serveMedia));
     setDomainMediaPath(d.mediaPath || '/var/www/media');
     setDomainMediaPrefix(d.mediaUrlPrefix || '/media/');
+    setDomainShieldNodeId(d.shield_node_id ?? null);
     setShowDomainModal(true);
   };
 
@@ -140,6 +151,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
         serve_media: domainMedia,
         media_path: domainMedia ? domainMediaPath.trim() : '',
         media_url_prefix: domainMedia ? domainMediaPrefix.trim() : '',
+        shield_node_id: domainShieldNodeId,
       };
 
       if (editingDomainId) {
@@ -159,6 +171,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 serveMedia: domainMedia,
                 mediaPath: payload.media_path,
                 mediaUrlPrefix: payload.media_url_prefix,
+                shield_node_id: domainShieldNodeId,
               }
             : d
         );
@@ -185,6 +198,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           serveMedia: domainMedia,
           mediaPath: payload.media_path,
           mediaUrlPrefix: payload.media_url_prefix,
+          shield_node_id: domainShieldNodeId,
           gzip: true,
           createdAt: 'Just now',
         };
@@ -363,6 +377,23 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-amber-400">
                       <Lock className="h-3 w-3" />
                       HTTP Only
+                    </span>
+                  )}
+
+                  {d.shield_node_id ? (
+                    (() => {
+                      const matchedShield = shieldNodes.find((s) => s.id === d.shield_node_id);
+                      return (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-cyan-400">
+                          <ShieldCheck className="h-3 w-3" />
+                          Shield: {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}
+                        </span>
+                      );
+                    })()
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+                      <Globe className="h-3 w-3 text-zinc-500" />
+                      Direct Origin
                     </span>
                   )}
 
@@ -583,6 +614,29 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     </div>
                   </div>
                 </label>
+              </div>
+
+              {/* Shield VPS Proxy Node Selector */}
+              <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                  Shield Proxy Route (Origin IP Masking)
+                </label>
+                <p className="text-[11px] text-zinc-500">
+                  Route traffic through an offshore/DDoS shield node. Customer DNS A-Record will point to the shield node IP.
+                </p>
+                <select
+                  value={domainShieldNodeId ?? ''}
+                  onChange={(e) => setDomainShieldNodeId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full mt-1.5 px-3 py-2 rounded-lg bg-zinc-950 border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">🌐 Direct Origin (Server Public IP)</option>
+                  {shieldNodes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      🛡️ {s.name} ({s.ip}) {s.status === 'connected' ? '• Active' : `• ${s.status}`}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Static File Serving */}

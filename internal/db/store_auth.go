@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -24,11 +25,15 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, error) {
 	var u User
 	var created string
+	var shieldID sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server FROM users WHERE username=? COLLATE NOCASE`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer)
+		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server,default_shield_id FROM users WHERE username=? COLLATE NOCASE`, username).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer, &shieldID)
 	if err != nil {
 		return User{}, err
+	}
+	if shieldID.Valid {
+		u.DefaultShieldID = &shieldID.Int64
 	}
 	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	return u, nil
@@ -37,18 +42,22 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, e
 func (s *Store) GetUserByID(ctx context.Context, id int64) (User, error) {
 	var u User
 	var created string
+	var shieldID sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server FROM users WHERE id=?`, id).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer)
+		`SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server,default_shield_id FROM users WHERE id=?`, id).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer, &shieldID)
 	if err != nil {
 		return User{}, err
+	}
+	if shieldID.Valid {
+		u.DefaultShieldID = &shieldID.Int64
 	}
 	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	return u, nil
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server FROM users ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,bandwidth_limit_mbps,status,allow_domain_file_server,default_shield_id FROM users ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +66,12 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var created string
-		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer); err != nil {
+		var shieldID sql.NullInt64
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &created, &u.MaxApps, &u.MaxMemoryMB, &u.MaxCPUs, &u.MaxStorageMB, &u.BandwidthLimitMbps, &u.Status, &u.AllowDomainFileServer, &shieldID); err != nil {
 			return nil, err
+		}
+		if shieldID.Valid {
+			u.DefaultShieldID = &shieldID.Int64
 		}
 		u.CreatedAt, _ = time.Parse(time.RFC3339, created)
 		out = append(out, u)
@@ -87,6 +100,11 @@ func (s *Store) UpdateUserLimits(ctx context.Context, id int64, maxApps, maxMemo
 		allow = 1
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET max_apps=?, max_memory_mb=?, max_cpus=?, max_storage_mb=?, bandwidth_limit_mbps=?, allow_domain_file_server=? WHERE id=?`, maxApps, maxMemoryMB, maxCPUs, maxStorageMB, bandwidthLimitMbps, allow, id)
+	return err
+}
+
+func (s *Store) UpdateUserShield(ctx context.Context, id int64, defaultShieldID *int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET default_shield_id=? WHERE id=?`, defaultShieldID, id)
 	return err
 }
 

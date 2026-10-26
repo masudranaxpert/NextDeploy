@@ -247,6 +247,7 @@ export const systemAndTokensApi = {
       max_storage_mb: number;
       bandwidth_limit_mbps?: number;
       allow_domain_file_server: boolean;
+      default_shield_id?: number | null;
     }
   ) =>
     requestJson(`/users/${userId}/limits`, {
@@ -259,6 +260,7 @@ export const systemAndTokensApi = {
         max_storage_mb: payload.max_storage_mb,
         bandwidth_limit_mbps: payload.bandwidth_limit_mbps ?? 0,
         allow_domain_file_server: payload.allow_domain_file_server ? 'on' : '',
+        default_shield_id: payload.default_shield_id ?? '',
       }),
     }),
   auditLogsList: (page = 1, perPage = 10) =>

@@ -45,6 +45,7 @@ type User struct {
 	BandwidthLimitMbps    int       `json:"bandwidth_limit_mbps"`
 	Status                string    `json:"status"`
 	AllowDomainFileServer bool      `json:"allow_domain_file_server"`
+	DefaultShieldID       *int64    `json:"default_shield_id,omitempty"`
 }
 
 type App struct {
@@ -144,6 +145,7 @@ type AppDomain struct {
 	MediaPath       string    `json:"media_path"`
 	MediaURLPrefix  string    `json:"media_url_prefix"`
 	RouteRulesJSON  string    `json:"route_rules_json"`
+	ShieldNodeID    *int64    `json:"shield_node_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

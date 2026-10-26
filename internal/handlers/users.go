@@ -557,6 +557,23 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 		return c.Redirect("/users/" + idStr + "/edit")
 	}
 
+	if sVal := c.FormValue("default_shield_id"); sVal != "" {
+		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil {
+			if sID > 0 {
+				_ = p.DB.UpdateUserShield(c.UserContext(), id, &sID)
+			} else {
+				_ = p.DB.UpdateUserShield(c.UserContext(), id, nil)
+			}
+		}
+	} else {
+		var sBody struct {
+			DefaultShieldID *int64 `json:"default_shield_id"`
+		}
+		if c.BodyParser(&sBody) == nil && sBody.DefaultShieldID != nil {
+			_ = p.DB.UpdateUserShield(c.UserContext(), id, sBody.DefaultShieldID)
+		}
+	}
+
 	// Push the new limits onto the user's cgroup slice so already-running
 	// containers are re-limited immediately (kernel applies it live).
 	if p.UserSliceSupported(c.UserContext()) {

@@ -382,6 +382,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     }),
   domainEdit: (appId: string, domainId: string | number, payload: DomainFormPayload) =>
@@ -401,6 +402,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     }),
   previewSave: (

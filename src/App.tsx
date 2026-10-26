@@ -21,6 +21,7 @@ import {
   Search,
   Server,
   Settings,
+  Shield,
   Cable,
   Terminal,
   Users,
@@ -74,6 +75,7 @@ const UsersAndSettingsView = lazyRetry(() => import('./features/system/UsersAndS
 const PhpSitesView = lazyRetry(() => import('./features/php/PhpSitesView').then((m) => ({ default: m.PhpSitesView })));
 const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView').then((m) => ({ default: m.PhpInstanceView })));
 const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.ProjectsListView })));
+const ShieldProxiesView = lazyRetry(() => import('./features/shield/ShieldProxiesView').then((m) => ({ default: m.ShieldProxiesView })));
 
 // Start downloading the code of the page in the address bar right away (while the data request
 // runs), instead of waiting for the data first and the code second.
@@ -150,6 +152,7 @@ export default function App() {
       'proxy',
       'proxy-options',
       'proxy-routes',
+      'shield-proxies',
       'settings',
       'audit-logs',
       'users',
@@ -255,7 +258,7 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
   React.useEffect(() => {
-    const adminOnly = ['monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
+    const adminOnly = ['monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'shield-proxies', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
     if (currentUser && currentUser.role !== 'admin' && !selectedAppId && adminOnly.includes(activeNav)) {
       setActiveNav('overview');
       window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
@@ -1112,6 +1115,7 @@ export default function App() {
         { id: 'proxy', label: 'Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
         { id: 'proxy-options', label: 'Server Options', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
         { id: 'proxy-routes', label: 'Routes & Redirects', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
+        { id: 'shield-proxies', label: 'Shield Proxies', icon: <Shield className="h-3.5 w-3.5" /> },
       ],
     },
     {
@@ -1132,6 +1136,7 @@ export default function App() {
     'proxy',
     'proxy-options',
     'proxy-routes',
+    'shield-proxies',
     'migrate',
     'users',
     'settings',
@@ -1581,6 +1586,8 @@ export default function App() {
               <CaddyOptionsView />
             ) : activeNav === 'proxy-routes' ? (
               <CaddyRoutesView />
+            ) : activeNav === 'shield-proxies' ? (
+              <ShieldProxiesView />
             ) : activeNav === 'proxy' ? (
               <CaddyProxyView
                 apps={apps}

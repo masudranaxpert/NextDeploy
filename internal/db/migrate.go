@@ -686,6 +686,9 @@ CREATE TABLE IF NOT EXISTS allocated_ports (
 	if err := s.migrateProxyRoutes(); err != nil {
 		return err
 	}
+	if err := s.migrateShieldNodes(); err != nil {
+		return err
+	}
 
 	return nil
 }

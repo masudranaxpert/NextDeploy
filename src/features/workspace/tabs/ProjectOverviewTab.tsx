@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   GitBranch,
   Folder,
@@ -12,10 +12,13 @@ import {
   Sliders,
   Trash2,
   ArrowUpRight,
+  ShieldCheck,
+  Server,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
-import { backendApi } from '../../../lib/backendApi';
+import { ShieldNode } from '../../../types/shield';
+import { backendApi, getServerPublicIp } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnDialog, ShadcnSwitch } from '../../../components/ui/Primitives';
 
@@ -61,6 +64,13 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
   const [gitRepoInput, setGitRepoInput] = useState(app.gitRepo || '');
   const [gitBranchInput, setGitBranchInput] = useState(app.gitBranch || 'main');
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+
+  useEffect(() => {
+    backendApi.listShieldNodes().then((res) => {
+      if (res.ok && res.nodes) setShieldNodes(res.nodes);
+    }).catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -296,6 +306,66 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
               </a>
             )}
+
+            {(() => {
+              const assignedShieldId = app.domains.find((d) => d.shield_node_id)?.shield_node_id;
+              const matchedShield = assignedShieldId ? shieldNodes.find((s) => s.id === assignedShieldId) : null;
+              const directIP = getServerPublicIp();
+
+              if (matchedShield) {
+                return (
+                  <div className="flex items-center justify-between rounded-lg border border-cyan-500/25 bg-cyan-500/[0.05] px-3 py-2 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-cyan-300 font-medium min-w-0">
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                      <span className="truncate">DNS A-Record:</span>
+                      <code className="font-mono text-white font-bold bg-zinc-900/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                        {matchedShield.ip}
+                      </code>
+                      <span className="text-[10px] text-zinc-400 truncate">({matchedShield.name})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        copyToClipboard(matchedShield.ip);
+                        toast.success('Shield IP copied for DNS (Cloudflare)');
+                      }}
+                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer"
+                      title="Copy Shield IP"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                );
+              }
+
+              if (directIP) {
+                return (
+                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-zinc-400 font-medium min-w-0">
+                      <Server className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                      <span className="truncate">Server IP (DNS):</span>
+                      <code className="font-mono text-zinc-200 font-bold bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-700">
+                        {directIP}
+                      </code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        copyToClipboard(directIP);
+                        toast.success('Server IP copied for DNS');
+                      }}
+                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer"
+                      title="Copy Server IP"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                );
+              }
+
+              return null;
+            })()}
+
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"

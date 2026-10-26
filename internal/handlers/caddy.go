@@ -381,6 +381,19 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if port <= 0 {
 		port = 3000
 	}
+	var shieldIDPtr *int64
+	if sVal := c.FormValue("shield_node_id"); sVal != "" {
+		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
+			shieldIDPtr = &sID
+		}
+	} else {
+		if app, err := p.DB.GetApp(c.UserContext(), id); err == nil && app.OwnerID > 0 {
+			if owner, err := p.DB.GetUserByID(c.UserContext(), app.OwnerID); err == nil && owner.DefaultShieldID != nil {
+				shieldIDPtr = owner.DefaultShieldID
+			}
+		}
+	}
+
 	d := db.AppDomain{
 		AppID:           id,
 		Domain:          caddy.CleanQuotedValue(c.FormValue("domain")),
@@ -396,6 +409,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
 		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
 		RouteRulesJSON:  "[]",
+		ShieldNodeID:    shieldIDPtr,
 	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")
@@ -463,6 +477,17 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if v := c.FormValue("is_primary"); v != "" {
 		isPrimary = v == "on" || v == "true" || v == "1"
 	}
+	var shieldIDPtr *int64 = current.ShieldNodeID
+	if sVal := c.FormValue("shield_node_id"); sVal != "" {
+		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil {
+			if sID > 0 {
+				shieldIDPtr = &sID
+			} else {
+				shieldIDPtr = nil
+			}
+		}
+	}
+
 	d := db.AppDomain{
 		ID:              current.ID,
 		AppID:           id,
@@ -479,6 +504,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
 		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
 		RouteRulesJSON:  "[]",
+		ShieldNodeID:    shieldIDPtr,
 	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")

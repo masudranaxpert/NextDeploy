@@ -220,6 +220,12 @@ func main() {
 	app.Get("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliSessionsList)
 	app.Get("/api/v1/cli/whoami", p.APIAuthMiddleware, p.APICliWhoami)
 
+	// Edge Shield Node integration endpoints (token-authenticated)
+	app.Get("/api/v1/edge/verify-domain", p.EdgeVerifyDomain)
+	app.Get("/api/v1/edge/setup.sh", p.GetEdgeShieldSetupScript)
+	app.Post("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
+	app.Get("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
+
 	// Session authentication middleware for panel routes
 	app.Use(p.AuthMiddleware)
 
@@ -239,6 +245,7 @@ func main() {
 	app.Use("/settings", p.RequireAdminMiddleware)
 	app.Use("/cli-sessions", p.RequireAdminMiddleware)
 	app.Use("/php-instance", p.RequireAdminMiddleware)
+	app.Use("/shield-proxies", p.RequireAdminMiddleware)
 	app.Use("/apps/:id/files", p.PHPOwnershipMiddleware)
 	app.Use("/apps/:id/upload", p.PHPOwnershipMiddleware)
 	app.Use("/apps/:id/upload-zip", p.PHPOwnershipMiddleware)
@@ -282,6 +289,12 @@ func main() {
 	app.Get("/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Get("/api/v1/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
+	app.Get("/shield-proxies", p.RequireAdminMiddleware, p.ServeSPA)
+	app.Get("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.ListShieldNodes)
+	app.Post("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.CreateShieldNode)
+	app.Put("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.UpdateShieldNode)
+	app.Delete("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.DeleteShieldNode)
+	app.Post("/api/v1/shield-nodes/:id/test", p.RequireAdminMiddleware, p.TestShieldNode)
 	app.Get("/registries", p.ServeSPA)
 	app.Post("/registries", p.AddRegistry)
 	app.Post("/registries/:id/delete", p.DeleteRegistry)

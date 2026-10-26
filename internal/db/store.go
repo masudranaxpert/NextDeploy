@@ -37,6 +37,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 func (s *Store) ExecRaw(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return s.db.ExecContext(ctx, query, args...)
 }
