@@ -11,10 +11,12 @@ on:
       - "v*.*.*"
     branches:
       - main
+      - main-v2
       - php-panel
   pull_request:
     branches:
       - main
+      - main-v2
       - php-panel
 
 env:
@@ -301,8 +303,8 @@ jobs:
       - name: Install npm deps
         run: npm ci --no-audit --no-fund
 
-      - name: Build CSS
-        run: npm run build:css
+      - name: Build frontend
+        run: npm run build
 
       - name: Build NextDeploy binaries
         run: |
@@ -355,8 +357,8 @@ jobs:
       - name: Install npm deps
         run: npm ci --no-audit --no-fund
 
-      - name: Build CSS
-        run: npm run build:css
+      - name: Build frontend
+        run: npm run build
 
       - name: Go mod tidy
         run: go mod tidy
