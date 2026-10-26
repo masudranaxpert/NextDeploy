@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { McpTokensCard, type McpTokenRow } from './McpTokensCard';
 import {
   Copy,
+  Check,
   Trash2,
   Plus,
   Cable,
@@ -59,6 +60,7 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
   const [mcpTab, setMcpTab] = useState<'tools' | 'rpc-logs'>('tools');
   const [mcpCategory, setMcpCategory] = useState<string>('all');
   const [clientConfigOpen, setClientConfigOpen] = useState(false);
+  const [copiedSse, setCopiedSse] = useState(false);
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [installCliOpen, setInstallCliOpen] = useState(false);
@@ -87,21 +89,25 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
 
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+        {/* Tier 1: Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
               <Cable className="h-4 w-4 text-emerald-400" />
             </div>
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">MCP Server</h1>
-            <StatusBadge
-              status={mcpServerEnabled ? 'active' : 'stopped'}
-              label={mcpServerEnabled ? `SSE online · ${tools.length} tools` : 'MCP disabled'}
-            />
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">MCP Server</h1>
+              <StatusBadge
+                status={mcpServerEnabled ? 'active' : 'stopped'}
+                label={mcpServerEnabled ? 'SSE Online' : 'Disabled'}
+              />
+            </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1">
-              <span className="text-xs font-medium text-zinc-300">MCP Server</span>
+          {/* Controls: Switch & Client Setup */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex h-9 sm:h-8 items-center justify-between sm:justify-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-900 px-3">
+              <span className="text-xs font-medium text-zinc-300">Status</span>
               {isAdmin ? (
                 <ShadcnSwitch
                   checked={mcpServerEnabled}
@@ -117,110 +123,133 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
                   }}
                 />
               ) : (
-                <span className="text-[11px] text-zinc-500">{mcpServerEnabled ? 'on' : 'off'} · set by an administrator</span>
+                <span className="text-[11px] text-zinc-500">{mcpServerEnabled ? 'on' : 'off'}</span>
               )}
             </div>
             <button
               type="button"
               onClick={() => setClientConfigOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer shadow-sm transition-colors whitespace-nowrap"
             >
-              <FileCode2 className="h-3.5 w-3.5" />
-              Client Setup (Cursor / Claude)
+              <FileCode2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Client Setup</span>
             </button>
           </div>
         </div>
 
+        {/* SSE Endpoint Box with Checkmark Copy */}
         <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 px-4 py-3">
-          <div className="min-w-0">
-            <span className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">SSE endpoint</span>
-            <span className="mt-0.5 block truncate font-mono text-xs text-zinc-100">{mcpUrl}</span>
+          <div className="min-w-0 flex-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">SSE Endpoint</span>
+            <span className="mt-0.5 block truncate font-mono text-xs text-zinc-100" title={mcpUrl}>{mcpUrl}</span>
           </div>
-          <CopyButton
-            value={mcpUrl}
-            label="Copy"
-            toastMessage="Copied the endpoint"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white cursor-pointer"
-          />
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyToClipboard(mcpUrl);
+              if (ok) {
+                setCopiedSse(true);
+                setTimeout(() => setCopiedSse(false), 2000);
+              }
+            }}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 cursor-pointer transition-colors"
+          >
+            {copiedSse ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+            <span>{copiedSse ? 'Copied' : 'Copy'}</span>
+          </button>
         </div>
 
         <McpTokensCard tokens={apiTokens ?? []} isAdmin={Boolean(isAdmin)} mcpUrl={mcpUrl} onChanged={onTokensChanged ?? (() => {})} />
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-            <button
-              type="button"
-              onClick={() => setMcpTab('tools')}
-              className={`rounded-md px-3 py-1 text-xs font-medium cursor-pointer ${
-                mcpTab === 'tools'
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Tools Catalog ({filteredTools.length})
-            </button>
+        {/* Tools Catalog Section */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-zinc-100">Tools Catalog</h2>
+              <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                {filteredTools.length}
+              </span>
+            </div>
           </div>
 
-          {mcpTab === 'tools' && (
-            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-              {(
-                [
-                  'all',
-                  'Deploy & Compose',
-                  'Workspace & Files',
-                  'Logs & Telemetry',
-                  'Domains & Env',
-                ] as const
-              ).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setMcpCategory(cat)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
-                    mcpCategory === cat
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {cat === 'all' ? 'All' : cat}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          {/* Category Tabs: Smooth horizontal scrolling on mobile */}
+          <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#09090b] p-1 scrollbar-none">
+            {(
+              [
+                'all',
+                'Deploy & Compose',
+                'Workspace & Files',
+                'Logs & Telemetry',
+                'Domains & Env',
+              ] as const
+            ).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMcpCategory(cat)}
+                className={`h-8 rounded-lg px-3 text-xs font-medium cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
+                  mcpCategory === cat
+                    ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {cat === 'all' ? 'All' : cat}
+              </button>
+            ))}
+          </div>
 
-        {mcpTab === 'tools' && (
-          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
+          {/* Mobile Tool Cards (sm:hidden) */}
+          <div className="space-y-2 sm:hidden">
+            {filteredTools.map((t) => (
+              <div
+                key={t.name}
+                className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold text-orange-400 break-all">
+                    {t.name}
+                  </span>
+                  <span className="shrink-0 rounded-md bg-zinc-900 border border-white/[0.07] px-2 py-0.5 text-[10px] font-mono text-zinc-400">
+                    {t.category}
+                  </span>
+                </div>
+                <div className="font-mono text-[11px] text-zinc-400 break-all bg-[#09090b] p-2 rounded-lg border border-white/[0.04]">
+                  {t.signature}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table (hidden sm:block) */}
+          <div className="hidden sm:block overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px] table-fixed text-left text-xs">
                 <thead>
                   <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                    <th className="w-[26%] px-4 py-2.5 font-medium">Tool</th>
+                    <th className="w-[28%] px-4 py-2.5 font-medium">Tool</th>
                     <th className="w-[46%] px-4 py-2.5 font-medium">Signature</th>
-                    <th className="w-[28%] px-4 py-2.5 font-medium">Category</th>
+                    <th className="w-[26%] px-4 py-2.5 font-medium">Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {filteredTools.map((t) => {
-                    return (
-                      <tr key={t.name} className="hover:bg-white/[0.03]">
-                        <td className="px-4 py-3 font-mono font-semibold text-orange-400 truncate">
-                          {t.name}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-300 truncate">
-                          {t.signature}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 truncate">
-                          {t.category}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredTools.map((t) => (
+                    <tr key={t.name} className="hover:bg-white/[0.03]">
+                      <td className="px-4 py-3 font-mono font-semibold text-orange-400 truncate">
+                        {t.name}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-300 truncate">
+                        {t.signature}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-400 truncate">
+                        {t.category}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+        </div>
 
         <ShadcnDialog
           open={clientConfigOpen}
@@ -244,9 +273,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 shrink-0">
             <KeyRound className="h-4 w-4 text-orange-400" />
           </div>
           <div className="flex items-center gap-2">
@@ -257,22 +286,22 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setInstallCliOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer transition-colors"
           >
-            <Terminal className="h-3.5 w-3.5 text-orange-400" />
-            Install CLI
+            <Terminal className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+            <span>Install CLI</span>
           </button>
           <button
             type="button"
             onClick={() => setTokenModalOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer shadow-sm transition-colors"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Generate CLI Token
+            <Plus className="h-3.5 w-3.5 shrink-0" />
+            <span>Generate Token</span>
           </button>
         </div>
       </div>
