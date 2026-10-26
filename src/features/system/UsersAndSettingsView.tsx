@@ -1547,22 +1547,27 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* Storage Allocation Card */}
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <HardDrive className="h-4 w-4 shrink-0 text-orange-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300 whitespace-nowrap">
-                Storage Allocation
-              </h2>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                <HardDrive className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-zinc-100 truncate">
+                  Storage Allocation
+                </h2>
+                <p className="text-[11px] text-zinc-500 truncate">Tenant quotas &amp; overcommit limits</p>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => setShowStorageKnowledgeModal(true)}
               aria-label="Storage allocation guide"
               title="How storage allocation and safety buffer works"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
             >
-              <HelpCircle className="h-3.5 w-3.5" />
+              <HelpCircle className="h-4 w-4" />
             </button>
           </div>
 
@@ -1614,62 +1619,75 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Server className="h-4 w-4 text-orange-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
-                Scheduled Docker Cleanup
-              </h2>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                <Server className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-zinc-100 truncate">
+                  Scheduled Docker Cleanup
+                </h2>
+                <p className="text-[11px] text-zinc-500 truncate">Automatic container &amp; cache pruning</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCleanupLogModal(true)}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
-              >
-                Last Output
-              </button>
-              <button
-                type="button"
-                disabled={cleanupRunning}
-                onClick={async () => {
-                  setCleanupRunning(true);
-                  try {
-                    const res = await backendApi.runDockerCleanup();
-                    if (res.data?.log) setCleanupLastLog(res.data.log);
-                    setCleanupLastStatus(res.ok ? 'ok' : 'error');
-                  } catch {
-                    // fallback in preview
-                  } finally {
-                    setCleanupLastRunAt(new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC');
-                    setCleanupRunning(false);
-                    toast.success('Executed Docker container, image & network prune');
-                  }
-                }}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
-              >
-                {cleanupRunning ? 'Running...' : 'Run Cleanup Now'}
-              </button>
-            </div>
+            <StatusBadge
+              status={cleanupLastStatus === 'ok' ? 'ready' : 'failed'}
+              label={cleanupLastStatus}
+              size="sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setShowCleanupLogModal(true)}
+              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Terminal className="h-3.5 w-3.5 text-zinc-400" />
+              <span>Last Output</span>
+            </button>
+            <button
+              type="button"
+              disabled={cleanupRunning}
+              onClick={async () => {
+                setCleanupRunning(true);
+                try {
+                  const res = await backendApi.runDockerCleanup();
+                  if (res.data?.log) setCleanupLastLog(res.data.log);
+                  setCleanupLastStatus(res.ok ? 'ok' : 'error');
+                } catch {
+                  // fallback in preview
+                } finally {
+                  setCleanupLastRunAt(new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC');
+                  setCleanupRunning(false);
+                  toast.success('Executed Docker container, image & network prune');
+                }
+              }}
+              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-orange-400 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 text-orange-400 ${cleanupRunning ? 'animate-spin' : ''}`} />
+              <span>{cleanupRunning ? 'Running...' : 'Run Cleanup Now'}</span>
+            </button>
           </div>
 
           <div className="space-y-2.5 text-xs">
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+              <div className="min-w-0 pr-2">
                 <span className="text-zinc-200 block font-medium">Enable Scheduled Prune</span>
-                <span className="text-[11px] text-zinc-500">
-                  Prunes stopped containers, unused images &amp; networks (cleanup_enabled)
+                <span className="text-[11px] text-zinc-500 block">
+                  Prunes stopped containers, unused images and dangling networks
                 </span>
               </div>
               <ShadcnSwitch checked={cleanupEnabled} onChange={setCleanupEnabled} />
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+              <div className="min-w-0 pr-2">
                 <span className="text-zinc-200 block font-medium">Cleanup Interval</span>
-                <span className="text-[11px] text-zinc-500">
-                  Background ticker frequency (cleanup_interval)
+                <span className="text-[11px] text-zinc-500 block">
+                  Background maintenance frequency
                 </span>
               </div>
               <select
@@ -1677,22 +1695,21 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 onChange={(e) =>
                   setCleanupInterval(e.target.value as '1h' | '6h' | '12h' | '24h' | '168h')
                 }
-                className="rounded-lg border border-white/[0.09] bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-100"
+                className="h-8 rounded-lg border border-white/[0.09] bg-zinc-950 px-2.5 font-mono text-xs text-zinc-100 shrink-0 cursor-pointer"
               >
-                <option value="1h">Every 1 Hour (1h)</option>
-                <option value="6h">Every 6 Hours (6h)</option>
-                <option value="12h">Every 12 Hours (12h)</option>
+                <option value="1h">Every 1h</option>
+                <option value="6h">Every 6h</option>
+                <option value="12h">Every 12h</option>
                 <option value="24h">Daily (24h)</option>
-                <option value="168h">Weekly (168h)</option>
+                <option value="168h">Weekly</option>
               </select>
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+              <div className="min-w-0 pr-2">
                 <span className="text-zinc-200 block font-medium">Include BuildKit Cache</span>
-                <span className="text-[11px] text-zinc-500">
-                  Also run <code className="font-mono text-zinc-300">docker builder prune -af</code>{' '}
-                  (cleanup_include_build_cache)
+                <span className="text-[11px] text-zinc-500 block">
+                  Also runs <code className="font-mono text-zinc-300">docker builder prune -af</code>
                 </span>
               </div>
               <ShadcnSwitch
@@ -1701,26 +1718,25 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono text-[11px]">
-              <span className="text-zinc-400">Last Cleanup Run</span>
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-300">{cleanupLastRunAt}</span>
-                <StatusBadge
-                  status={cleanupLastStatus === 'ok' ? 'ready' : 'failed'}
-                  label={cleanupLastStatus}
-                />
-              </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs">
+              <span className="text-zinc-400 font-medium">Last Cleanup Run</span>
+              <span className="text-zinc-300 font-mono text-[11px] break-all sm:break-normal">{cleanupLastRunAt}</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
-                Orphaned Temp Files & Daemon
-              </h2>
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-zinc-100 truncate">
+                  Temp Files &amp; System Paths
+                </h2>
+                <p className="text-[11px] text-zinc-500 truncate">Runtime storage &amp; sockets</p>
+              </div>
             </div>
             <button
               type="button"
@@ -1730,16 +1746,17 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 if (info.total_size) setTmpTotalSize(info.total_size);
                 toast.success('Scanned /tmp for orphaned NextDeploy archives');
               }}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+              className="h-8 px-2.5 sm:px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer shrink-0 transition-colors"
             >
               Scan /tmp
             </button>
           </div>
+
           <div className="space-y-2.5 text-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
               <div>
-                <span className="text-zinc-200 block">Orphaned Backup/Export Archives</span>
-                <span className="text-[11px] text-zinc-500">
+                <span className="text-zinc-200 block font-medium">Orphaned Temp Archives</span>
+                <span className="text-[11px] text-zinc-500 font-mono">
                   {tmpCount} item(s) · {tmpTotalSize} in /tmp
                 </span>
               </div>
@@ -1751,22 +1768,25 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   setTmpTotalSize('0 B');
                   toast.success('Cleaned orphaned temporary archives from /tmp');
                 }}
-                className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 font-sans text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                className="w-full sm:w-auto h-8 px-3 rounded-lg border border-rose-500/30 bg-rose-500/10 font-sans text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer flex items-center justify-center shrink-0 transition-colors"
               >
                 Clean Temp Files
               </button>
             </div>
-            <div className="flex justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
-              <span className="text-zinc-500">Apps Directory</span>
-              <span className="text-zinc-100">/data/apps</span>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
+              <span className="text-zinc-500 text-[11px] sm:text-xs shrink-0">Apps Directory</span>
+              <span className="text-zinc-100 text-[11px] sm:text-xs sm:text-right">/data/apps</span>
             </div>
-            <div className="flex justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
-              <span className="text-zinc-500">Reverse Proxy Engine</span>
-              <span className="text-orange-400">Caddy 2 (Caddyfile + Admin API)</span>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
+              <span className="text-zinc-500 text-[11px] sm:text-xs shrink-0">Reverse Proxy Engine</span>
+              <span className="text-orange-400 text-[11px] sm:text-xs truncate sm:text-right">Caddy 2 (Caddyfile + Admin API)</span>
             </div>
-            <div className="flex justify-between rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
-              <span className="text-zinc-500">Docker Socket</span>
-              <span className="text-emerald-400">unix:///var/run/docker.sock</span>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
+              <span className="text-zinc-500 text-[11px] sm:text-xs shrink-0">Docker Socket</span>
+              <span className="text-emerald-400 text-[11px] sm:text-xs break-all sm:break-normal sm:text-right">unix:///var/run/docker.sock</span>
             </div>
           </div>
         </div>
