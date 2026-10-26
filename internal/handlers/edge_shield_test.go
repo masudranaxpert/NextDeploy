@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"panel/internal/db"
 
@@ -28,8 +29,8 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 	app.Get("/api/v1/edge/verify-domain", p.EdgeVerifyDomain)
 	app.Get("/api/v1/edge/setup.sh", p.GetEdgeShieldSetupScript)
 	app.Post("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
-	app.Get("/api/v1/shield-nodes", p.ListShieldNodes)
-	app.Post("/api/v1/shield-nodes", p.CreateShieldNode)
+	app.Get("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.ListShieldNodes)
+	app.Post("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.CreateShieldNode)
 
 	ctx := context.Background()
 
@@ -109,5 +110,30 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 	node, err := store.GetShieldNode(ctx, nodeID)
 	if err != nil || node.Status != "connected" {
 		t.Fatalf("expected status connected after heartbeat, got %v (err: %v)", node.Status, err)
+	}
+
+	// 11. Test that calling /api/v1/shield-nodes without session cookie returns 401
+	req = httptest.NewRequest("GET", "/api/v1/shield-nodes", nil)
+	resp, err = app.Test(req)
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("expected 401 without session cookie, got %d", resp.StatusCode)
+	}
+
+	// 12. Create admin user and session, then call with session cookie -> 200 OK
+	adminID, err := store.CreateUser(ctx, "admin_user", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+	sessToken := "admin_session_test_token"
+	err = store.CreateSession(ctx, sessToken, adminID, time.Now().Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("failed to create admin session: %v", err)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/shield-nodes", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+sessToken)
+	resp, err = app.Test(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("expected 200 with admin session cookie on /api/v1/shield-nodes, got %d", resp.StatusCode)
 	}
 }

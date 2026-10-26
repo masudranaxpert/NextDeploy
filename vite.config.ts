@@ -61,22 +61,20 @@ export default defineConfig(() => {
       // the client reports "server connection lost", pings the bare root
       // successfully and reloads the page in an endless loop.
       // Everything after the root (API calls, /apps/:id/ws/*) goes to the live panel.
-      proxy: process.env.ND_DEV_PROXY
-        ? {
-            '^\\/(?!(?:$|[?]|(?:@vite|@fs|@id|@react-refresh|__open-in-editor|src|node_modules)\\b))': {
-              target: process.env.ND_DEV_PROXY,
-              changeOrigin: true,
-              ws: true,
-              // the panel rejects state-changing requests whose Origin is not the panel host
-              headers: { origin: process.env.ND_DEV_PROXY },
-              // page navigations stay on vite (HMR); API calls go to the panel
-              bypass(req) {
-                const h = req.headers;
-                if (!h['x-requested-with'] && String(h.accept || '').includes('text/html')) return '/index.html';
-              },
-            },
-          }
-        : undefined,
+      proxy: {
+        '^\\/(?!(?:$|[?]|(?:@vite|@fs|@id|@react-refresh|__open-in-editor|src|node_modules)\\b))': {
+          target: process.env.ND_DEV_PROXY || 'http://209.135.168.159:8080',
+          changeOrigin: true,
+          ws: true,
+          // the panel rejects state-changing requests whose Origin is not the panel host
+          headers: { origin: process.env.ND_DEV_PROXY || 'http://209.135.168.159:8080' },
+          // page navigations stay on vite (HMR); API calls go to the panel
+          bypass(req) {
+            const h = req.headers;
+            if (!h['x-requested-with'] && String(h.accept || '').includes('text/html')) return '/index.html';
+          },
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

@@ -47,6 +47,8 @@ export function ShieldProxiesView() {
       if (res.ok) {
         setNodes(res.nodes || []);
         if (res.origin_ip) setOriginIP(res.origin_ip);
+      } else {
+        toast.error(res.error || 'Failed to load shield nodes');
       }
     } catch (err: any) {
       toast.error('Failed to load shield nodes: ' + (err.message || 'Network error'));

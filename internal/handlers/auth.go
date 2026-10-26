@@ -137,6 +137,32 @@ func CurrentUser(c *fiber.Ctx) (db.User, bool) {
 func (p *Panel) RequireAdminMiddleware(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok {
+		// Session cookie or API token fallback if global AuthMiddleware was bypassed (e.g. /api/v1/* routes)
+		ctx := c.UserContext()
+		if sessToken := c.Cookies(sessionCookie); sessToken != "" {
+			if userID, expiresAt, err := p.DB.GetSession(ctx, sessToken); err == nil && time.Now().Before(expiresAt) {
+				if user, err := p.DB.GetUserByID(ctx, userID); err == nil && user.Status != db.UserStatusSuspended {
+					c.Locals(contextUserKey, user)
+					u = user
+					ok = true
+				}
+			}
+		} else if authHeader := c.Get("Authorization"); strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			token := strings.TrimSpace(authHeader[7:])
+			if user, _, err := p.DB.ValidateAPIToken(ctx, token); err == nil && user.ID > 0 {
+				c.Locals(contextUserKey, user)
+				u = user
+				ok = true
+			}
+		} else if apiKey := strings.TrimSpace(c.Get("X-API-Key")); apiKey != "" {
+			if user, _, err := p.DB.ValidateAPIToken(ctx, apiKey); err == nil && user.ID > 0 {
+				c.Locals(contextUserKey, user)
+				u = user
+				ok = true
+			}
+		}
+	}
+	if !ok {
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
 		}

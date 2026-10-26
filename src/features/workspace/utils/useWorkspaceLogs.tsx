@@ -42,6 +42,18 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
             logTime = tsMatch[1];
             logMsg = tsMatch[2];
           }
+          let container = targetSvc?.service || containerName || 'app';
+          const composeMatch = logMsg.match(/^([a-zA-Z0-9_-]+)(?:-\d+)?\s*\|\s*(.*)$/);
+          if (composeMatch) {
+            container = composeMatch[1];
+            logMsg = composeMatch[2];
+          } else {
+            const bracketMatch = logMsg.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
+            if (bracketMatch) {
+              container = bracketMatch[1];
+              logMsg = bracketMatch[2];
+            }
+          }
           const lower = logMsg.toLowerCase();
           const level: LogEntry['level'] =
             lower.includes('error') || lower.includes('fatal') || lower.includes('panic')
@@ -54,7 +66,7 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
           return {
             id: `ws-log-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
             timestamp: logTime,
-            container: targetSvc?.service || containerName || 'app',
+            container,
             level,
             message: logMsg,
           };
