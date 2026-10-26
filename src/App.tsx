@@ -1203,7 +1203,16 @@ export default function App() {
   return (
     <OwnerContext.Provider value={{ viewerId: currentUser ? Number(currentUser.id) : 0, isAdmin: currentUser?.role === 'admin' }}>
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
-      <Toaster position="bottom-right" theme="dark" richColors closeButton duration={4500} visibleToasts={4} toastOptions={{ classNames: { toast: "font-sans text-xs" } }} />
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        richColors
+        closeButton
+        duration={4500}
+        visibleToasts={4}
+        mobileOffset={{ bottom: 16, left: 16, right: 16 }}
+        toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
+      />
 
       {mobileMenuOpen && (
         <div
@@ -1356,7 +1365,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className="lg:hidden mr-1 text-zinc-400 hover:text-white"
+                aria-label="Open navigation menu"
+                className="lg:hidden -ml-1 mr-1 flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer shrink-0"
               >
                 <Menu className="h-4 w-4" />
               </button>

@@ -177,7 +177,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   useEffect(() => {
     if (app.php) return;
     let active = true;
-    let wasRunning = false;
+    let wasRunning = liveDeployState.running;
+    let timer: number | undefined;
+
     const checkProgress = async () => {
       const res = await backendApi.deployProgress(app.id);
       if (!active || !res.ok || !res.data) return;
@@ -195,13 +197,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         wasRunning = true;
       }
     };
+
+    // Initial check on mount
     void checkProgress();
-    const timer = window.setInterval(checkProgress, 1200);
+
+    // High frequency 1.2s polling only while deploy is actively executing
+    // Relaxed 15s check when idle to catch external actions without background hammering
+    const intervalMs = liveDeployState.running ? 1200 : 15000;
+    timer = window.setInterval(checkProgress, intervalMs);
+
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
-  }, [app.id, app.php]);
+  }, [app.id, app.php, liveDeployState.running]);
 
   const defaultWildcardHost = useMemo(() => {
     const doms = app.domains || [];

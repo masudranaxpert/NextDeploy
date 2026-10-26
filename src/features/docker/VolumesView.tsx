@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowLeft,
   Trash2,
@@ -50,6 +50,16 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
   const [restoreStatus, setRestoreStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [restorePercent, setRestorePercent] = useState(0);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const restorePollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (restorePollRef.current) {
+        window.clearInterval(restorePollRef.current);
+        restorePollRef.current = null;
+      }
+    };
+  }, []);
 
   const loadVolumeBrowse = async (vol: DockerVolumeItem, rel = '') => {
     setSelectedVolume(vol);
@@ -111,10 +121,12 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
     const uploadRes = await backendApi.volumeRestoreUpload(targetName, restoreFileObj);
     if (uploadRes.ok && uploadRes.job_id) {
       const jobId = uploadRes.job_id;
-      const pollInterval = window.setInterval(async () => {
+      if (restorePollRef.current) window.clearInterval(restorePollRef.current);
+      restorePollRef.current = window.setInterval(async () => {
         const st = await backendApi.volumeRestoreStatus(jobId);
         if (!st.ok || !st.data) {
-          window.clearInterval(pollInterval);
+          if (restorePollRef.current) window.clearInterval(restorePollRef.current);
+          restorePollRef.current = null;
           setRestoreStatus('error');
           setRestoreError(st.error || 'Lost contact with the server while extracting');
           toast.error('Lost contact with the server while extracting');
@@ -123,12 +135,14 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
         const pct = st.data.extract_percent ?? 50;
         setRestorePercent(Math.max(15, Math.min(100, pct)));
         if (st.data.status === 'done') {
-          window.clearInterval(pollInterval);
+          if (restorePollRef.current) window.clearInterval(restorePollRef.current);
+          restorePollRef.current = null;
           setRestoreStatus('done');
           setRestorePercent(100);
           toast.success(`Restored archive into volume "${targetName}"`);
         } else if (st.data.status === 'error') {
-          window.clearInterval(pollInterval);
+          if (restorePollRef.current) window.clearInterval(restorePollRef.current);
+          restorePollRef.current = null;
           setRestoreStatus('error');
           setRestoreError(st.data.error || 'Archive extraction failed');
           toast.error(st.data.error || 'Archive extraction failed');

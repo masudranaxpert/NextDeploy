@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Plus,
   RotateCw,
@@ -119,6 +119,16 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     log: string;
     error?: string;
   }>({ status: 'idle', log: '' });
+  const restoreTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (restoreTimerRef.current) {
+        window.clearInterval(restoreTimerRef.current);
+        restoreTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Hydrate destinations, schedules, and history from Go backend when running on server
   const fetchBackupsData = async (targetPage = page, targetPerPage = perPage) => {
@@ -393,10 +403,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     }
 
     {
-      const timer = window.setInterval(async () => {
+      if (restoreTimerRef.current) window.clearInterval(restoreTimerRef.current);
+      restoreTimerRef.current = window.setInterval(async () => {
         const st = await backendApi.backupRestoreStatus(app.id);
         if (!st.ok || !st.data) {
-          window.clearInterval(timer);
+          if (restoreTimerRef.current) window.clearInterval(restoreTimerRef.current);
+          restoreTimerRef.current = null;
           return;
         }
         setRestoreJobState({
@@ -405,10 +417,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
           error: st.data.error,
         });
         if (st.data.status === 'completed') {
-          window.clearInterval(timer);
+          if (restoreTimerRef.current) window.clearInterval(restoreTimerRef.current);
+          restoreTimerRef.current = null;
           toast.success(`Restored ${app.slug} from ${restoreTarget.archiveName}`);
         } else if (st.data.status === 'failed') {
-          window.clearInterval(timer);
+          if (restoreTimerRef.current) window.clearInterval(restoreTimerRef.current);
+          restoreTimerRef.current = null;
           toast.error(st.data.error || 'Restore failed');
         }
       }, 1200);

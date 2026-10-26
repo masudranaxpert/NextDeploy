@@ -414,7 +414,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
       )
     );
     toast.success(
-      `Updated resource quotas & systemd slice (nextdeploy-user-${limitsModalUser.id}.slice) for ${limitsModalUser.username}`
+      `Updated resource limits for ${limitsModalUser.username}`
     );
     setLimitsModalUser(null);
   };
@@ -631,11 +631,11 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             <div className="mt-0.5 text-[10px] text-zinc-500">Sessions revoked & apps stopped</div>
           </div>
           <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3.5">
-            <div className="text-[11px] text-zinc-400">Kernel cgroup v2 Slice</div>
+            <div className="text-[11px] text-zinc-400">Resource Isolation</div>
             <div className="mt-1 font-mono text-xs font-semibold text-orange-400 truncate">
-              nextdeploy-user-&lt;id&gt;.slice
+              Kernel Sandbox
             </div>
-            <div className="mt-1 text-[10px] text-zinc-500">Enforces CPUQuota & MemoryMax</div>
+            <div className="mt-1 text-[10px] text-zinc-500">Dedicated CPU & RAM quotas</div>
           </div>
         </div>
 
@@ -644,7 +644,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             <table className="w-full min-w-[780px] text-left text-xs">
               <thead>
                 <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="px-4 py-2.5 font-medium">User & cgroup Slice</th>
+                  <th className="px-4 py-2.5 font-medium">User Account</th>
                   <th className="px-4 py-2.5 font-medium">Role & Status</th>
                   <th className="px-4 py-2.5 font-medium">Projects Quota</th>
                   <th className="px-4 py-2.5 font-medium">CPU / RAM / Disk Limits</th>
@@ -671,7 +671,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                           )}
                         </div>
                         <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                          nextdeploy-user-{u.id}.slice
+                          ID #{u.id} • Sandboxed
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -853,7 +853,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 >
                   <div className="text-xs font-semibold">Standard User (user)</div>
                   <div className="mt-0.5 text-[11px] text-zinc-400">
-                    Isolated apps & enforced cgroup quotas
+                    Isolated apps & strict resource quotas
                   </div>
                 </button>
                 <button
