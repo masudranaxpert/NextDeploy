@@ -939,13 +939,19 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             <Download className="h-3 w-3" />
           </button>
 
-          {onSave && !readOnly && isDirty && (
+          {onSave && !readOnly && (
             <button
               type="button"
+              disabled={!isDirty || isLoading}
               onClick={onSave}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white transition-colors cursor-pointer"
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-all select-none ${
+                isDirty && !isLoading
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer shadow-sm shadow-orange-950/40 border border-orange-400/30 active:scale-[0.98]'
+                  : 'bg-zinc-900 border border-white/[0.08] text-zinc-500 opacity-60 cursor-not-allowed'
+              }`}
+              title={isDirty ? 'Save changes (Ctrl+S)' : 'No unsaved changes'}
             >
-              <Save className="h-3 w-3" />
+              <Save className="h-3.5 w-3.5 shrink-0" />
               <span>Save</span>
             </button>
           )}

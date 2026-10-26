@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { CodeEditorBox } from '../../../../components/ui/CodeEditorBox';
 import { backendApi } from '../../../../lib/backendApi';
@@ -148,41 +148,6 @@ export const FileManagerEditor: React.FC<FileManagerEditorProps> = ({
         permissions={formatPermOctal(filePermissions[selectedFile.path], false)}
         savedTick={editorSaveTick}
         height={420}
-        actions={
-          !app.php ? (
-            <button
-              type="button"
-              onClick={async () => {
-                const res = await backendApi.fileSave(
-                  app.id,
-                  selectedFile.path,
-                  selectedFile.content
-                );
-                if (!res.ok) {
-                  toast.error(
-                    res.error || res.message || `Failed to save ${selectedFile.path}`
-                  );
-                  return;
-                }
-                if (app.gitRepo && (app.gitSync !== false || app.sourceType === 'git')) {
-                  void backendApi.setGitSync(app.id, false, false);
-                  onUpdateApp({
-                    ...app,
-                    sourceType: 'compose',
-                    gitSync: false,
-                  });
-                }
-                await onSyncFiles();
-                toast.success(`Saved ${selectedFile.path}`);
-              }}
-              className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/25 cursor-pointer"
-            >
-              <RotateCw className="h-3 w-3" />
-              <span className="hidden sm:inline">Save File</span>
-              <span className="sm:hidden">Save</span>
-            </button>
-          ) : null
-        }
       />
     </div>
   );
