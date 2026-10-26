@@ -32,7 +32,7 @@ export function ShieldProxiesView() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDocsModal, setShowDocsModal] = useState(false);
-  const [showGuide, setShowGuide] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
   const [selectedScriptNode, setSelectedScriptNode] = useState<{ node: ShieldNode; command: string } | null>(null);
 
   // Form states
@@ -249,7 +249,7 @@ export function ShieldProxiesView() {
         </div>
       </div>
 
-      {/* Step-by-Step VPS Provisioning Guide Card */}
+      {/* Step-by-Step VPS Setup Guide Card */}
       <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-sm overflow-hidden">
         <div
           onClick={() => setShowGuide((prev) => !prev)}
@@ -260,12 +260,12 @@ export function ShieldProxiesView() {
               <Terminal className="h-3.5 w-3.5" />
             </span>
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
-              Shield VPS Setup & Provisioning Instructions
+              Shield VPS Setup
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-400 hidden sm:inline">
-              {showGuide ? 'Collapse' : 'Show Instructions'}
+              {showGuide ? 'Collapse' : 'Show Guide'}
             </span>
             {showGuide ? (
               <ChevronUp className="h-4 w-4 text-zinc-400" />
@@ -278,7 +278,7 @@ export function ShieldProxiesView() {
         {showGuide && (
           <div className="p-4 sm:p-5 space-y-4">
             <p className="text-xs text-zinc-400 leading-relaxed">
-              To turn any fresh Linux VPS into an Edge Shield Proxy for NextDeploy, follow these 4 quick steps. No manual Caddy or SSL configuration required — the installer automates everything.
+              4 quick steps to connect an external Linux VPS as a reverse proxy.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -291,15 +291,15 @@ export function ShieldProxiesView() {
                     </span>
                     <span className="text-xs text-zinc-500">Prerequisites</span>
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Prepare VPS & Open Ports</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Prepare VPS & Ports</h4>
                   <p className="text-xs text-zinc-400 leading-normal">
-                    SSH into your remote VPS as <strong className="text-zinc-200">root</strong>. Ensure <code className="text-emerald-400">curl</code> is installed and open ports 80/443:
+                    Run on your remote VPS as <strong className="text-zinc-200">root</strong>:
                   </p>
                 </div>
                 <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <div className="overflow-x-auto whitespace-pre pr-7">
+                  <pre className="overflow-x-auto whitespace-pre pr-7">
                     apt update && apt install -y curl ufw{'\n'}ufw allow 80/tcp{'\n'}ufw allow 443/tcp
-                  </div>
+                  </pre>
                   <button
                     type="button"
                     onClick={() => handleCopy('apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp', 'guide-step-1')}
@@ -324,13 +324,13 @@ export function ShieldProxiesView() {
                     </span>
                     <span className="text-xs text-zinc-500">Panel</span>
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Add Node in NextDeploy</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Add Node</h4>
                   <p className="text-xs text-zinc-400 leading-normal">
-                    Click <strong className="text-zinc-200">+ Add Shield Node</strong> above. Enter a friendly name and the VPS public IPv4 address to generate your secure token.
+                    Click <strong className="text-zinc-200">+ Add Shield Node</strong> above to enter VPS IP and generate an install token.
                   </p>
                 </div>
-                <div className="rounded-md border border-dashed border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-400 text-center">
-                  Generates an authorized one-line installation command
+                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-400 text-center">
+                  Generates an authorized install command
                 </div>
               </div>
 
@@ -341,20 +341,29 @@ export function ShieldProxiesView() {
                     <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-400">
                       STEP 3
                     </span>
-                    <span className="text-xs text-zinc-500">Installation</span>
+                    <span className="text-xs text-zinc-500">Install</span>
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Run Automated Installer</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Run Install Script</h4>
                   <p className="text-xs text-zinc-400 leading-normal">
-                    Paste the generated one-line command into your VPS terminal. It configures Caddy reverse-proxy & On-Demand TLS automatically:
+                    Run the node&apos;s installer command as root on the VPS:
                   </p>
                 </div>
                 <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <div className="overflow-x-auto whitespace-pre truncate pr-7 text-amber-300">
-                    curl -sSL &quot;.../setup.sh?token=...&quot; | bash
-                  </div>
-                  <div className="text-[10px] text-zinc-500 mt-1">
-                    Click &apos;Install Script&apos; on any node to copy its full token command
-                  </div>
+                  <pre className="overflow-x-auto whitespace-pre pr-8 text-amber-300">
+                    {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/setup.sh?token=YOUR_TOKEN" | bash`}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/setup.sh?token=YOUR_TOKEN" | bash`, 'guide-step-3')}
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                    title="Copy command template"
+                  >
+                    {copied === 'guide-step-3' ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -365,17 +374,17 @@ export function ShieldProxiesView() {
                     <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-400">
                       STEP 4
                     </span>
-                    <span className="text-xs text-zinc-500">Verification</span>
+                    <span className="text-xs text-zinc-500">Verify</span>
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Status Check & DNS</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Verify & DNS</h4>
                   <p className="text-xs text-zinc-400 leading-normal">
-                    NextDeploy will show the node as <span className="text-emerald-400 font-medium">Connected</span>. Verify Caddy on the VPS with:
+                    Node will show <span className="text-emerald-400 font-medium">Connected</span>. Point domain DNS A-Record to the shield IP:
                   </p>
                 </div>
                 <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <div className="overflow-x-auto whitespace-pre pr-7">
+                  <pre className="overflow-x-auto whitespace-pre pr-7">
                     systemctl status caddy
-                  </div>
+                  </pre>
                   <button
                     type="button"
                     onClick={() => handleCopy('systemctl status caddy', 'guide-step-4')}
