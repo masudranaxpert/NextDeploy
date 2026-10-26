@@ -394,6 +394,16 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		}
 	}
 
+	if shieldIDPtr != nil {
+		node, err := p.DB.GetShieldNode(c.UserContext(), *shieldIDPtr)
+		if err != nil || node == nil {
+			return c.Status(400).SendString("shield node not found")
+		}
+		if node.Status != "connected" {
+			return c.Status(400).SendString(fmt.Sprintf("Shield node '%s' is %s. Only connected nodes can route traffic.", node.Name, node.Status))
+		}
+	}
+
 	d := db.AppDomain{
 		AppID:           id,
 		Domain:          caddy.CleanQuotedValue(c.FormValue("domain")),
@@ -485,6 +495,16 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 			} else {
 				shieldIDPtr = nil
 			}
+		}
+	}
+
+	if shieldIDPtr != nil && (current.ShieldNodeID == nil || *shieldIDPtr != *current.ShieldNodeID) {
+		node, err := p.DB.GetShieldNode(c.UserContext(), *shieldIDPtr)
+		if err != nil || node == nil {
+			return c.Status(400).SendString("shield node not found")
+		}
+		if node.Status != "connected" {
+			return c.Status(400).SendString(fmt.Sprintf("Shield node '%s' is %s. Only connected nodes can route traffic.", node.Name, node.Status))
 		}
 	}
 

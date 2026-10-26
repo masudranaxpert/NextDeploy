@@ -35,6 +35,13 @@ export const PhpDomainsTab: React.FC<{
       toast.error('Enter a valid domain such as example.com');
       return;
     }
+    if (isAdmin && shieldNodeId) {
+      const target = shieldNodes.find((s) => s.id === shieldNodeId);
+      if (target && target.status !== 'connected') {
+        toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
+        return;
+      }
+    }
     setBusy('add');
     const res = await backendApi.domainCreate(app.id, {
       domain: d,
@@ -159,8 +166,8 @@ export const PhpDomainsTab: React.FC<{
             >
               <option value="">Direct Origin (Server IP)</option>
               {shieldNodes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.ip})
+                <option key={s.id} value={s.id} disabled={s.status !== 'connected'}>
+                  {s.name} ({s.ip}){s.status === 'connected' ? '' : ` • ${s.status === 'pending' ? 'Pending Setup' : 'Offline'}`}
                 </option>
               ))}
             </select>
@@ -192,49 +199,63 @@ export const PhpDomainsTab: React.FC<{
                     {d.enableWww && <Pill>www</Pill>}
 
                     {/* Shield Routing status for admin */}
-                    {isAdmin && (
-                      <select
-                        value={d.shield_node_id ?? ''}
-                        disabled={busy === 'shield' + d.id}
-                        onChange={async (e) => {
-                          const val = e.target.value;
-                          const newId = val ? Number(val) : null;
-                          setBusy('shield' + d.id);
-                          const res = await backendApi.domainEdit(app.id, d.id, {
-                            domain: d.domain,
-                            service: 'php',
-                            port: 80,
-                            enable_https: d.forceHttps,
-                            enable_www: d.enableWww,
-                            shield_node_id: newId,
-                          });
-                          setBusy('');
-                          if (!res.ok) {
-                            toast.error(res.error || 'Failed to update route');
-                            return;
-                          }
-                          const updated = app.domains.map((dom) =>
-                            dom.id === d.id ? { ...dom, shield_node_id: newId } : dom
-                          );
-                          onUpdateApp?.({ ...app, domains: updated });
-                          toast.success(`Updated ${d.domain} shield route`);
-                          await onChanged();
-                        }}
-                        className={`h-6 rounded-md border px-2 text-[11px] font-medium transition-colors cursor-pointer focus:outline-none ${
-                          d.shield_node_id
-                            ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 focus:border-cyan-400'
-                            : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 focus:border-zinc-700'
-                        }`}
-                        title="Change Route: Direct Origin or Edge Shield"
-                      >
-                        <option value="">Direct Origin</option>
-                        {shieldNodes.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            Shield: {s.name} ({s.ip})
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    {isAdmin && (() => {
+                      const matched = d.shield_node_id ? shieldNodes.find((s) => s.id === d.shield_node_id) : null;
+                      const isBroken = Boolean(matched && matched.status !== 'connected');
+
+                      return (
+                        <select
+                          value={d.shield_node_id ?? ''}
+                          disabled={busy === 'shield' + d.id}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            const newId = val ? Number(val) : null;
+                            if (newId) {
+                              const target = shieldNodes.find((s) => s.id === newId);
+                              if (target && target.status !== 'connected') {
+                                toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
+                                return;
+                              }
+                            }
+                            setBusy('shield' + d.id);
+                            const res = await backendApi.domainEdit(app.id, d.id, {
+                              domain: d.domain,
+                              service: 'php',
+                              port: 80,
+                              enable_https: d.forceHttps,
+                              enable_www: d.enableWww,
+                              shield_node_id: newId,
+                            });
+                            setBusy('');
+                            if (!res.ok) {
+                              toast.error(res.error || 'Failed to update route');
+                              return;
+                            }
+                            const updated = app.domains.map((dom) =>
+                              dom.id === d.id ? { ...dom, shield_node_id: newId } : dom
+                            );
+                            onUpdateApp?.({ ...app, domains: updated });
+                            toast.success(`Updated ${d.domain} shield route`);
+                            await onChanged();
+                          }}
+                          className={`h-6 rounded-md border px-2 text-[11px] font-medium transition-colors cursor-pointer focus:outline-none ${
+                            isBroken
+                              ? 'border-rose-500/40 bg-rose-500/10 text-rose-300 focus:border-rose-400'
+                              : d.shield_node_id
+                              ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 focus:border-cyan-400'
+                              : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200 focus:border-zinc-700'
+                          }`}
+                          title={isBroken ? `Warning: Shield node '${matched?.name}' is ${matched?.status}!` : 'Change Route: Direct Origin or Edge Shield'}
+                        >
+                          <option value="">Direct Origin</option>
+                          {shieldNodes.map((s) => (
+                            <option key={s.id} value={s.id} disabled={s.status !== 'connected' && s.id !== d.shield_node_id}>
+                              Shield: {s.name} ({s.ip}){s.status === 'connected' ? '' : ` [${s.status}]`}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     {!d.isPrimary && (

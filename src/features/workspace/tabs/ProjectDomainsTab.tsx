@@ -139,6 +139,15 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
       const cleanService = domainService.trim() || 'app';
       const cleanPort = parseInt(domainPort, 10) || 3000;
 
+      if (domainShieldNodeId) {
+        const target = shieldNodes.find((s) => s.id === domainShieldNodeId);
+        if (target && target.status !== 'connected') {
+          toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
         domain: cleanDomain,
         service: cleanService,
@@ -383,10 +392,16 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   {d.shield_node_id ? (
                     (() => {
                       const matchedShield = shieldNodes.find((s) => s.id === d.shield_node_id);
+                      const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
                       return (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
+                        <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
+                          isBroken
+                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                            : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
+                        }`}>
                           <ShieldCheck className="h-3 w-3" />
                           Shield: {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}
+                          {isBroken && <span className="ml-1 text-[10px] uppercase font-bold text-rose-400">({matchedShield?.status || 'offline'})</span>}
                         </span>
                       );
                     })()
@@ -632,8 +647,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 >
                   <option value="">Direct Origin (Server IP)</option>
                   {shieldNodes.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.ip})
+                    <option key={s.id} value={s.id} disabled={s.status !== 'connected' && s.id !== domainShieldNodeId}>
+                      {s.name} ({s.ip}){s.status === 'connected' ? '' : ` • ${s.status === 'pending' ? 'Pending Setup' : 'Offline'}`}
                     </option>
                   ))}
                 </select>
