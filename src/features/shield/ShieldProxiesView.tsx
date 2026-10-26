@@ -15,6 +15,7 @@ import {
   AlertCircle,
   ExternalLink,
   Lock,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
@@ -34,6 +35,11 @@ export function ShieldProxiesView() {
   const [submitting, setSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+
+  // Failover / Reassign modal state
+  const [reassignModalNode, setReassignModalNode] = useState<ShieldNode | null>(null);
+  const [targetShieldId, setTargetShieldId] = useState<number | null>(null);
+  const [reassigning, setReassigning] = useState(false);
 
   const fetchNodes = async () => {
     try {
@@ -119,6 +125,26 @@ export function ShieldProxiesView() {
       toast.error('Ping test failed: ' + (err.message || 'Network error'));
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const handleReassign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reassignModalNode) return;
+    setReassigning(true);
+    try {
+      const res = await backendApi.reassignShieldNode(reassignModalNode.id, targetShieldId);
+      if (res.ok) {
+        toast.success(`Successfully migrated all domains from '${reassignModalNode.name}'`);
+        setReassignModalNode(null);
+        fetchNodes();
+      } else {
+        toast.error(res.error || 'Failed to reassign domains');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Network error');
+    } finally {
+      setReassigning(false);
     }
   };
 
@@ -336,6 +362,19 @@ export function ShieldProxiesView() {
 
                       <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {node.assigned_domains > 0 && (
+                            <button
+                              onClick={() => {
+                                setReassignModalNode(node);
+                                setTargetShieldId(null);
+                              }}
+                              className="flex items-center gap-1 rounded-md border border-cyan-800/60 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-900/60"
+                              title="Failover / Reassign all domains to another shield or direct"
+                            >
+                              <ArrowLeftRight className="h-3 w-3" />
+                              Reassign
+                            </button>
+                          )}
                           <button
                             onClick={() => setSelectedScriptNode({ node, command: setupCmd })}
                             className="flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800/80 px-2.5 py-1 text-[11px] font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white"
@@ -504,6 +543,85 @@ export function ShieldProxiesView() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Failover / Reassign Domains Modal */}
+      {reassignModalNode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <ArrowLeftRight className="h-4 w-4 text-cyan-400" />
+                <h3 className="text-sm font-semibold text-white">
+                  Failover / Reassign Domains
+                </h3>
+              </div>
+              <button
+                onClick={() => setReassignModalNode(null)}
+                className="text-zinc-500 hover:text-zinc-300 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleReassign} className="mt-4 space-y-4">
+              <div className="rounded-lg bg-zinc-950 border border-zinc-800 p-3 text-xs space-y-1">
+                <div className="text-zinc-400">Source Shield VPS:</div>
+                <div className="font-semibold text-white flex items-center justify-between">
+                  <span>{reassignModalNode.name}</span>
+                  <span className="font-mono text-zinc-400">{reassignModalNode.ip}</span>
+                </div>
+                <div className="text-[11px] text-amber-400 pt-1">
+                  ⚠️ Currently routing <strong className="text-white">{reassignModalNode.assigned_domains || 0}</strong> domain(s).
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">
+                  Migrate All Domains To:
+                </label>
+                <select
+                  value={targetShieldId === null ? 'direct' : targetShieldId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTargetShieldId(val === 'direct' ? null : Number(val));
+                  }}
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                >
+                  <option value="direct">🌐 Direct Origin (Server Public IP - No Shield)</option>
+                  {nodes
+                    .filter((n) => n.id !== reassignModalNode.id)
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        🛡️ {n.name} ({n.ip}) - {n.status}
+                      </option>
+                    ))}
+                </select>
+                <p className="mt-1.5 text-[11px] text-zinc-500">
+                  Select a standby Shield VPS node, or revert all domains to direct origin routing without proxy.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setReassignModalNode(null)}
+                  className="rounded-lg border border-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reassigning}
+                  className="rounded-lg bg-cyan-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  {reassigning ? 'Migrating...' : 'Confirm Migration'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

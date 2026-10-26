@@ -389,6 +389,30 @@ func (p *Panel) TestShieldNode(c *fiber.Ctx) error {
 	})
 }
 
+// ReassignShieldNodeDomains migrates all domains from one Shield node to another (or to Direct Origin).
+// POST /api/v1/shield-nodes/:id/reassign
+func (p *Panel) ReassignShieldNodeDomains(c *fiber.Ctx) error {
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "Invalid ID"})
+	}
+
+	var body struct {
+		TargetShieldID *int64 `json:"target_shield_id"`
+	}
+	_ = c.BodyParser(&body)
+
+	ctx := c.UserContext()
+	_, err = p.DB.DB().ExecContext(ctx, `UPDATE app_domains SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE proxy_routes SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE users SET default_shield_id = ? WHERE default_shield_id = ?`, body.TargetShieldID, id)
+
+	return c.JSON(fiber.Map{"ok": true})
+}
+
 // syncShieldProxiesToCaddy ensures all active Shield Node IPs are in Caddy TrustedProxies.
 func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context) {
 	nodes, err := p.DB.ListShieldNodes(ctx)

@@ -295,6 +295,7 @@ func main() {
 	app.Put("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.UpdateShieldNode)
 	app.Delete("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.DeleteShieldNode)
 	app.Post("/api/v1/shield-nodes/:id/test", p.RequireAdminMiddleware, p.TestShieldNode)
+	app.Post("/api/v1/shield-nodes/:id/reassign", p.RequireAdminMiddleware, p.ReassignShieldNodeDomains)
 	app.Get("/registries", p.ServeSPA)
 	app.Post("/registries", p.AddRegistry)
 	app.Post("/registries/:id/delete", p.DeleteRegistry)

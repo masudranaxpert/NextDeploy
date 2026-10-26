@@ -28,4 +28,7 @@ export const shieldApi = {
 
   testShieldNode: (id: number) =>
     requestJson<TestShieldNodeResponse>(`/api/v1/shield-nodes/${id}/test`, { method: 'POST' }),
+
+  reassignShieldNode: (id: number, targetShieldId: number | null) =>
+    requestJson<{ ok: boolean; error?: string }>(`/api/v1/shield-nodes/${id}/reassign`, json({ target_shield_id: targetShieldId })),
 };
