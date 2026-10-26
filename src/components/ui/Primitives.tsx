@@ -82,18 +82,18 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/75 p-3 sm:p-4 backdrop-blur-md animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${widthClass} overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0e0e11] text-zinc-100 shadow-[0_24px_80px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.06)]`}
+        className={`relative w-full ${widthClass} overflow-hidden rounded-xl border border-white/[0.09] bg-[#0e0e11] text-zinc-100 shadow-[0_24px_80px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.06)]`}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5 sm:py-3.5">
           <div className="flex items-center gap-3 min-w-0">
             {icon && (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-900/90 text-orange-400 shadow-inner">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/90 text-orange-400 shadow-inner">
                 {icon}
               </div>
             )}
@@ -111,7 +111,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -119,11 +119,11 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
         </div>
 
         {/* Body */}
-        <div className="max-h-[75vh] overflow-y-auto px-5 py-4 text-xs">{children}</div>
+        <div className="max-h-[75vh] overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4 text-xs">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.07] bg-[#09090b]/60 px-5 py-3">
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.07] bg-[#09090b]/60 px-4 py-3 sm:px-5 sm:py-3">
             {footer}
           </div>
         )}
@@ -319,11 +319,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label, size = 
   };
 
   const cfg = styles[status] || styles.stopped;
-  const padding = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs';
+  const padding = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs';
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-medium ring-1 ring-inset whitespace-nowrap ${cfg.bg} ${cfg.text} ${cfg.ring} ${padding}`}
+      className={`inline-flex items-center gap-1.5 rounded-md font-medium ring-1 ring-inset whitespace-nowrap ${cfg.bg} ${cfg.text} ${cfg.ring} ${padding}`}
     >
       <span className="relative flex h-1.5 w-1.5">
         {cfg.pulse && (

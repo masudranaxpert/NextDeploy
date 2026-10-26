@@ -31,9 +31,9 @@ export const OwnerBadge: React.FC<OwnerLike & { className?: string }> = ({ id, n
   return (
     <span
       title={`Owner: ${name} (${label})`}
-      className={`inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${TONES[kind]} ${className}`}
+      className={`inline-flex max-w-[9rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium leading-none ${TONES[kind]} ${className}`}
     >
-      <Icon className="h-2.5 w-2.5 shrink-0" />
+      <Icon className="h-3 w-3 shrink-0" />
       <span className="truncate">{name}</span>
     </span>
   );

@@ -7,6 +7,7 @@ import {
   Play,
   RefreshCw,
   Copy,
+  Check,
   Layers,
   FileCode2,
   Sliders,
@@ -65,6 +66,17 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
   const [gitRepoInput, setGitRepoInput] = useState(app.gitRepo || '');
   const [gitBranchInput, setGitBranchInput] = useState(app.gitBranch || 'main');
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = async (key: string, text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedKey(key);
+      setTimeout(() => {
+        setCopiedKey((curr) => (curr === key ? null : curr));
+      }, 2000);
+    }
+  };
 
   useEffect(() => {
     backendApi.listShieldNodes().then((res) => {
@@ -110,7 +122,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 setForceGitSyncResume(false);
                 setGitSyncModalOpen(true);
               }}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium cursor-pointer ${
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium cursor-pointer ${
                 isGitSyncActive
                   ? 'border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
                   : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
@@ -133,7 +145,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
           <button
             type="button"
             onClick={() => setSwitchSourceModalOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
             {hasGitConnection ? 'Switch to Manual Mode' : 'Connect Git'}
@@ -181,7 +193,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
           {hasGitConnection ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Repository
                 </span>
                 <div className="mt-1 truncate font-mono text-xs text-zinc-200">
@@ -191,7 +203,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 </div>
               </div>
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Active Branch ({detectedBranches.length} detected)
                 </span>
                 <div className="mt-1 truncate font-mono text-xs text-orange-400">
@@ -200,7 +212,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               </div>
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
+                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-500 block">
                     Git Sync
                   </span>
                   <span className="mt-1 font-mono text-xs text-zinc-200 block">
@@ -228,7 +240,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
           ) : (
             <div className="grid grid-cols-2 gap-2.5">
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Deploy Mode
                 </span>
                 <div className="mt-1 font-medium text-xs text-orange-400 whitespace-nowrap">
@@ -236,7 +248,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 </div>
               </div>
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 min-w-0">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Compose Entry
                 </span>
                 <div
@@ -256,14 +268,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={async () => {
-                      const ok = await copyToClipboard(`/data/apps/${app.slug}`);
-                      if (ok) toast.success('Copied workspace directory');
-                    }}
+                    onClick={() => handleCopy('workspace-dir', `/data/apps/${app.slug}`)}
                     title="Copy workspace directory"
-                    className="shrink-0 rounded-md border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-100 cursor-pointer"
+                    className="shrink-0 rounded-md border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-100 cursor-pointer transition-colors"
                   >
-                    <Copy className="h-3 w-3" />
+                    {copiedKey === 'workspace-dir' ? (
+                      <Check className="h-3 w-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -325,14 +338,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        copyToClipboard(matchedShield.ip);
-                        toast.success('Shield IP copied for DNS (Cloudflare)');
-                      }}
-                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer"
+                      onClick={() => handleCopy('shield-ip', matchedShield.ip)}
+                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer transition-colors"
                       title="Copy Shield IP"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      {copiedKey === 'shield-ip' ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   </div>
                 );
@@ -350,14 +364,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        copyToClipboard(directIP);
-                        toast.success('Server IP copied for DNS');
-                      }}
-                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer"
+                      onClick={() => handleCopy('server-ip', directIP)}
+                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer transition-colors"
                       title="Copy Server IP"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      {copiedKey === 'server-ip' ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   </div>
                 );
@@ -448,14 +463,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
           <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3.5">
             <button
               type="button"
-              onClick={async () => {
-                const ok = await copyToClipboard(app.id);
-                if (ok) toast.success(`Copied ${app.id}`);
-              }}
+              onClick={() => handleCopy('app-id', app.id)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-[#09090b] px-2.5 py-1.5 font-mono text-[11px] text-zinc-400 hover:border-white/[0.14] hover:text-zinc-200 transition-colors cursor-pointer"
               title="Copy Project ID"
             >
-              <Copy className="h-3 w-3 text-zinc-500" />
+              {copiedKey === 'app-id' ? (
+                <Check className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <Copy className="h-3 w-3 text-zinc-500" />
+              )}
               <span>{app.id}</span>
             </button>
 

@@ -398,7 +398,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   )}
 
                   {d.enableWww && (
-                    <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-[11px] text-zinc-300">
+                    <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
                       + www.{d.domain}
                     </span>
                   )}
@@ -406,20 +406,20 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <span className="inline-flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
                     <Server className="h-3.5 w-3.5 text-zinc-500" />
                     Upstream:
-                    <code className="rounded border border-orange-500/25 bg-orange-500/[0.07] px-1.5 py-0.5 font-mono text-[11px] text-orange-300 tabular-nums">
+                    <code className="rounded border border-orange-500/25 bg-orange-500/[0.07] px-1.5 py-0.5 font-mono text-xs text-orange-300 tabular-nums">
                       {d.targetService}:{d.targetPort}
                     </code>
                   </span>
 
                   {d.serveStatic && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] text-sky-300">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">
                       <FolderOpen className="h-3 w-3" />
                       {d.staticUrlPrefix || '/static/'} → {d.staticPath}
                     </span>
                   )}
 
                   {d.serveMedia && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 font-mono text-[11px] text-violet-300">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 font-mono text-xs text-violet-300">
                       <ImageIcon className="h-3 w-3" />
                       {d.mediaUrlPrefix || '/media/'} → {d.mediaPath}
                     </span>
@@ -499,14 +499,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                       </span>
 
                       {dns.internalTLS && (
-                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                        <span className="rounded-md bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-300">
                           Internal TLS
                         </span>
                       )}
                     </div>
 
                     {dns.error && (
-                      <span className="text-red-400 font-mono text-[11px]">{dns.error}</span>
+                      <span className="text-red-400 font-mono text-xs">{dns.error}</span>
                     )}
                   </div>
                 )}

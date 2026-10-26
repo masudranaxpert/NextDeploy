@@ -156,27 +156,27 @@ export function ShieldProxiesView() {
   const totalProtectedDomains = nodes.reduce((acc, n) => acc + (n.assigned_domains || 0), 0);
 
   return (
-    <div className="space-y-6 p-4 md:p-8 max-w-7xl mx-auto">
+    <div className="space-y-5 sm:space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20">
             <Shield className="h-5 w-5" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white">Shield Proxies</h1>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white truncate">Shield Proxies</h1>
               <button
                 type="button"
                 onClick={() => setShowDocsModal(true)}
-                className="inline-flex items-center justify-center h-6 w-6 rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center h-6 w-6 rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30 transition-colors cursor-pointer shrink-0"
                 title="How Shield Nodes Work"
                 aria-label="How Shield Nodes Work"
               >
-                <HelpCircle className="h-3.5 w-3.5 text-emerald-400" />
+                <HelpCircle className="h-3.5 w-3.5" />
               </button>
             </div>
-            <p className="mt-1 text-xs text-zinc-400">
+            <p className="mt-0.5 text-xs text-zinc-400 leading-relaxed">
               Route domain traffic through external edge VPS nodes to mask your origin IP.
             </p>
           </div>
@@ -380,34 +380,34 @@ export function ShieldProxiesView() {
                                   setReassignModalNode(node);
                                   setTargetShieldId(null);
                                 }}
-                                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 transition-colors cursor-pointer"
                                 title="Failover / Reassign domains"
                               >
-                                <ArrowLeftRight className="h-3 w-3" />
+                                <ArrowLeftRight className="h-3.5 w-3.5" />
                                 <span>Reassign</span>
                               </button>
                             )}
                             <button
                               type="button"
                               onClick={() => setSelectedScriptNode({ node, command: setupCmd })}
-                              className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-zinc-700 bg-zinc-800/80 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-zinc-700 bg-zinc-800/80 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
                             >
-                              <Terminal className="h-3 w-3 text-emerald-400" />
+                              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
                               <span>Script</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleTest(node)}
                               disabled={testingId === node.id}
-                              className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
                             >
-                              <Activity className={`h-3 w-3 ${testingId === node.id ? 'animate-spin' : 'text-cyan-400'}`} />
+                              <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin' : 'text-cyan-400'}`} />
                               <span>Test</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDelete(node.id, node.name)}
-                              className="h-8 w-8 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
+                              className="h-9 w-9 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
                               title="Delete Shield Node"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -546,8 +546,10 @@ export function ShieldProxiesView() {
                       <button
                         type="button"
                         onClick={() => handleDelete(node.id, node.name)}
-                        className={`inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-red-500/20 bg-red-500/10 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer ${
-                          node.assigned_domains > 0 ? '' : 'col-span-2'
+                        className={`inline-flex items-center justify-center gap-1.5 h-9 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
+                          node.assigned_domains > 0
+                            ? 'border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                            : 'col-span-2 border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400'
                         }`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -617,9 +619,6 @@ export function ShieldProxiesView() {
               className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white placeholder-zinc-600 font-mono focus:border-emerald-500 focus:outline-none"
               required
             />
-            <p className="mt-1 text-xs text-zinc-500">
-              Customer DNS A-Records point to this IP. Your central NextDeploy server IP remains completely hidden.
-            </p>
           </div>
         </form>
       </ShadcnDialog>

@@ -14,6 +14,7 @@ import {
   Search,
   Square,
   Trash2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
@@ -122,83 +123,103 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      {/* Header with Title + Counter & View Switcher */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 shrink-0">
             <Layers className="h-4 w-4 text-orange-400" />
           </div>
-          <h1 className="text-base font-semibold tracking-tight text-zinc-100">Projects</h1>
+          <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">Projects</h1>
+          <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-400 shrink-0">
+            {filteredApps.length}
+          </span>
+        </div>
+
+        {/* View Switcher (Cards / Board / List) */}
+        <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setAppsLayout('grid')}
+            title="Card View"
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+              appsLayout === 'grid'
+                ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Cards</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAppsLayout('board')}
+            title="Board View"
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+              appsLayout === 'board'
+                ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Kanban className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Board</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAppsLayout('table')}
+            title="List View"
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+              appsLayout === 'table'
+                ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <List className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">List</span>
+          </button>
         </div>
       </div>
 
+      {/* Responsive Filter Toolbar: 1 clean row on PC, 2 clean rows on Mobile */}
       <div className="space-y-3.5">
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-500" />
-              <input
-                type="text"
-                value={appSearch}
-                onChange={(e) => setAppSearch(e.target.value)}
-                placeholder="Filter projects..."
-                className="h-8 w-52 rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
-              />
-            </div>
-            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-              {(['all', 'running', 'building', 'stopped'] as const).map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setAppStatusFilter(st)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-all cursor-pointer ${
-                    appStatusFilter === st
-                      ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
+        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+          {/* Search Input: full width on mobile, w-72 on desktop */}
+          <div className="relative w-full md:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+            <input
+              type="text"
+              value={appSearch}
+              onChange={(e) => setAppSearch(e.target.value)}
+              placeholder="Filter projects..."
+              className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-8 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
+            />
+            {appSearch && (
+              <button
+                type="button"
+                onClick={() => setAppSearch('')}
+                className="absolute right-2.5 top-2.5 rounded text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                title="Clear filter"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setAppsLayout('grid')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-                appsLayout === 'grid'
-                  ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Cards
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppsLayout('board')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-                appsLayout === 'board'
-                  ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Kanban className="h-3.5 w-3.5" />
-              Board
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppsLayout('table')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
-                appsLayout === 'table'
-                  ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-              List
-            </button>
+          {/* Status Filter Tabs: full width 4-column grid on mobile, inline segmented pill on desktop */}
+          <div className="grid grid-cols-4 w-full md:w-auto md:flex md:items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+            {(['all', 'running', 'building', 'stopped'] as const).map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setAppStatusFilter(st)}
+                className={`flex items-center justify-center rounded-md px-2.5 py-1.5 md:py-1 text-xs font-medium capitalize transition-all cursor-pointer ${
+                  appStatusFilter === st
+                    ? 'bg-zinc-800 text-zinc-100 shadow-2xs font-semibold'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -216,14 +237,14 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                       {app.name.slice(0, 2)}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                         <h3 className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white transition-colors">
                           {app.name}
                         </h3>
                         <StatusBadge status={app.status} />
                         <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-400">
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
                         {app.primaryDomain ? (
                           <span className="inline-flex items-center gap-1 font-mono text-zinc-300 group-hover:text-orange-300 transition-colors truncate">
                             <Globe className="h-3 w-3 text-emerald-400 shrink-0" />
@@ -245,7 +266,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                     {app.services.map((svc) => (
                       <span
                         key={svc.id}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-[#09090b]/90 px-2 py-0.5 font-mono text-[10px] text-zinc-300"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-[#09090b]/90 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >
                         <span
                           className={`h-1.5 w-1.5 rounded-full ${
@@ -258,8 +279,8 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                   </div>
 
                   {app.gitBranch && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] bg-[#09090b]/60 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
-                      <GitBranch className="h-2.5 w-2.5 text-orange-400" />
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-[#09090b]/60 px-2 py-0.5 font-mono text-xs text-zinc-400">
+                      <GitBranch className="h-3 w-3 text-orange-400" />
                       {app.gitBranch}
                       {app.gitCommitSha && (
                         <span className="text-zinc-500">@{app.gitCommitSha.slice(0, 7)}</span>
@@ -268,7 +289,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 text-[11px] text-zinc-500 font-mono tabular-nums">
+                <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 text-xs text-zinc-500 font-mono tabular-nums">
                   <div className="flex items-center gap-3">
                     <span>
                       CPU <strong className="font-medium text-zinc-300">{app.cpuPct}%</strong>
@@ -315,7 +336,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                             <span className="truncate text-xs font-semibold text-zinc-100">{app.name}</span>
                             <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                           </div>
-                          <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
+                          <div className="mt-0.5 font-mono text-xs text-zinc-500">
                             {app.services.length} services · {app.cpuPct}% CPU
                           </div>
                         </div>
@@ -351,7 +372,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 font-display text-[11px] font-bold text-orange-400 uppercase">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 font-display text-xs font-bold text-orange-400 uppercase">
                             {app.name.slice(0, 2)}
                           </div>
                           <div className="min-w-0">
@@ -360,7 +381,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                               <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
                             </div>
                             {app.primaryDomain && (
-                              <div className="truncate font-mono text-[10px] text-zinc-500">
+                              <div className="truncate font-mono text-xs text-zinc-500">
                                 {app.primaryDomain}
                               </div>
                             )}
@@ -370,7 +391,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
                       <td className="px-4 py-3">
                         <StatusBadge status={app.status} />
                       </td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-zinc-400">
+                      <td className="px-4 py-3 font-mono text-xs text-zinc-400">
                         {app.services.filter((s) => s.state === 'running').length}/
                         {app.services.length} online
                       </td>
