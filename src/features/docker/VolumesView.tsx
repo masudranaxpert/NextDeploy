@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ArrowLeft,
   Trash2,
   Download,
   Upload,
@@ -183,6 +184,314 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
   ];
 
   const breadcrumbSegments = browsePath ? browsePath.split('/').filter(Boolean) : [];
+
+  const renderRestoreModal = () => (
+    <ShadcnDialog
+      open={restoreModalOpen}
+      onClose={() => setRestoreModalOpen(false)}
+      title="Restore Archive into Docker Volume"
+      icon={<Upload className="h-4 w-4 text-orange-400" />}
+    >
+      <form onSubmit={handleRestoreSubmit} className="space-y-4">
+        <div>
+          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+            Target Volume Name (existing or new volume)
+          </label>
+          <input
+            type="text"
+            required
+            list="existing-docker-volumes"
+            value={restoreVolName}
+            onChange={(e) => setRestoreVolName(e.target.value)}
+            placeholder="e.g. postgres_data"
+            className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+          />
+          <datalist id="existing-docker-volumes">
+            {volumes.map((v) => (
+              <option key={v.name} value={v.name} />
+            ))}
+          </datalist>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+            Backup Archive (.tar.gz, .tgz, .tar)
+          </label>
+          <input
+            type="file"
+            required
+            accept=".tar.gz,.tgz,.tar,application/gzip,application/x-tar"
+            onChange={(e) => {
+              const f = e.target.files?.[0] || null;
+              setRestoreFileObj(f);
+              setRestoreStatus('idle');
+              setRestorePercent(0);
+            }}
+            className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-300"
+          />
+        </div>
+
+        {restoreStatus !== 'idle' && (
+          <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-2">
+            <div className="flex items-center justify-between font-mono text-xs">
+              <span className="flex items-center gap-1.5 text-zinc-200">
+                {restoreStatus === 'running' && (
+                  <RotateCw className="h-3.5 w-3.5 animate-spin text-orange-400" />
+                )}
+                {restoreStatus === 'done' && (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                )}
+                {restoreStatus === 'error' && (
+                  <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
+                )}
+                <span>
+                  {restoreStatus === 'running'
+                    ? 'Extracting archive into volume...'
+                    : restoreStatus === 'done'
+                      ? 'Volume restore completed'
+                      : 'Restore failed'}
+                </span>
+              </span>
+              <span className="tabular-nums text-zinc-300">{restorePercent}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  restoreStatus === 'error'
+                    ? 'bg-rose-500'
+                    : restoreStatus === 'done'
+                      ? 'bg-emerald-500'
+                      : 'bg-orange-500'
+                }`}
+                style={{ width: `${restorePercent}%` }}
+              />
+            </div>
+            {restoreError && (
+              <div className="font-mono text-[11px] text-rose-300">{restoreError}</div>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+          <button
+            type="button"
+            onClick={() => setRestoreModalOpen(false)}
+            className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            disabled={restoreStatus === 'running'}
+            className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
+          >
+            {restoreStatus === 'running' ? 'Restoring...' : 'Upload & Restore'}
+          </button>
+        </div>
+      </form>
+    </ShadcnDialog>
+  );
+
+  // Dedicated Full-Page Volume Details & File Explorer View
+  if (selectedVolume) {
+    return (
+      <div className="space-y-4">
+        {/* Tier 1: Breadcrumb Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setSelectedVolume(null)}
+              className="inline-flex h-9 sm:h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors shrink-0"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Volumes</span>
+            </button>
+            <span className="text-zinc-600 shrink-0">/</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-orange-500/25 bg-orange-500/10 text-orange-400">
+                <HardDrive className="h-4 w-4" />
+              </div>
+              <h1 className="text-sm sm:text-base font-semibold tracking-tight text-zinc-100 font-mono truncate" title={selectedVolume.name}>
+                {selectedVolume.name}
+              </h1>
+            </div>
+            <span className="hidden md:inline-flex shrink-0 rounded-md border border-white/[0.07] bg-zinc-900 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+              {selectedVolume.appName ? `${selectedVolume.appName}` : 'System'}
+            </span>
+          </div>
+
+          {/* Action Buttons: Refresh, Restore, Download */}
+          <div className="grid grid-cols-3 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => void loadVolumeBrowse(selectedVolume, browsePath)}
+              disabled={isBrowsing}
+              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+            >
+              <RotateCw className={`h-3.5 w-3.5 ${isBrowsing ? 'animate-spin text-orange-400' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openRestoreModal(selectedVolume.name)}
+              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 cursor-pointer transition-colors"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Restore</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadVolumeTar(selectedVolume.name)}
+              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Tier 2: Path Breadcrumbs & Mount Details */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-xl border border-white/[0.07] bg-[#0d0d11] px-3.5 py-2.5 font-mono text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <FolderOpen className="h-4 w-4 text-orange-400 shrink-0" />
+            <button
+              type="button"
+              onClick={() => void loadVolumeBrowse(selectedVolume, '')}
+              className="font-semibold text-zinc-200 hover:text-orange-400 cursor-pointer"
+            >
+              root
+            </button>
+            <span className="text-zinc-600">/</span>
+            {breadcrumbSegments.map((seg, i) => {
+              const rel = breadcrumbSegments.slice(0, i + 1).join('/');
+              const isLast = i === breadcrumbSegments.length - 1;
+              return (
+                <React.Fragment key={rel}>
+                  <button
+                    type="button"
+                    onClick={() => void loadVolumeBrowse(selectedVolume, rel)}
+                    className={`cursor-pointer ${
+                      isLast
+                        ? 'font-semibold text-orange-300'
+                        : 'text-zinc-400 hover:text-orange-400'
+                    }`}
+                  >
+                    {seg}
+                  </button>
+                  {!isLast && <ChevronRight className="h-3 w-3 text-zinc-600" />}
+                </React.Fragment>
+              );
+            })}
+            {browsePath && (
+              <button
+                type="button"
+                onClick={() =>
+                  void loadVolumeBrowse(
+                    selectedVolume,
+                    parentPath ||
+                      (browsePath.includes('/')
+                        ? browsePath.slice(0, browsePath.lastIndexOf('/'))
+                        : '')
+                  )
+                }
+                className="ml-2 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
+              >
+                .. Up
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-zinc-500 text-[11px] min-w-0">
+            <span className="text-zinc-400 shrink-0">Mount:</span>
+            <span className="truncate text-zinc-300 font-mono" title={selectedVolume.mountPoint}>
+              {selectedVolume.mountPoint}
+            </span>
+          </div>
+        </div>
+
+        {browseError && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs font-mono text-rose-300 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+            <span>{browseError}</span>
+          </div>
+        )}
+
+        {/* Tier 3: File Explorer Table */}
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400 font-sans">
+                  <th className="px-4 py-2.5 font-medium">Name</th>
+                  <th className="px-4 py-2.5 font-medium">Type</th>
+                  <th className="px-4 py-2.5 font-medium text-right">Size</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {isBrowsing ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-12 text-center text-zinc-500 font-sans">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <RotateCw className="h-5 w-5 animate-spin text-orange-400" />
+                        <span>Loading directory contents...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : liveBrowseEntries && liveBrowseEntries.length > 0 ? (
+                  liveBrowseEntries.map((entry) => (
+                    <tr
+                      key={entry.rel_path}
+                      onClick={() => {
+                        if (entry.is_dir) {
+                          void loadVolumeBrowse(selectedVolume, entry.rel_path);
+                        }
+                      }}
+                      className={`hover:bg-white/[0.03] transition-colors ${
+                        entry.is_dir ? 'cursor-pointer' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 text-zinc-100 flex items-center gap-2.5">
+                        {entry.is_dir ? (
+                          <FolderOpen className="h-4 w-4 text-orange-400 shrink-0" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-zinc-400 shrink-0" />
+                        )}
+                        <span className="font-medium hover:underline">{entry.name}</span>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-400">
+                        {entry.is_dir ? (
+                          <span className="rounded-md bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 font-sans">
+                            Directory
+                          </span>
+                        ) : (
+                          <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400 font-sans">
+                            File
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-zinc-400 tabular-nums">—</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-12 text-center text-xs text-zinc-500 font-sans">
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        <FolderOpen className="h-6 w-6 text-zinc-600" />
+                        <span>This directory is empty</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {renderRestoreModal()}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -373,261 +682,8 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
         </div>
       )}
 
-      {/* Interactive Volume File Browser Drawer / Panel (/volumes/browse) */}
-      {selectedVolume && (
-        <div className="rounded-xl border border-white/[0.1] bg-[#111115] overflow-hidden shadow-xl">
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between border-b border-white/[0.07] bg-[#09090b]/60 px-4 py-3">
-            <div className="flex flex-wrap items-center gap-1.5 min-w-0 font-mono text-xs">
-              <FolderOpen className="h-4 w-4 text-orange-400 shrink-0" />
-              <button
-                type="button"
-                onClick={() => void loadVolumeBrowse(selectedVolume, '')}
-                className="font-semibold text-zinc-100 hover:text-orange-400 cursor-pointer"
-              >
-                {selectedVolume.name}
-              </button>
-              <span className="text-zinc-600">/</span>
-              {breadcrumbSegments.map((seg, i) => {
-                const rel = breadcrumbSegments.slice(0, i + 1).join('/');
-                return (
-                  <React.Fragment key={rel}>
-                    <button
-                      type="button"
-                      onClick={() => void loadVolumeBrowse(selectedVolume, rel)}
-                      className="text-zinc-300 hover:text-orange-400 cursor-pointer"
-                    >
-                      {seg}
-                    </button>
-                    <ChevronRight className="h-3 w-3 text-zinc-600" />
-                  </React.Fragment>
-                );
-              })}
-              {browsePath && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void loadVolumeBrowse(
-                      selectedVolume,
-                      parentPath ||
-                        (browsePath.includes('/')
-                          ? browsePath.slice(0, browsePath.lastIndexOf('/'))
-                          : '')
-                    )
-                  }
-                  className="ml-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-[10px] text-orange-400 hover:bg-zinc-800 cursor-pointer"
-                >
-                  .. Up
-                </button>
-              )}
-              <span className="hidden md:inline-block rounded-md border border-white/[0.07] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
-                {selectedVolume.mountPoint}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void loadVolumeBrowse(selectedVolume, browsePath)}
-                className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
-              >
-                <RotateCw className={`h-3 w-3 ${isBrowsing ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={() => openRestoreModal(selectedVolume.name)}
-                className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-              >
-                <Upload className="h-3 w-3 text-orange-400" />
-                Restore .tar.gz
-              </button>
-              <button
-                type="button"
-                onClick={() => downloadVolumeTar(selectedVolume.name)}
-                className="inline-flex h-7 items-center gap-1 rounded-lg bg-zinc-100 px-2.5 text-[11px] font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-              >
-                <Download className="h-3 w-3" />
-                Download .tar.gz
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedVolume(null)}
-                className="rounded-lg p-1 text-zinc-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-
-          {browseError && (
-            <div className="border-b border-rose-500/20 bg-rose-500/10 px-4 py-2 text-xs font-mono text-rose-300">
-              {browseError}
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-white/[0.06] bg-[#09090b]/30 text-zinc-500">
-                  <th className="px-4 py-2 font-medium">Entry Name</th>
-                  <th className="px-4 py-2 font-medium">Type</th>
-                  <th className="px-4 py-2 font-medium text-right">Size</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {liveBrowseEntries ? (
-                  liveBrowseEntries.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-zinc-500">
-                        Directory is empty.
-                      </td>
-                    </tr>
-                  ) : (
-                    liveBrowseEntries.map((entry) => (
-                      <tr
-                        key={entry.rel_path}
-                        onClick={() => {
-                          if (entry.is_dir) {
-                            void loadVolumeBrowse(selectedVolume, entry.rel_path);
-                          }
-                        }}
-                        className={`hover:bg-white/[0.03] ${entry.is_dir ? 'cursor-pointer' : ''}`}
-                      >
-                        <td className="px-4 py-2.5 text-zinc-100 flex items-center gap-2">
-                          {entry.is_dir ? (
-                            <FolderOpen className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                          ) : (
-                            <FileText className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                          )}
-                          <span>{entry.name}</span>
-                        </td>
-                        <td className="px-4 py-2.5 text-zinc-400 tabular-nums">
-                          {entry.is_dir ? 'Directory' : 'File'}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-zinc-200 tabular-nums">—</td>
-                      </tr>
-                    ))
-                  )
-                ) : (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-xs text-zinc-500">
-                      No files or directories found in this volume path.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Create Volume Dialog */}
-
       {/* Multipart Volume Archive Restore Dialog (POST /volumes/restore + GET /volumes/restore/status) */}
-      <ShadcnDialog
-        open={restoreModalOpen}
-        onClose={() => setRestoreModalOpen(false)}
-        title="Restore Archive into Docker Volume"
-        icon={<Upload className="h-4 w-4 text-orange-400" />}
-      >
-        <form onSubmit={handleRestoreSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Target Volume Name (existing or new volume)
-            </label>
-            <input
-              type="text"
-              required
-              list="existing-docker-volumes"
-              value={restoreVolName}
-              onChange={(e) => setRestoreVolName(e.target.value)}
-              placeholder="e.g. postgres_data"
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-            />
-            <datalist id="existing-docker-volumes">
-              {volumes.map((v) => (
-                <option key={v.name} value={v.name} />
-              ))}
-            </datalist>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Backup Archive (.tar.gz, .tgz, .tar)
-            </label>
-            <input
-              type="file"
-              required
-              accept=".tar.gz,.tgz,.tar,application/gzip,application/x-tar"
-              onChange={(e) => {
-                const f = e.target.files?.[0] || null;
-                setRestoreFileObj(f);
-                setRestoreStatus('idle');
-                setRestorePercent(0);
-              }}
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-300"
-            />
-          </div>
-
-          {restoreStatus !== 'idle' && (
-            <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-2">
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="flex items-center gap-1.5 text-zinc-200">
-                  {restoreStatus === 'running' && (
-                    <RotateCw className="h-3.5 w-3.5 animate-spin text-orange-400" />
-                  )}
-                  {restoreStatus === 'done' && (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                  )}
-                  {restoreStatus === 'error' && (
-                    <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
-                  )}
-                  <span>
-                    {restoreStatus === 'running'
-                      ? 'Extracting archive into volume...'
-                      : restoreStatus === 'done'
-                        ? 'Volume restore completed'
-                        : 'Restore failed'}
-                  </span>
-                </span>
-                <span className="tabular-nums text-zinc-300">{restorePercent}%</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    restoreStatus === 'error'
-                      ? 'bg-rose-500'
-                      : restoreStatus === 'done'
-                        ? 'bg-emerald-500'
-                        : 'bg-orange-500'
-                  }`}
-                  style={{ width: `${restorePercent}%` }}
-                />
-              </div>
-              {restoreError && (
-                <div className="font-mono text-[11px] text-rose-300">{restoreError}</div>
-              )}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
-            <button
-              type="button"
-              onClick={() => setRestoreModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
-            >
-              Close
-            </button>
-            <button
-              type="submit"
-              disabled={restoreStatus === 'running'}
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
-            >
-              {restoreStatus === 'running' ? 'Restoring...' : 'Upload & Restore'}
-            </button>
-          </div>
-        </form>
-      </ShadcnDialog>
+      {renderRestoreModal()}
     </div>
   );
 };

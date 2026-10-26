@@ -360,10 +360,10 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 key={p.id}
                 className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-col justify-between gap-3.5"
               >
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border mt-0.5 ${
                         isGitLab
                           ? 'border-orange-500/25 bg-orange-500/10 text-orange-400'
                           : 'border-white/[0.1] bg-zinc-900 text-zinc-100'
@@ -375,18 +375,24 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                         <Github className="h-4 w-4" />
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate font-mono text-xs font-semibold text-zinc-100">
+                    <div className="min-w-0 flex-1">
+                      {/* Account Name - full width without aggressive truncation */}
+                      <div className="min-w-0">
+                        <span
+                          className="font-mono text-sm font-semibold text-zinc-100 break-words leading-snug"
+                          title={p.accountName}
+                        >
                           {p.accountName}
                         </span>
+                      </div>
+
+                      {/* Badges and Provider Info */}
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                         <StatusBadge status={p.status} />
                         <OwnerBadge id={p.owner?.id} name={p.owner?.name} role={p.owner?.role} system={p.owner?.system} />
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-zinc-400">
-                        <span>{p.provider}</span>
-                        <span>·</span>
-                        <span className="text-orange-400">{p.authMethod}</span>
+                        <span className="text-[11px] font-mono text-zinc-400">
+                          {p.provider} · <span className="text-orange-400">{p.authMethod}</span>
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -505,11 +511,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-            <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
+            <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.08] bg-[#09090b] p-1 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setGitSubTab('repos')}
-                className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer truncate ${
+                className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium cursor-pointer transition-colors truncate ${
                   gitSubTab === 'repos'
                     ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -520,7 +526,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setGitSubTab('webhooks')}
-                className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer truncate ${
+                className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium cursor-pointer transition-colors truncate ${
                   gitSubTab === 'webhooks'
                     ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -531,13 +537,13 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             </div>
 
             {gitSubTab === 'repos' && (
-              <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
+              <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 rounded-lg border border-white/[0.08] bg-[#09090b] p-1 w-full sm:w-auto">
                 {(['all', 'GitHub', 'GitLab'] as const).map((f) => (
                   <button
                     key={f}
                     type="button"
                     onClick={() => setRepoProviderFilter(f)}
-                    className={`rounded-md px-2.5 py-1 text-center text-xs font-medium cursor-pointer capitalize ${
+                    className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium cursor-pointer transition-colors capitalize ${
                       repoProviderFilter === f
                         ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                         : 'text-zinc-400 hover:text-zinc-200'
@@ -1101,16 +1107,16 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
         <button
           type="button"
           onClick={() => setRegistryModalOpen(true)}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer shadow-sm"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
           <span>Add Registry</span>
         </button>
       </div>
 
       {/* Tier 2: Filter Toolbar */}
       <div className="flex items-center justify-between gap-2">
-        <div className="grid grid-cols-3 sm:flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-full sm:w-auto">
+        <div className="grid grid-cols-3 sm:flex items-center gap-1 rounded-lg border border-white/[0.08] bg-[#09090b] p-1 w-full sm:w-auto">
           {(
             [
               { id: 'all', label: 'All' },
@@ -1122,7 +1128,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               key={sc.id}
               type="button"
               onClick={() => setRegScopeFilter(sc.id)}
-              className={`rounded-md px-3 py-1 text-center text-xs font-medium cursor-pointer ${
+              className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium transition-colors cursor-pointer ${
                 regScopeFilter === sc.id
                   ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
