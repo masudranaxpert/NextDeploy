@@ -1,6 +1,6 @@
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import React, { useState } from 'react';
-import { GitBranch, Server } from 'lucide-react';
+import { GitBranch, Server, Shield } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 
@@ -54,16 +54,35 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const cpuPct = sys?.CPUPercent != null ? Math.round(sys.CPUPercent) : (telemetry[telemetry.length - 1]?.cpu || 0);
   const numCPU = sys?.NumCPU || 1;
 
-  const recentDeployments = apps.flatMap((a) =>
-    (a.deployments || []).map((d: any) => ({
-      ...d,
-      appId: a.id,
-      appName: a.name,
-      appOwner: a.owner,
-      appOwnerId: a.ownerId,
-      appOwnerRole: a.ownerRole,
-    }))
-  ).slice(0, 5);
+  const recentDeployments = apps
+    .flatMap((a) =>
+      (a.deployments && a.deployments.length > 0
+        ? a.deployments
+        : [
+            {
+              id: `${a.id}-latest`,
+              status: a.status === 'running' ? 'ready' : a.status || 'ready',
+              branch: a.gitBranch || 'main',
+              commitSha: a.gitCommit || 'latest',
+              startedAt: a.createdAt || new Date().toISOString(),
+              durationSec: 15,
+            },
+          ]
+      ).map((d: any) => ({
+        ...d,
+        appId: a.id,
+        appName: a.name,
+        appOwner: a.owner || 'admin',
+        appOwnerId: a.ownerId,
+        appOwnerRole: a.ownerRole,
+      }))
+    )
+    .sort((a: any, b: any) => {
+      const ta = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      const tb = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, 6);
 
   const hostOnly = isAdmin ? '' : 'hidden';
   const fmtMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${Math.round(mb)} MB`);
@@ -303,63 +322,95 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
       {/* Row 3: Recent Deployments & System Daemons */}
       <div className="grid grid-cols-1 gap-4 xl:gap-5 lg:grid-cols-3">
-        <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden flex flex-col justify-between`}>
+        <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} rounded-2xl border border-zinc-800/80 bg-[#0d0d11] overflow-hidden flex flex-col justify-between shadow-sm`}>
           <div>
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+            <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3.5">
               <div className="flex items-center gap-2">
-                <GitBranch className="h-3.5 w-3.5 text-orange-400" />
-                <h2 className="text-xs font-semibold text-zinc-100">Recent Deployments</h2>
+                <GitBranch className="h-4 w-4 text-orange-400" />
+                <h2 className="text-sm font-semibold text-white tracking-tight">Recent Deployments</h2>
               </div>
               <button
                 type="button"
                 onClick={() => onSelectNav('apps')}
-                className="text-[11px] font-medium text-zinc-400 hover:text-zinc-100 cursor-pointer"
+                className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-white cursor-pointer transition-colors"
               >
-                All Projects →
+                <span>All Projects</span>
+                <span>→</span>
               </button>
             </div>
 
-            <div className="divide-y divide-white/[0.05]">
+            <div className="divide-y divide-zinc-800/60">
               {recentDeployments.length === 0 ? (
-                <div className="p-6 text-center text-xs text-zinc-500 font-mono">
+                <div className="py-10 text-center text-xs text-zinc-500 font-mono">
                   No deployments yet. Create and deploy a project to see releases here.
                 </div>
               ) : (
-                recentDeployments.map((dep: any) => (
-                  <div
-                    key={dep.id}
-                    onClick={() => onSelectApp(dep.appId)}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <StatusBadge status={dep.status || 'ready'} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-zinc-100">
+                recentDeployments.map((dep: any) => {
+                  const isFailed = dep.status === 'failed' || dep.status === 'error';
+                  const isBuilding = dep.status === 'building' || dep.status === 'deploying' || dep.status === 'in_progress';
+                  const branchText = dep.branch || 'main';
+                  const commitText = dep.commitSha ? (dep.commitSha.length > 7 ? dep.commitSha.slice(0, 7) : dep.commitSha) : 'latest';
+                  const branchCommit = `${branchText}@${commitText}`;
+
+                  const formattedTime = dep.startedAt
+                    ? new Date(dep.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '12:00 AM';
+
+                  return (
+                    <div
+                      key={dep.id}
+                      onClick={() => onSelectApp(dep.appId)}
+                      className="px-4 py-3.5 hover:bg-zinc-900/50 transition-colors cursor-pointer space-y-2"
+                    >
+                      {/* Line 1: Status Pill + App Name on Left, Owner Badge on Right */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {isFailed ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-[#2b0f15] px-2.5 py-0.5 text-xs font-medium text-rose-400 shrink-0">
+                              <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                              <span>Failed</span>
+                            </span>
+                          ) : isBuilding ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-[#0c1f2f] px-2.5 py-0.5 text-xs font-medium text-sky-400 shrink-0">
+                              <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+                              <span>Building</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-[#0c2419] px-2.5 py-0.5 text-xs font-medium text-emerald-400 shrink-0">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                              <span>Ready</span>
+                            </span>
+                          )}
+
+                          <span className="font-semibold text-white text-sm tracking-tight truncate">
                             {dep.appName}
                           </span>
-                          <OwnerBadge id={dep.appOwnerId} name={dep.appOwner} role={dep.appOwnerRole} />
-                          <span className="rounded bg-white/[0.05] px-1.5 py-0.2 font-mono text-[10px] text-orange-400">
-                            {dep.branch || 'main'}@{dep.commitSha?.slice(0, 7) || 'latest'}
+                        </div>
+
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-600/50 bg-[#281b0a]/80 px-2.5 py-0.5 text-xs font-medium text-amber-400 shrink-0">
+                          <Shield className="h-3 w-3 text-amber-400" />
+                          <span>{dep.appOwner || 'admin'}</span>
+                        </span>
+                      </div>
+
+                      {/* Line 2: Deploy · main@latest on Left, Duration + Time on Right */}
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 text-zinc-500 min-w-0">
+                          <span className="text-zinc-500">Deploy</span>
+                          <span className="text-zinc-600 font-bold">·</span>
+                          <span className="rounded border border-amber-800/60 bg-[#241708] px-2 py-0.5 font-mono text-xs font-medium text-amber-400 truncate">
+                            {branchCommit}
                           </span>
                         </div>
-                        <div className="truncate text-[11px] text-zinc-500 mt-0.5">
-                          {dep.commitMessage || 'Production deployment'}
+
+                        <div className="flex items-center gap-2.5 font-mono text-xs text-zinc-400 shrink-0">
+                          <span>{dep.durationSec || 15}s</span>
+                          <span>{formattedTime}</span>
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-3 shrink-0 font-mono text-[11px] text-zinc-400">
-                      <span className="hidden sm:inline rounded border border-white/[0.06] bg-[#09090b] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                        {dep.trigger || 'manual'}
-                      </span>
-                      <span>{dep.durationSec || 15}s</span>
-                      <span className="text-zinc-500 w-16 text-right">
-                        {dep.startedAt ? new Date(dep.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
-                      </span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
