@@ -340,6 +340,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         activeSlotLower={activeSlotLower}
         isPinnedProduction={isPinnedProduction}
         hasGitConnection={hasGitConnection}
+        isDeploying={liveDeployState.running}
         copiedOwner={copiedOwner}
         onCopyOwner={copyOwnerName}
         onToggleStopOrStart={toggleStopOrStart}

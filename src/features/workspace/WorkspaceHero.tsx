@@ -9,6 +9,7 @@ import {
   Copy,
   GitBranch,
   Globe,
+  Loader2,
   Pin,
   Play,
   RefreshCw,
@@ -37,6 +38,7 @@ interface WorkspaceHeroProps {
   activeSlotLower: string;
   isPinnedProduction: boolean;
   hasGitConnection: boolean;
+  isDeploying?: boolean;
   copiedOwner: boolean;
   onCopyOwner: () => void | Promise<void>;
   onToggleStopOrStart: () => void | Promise<void>;
@@ -58,6 +60,7 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
   activeSlotLower,
   isPinnedProduction,
   hasGitConnection,
+  isDeploying = false,
   copiedOwner,
   onCopyOwner,
   onToggleStopOrStart,
@@ -67,6 +70,7 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
   onOpenGit,
 }) => {
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
   const primaryCount = 6;
   const isSecondaryActive = tabs.slice(primaryCount).some((t) => t.id === activeTab);
   const showAllOnMobile = mobileExpanded || isSecondaryActive;
@@ -134,30 +138,44 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
           {!app.php && (
             <button
               type="button"
+              disabled={isDeploying || isRestarting}
               onClick={() => onTriggerDeploy()}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Play className="h-3.5 w-3.5 fill-current" />
-              Deploy
+              {isDeploying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-950" />
+              ) : (
+                <Play className="h-3.5 w-3.5 fill-current" />
+              )}
+              {isDeploying ? 'Deploying...' : 'Deploy'}
             </button>
           )}
 
           {!app.php && (
             <button
               type="button"
+              disabled={isDeploying || isRestarting}
               onClick={async () => {
+                if (isRestarting || isDeploying) return;
+                setIsRestarting(true);
                 toast.info(`Restarting ${app.name} containers...`);
-                const res = await backendApi.composeAction(app.id, 'restart');
-                if (!res.ok) {
-                  toast.error(res.error || `Failed to restart ${app.name}`);
-                  return;
+                try {
+                  const res = await backendApi.composeAction(app.id, 'restart');
+                  if (!res.ok) {
+                    toast.error(res.error || `Failed to restart ${app.name}`);
+                    return;
+                  }
+                  toast.success(`Restarted ${app.name} containers`);
+                } catch (err: any) {
+                  toast.error(err?.message || `Failed to restart ${app.name}`);
+                } finally {
+                  setIsRestarting(false);
                 }
-                toast.success(`Restarting ${app.name} containers`);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
-              Restart
+              <RotateCw className={`h-3.5 w-3.5 ${isRestarting ? 'animate-spin text-orange-400' : 'text-zinc-400'}`} />
+              {isRestarting ? 'Restarting...' : 'Restart'}
             </button>
           )}
 

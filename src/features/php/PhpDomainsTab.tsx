@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
-import { ExternalLink, Globe, Plus, Star, Trash2 } from 'lucide-react';
+import React, { useContext, useEffect, useState } from 'react';
+import { ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
+import { ShieldNode } from '../../types/shield';
 import { backendApi } from '../../lib/backendApi';
+import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { Card, EmptyState, GhostButton, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
 export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Promise<void> }> = ({ app, onChanged }) => {
+  const { isAdmin } = useContext(OwnerContext);
   const [domain, setDomain] = useState('');
   const [https, setHttps] = useState(true);
   const [www, setWww] = useState(false);
+  const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    backendApi.listShieldNodes().then((res) => {
+      if (res.ok && res.nodes) setShieldNodes(res.nodes);
+    }).catch(() => {});
+  }, [isAdmin]);
 
   const add = async () => {
     const d = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
@@ -26,6 +38,7 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
       port: 80,
       enable_https: https,
       enable_www: www,
+      shield_node_id: isAdmin ? shieldNodeId : null,
       is_primary: app.domains.length === 0 || undefined,
     });
     setBusy('');
@@ -81,6 +94,31 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
             Include www
           </label>
         </div>
+
+        {/* Shield VPS Proxy Node Selector (Admin Only) */}
+        {isAdmin && (
+          <div className="mt-4 p-3 rounded-xl bg-zinc-950/70 border border-white/[0.08] space-y-1.5">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              Shield Proxy Route (Origin IP Masking)
+            </label>
+            <p className="text-xs text-zinc-400">
+              Route traffic through an edge shield node. Customer DNS A-Record will point to the shield node IP.
+            </p>
+            <select
+              value={shieldNodeId ?? ''}
+              onChange={(e) => setShieldNodeId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full mt-1.5 px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 cursor-pointer"
+            >
+              <option value="">🌐 Direct Origin (Server Public IP)</option>
+              {shieldNodes.map((s) => (
+                <option key={s.id} value={s.id}>
+                  🛡️ {s.name} ({s.ip}) {s.status === 'connected' ? '• Active' : `• ${s.status}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </Card>
 
       <Card title="Domains" actions={<Pill>{app.domains.length}</Pill>}>
@@ -105,8 +143,62 @@ export const PhpDomainsTab: React.FC<{ app: AppStack; onChanged: () => void | Pr
                     {d.isPrimary && <Pill tone="orange">primary</Pill>}
                     {d.forceHttps ? <Pill tone="green">HTTPS</Pill> : <Pill tone="amber">HTTP</Pill>}
                     {d.enableWww && <Pill>www</Pill>}
+
+                    {/* Shield Routing status for admin */}
+                    {isAdmin && (
+                      d.shield_node_id ? (
+                        (() => {
+                          const matched = shieldNodes.find((s) => s.id === d.shield_node_id);
+                          return (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
+                              <ShieldCheck className="h-3 w-3" />
+                              Shield: {matched ? `${matched.name} (${matched.ip})` : `Node #${d.shield_node_id}`}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
+                          <Globe className="h-3 w-3 text-zinc-500" />
+                          Direct Origin
+                        </span>
+                      )
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
+                    {isAdmin && shieldNodes.length > 0 && (
+                      <select
+                        value={d.shield_node_id ?? ''}
+                        disabled={busy === 'shield' + d.id}
+                        onChange={async (e) => {
+                          const newId = e.target.value ? Number(e.target.value) : null;
+                          setBusy('shield' + d.id);
+                          const res = await backendApi.domainEdit(app.id, d.id, {
+                            domain: d.domain,
+                            service: 'php',
+                            port: 80,
+                            enable_https: d.forceHttps,
+                            enable_www: d.enableWww,
+                            shield_node_id: newId,
+                          });
+                          setBusy('');
+                          if (!res.ok) {
+                            toast.error(res.error || 'Failed to update route');
+                            return;
+                          }
+                          toast.success(`Updated ${d.domain} shield route`);
+                          await onChanged();
+                        }}
+                        className="h-7 rounded-md border border-white/[0.08] bg-zinc-950 px-2 text-[11px] text-zinc-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                        title="Change Shield Node / Route"
+                      >
+                        <option value="">Direct Origin</option>
+                        {shieldNodes.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            🛡️ {s.name} ({s.ip})
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     {!d.isPrimary && (
                       <GhostButton busy={busy === 'pri' + d.id} onClick={() => makePrimary(d.id)} title="Make primary">
                         <Star className="h-3.5 w-3.5" /> Make primary
