@@ -881,15 +881,14 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                     : 'border-white/[0.07] bg-[#09090b] text-zinc-300'
                 }`}
               >
-                <div className="flex items-center justify-between text-zinc-300 mb-1.5">
-                  <span className="text-[11px] text-zinc-400 font-medium">Server RAM Allocation</span>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 text-zinc-300 mb-1.5">
+                  <span className="text-[11px] text-zinc-400 font-medium">RAM Allocation</span>
                   <span
                     className={`font-mono text-[11px] font-semibold ${
                       totalCurrentlyAllocatedMB > host.memoryMB ? 'text-amber-300' : 'text-zinc-200'
                     }`}
                   >
-                    {totalCurrentlyAllocatedMB} MB / {host.memoryMB} MB (
-                    {Math.round((totalCurrentlyAllocatedMB / host.memoryMB) * 100)}%)
+                    {totalCurrentlyAllocatedMB} MB / {host.memoryMB} MB <span className="text-orange-400 font-bold">({Math.round((totalCurrentlyAllocatedMB / host.memoryMB) * 100)}%)</span>
                   </span>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
@@ -1012,18 +1011,18 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                         <Info className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
                           <span className="text-xs font-semibold text-zinc-200">
                             {isOvercommitted
-                              ? 'RAM Over-allocation Warning (Overcommit)'
-                              : 'Server RAM Allocation'}
+                              ? 'RAM Overcommit Warning'
+                              : 'RAM Allocation'}
                           </span>
                           <span
-                            className={`font-mono text-xs font-bold ${
+                            className={`font-mono text-xs font-semibold ${
                               isOvercommitted ? 'text-amber-300' : 'text-zinc-300'
                             }`}
                           >
-                            {newTotalAllocatedMB} MB / {hostRAM} MB ({overcommitRatio}%)
+                            {newTotalAllocatedMB} MB / {hostRAM} MB <span className="text-orange-400 font-bold">({overcommitRatio}%)</span>
                           </span>
                         </div>
 
@@ -1046,33 +1045,23 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                           />
                         </div>
 
-                        <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                        <div className="mt-2 text-[11px] leading-relaxed text-zinc-400">
                           {isOvercommitted ? (
-                            <>
-                              Total assigned RAM across standard users will reach{' '}
+                            <p>
+                              Total assigned RAM reaches{' '}
                               <strong className="text-amber-200 font-mono">
                                 {(newTotalAllocatedMB / 1024).toFixed(1)} GB
                               </strong>
-                              , exceeding physical server capacity ({ (hostRAM / 1024).toFixed(1) } GB) by{' '}
-                              <strong className="text-amber-200 font-mono">
-                                {((newTotalAllocatedMB - hostRAM) / 1024).toFixed(1)} GB
-                              </strong>
-                              . If multiple users reach memory peaks at the same time, the Linux OOM killer may terminate containers.
-                            </>
+                              , exceeding physical host RAM ({ (hostRAM / 1024).toFixed(1) } GB). Linux OOM killer may terminate containers if memory spikes simultaneously.
+                            </p>
                           ) : (
-                            <>
-                              Other users allocated:{' '}
-                              <span className="font-mono text-zinc-300">
-                                {(otherUsersAllocatedMB / 1024).toFixed(1)} GB
-                              </span>
-                              . Remaining unallocated RAM:{' '}
-                              <span className="font-mono text-emerald-400 font-semibold">
-                                {Math.max(0, (hostRAM - newTotalAllocatedMB) / 1024).toFixed(1)} GB
-                              </span>
-                              .
-                            </>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-zinc-400">
+                              <span>Remaining free RAM: <strong className="font-mono text-emerald-400">{Math.max(0, (hostRAM - newTotalAllocatedMB) / 1024).toFixed(1)} GB</strong></span>
+                              <span className="text-zinc-600 hidden sm:inline">·</span>
+                              <span>Other users: <span className="font-mono text-zinc-300">{(otherUsersAllocatedMB / 1024).toFixed(1)} GB</span></span>
+                            </div>
                           )}
-                        </p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1106,16 +1095,16 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                         <HardDrive className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
                           <span className="text-xs font-semibold text-zinc-200">
                             {!storageOversellingEnabled
                               ? 'Strict Storage Allocation'
                               : isOvercommitted
-                                ? 'Storage Overselling Active (Thin Provisioning)'
-                                : 'Server Storage Allocation'}
+                                ? 'Storage Overselling Active'
+                                : 'Storage Allocation'}
                           </span>
                           <span
-                            className={`font-mono text-xs font-bold ${
+                            className={`font-mono text-xs font-semibold ${
                               !storageOversellingEnabled && isOvercommitted
                                 ? 'text-rose-400'
                                 : isOvercommitted
@@ -1123,7 +1112,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                                   : 'text-zinc-300'
                             }`}
                           >
-                            {(newTotalAllocatedStorageMB / 1024).toFixed(1)} GB / {(hostDiskMB / 1024).toFixed(1)} GB ({overcommitRatio}%)
+                            {(newTotalAllocatedStorageMB / 1024).toFixed(1)} GB / {(hostDiskMB / 1024).toFixed(1)} GB <span className="text-emerald-400 font-bold">({overcommitRatio}%)</span>
                           </span>
                         </div>
 
@@ -1152,43 +1141,44 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                           />
                         </div>
 
-                        <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                        <div className="mt-2 text-[11px] leading-relaxed text-zinc-400">
                           {!storageOversellingEnabled ? (
                             isOvercommitted ? (
-                              <span className="text-rose-300">
-                                <strong>Strict Mode Violation:</strong> Total quotas cannot exceed physical server disk capacity ({(hostDiskMB / 1024).toFixed(1)} GB). Only {Math.max(0, (hostDiskMB - otherUsersAllocatedStorageMB) / 1024).toFixed(1)} GB remains available.
-                              </span>
+                              <p className="text-rose-300">
+                                <strong>Strict Limit Reached:</strong> Cannot exceed host disk ({(hostDiskMB / 1024).toFixed(1)} GB). Only {Math.max(0, (hostDiskMB - otherUsersAllocatedStorageMB) / 1024).toFixed(1)} GB available.
+                              </p>
                             ) : (
-                              <span>
-                                Strict Mode Active: Remaining assignable disk space is <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong>.
-                              </span>
+                              <p>
+                                Remaining assignable space: <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong>
+                              </p>
                             )
                           ) : isOvercommitted ? (
-                            <span>
-                              Total user quotas exceed physical server disk by <strong className="text-amber-200 font-mono">{((newTotalAllocatedStorageMB - hostDiskMB) / 1024).toFixed(1)} GB</strong>. Storage overselling is enabled; the <strong>1.5 GB host safety buffer</strong> will dynamically pause writes if physical disk runs low.
-                            </span>
+                            <p>
+                              Quotas exceed disk by <strong className="text-amber-200 font-mono">{((newTotalAllocatedStorageMB - hostDiskMB) / 1024).toFixed(1)} GB</strong>. The 1.5 GB safety buffer protects host stability.
+                            </p>
                           ) : (
-                            <span>
-                              Remaining unallocated physical capacity: <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong>.
-                            </span>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-zinc-400">
+                              <span>Unallocated capacity: <strong className="text-emerald-400 font-mono">{Math.max(0, (hostDiskMB - newTotalAllocatedStorageMB) / 1024).toFixed(1)} GB</strong></span>
+                              <span className="text-zinc-600 hidden sm:inline">·</span>
+                              <span>Other users: <span className="font-mono text-zinc-300">{(otherUsersAllocatedStorageMB / 1024).toFixed(1)} GB</span></span>
+                            </div>
                           )}
-                        </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 );
               })()}
 
-              <p className="-mt-1 text-[11px] text-zinc-500">
-                0 means unlimited. Limits are applied to the user's systemd slice{' '}
-                <code className="font-mono text-zinc-400">nextdeploy-user-{limitsModalUser.id}.slice</code> and cannot exceed this server's real capacity.
+              <p className="text-[11px] text-zinc-500">
+                Set value to 0 for unlimited resources. Limits cannot exceed physical server capacity.
               </p>
 
-              <div className="flex items-center justify-between gap-4 rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-zinc-200">Static and media file server</div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                    Lets this user's domains serve static or media paths directly through Caddy.
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3">
+                <div className="min-w-0 pr-2">
+                  <div className="text-xs font-medium text-zinc-200">Static &amp; Media Server</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    Serve static assets and uploads directly via Caddy
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -1199,20 +1189,20 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
-                  <Shield className="h-3.5 w-3.5 text-emerald-400" />
-                  Default Shield VPS Proxy (Origin Masking)
+              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+                  <Shield className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span>Default Shield VPS Proxy</span>
                 </div>
-                <div className="text-[11px] text-zinc-500">
-                  When this user deploys sites or adds domains, route them through this offshore/DDoS shield node instead of revealing the server origin IP.
-                </div>
+                <p className="text-[11px] text-zinc-500">
+                  Route this user's domains through an offshore shield node for origin IP masking
+                </p>
                 <select
                   value={limitDefaultShieldId ?? ''}
                   onChange={(e) => setLimitDefaultShieldId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full mt-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  className="w-full h-9 rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 text-xs text-zinc-200 focus:border-emerald-500 focus:outline-none cursor-pointer"
                 >
-                  <option value="">🌐 Direct (Default Origin IP)</option>
+                  <option value="">Direct Origin (Default Host IP)</option>
                   {shieldNodes.map((s) => (
                     <option key={s.id} value={s.id}>
                       🛡️ {s.name} ({s.ip}) {s.status === 'connected' ? '• Active' : `• ${s.status}`}
