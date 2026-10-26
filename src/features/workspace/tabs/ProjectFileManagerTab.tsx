@@ -324,24 +324,69 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     }
   };
 
+  // Automatically fetch file content from disk whenever an editor file is active and unpopulated
+  useEffect(() => {
+    if (!editingFilePath) return;
+    const current = (liveFileList || app.files).find(
+      (f) => f.path === editingFilePath && f.type !== 'dir'
+    );
+    if (current && (!current.content || current.content === '')) {
+      void (async () => {
+        try {
+          const res = await backendApi.fileBlob(app.id, editingFilePath);
+          const text = res.data?.text;
+          if (res.ok && typeof text === 'string') {
+            setLiveFileList((prev) => {
+              const list = prev ? [...prev] : [...app.files];
+              const idx = list.findIndex((f) => f.path === editingFilePath);
+              if (idx >= 0) {
+                list[idx] = { ...list[idx], content: text };
+              }
+              return list;
+            });
+            onUpdateApp({
+              ...app,
+              files: app.files.map((f) => (f.path === editingFilePath ? { ...f, content: text } : f)),
+            });
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
+  }, [editingFilePath, app.id]);
+
   const openFileInEditor = async (file: ComposeFileNode) => {
     if (file.type === 'dir') {
       navigateToFolder(file.path);
       return;
     }
-    setEditingFilePath(file.path);
-    if (!openEditorTabs.includes(file.path)) {
-      setOpenEditorTabs((prev) => [...prev, file.path]);
+    const filePath = file.path;
+    setEditingFilePath(filePath);
+    if (!openEditorTabs.includes(filePath)) {
+      setOpenEditorTabs((prev) => [...prev, filePath]);
     }
     if (!file.content) {
       try {
-        const res = await backendApi.fileBlob(app.id, file.path);
+        const res = await backendApi.fileBlob(app.id, filePath);
         const text = res.data?.text;
         if (res.ok && typeof text === 'string') {
           file.content = text;
+          setLiveFileList((prev) => {
+            const list = prev ? [...prev] : [...app.files];
+            const idx = list.findIndex((f) => f.path === filePath);
+            if (idx >= 0) {
+              list[idx] = { ...list[idx], content: text };
+            } else {
+              list.push({ ...file, content: text });
+            }
+            return list;
+          });
           onUpdateApp({
             ...app,
-            files: app.files.map((f) => (f.path === file.path ? { ...f, content: text } : f)),
+            files: app.files.some((f) => f.path === filePath)
+              ? app.files.map((f) => (f.path === filePath ? { ...f, content: text } : f))
+              : [...app.files, { ...file, content: text }],
           });
         }
       } catch {
