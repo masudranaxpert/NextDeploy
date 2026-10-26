@@ -44,6 +44,7 @@ export function ShieldProxiesView() {
 
   // Failover / Reassign modal state
   const [reassignModalNode, setReassignModalNode] = useState<ShieldNode | null>(null);
+  const [deleteModalNode, setDeleteModalNode] = useState<ShieldNode | null>(null);
   const [targetShieldId, setTargetShieldId] = useState<number | null>(null);
   const [reassigning, setReassigning] = useState(false);
 
@@ -566,7 +567,7 @@ export function ShieldProxiesView() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDelete(node.id, node.name)}
+                              onClick={() => setDeleteModalNode(node)}
                               className="h-9 w-9 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
                               title="Delete Shield Node"
                             >
@@ -705,7 +706,7 @@ export function ShieldProxiesView() {
 
                       <button
                         type="button"
-                        onClick={() => handleDelete(node.id, node.name)}
+                        onClick={() => setDeleteModalNode(node)}
                         className={`inline-flex items-center justify-center gap-1.5 h-9 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
                           node.assigned_domains > 0
                             ? 'border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20'
@@ -988,6 +989,81 @@ export function ShieldProxiesView() {
               </p>
             </div>
           </form>
+        )}
+      </ShadcnDialog>
+
+      {/* Delete Shield Node & Clean Up VPS Uninstaller Modal */}
+      <ShadcnDialog
+        open={Boolean(deleteModalNode)}
+        onClose={() => setDeleteModalNode(null)}
+        title="Delete Shield Node"
+        description={`Remove '${deleteModalNode?.name}' from panel and clean up your remote VPS.`}
+        icon={<Trash2 className="h-5 w-5 text-rose-400" />}
+        maxWidth="md"
+      >
+        {deleteModalNode && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-300">
+              Any domains assigned to this shield node will immediately revert back to <strong>Direct Origin</strong>.
+            </div>
+
+            <div className="space-y-2">
+              <span className="font-semibold text-zinc-200 text-xs block">
+                1. Run Uninstaller on your VPS (Optional, to clean up Caddy & restore original VPS):
+              </span>
+              <div className="relative rounded-lg border border-white/[0.08] bg-zinc-950 p-2.5 font-mono text-xs">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-zinc-300">
+                  {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${deleteModalNode.token}" | bash`}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${deleteModalNode.token}" | bash`, 'del-uninstall-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-white/[0.08] bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                  title="Copy uninstall command"
+                >
+                  {copied === 'del-uninstall-cmd' ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                This uninstaller removes the NextDeploy Caddy configuration and stops the proxy daemon on your VPS.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setDeleteModalNode(null)}
+                className="h-8 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const node = deleteModalNode;
+                  setDeleteModalNode(null);
+                  try {
+                    const res = await backendApi.deleteShieldNode(node.id);
+                    if (res.ok) {
+                      toast.success(`Shield node '${node.name}' deleted`);
+                      fetchNodes();
+                    } else {
+                      toast.error(res.error || 'Failed to delete');
+                    }
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to delete');
+                  }
+                }}
+                className="h-8 px-3.5 rounded-lg bg-rose-500 text-xs font-semibold text-white hover:bg-rose-600 transition-colors cursor-pointer"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
         )}
       </ShadcnDialog>
 
