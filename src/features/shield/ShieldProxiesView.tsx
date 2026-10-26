@@ -16,6 +16,9 @@ import {
   HelpCircle,
   BookOpen,
   ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
@@ -29,6 +32,7 @@ export function ShieldProxiesView() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDocsModal, setShowDocsModal] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
   const [selectedScriptNode, setSelectedScriptNode] = useState<{ node: ShieldNode; command: string } | null>(null);
 
   // Form states
@@ -63,11 +67,12 @@ export function ShieldProxiesView() {
     fetchNodes();
   }, []);
 
-  const handleCopy = (text: string, id: string) => {
-    copyToClipboard(text);
-    setCopied(id);
-    toast.success('Copied to clipboard');
-    setTimeout(() => setCopied(null), 2000);
+  const handleCopy = async (text: string, id: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -242,6 +247,152 @@ export function ShieldProxiesView() {
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Step-by-Step VPS Provisioning Guide Card */}
+      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-sm overflow-hidden">
+        <div
+          onClick={() => setShowGuide((prev) => !prev)}
+          className="px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between cursor-pointer hover:bg-zinc-800/30 transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400">
+              <Terminal className="h-3.5 w-3.5" />
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
+              Shield VPS Setup & Provisioning Instructions
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-400 hidden sm:inline">
+              {showGuide ? 'Collapse' : 'Show Instructions'}
+            </span>
+            {showGuide ? (
+              <ChevronUp className="h-4 w-4 text-zinc-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-zinc-400" />
+            )}
+          </div>
+        </div>
+
+        {showGuide && (
+          <div className="p-4 sm:p-5 space-y-4">
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              To turn any fresh Linux VPS into an Edge Shield Proxy for NextDeploy, follow these 4 quick steps. No manual Caddy or SSL configuration required — the installer automates everything.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Step 1 */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-400">
+                      STEP 1
+                    </span>
+                    <span className="text-xs text-zinc-500">Prerequisites</span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-zinc-200">Prepare VPS & Open Ports</h4>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    SSH into your remote VPS as <strong className="text-zinc-200">root</strong>. Ensure <code className="text-emerald-400">curl</code> is installed and open ports 80/443:
+                  </p>
+                </div>
+                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
+                  <div className="overflow-x-auto whitespace-pre pr-7">
+                    apt update && apt install -y curl ufw{'\n'}ufw allow 80/tcp{'\n'}ufw allow 443/tcp
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy('apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp', 'guide-step-1')}
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                    title="Copy commands"
+                  >
+                    {copied === 'guide-step-1' ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyan-400">
+                      STEP 2
+                    </span>
+                    <span className="text-xs text-zinc-500">Panel</span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-zinc-200">Add Node in NextDeploy</h4>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    Click <strong className="text-zinc-200">+ Add Shield Node</strong> above. Enter a friendly name and the VPS public IPv4 address to generate your secure token.
+                  </p>
+                </div>
+                <div className="rounded-md border border-dashed border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-400 text-center">
+                  Generates an authorized one-line installation command
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-400">
+                      STEP 3
+                    </span>
+                    <span className="text-xs text-zinc-500">Installation</span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-zinc-200">Run Automated Installer</h4>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    Paste the generated one-line command into your VPS terminal. It configures Caddy reverse-proxy & On-Demand TLS automatically:
+                  </p>
+                </div>
+                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
+                  <div className="overflow-x-auto whitespace-pre truncate pr-7 text-amber-300">
+                    curl -sSL &quot;.../setup.sh?token=...&quot; | bash
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1">
+                    Click &apos;Install Script&apos; on any node to copy its full token command
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-400">
+                      STEP 4
+                    </span>
+                    <span className="text-xs text-zinc-500">Verification</span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-zinc-200">Status Check & DNS</h4>
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    NextDeploy will show the node as <span className="text-emerald-400 font-medium">Connected</span>. Verify Caddy on the VPS with:
+                  </p>
+                </div>
+                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
+                  <div className="overflow-x-auto whitespace-pre pr-7">
+                    systemctl status caddy
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy('systemctl status caddy', 'guide-step-4')}
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                    title="Copy command"
+                  >
+                    {copied === 'guide-step-4' ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Nodes List Container */}
@@ -646,39 +797,93 @@ export function ShieldProxiesView() {
       >
         {selectedScriptNode && (
           <div className="space-y-4">
-            <p className="text-xs text-zinc-300">
-              Log into your remote VPS (<span className="font-mono text-emerald-400 font-medium">{selectedScriptNode.node.ip}</span>) via SSH as <strong className="text-white">root</strong> and run this installer:
-            </p>
-
-            <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs text-zinc-200">
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-12 text-emerald-300">
-                {selectedScriptNode.command}
-              </pre>
-              <button
-                type="button"
-                onClick={() => handleCopy(selectedScriptNode.command, 'script-cmd')}
-                className="absolute right-2 top-2 h-7 w-7 rounded-md border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer"
-                title="Copy command"
-              >
-                {copied === 'script-cmd' ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs flex items-center justify-between">
+              <div>
+                <span className="text-zinc-500 block">Target Shield VPS:</span>
+                <span className="font-semibold text-white">{selectedScriptNode.node.name}</span>
+              </div>
+              <span className="font-mono text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                {selectedScriptNode.node.ip}
+              </span>
             </div>
 
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-2">
-              <div className="font-semibold flex items-center gap-1.5 text-white">
-                <Lock className="h-3.5 w-3.5 text-emerald-400" />
-                What the installer configures:
+            {/* Step 1: VPS Prep */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-zinc-300">1. Install Prerequisites (on VPS as root):</span>
+                <span className="text-zinc-500 text-[11px]">Ubuntu / Debian</span>
               </div>
-              <ul className="list-disc list-inside text-xs text-zinc-300 space-y-1">
-                <li>Installs Caddy with automated On-Demand TLS certificate support.</li>
-                <li>Connects securely to your NextDeploy origin via authorization tokens.</li>
-                <li>Proxies incoming HTTPS traffic back to your origin applications seamlessly.</li>
-                <li>Operates autonomously without needing further manual SSH maintenance.</li>
-              </ul>
+              <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
+                <pre className="overflow-x-auto whitespace-pre pr-8">
+                  apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp', 'modal-prep-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                  title="Copy command"
+                >
+                  {copied === 'modal-prep-cmd' ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2: Installer */}
+            <div className="space-y-1.5">
+              <span className="font-semibold text-zinc-300 text-xs block">2. Run Automated NextDeploy Shield Installer:</span>
+              <div className="relative rounded-lg border border-emerald-500/30 bg-zinc-950 p-3 font-mono text-xs">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-emerald-300">
+                  {selectedScriptNode.command}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(selectedScriptNode.command, 'script-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                  title="Copy installer command"
+                >
+                  {copied === 'script-cmd' ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Step 3: Verification */}
+            <div className="space-y-1.5">
+              <span className="font-semibold text-zinc-300 text-xs block">3. Verify Service Status:</span>
+              <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
+                <pre className="overflow-x-auto whitespace-pre pr-8">
+                  systemctl status caddy
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('systemctl status caddy', 'modal-verify-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
+                  title="Copy command"
+                >
+                  {copied === 'modal-verify-cmd' ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
+              <div className="font-semibold text-white flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                Automatic Verification:
+              </div>
+              <p className="text-zinc-300 leading-relaxed text-xs">
+                As soon as the script completes on your VPS, Caddy will ping NextDeploy origin. This node will automatically turn green <strong className="text-emerald-400">Connected</strong> within 15–30 seconds.
+              </p>
             </div>
           </div>
         )}
