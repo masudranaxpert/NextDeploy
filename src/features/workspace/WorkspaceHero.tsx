@@ -246,9 +246,9 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
         )}
       </div>
 
-      {/* Underline Navigation Tabs — aligned grid on small panes (no ragged wrap), inline row on wide screens */}
-      <div className="mt-5 -mb-5 border-t border-white/[0.06] pt-1">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 sm:grid-cols-3 md:flex md:flex-wrap md:items-center md:gap-x-1">
+      {/* Navigation Tabs — Segmented Buttons on mobile, sleek tabs on desktop */}
+      <div className="mt-5 -mb-5 border-t border-white/[0.06] pt-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:flex md:flex-wrap md:items-center md:gap-x-1">
           {tabs.map((t) => {
             const active = activeTab === t.id;
             return (
@@ -256,24 +256,32 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => onSelectTab(t.id)}
-                className={`group relative flex h-12 items-center gap-2.5 rounded-xl px-3 text-[13.5px] transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-orange-500 md:h-auto md:py-2.5 md:text-xs ${
-                  t.icon ? 'justify-center md:justify-start' : 'justify-between'
-                } md:gap-1.5 ${
+                className={`group relative flex h-11 items-center justify-between rounded-xl px-3 text-xs sm:text-[13px] transition-all cursor-pointer whitespace-nowrap select-none active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-orange-500 md:h-auto md:py-2.5 md:text-xs md:justify-start md:gap-1.5 ${
                   active
-                    ? 'bg-white/[0.025] font-medium text-zinc-100'
-                    : 'text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-200'
+                    ? 'border border-orange-500/40 bg-orange-500/[0.08] font-semibold text-orange-200 shadow-xs md:border-transparent md:bg-white/[0.025] md:text-zinc-100 md:font-medium md:shadow-none'
+                    : 'border border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/[0.14] hover:bg-zinc-800/80 hover:text-white md:border-transparent md:bg-transparent md:text-zinc-400 md:hover:bg-white/[0.03] md:hover:text-zinc-200'
                 }`}
               >
-                {t.icon && <span className={`shrink-0 transition-colors ${active ? 'text-orange-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>{t.icon}</span>}
-                <span>{t.label}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  {t.icon && (
+                    <span
+                      className={`shrink-0 transition-colors ${
+                        active ? 'text-orange-400' : 'text-zinc-500 group-hover:text-zinc-300'
+                      }`}
+                    >
+                      {t.icon}
+                    </span>
+                  )}
+                  <span className="truncate">{t.label}</span>
+                </div>
                 {typeof t.count === 'number' && (
                   <span
-                    className={`inline-flex h-[18px] min-w-[21px] items-center justify-center rounded-full px-1.5 font-mono text-[10.5px] tabular-nums transition-colors ${
+                    className={`ml-1.5 inline-flex h-4.5 min-w-[19px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] tabular-nums transition-colors shrink-0 ${
                       active
-                        ? 'border border-orange-500/30 bg-orange-500/20 text-orange-300'
+                        ? 'border border-orange-500/30 bg-orange-500/25 text-orange-300 font-semibold md:bg-orange-500/20'
                         : t.count > 0
-                        ? 'bg-white/[0.1] text-zinc-300 group-hover:bg-white/[0.14]'
-                        : 'bg-white/[0.04] text-zinc-600'
+                        ? 'border border-white/[0.06] bg-white/[0.08] text-zinc-300 group-hover:bg-white/[0.14]'
+                        : 'border border-white/[0.04] bg-white/[0.04] text-zinc-500'
                     }`}
                   >
                     {t.count}
@@ -283,7 +291,7 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                   <motion.span
                     layoutId="workspaceTabUnderline"
                     transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-                    className="absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
+                    className="hidden md:block absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
                   />
                 )}
               </button>
