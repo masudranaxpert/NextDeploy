@@ -371,55 +371,56 @@ ${externalVolDefs}`;
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
             <Globe className="h-4 w-4 text-orange-400" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight text-zinc-100">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100 truncate">
               NextDeploy &amp; Caddy Proxy
             </h1>
             <StatusBadge
               status={caddyContainerRunning ? 'running' : 'stopped'}
-              label={caddyContainerRunning ? 'nextdeploy_caddy running' : 'stopped'}
+              label={caddyContainerRunning ? 'running' : 'stopped'}
             />
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => void handleContainerLifecycle('start')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer"
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer transition-colors"
           >
-            <Play className="h-3.5 w-3.5" />
-            Start
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleContainerLifecycle('force_start')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer"
-            title="Stop conflicting host nginx/apache on ports 80/443 and start Caddy"
-          >
-            <Zap className="h-3.5 w-3.5" />
-            Force Start (80/443)
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleContainerLifecycle('restart')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-          >
-            <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
-            Restart
+            <Play className="h-3.5 w-3.5 shrink-0" />
+            <span>Start</span>
           </button>
           <button
             type="button"
             onClick={() => void handleContainerLifecycle('stop')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer transition-colors"
           >
-            <Square className="h-3.5 w-3.5" />
-            Stop
+            <Square className="h-3.5 w-3.5 shrink-0" />
+            <span>Stop</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleContainerLifecycle('restart')}
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer transition-colors"
+          >
+            <RotateCw className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+            <span>Restart</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleContainerLifecycle('force_start')}
+            className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-medium text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
+            title="Stop conflicting host nginx/apache on ports 80/443 and start Caddy"
+          >
+            <Zap className="h-3.5 w-3.5 shrink-0" />
+            <span className="sm:hidden truncate">Force Start</span>
+            <span className="hidden sm:inline">Force Start (80/443)</span>
           </button>
         </div>
       </div>

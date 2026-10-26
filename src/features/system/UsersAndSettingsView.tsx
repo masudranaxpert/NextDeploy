@@ -1335,11 +1335,11 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 setAuditPage(1);
               }}
               placeholder="Search by action, user, resource, details, or IP..."
-              className="w-full rounded-lg border border-white/[0.08] bg-[#111115] pl-9 pr-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-orange-500/50 focus:outline-none"
+              className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#111115] pl-9 pr-3 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-orange-500/50 focus:outline-none"
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#09090b] p-1 scrollbar-none w-full sm:w-auto">
             {[
               { id: 'all', label: 'All Events' },
               { id: 'app.', label: 'Apps' },
@@ -1355,10 +1355,10 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   setAuditCategory(cat.id);
                   setAuditPage(1);
                 }}
-                className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
+                className={`h-8 sm:h-7 rounded-lg px-3 text-xs font-medium transition cursor-pointer shrink-0 whitespace-nowrap ${
                   auditCategory === cat.id
-                    ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
-                    : 'border border-white/[0.07] bg-[#111115] text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-orange-500/20 text-orange-300 font-semibold shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 {cat.label}
