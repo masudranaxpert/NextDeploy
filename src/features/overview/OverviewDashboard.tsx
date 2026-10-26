@@ -270,7 +270,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setChartMetric(tab.id)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                className={`rounded-md px-2.5 sm:px-3 py-1.5 sm:py-1 min-h-[32px] sm:min-h-[28px] text-xs font-medium transition-all cursor-pointer ${
                   chartMetric === tab.id
                     ? 'bg-zinc-800/90 text-zinc-100 shadow-2xs'
                     : 'text-zinc-400 hover:text-zinc-200'

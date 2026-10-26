@@ -16,7 +16,7 @@ export default defineConfig(() => {
           const fresh = new Set(Object.keys(bundle).map((f) => path.basename(f)));
           const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
           for (const dir of ['dist/assets', 'web/dist/assets']) {
-            const abs = path.resolve(__dirname, dir);
+            const abs = path.resolve(import.meta.dirname, dir);
             if (!fs.existsSync(abs)) continue;
             for (const f of fs.readdirSync(abs)) {
               const full = path.join(abs, f);
@@ -25,8 +25,8 @@ export default defineConfig(() => {
           }
         },
         closeBundle() {
-          const srcDir = path.resolve(__dirname, 'dist');
-          const destDir = path.resolve(__dirname, 'web/dist');
+          const srcDir = path.resolve(import.meta.dirname, 'dist');
+          const destDir = path.resolve(import.meta.dirname, 'web/dist');
           if (fs.existsSync(srcDir)) {
             fs.mkdirSync(destDir, {recursive: true});
             fs.cpSync(srcDir, destDir, {recursive: true});
@@ -40,7 +40,7 @@ export default defineConfig(() => {
       rolldownOptions: {
         output: {
           // libraries change rarely: their own files stay cached in the browser across app updates
-          advancedChunks: {
+          codeSplitting: {
             groups: [
               { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-is)[\\/]/ },
               { name: 'vendor-ui', test: /node_modules[\\/](sonner|lucide-react|motion|framer-motion|motion-dom|motion-utils)[\\/]/ },
@@ -51,7 +51,7 @@ export default defineConfig(() => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

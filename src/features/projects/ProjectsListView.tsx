@@ -141,7 +141,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
             type="button"
             onClick={() => setAppsLayout('grid')}
             title="Card View"
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 sm:py-1 min-h-[34px] min-w-[34px] sm:min-h-[28px] sm:min-w-0 justify-center text-xs font-medium cursor-pointer transition-all ${
               appsLayout === 'grid'
                 ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -154,7 +154,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
             type="button"
             onClick={() => setAppsLayout('board')}
             title="Board View"
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 sm:py-1 min-h-[34px] min-w-[34px] sm:min-h-[28px] sm:min-w-0 justify-center text-xs font-medium cursor-pointer transition-all ${
               appsLayout === 'board'
                 ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -167,7 +167,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
             type="button"
             onClick={() => setAppsLayout('table')}
             title="List View"
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-all ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 sm:py-1 min-h-[34px] min-w-[34px] sm:min-h-[28px] sm:min-w-0 justify-center text-xs font-medium cursor-pointer transition-all ${
               appsLayout === 'table'
                 ? 'bg-zinc-800 text-zinc-100 shadow-2xs'
                 : 'text-zinc-400 hover:text-zinc-200'

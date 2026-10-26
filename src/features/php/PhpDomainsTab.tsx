@@ -281,7 +281,7 @@ export const PhpDomainsTab: React.FC<{
                           disabled={busy === 'pri' + d.id}
                           onClick={() => makePrimary(d.id)}
                           title="Set as primary domain"
-                          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-50"
+                          className="inline-flex h-8 sm:h-7.5 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs sm:text-[11px] font-medium text-zinc-300 hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-50"
                         >
                           {busy === 'pri' + d.id ? (
                             <span className="h-3 w-3 animate-spin rounded-full border border-zinc-400 border-t-transparent" />
@@ -297,7 +297,7 @@ export const PhpDomainsTab: React.FC<{
                         onClick={() => remove(d.id, d.domain)}
                         disabled={busy === 'del' + d.id}
                         title="Remove domain"
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-50"
+                        className="inline-flex h-8 w-8 sm:h-7.5 sm:w-7.5 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {busy === 'del' + d.id ? (
                           <span className="h-3 w-3 animate-spin rounded-full border border-rose-400 border-t-transparent" />

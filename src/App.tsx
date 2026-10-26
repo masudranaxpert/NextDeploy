@@ -1376,7 +1376,7 @@ export default function App() {
                 onClick={() => {
                   navigateTo('overview');
                 }}
-                className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap"
+                className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap py-1.5 px-1 rounded inline-flex items-center min-h-[36px] sm:min-h-0"
               >
                 NextDeploy
               </button>
@@ -1388,7 +1388,7 @@ export default function App() {
                     onClick={() => {
                       navigateTo(selectedApp.php ? 'php-sites' : 'apps');
                     }}
-                    className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap"
+                    className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap py-1.5 px-1 rounded inline-flex items-center min-h-[36px] sm:min-h-0"
                   >
                     {selectedApp.php ? 'PHP Sites' : 'Projects'}
                   </button>

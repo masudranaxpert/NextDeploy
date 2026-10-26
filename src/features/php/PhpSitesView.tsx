@@ -172,10 +172,10 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
             type="button"
             onClick={() => setSelectorLayout((p) => (p === 'grid' ? 'list' : 'grid'))}
             title={selectorLayout === 'grid' ? 'Switch to stacked list' : 'Switch to 3-column grid'}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer min-h-[32px]"
           >
-            {selectorLayout === 'grid' ? <List className="h-3 w-3" /> : <LayoutGrid className="h-3 w-3" />}
-            {selectorLayout === 'grid' ? 'List' : 'Grid'}
+            {selectorLayout === 'grid' ? <List className="h-3.5 w-3.5" /> : <LayoutGrid className="h-3.5 w-3.5" />}
+            <span>{selectorLayout === 'grid' ? 'List' : 'Grid'}</span>
           </button>
         }
         footer={
@@ -187,7 +187,7 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
       >
         <div className="space-y-4">
           {selectorLayout === 'grid' ? (
-            <div role="radiogroup" aria-label="Site type" className="grid grid-cols-3 gap-2">
+            <div role="radiogroup" aria-label="Site type" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {TYPE_CARDS.map((t) => {
                 const isSelected = type === t.id;
                 return (
