@@ -21,7 +21,9 @@ import (
 type FileItem struct {
 	Name    string `json:"name"`
 	RelPath string `json:"rel_path"`
+	Path    string `json:"path"`
 	IsDir   bool   `json:"is_dir"`
+	Type    string `json:"type"`
 	Size    int64  `json:"size"`
 	ModTime int64  `json:"mod_time"`
 	Perms   string `json:"perms,omitempty"`
@@ -74,10 +76,16 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 		}
 
 		for _, ch := range children {
+			fileType := "file"
+			if ch.IsDir {
+				fileType = "directory"
+			}
 			out = append(out, FileItem{
 				Name:    ch.Name,
 				RelPath: ch.RelPath,
+				Path:    ch.RelPath,
 				IsDir:   ch.IsDir,
+				Type:    fileType,
 				Size:    ch.Size,
 				ModTime: ch.ModTime.Unix(),
 				Perms:   ch.Perms,
@@ -133,10 +141,17 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 			return nil
 		}
 
+		fileType := "file"
+		if d.IsDir() {
+			fileType = "directory"
+		}
+
 		out = append(out, FileItem{
 			Name:    name,
 			RelPath: relSlash,
+			Path:    relSlash,
 			IsDir:   d.IsDir(),
+			Type:    fileType,
 			Size:    info.Size(),
 			ModTime: info.ModTime().Unix(),
 			Perms:   fmt.Sprintf("%03o", info.Mode().Perm()),

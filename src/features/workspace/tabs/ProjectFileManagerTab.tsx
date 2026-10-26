@@ -60,7 +60,8 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
         });
 
         const liveNodes: ComposeFileNode[] = res.map((item: any) => {
-          const p = item.path || item.name;
+          const p = item.rel_path || item.path || item.name;
+          const isDir = Boolean(item.is_dir || item.type === 'directory' || item.type === 'dir');
           const ext = p.split('.').pop()?.toLowerCase() || '';
           const lang =
             ext === 'ts' || ext === 'tsx'
@@ -84,9 +85,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           return {
             path: p,
             name: item.name || p.split('/').pop() || p,
-            type: (item.type === 'directory' ? 'dir' : 'file') as ComposeFileNode['type'],
+            type: (isDir ? 'dir' : 'file') as ComposeFileNode['type'],
             sizeBytes: item.size,
-            updatedAt: item.modified || 'Just now',
+            updatedAt:
+              item.modified ||
+              (item.mod_time ? new Date(item.mod_time * 1000).toLocaleString() : 'Just now'),
             language: lang as ComposeFileNode['language'],
             content: contentByPath.get(p) || '',
           };
@@ -94,15 +97,17 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
 
         const perms: Record<string, string> = {};
         res.forEach((item: any) => {
-          if (item.path && item.permissions) {
-            perms[item.path] = item.permissions;
+          const p = item.rel_path || item.path || item.name;
+          const perm = item.perms || item.permissions;
+          if (p && perm) {
+            perms[p] = perm;
           }
         });
         setFilePermissions((prev) => ({ ...prev, ...perms }));
         setLiveFileList(liveNodes);
 
         if (editingFilePath && invalidatedSet.has(editingFilePath)) {
-          const freshNode = liveNodes.find((f) => f.path === editingFilePath);
+          const freshNode = liveNodes.find((f) => f.path === editingFilePath && f.type !== 'dir');
           if (freshNode) {
             try {
               const fetchRes = await backendApi.fileBlob(app.id, editingFilePath);
@@ -204,8 +209,8 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
 
   const selectedFile = useMemo(() => {
     return (
-      defaultRichFiles.find((f) => f.path === editingFilePath) ||
-      defaultRichFiles[0] || {
+      defaultRichFiles.find((f) => f.path === editingFilePath && f.type !== 'dir') ||
+      defaultRichFiles.find((f) => f.type !== 'dir') || {
         path: 'docker-compose.yml',
         name: 'docker-compose.yml',
         type: 'file',
@@ -224,6 +229,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       .forEach((d) => folderSet.add(d));
 
     defaultRichFiles.forEach((f) => {
+      if (f.type === 'dir') {
+        if (!deletedFilePaths.includes(`dir:${f.path}`)) {
+          folderSet.add(f.path);
+        }
+      }
       const parts = f.path.split('/');
       parts.pop();
       let acc = '';
@@ -290,12 +300,14 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       const q = fileSearch.toLowerCase().trim();
       return defaultRichFiles.filter(
         (f) =>
-          f.path.toLowerCase().includes(q) ||
-          f.name.toLowerCase().includes(q) ||
-          f.content.toLowerCase().includes(q)
+          f.type !== 'dir' &&
+          (f.path.toLowerCase().includes(q) ||
+            f.name.toLowerCase().includes(q) ||
+            f.content.toLowerCase().includes(q))
       );
     }
     return defaultRichFiles.filter((f) => {
+      if (f.type === 'dir') return false;
       const slash = f.path.lastIndexOf('/');
       if (currentDir === '') {
         return slash === -1;
@@ -313,6 +325,10 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   };
 
   const openFileInEditor = async (file: ComposeFileNode) => {
+    if (file.type === 'dir') {
+      navigateToFolder(file.path);
+      return;
+    }
     setEditingFilePath(file.path);
     if (!openEditorTabs.includes(file.path)) {
       setOpenEditorTabs((prev) => [...prev, file.path]);
