@@ -43,6 +43,7 @@ interface FileManagerTableProps {
   openMoveOrCopyModal: (paths: string[], mode?: 'move' | 'copy') => void;
   deleteEntries: (paths: string[]) => Promise<void>;
   openFileInEditor: (file: ComposeFileNode) => void;
+  onPrefetchFile?: (path: string) => void;
   setExtractTargetFile: (file: ComposeFileNode) => void;
   setExtractDestDir: (dir: string) => void;
   setRenameTarget: (target: any) => void;
@@ -79,6 +80,7 @@ export const FileManagerTable: React.FC<FileManagerTableProps> = ({
   openMoveOrCopyModal,
   deleteEntries,
   openFileInEditor,
+  onPrefetchFile,
   setExtractTargetFile,
   setExtractDestDir,
   setRenameTarget,
@@ -441,6 +443,8 @@ export const FileManagerTable: React.FC<FileManagerTableProps> = ({
                   <tr
                     key={file.path}
                     onClick={() => openFileInEditor(file)}
+                    onMouseEnter={() => onPrefetchFile?.(file.path)}
+                    onPointerDown={() => onPrefetchFile?.(file.path)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();

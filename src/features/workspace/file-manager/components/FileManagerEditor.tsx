@@ -14,6 +14,7 @@ interface FileManagerEditorProps {
   filePermissions: Record<string, string>;
   editorSaveTick: number;
   setEditorSaveTick: React.Dispatch<React.SetStateAction<number>>;
+  isLoading?: boolean;
   onCloseEditor: () => void;
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string, e: React.MouseEvent) => void;
@@ -33,6 +34,7 @@ export const FileManagerEditor: React.FC<FileManagerEditorProps> = ({
   filePermissions,
   editorSaveTick,
   setEditorSaveTick,
+  isLoading = false,
   onCloseEditor,
   onSelectTab,
   onCloseTab,
@@ -115,6 +117,7 @@ export const FileManagerEditor: React.FC<FileManagerEditorProps> = ({
         filename={selectedFile.path}
         language={selectedFile.language}
         value={selectedFile.content}
+        isLoading={isLoading}
         onChange={onSaveContent}
         onSave={async () => {
           const res = await backendApi.fileSave(

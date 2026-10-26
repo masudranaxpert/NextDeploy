@@ -10,6 +10,7 @@ import {
   FileText,
   Globe,
   Layers,
+  Loader2,
   Lock,
   Save,
   Terminal,
@@ -44,6 +45,7 @@ interface CodeEditorBoxProps {
   savedTick?: number;
   height?: number | string;
   readOnly?: boolean;
+  isLoading?: boolean;
   actions?: React.ReactNode;
   permissions?: string;
 }
@@ -776,6 +778,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   savedTick = 0,
   height = 420,
   readOnly = false,
+  isLoading = false,
   actions,
   permissions = '-rw-r--r-- (0644)',
 }) => {
@@ -879,11 +882,18 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <span className="truncate font-mono text-xs font-semibold text-zinc-100">
             {filename}
           </span>
-          <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-300 shrink-0">
-            {effectiveLanguage}
-          </span>
+          {isLoading ? (
+            <span className="inline-flex items-center gap-1 rounded bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 font-mono text-[10px] font-medium text-orange-300 shrink-0">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              Reading...
+            </span>
+          ) : (
+            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-300 shrink-0">
+              {effectiveLanguage}
+            </span>
+          )}
           <span className="hidden md:inline font-mono text-[10px] text-zinc-500 shrink-0">
-            {lineCount} lines · {sizeBytes} B
+            {isLoading ? 'Loading content' : `${lineCount} lines · ${sizeBytes} B`}
           </span>
         </div>
 
@@ -946,52 +956,70 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
 
       {/* Line-Numbered Syntax-Highlighted Surface */}
       <div className="relative flex overflow-hidden" style={{ height }}>
-        {/* Gutter */}
-        <div
-          ref={gutterRef}
-          aria-hidden="true"
-          className={`select-none overflow-hidden border-r border-white/[0.06] bg-[#0b0b0f] py-3 px-2.5 text-right font-mono ${fontSizeClass} text-zinc-500 shrink-0`}
-          style={{ minWidth: '3.25rem' }}
-        >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <GutterRow key={i + 1} n={i + 1} active={cursorLine === i + 1} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex-1 flex flex-col justify-center items-center py-12 px-6 gap-3.5 select-none bg-[#09090b]">
+            <div className="flex items-center gap-2 text-zinc-400 font-mono text-xs">
+              <Loader2 className="h-4 w-4 animate-spin text-orange-400 shrink-0" />
+              <span>Reading {filename.split('/').pop() || filename} from disk…</span>
+            </div>
+            <div className="w-full max-w-sm space-y-2.5 pt-1 opacity-50">
+              <div className="h-3 bg-zinc-800 rounded animate-pulse w-3/4" />
+              <div className="h-3 bg-zinc-800/80 rounded animate-pulse w-1/2" />
+              <div className="h-3 bg-zinc-800/60 rounded animate-pulse w-5/6" />
+              <div className="h-3 bg-zinc-800/70 rounded animate-pulse w-2/3" />
+              <div className="h-3 bg-zinc-800/50 rounded animate-pulse w-2/5" />
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Gutter */}
+            <div
+              ref={gutterRef}
+              aria-hidden="true"
+              className={`select-none overflow-hidden border-r border-white/[0.06] bg-[#0b0b0f] py-3 px-2.5 text-right font-mono ${fontSizeClass} text-zinc-500 shrink-0`}
+              style={{ minWidth: '3.25rem' }}
+            >
+              {Array.from({ length: lineCount }, (_, i) => (
+                <GutterRow key={i + 1} n={i + 1} active={cursorLine === i + 1} />
+              ))}
+            </div>
 
-        {/* Synchronized Highlight Layer + Editable Textarea */}
-        <div className="relative flex-1 overflow-hidden bg-[#08080b]">
-          <pre
-            ref={preRef}
-            aria-hidden="true"
-            className={`pointer-events-none absolute inset-0 m-0 overflow-hidden py-3 px-4 font-mono ${fontSizeClass} ${
-              wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
-            }`}
-          >
-            {lines.map((ln, idx) => (
-              <HighlightedLineRow
-                key={idx}
-                content={ln}
-                lang={effectiveLanguage}
-                active={cursorLine === idx + 1}
+            {/* Synchronized Highlight Layer + Editable Textarea */}
+            <div className="relative flex-1 overflow-hidden bg-[#08080b]">
+              <pre
+                ref={preRef}
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 m-0 overflow-hidden py-3 px-4 font-mono ${fontSizeClass} ${
+                  wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
+                }`}
+              >
+                {lines.map((ln, idx) => (
+                  <HighlightedLineRow
+                    key={idx}
+                    content={ln}
+                    lang={effectiveLanguage}
+                    active={cursorLine === idx + 1}
+                  />
+                ))}
+              </pre>
+
+              <textarea
+                value={value}
+                readOnly={readOnly}
+                onChange={(e) => onChange(e.target.value)}
+                onScroll={handleScroll}
+                onKeyDown={handleKeyDown}
+                onClick={updateCursorLine}
+                onKeyUp={updateCursorLine}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoComplete="off"
+                wrap={wordWrap ? 'soft' : 'off'}
+                className={`relative z-10 h-full w-full resize-none bg-transparent py-3 px-4 font-mono ${fontSizeClass} text-transparent caret-orange-400 focus:outline-none selection:bg-orange-500/30 selection:text-transparent selection:[-webkit-text-fill-color:transparent] [-webkit-text-fill-color:transparent] overflow-auto`}
               />
-            ))}
-          </pre>
-
-          <textarea
-            value={value}
-            readOnly={readOnly}
-            onChange={(e) => onChange(e.target.value)}
-            onScroll={handleScroll}
-            onKeyDown={handleKeyDown}
-            onClick={updateCursorLine}
-            onKeyUp={updateCursorLine}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            wrap={wordWrap ? 'soft' : 'off'}
-            className={`relative z-10 h-full w-full resize-none bg-transparent py-3 px-4 font-mono ${fontSizeClass} text-transparent caret-orange-400 focus:outline-none selection:bg-orange-500/30 selection:text-transparent selection:[-webkit-text-fill-color:transparent] [-webkit-text-fill-color:transparent] overflow-auto`}
-          />
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Status Footer */}

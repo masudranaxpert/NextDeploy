@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { DevFileIcon } from '../../../components/ui/CodeEditorBox';
 import { backendApi } from '../../../lib/backendApi';
@@ -145,6 +145,9 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   }, [liveFileList, app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths]);
 
   const [editingFilePath, setEditingFilePath] = useState<string | null>(null);
+  const [isFileLoading, setIsFileLoading] = useState(false);
+  const inFlightFetchesRef = useRef<Map<string, Promise<string | null>>>(new Map());
+  const loadedPathsRef = useRef<Set<string>>(new Set());
   const [currentDir, setCurrentDir] = useState<string>('');
   const [openEditorTabs, setOpenEditorTabs] = useState<string[]>([]);
   const [editorSaveTick, setEditorSaveTick] = useState<number>(0);
@@ -324,37 +327,81 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     }
   };
 
-  // Automatically fetch file content from disk whenever an editor file is active and unpopulated
-  useEffect(() => {
-    if (!editingFilePath) return;
-    const current = (liveFileList || app.files).find(
-      (f) => f.path === editingFilePath && f.type !== 'dir'
-    );
-    if (current && (!current.content || current.content === '')) {
-      void (async () => {
+  // High-performance deduplicated and cached file blob loader
+  const fetchFileContent = useCallback(
+    async (filePath: string): Promise<string | null> => {
+      if (!filePath) return null;
+
+      // 1. In-memory check (0ms response if already loaded)
+      if (loadedPathsRef.current.has(filePath)) {
+        const cached = (liveFileList || app.files).find((f) => f.path === filePath);
+        if (cached && typeof cached.content === 'string') {
+          return cached.content;
+        }
+      }
+
+      // 2. In-flight check: reuse existing promise if another trigger (e.g. hover or click) is already fetching
+      if (inFlightFetchesRef.current.has(filePath)) {
+        return inFlightFetchesRef.current.get(filePath)!;
+      }
+
+      // 3. Initiate fetch from backend
+      const fetchPromise = (async () => {
         try {
-          const res = await backendApi.fileBlob(app.id, editingFilePath);
-          const text = res.data?.text;
-          if (res.ok && typeof text === 'string') {
-            setLiveFileList((prev) => {
-              const list = prev ? [...prev] : [...app.files];
-              const idx = list.findIndex((f) => f.path === editingFilePath);
-              if (idx >= 0) {
-                list[idx] = { ...list[idx], content: text };
-              }
-              return list;
-            });
-            onUpdateApp({
-              ...app,
-              files: app.files.map((f) => (f.path === editingFilePath ? { ...f, content: text } : f)),
-            });
-          }
+          const res = await backendApi.fileBlob(app.id, filePath);
+          const text = res.data?.text ?? '';
+          loadedPathsRef.current.add(filePath);
+
+          setLiveFileList((prev) => {
+            const list = prev ? [...prev] : [...app.files];
+            const idx = list.findIndex((f) => f.path === filePath);
+            if (idx >= 0) {
+              list[idx] = { ...list[idx], content: text };
+            } else {
+              list.push({
+                path: filePath,
+                name: filePath.split('/').pop() || filePath,
+                content: text,
+                type: 'file',
+                language: 'yaml',
+                sizeBytes: new Blob([text]).size,
+                updatedAt: 'Just now',
+              });
+            }
+            return list;
+          });
+
+          onUpdateApp({
+            ...app,
+            files: app.files.some((f) => f.path === filePath)
+              ? app.files.map((f) => (f.path === filePath ? { ...f, content: text } : f))
+              : [
+                  ...app.files,
+                  {
+                    path: filePath,
+                    name: filePath.split('/').pop() || filePath,
+                    content: text,
+                    type: 'file',
+                    language: 'yaml',
+                    sizeBytes: new Blob([text]).size,
+                    updatedAt: 'Just now',
+                  },
+                ],
+          });
+
+          return text;
         } catch {
-          // ignore
+          return null;
+        } finally {
+          inFlightFetchesRef.current.delete(filePath);
         }
       })();
-    }
-  }, [editingFilePath, app.id]);
+
+      inFlightFetchesRef.current.set(filePath, fetchPromise);
+      return fetchPromise;
+    },
+    [app, liveFileList, onUpdateApp]
+  );
 
   const openFileInEditor = async (file: ComposeFileNode) => {
     if (file.type === 'dir') {
@@ -366,32 +413,12 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     if (!openEditorTabs.includes(filePath)) {
       setOpenEditorTabs((prev) => [...prev, filePath]);
     }
-    if (!file.content) {
-      try {
-        const res = await backendApi.fileBlob(app.id, filePath);
-        const text = res.data?.text;
-        if (res.ok && typeof text === 'string') {
-          file.content = text;
-          setLiveFileList((prev) => {
-            const list = prev ? [...prev] : [...app.files];
-            const idx = list.findIndex((f) => f.path === filePath);
-            if (idx >= 0) {
-              list[idx] = { ...list[idx], content: text };
-            } else {
-              list.push({ ...file, content: text });
-            }
-            return list;
-          });
-          onUpdateApp({
-            ...app,
-            files: app.files.some((f) => f.path === filePath)
-              ? app.files.map((f) => (f.path === filePath ? { ...f, content: text } : f))
-              : [...app.files, { ...file, content: text }],
-          });
-        }
-      } catch {
-        // ignore load error
-      }
+
+    const isAlreadyLoaded = loadedPathsRef.current.has(filePath) || Boolean(file.content);
+    if (!isAlreadyLoaded) {
+      setIsFileLoading(true);
+      await fetchFileContent(filePath);
+      setIsFileLoading(false);
     }
   };
 
@@ -877,8 +904,16 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
             filePermissions={filePermissions}
             editorSaveTick={editorSaveTick}
             setEditorSaveTick={setEditorSaveTick}
+            isLoading={isFileLoading}
             onCloseEditor={() => setEditingFilePath(null)}
-            onSelectTab={(tab) => setEditingFilePath(tab)}
+            onSelectTab={async (tab) => {
+              setEditingFilePath(tab);
+              if (!loadedPathsRef.current.has(tab)) {
+                setIsFileLoading(true);
+                await fetchFileContent(tab);
+                setIsFileLoading(false);
+              }
+            }}
             onCloseTab={closeEditorTab}
             onCloseAllTabs={() => {
               setOpenEditorTabs([]);
@@ -918,6 +953,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
             openMoveOrCopyModal={openMoveOrCopyModal}
             deleteEntries={deleteEntries}
             openFileInEditor={openFileInEditor}
+            onPrefetchFile={(p) => void fetchFileContent(p)}
             setExtractTargetFile={setExtractTargetFile}
             setExtractDestDir={setExtractDestDir}
             setRenameTarget={setRenameTarget}
