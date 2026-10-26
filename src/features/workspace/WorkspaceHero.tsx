@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowUpRight,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   GitBranch,
   Globe,
@@ -64,6 +66,11 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
   onOpenDelete,
   onOpenGit,
 }) => {
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const primaryCount = 6;
+  const isSecondaryActive = tabs.slice(primaryCount).some((t) => t.id === activeTab);
+  const showAllOnMobile = mobileExpanded || isSecondaryActive;
+
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
       <div className={app.php ? 'flex items-center justify-between gap-3' : 'flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'}>
@@ -246,10 +253,10 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
         )}
       </div>
 
-      {/* Navigation Tabs — Segmented Buttons on mobile, sleek tabs on desktop */}
-      <div className="mt-5 -mb-5 border-t border-white/[0.06] pt-2">
+      {/* Navigation Tabs — Segmented Buttons on mobile with See More/Less, sleek tabs on desktop */}
+      <div className="mt-5 border-t border-white/[0.06] pt-3.5 pb-1">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:flex md:flex-wrap md:items-center md:gap-x-1">
-          {tabs.map((t) => {
+          {(showAllOnMobile ? tabs : tabs.slice(0, primaryCount)).map((t) => {
             const active = activeTab === t.id;
             return (
               <button
@@ -297,7 +304,77 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
               </button>
             );
           })}
+          {/* Also render remaining tabs for desktop when collapsed on mobile */}
+          {!showAllOnMobile &&
+            tabs.slice(primaryCount).map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onSelectTab(t.id)}
+                  className={`hidden md:inline-flex group relative h-auto py-2.5 text-xs items-center gap-1.5 rounded-xl px-3 transition-colors cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-orange-500 ${
+                    active
+                      ? 'border border-transparent bg-white/[0.025] font-medium text-zinc-100'
+                      : 'border border-transparent bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {t.icon && (
+                      <span
+                        className={`shrink-0 transition-colors ${
+                          active ? 'text-orange-400' : 'text-zinc-500 group-hover:text-zinc-300'
+                        }`}
+                      >
+                        {t.icon}
+                      </span>
+                    )}
+                    <span className="truncate">{t.label}</span>
+                  </div>
+                  {typeof t.count === 'number' && (
+                    <span
+                      className={`ml-1.5 inline-flex h-4.5 min-w-[19px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] tabular-nums transition-colors shrink-0 ${
+                        active
+                          ? 'border border-orange-500/30 bg-orange-500/20 text-orange-300 font-semibold'
+                          : t.count > 0
+                          ? 'border border-white/[0.06] bg-white/[0.08] text-zinc-300 group-hover:bg-white/[0.14]'
+                          : 'border border-white/[0.04] bg-white/[0.04] text-zinc-500'
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                  {active && (
+                    <motion.span
+                      layoutId="workspaceTabUnderline"
+                      transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                      className="hidden md:block absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
+                    />
+                  )}
+                </button>
+              );
+            })}
         </div>
+
+        {/* Mobile See More / See Less Toggle Button */}
+        {tabs.length > primaryCount && (
+          <div className="mt-2.5 md:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileExpanded((prev) => !prev)}
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-white/[0.07] bg-zinc-900/50 text-xs font-medium text-zinc-400 hover:border-white/[0.14] hover:bg-zinc-800/80 hover:text-zinc-200 transition-all cursor-pointer active:scale-[0.99]"
+            >
+              <span>
+                {showAllOnMobile ? 'See less' : `See more tabs (${tabs.length - primaryCount} more)`}
+              </span>
+              {showAllOnMobile ? (
+                <ChevronUp className="h-3.5 w-3.5 text-zinc-500" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
