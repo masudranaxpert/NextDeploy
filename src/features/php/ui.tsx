@@ -6,7 +6,7 @@ import { backendApi } from '../../lib/backendApi';
 import type { PhpSiteDetail, PhpStatusData } from '../../lib/api/phpApi';
 
 export const inputCls =
-  'h-8 w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/50 disabled:opacity-50';
+  'h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-3 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/50 disabled:opacity-50';
 export const selectCls = inputCls + ' cursor-pointer pr-6';
 export const textareaCls =
   'w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-2.5 py-2 font-mono text-[11px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/50 disabled:opacity-50';
@@ -79,7 +79,7 @@ export const PrimaryButton: React.FC<BtnProps> = ({ busy, children, className = 
     type="button"
     {...rest}
     disabled={disabled || busy}
-    className={`inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-orange-500 px-3.5 text-xs font-semibold text-white shadow-lg shadow-orange-500/15 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${className}`}
+    className={`inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-orange-500 px-3.5 text-xs font-semibold text-white shadow-lg shadow-orange-500/15 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${className}`}
   >
     {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
     {children}
@@ -98,7 +98,7 @@ export const GhostButton: React.FC<BtnProps & { tone?: 'default' | 'danger' }> =
     type="button"
     {...rest}
     disabled={disabled || busy}
-    className={`inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
+    className={`inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
       tone === 'danger'
         ? 'border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20'
         : 'border-white/[0.08] bg-zinc-900 text-zinc-200 hover:bg-zinc-800'

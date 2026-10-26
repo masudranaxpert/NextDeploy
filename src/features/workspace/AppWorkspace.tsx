@@ -298,7 +298,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     ...(app.php?.siteType !== 'static' ? [{ id: 'php-logs' as AppWorkspaceTab, label: 'Logs', icon: <PhpTabLogs className="h-3.5 w-3.5" /> }] : []),
     ...(app.php?.siteType !== 'static' ? [{ id: 'terminal' as AppWorkspaceTab, label: 'Terminal', icon: <PhpTabTerminal className="h-3.5 w-3.5" /> }] : []),
     { id: 'php-security' as AppWorkspaceTab, label: 'Security', icon: <PhpTabShield className="h-3.5 w-3.5" /> },
-    { id: 'backups', label: 'Backups', count: app.backups?.length || 0, icon: <PhpTabArchive className="h-3.5 w-3.5" /> },
+    { id: 'backups', label: 'Backups', icon: <PhpTabArchive className="h-3.5 w-3.5" /> },
     { id: 'collaborators', label: 'Access', icon: <PhpTabUsers className="h-3.5 w-3.5" /> },
   ];
 
@@ -311,7 +311,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     { id: 'files', label: 'File Manager' },
     ...(hasGitConnection ? [{ id: 'git' as AppWorkspaceTab, label: 'Git' }] : []),
     { id: 'volumes', label: 'Volumes', count: app.volumes.length },
-    { id: 'backups', label: 'Backups', count: app.backups?.length || 0 },
+    { id: 'backups', label: 'Backups' },
     { id: 'logs', label: 'Logs' },
     { id: 'terminal', label: 'Terminal' },
     { id: 'collaborators', label: 'Access' },
@@ -387,15 +387,16 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       {activeTab === 'deployments' && (
         <ProjectDeploymentsTab
           app={app}
-          deployments={app.deployments}
           onUpdateApp={onUpdateApp}
-          triggerDeploy={triggerDeploy}
-          isDeploying={liveDeployState.running}
+          hasGitConnection={hasGitConnection}
           liveDeployState={liveDeployState}
           isBuildLogExpanded={isBuildLogExpanded}
           setIsBuildLogExpanded={setIsBuildLogExpanded}
           renderStyledBuildLog={renderStyledBuildLog}
+          triggerDeploy={triggerDeploy}
           setBuildLogsDeployment={setBuildLogsDeployment}
+          isPinnedProduction={isPinnedProduction}
+          onRefresh={refreshAppFromBackend}
         />
       )}
 

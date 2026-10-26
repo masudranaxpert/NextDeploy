@@ -130,7 +130,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
           type="button"
           onClick={restartAllContainers}
           disabled={restartAllBusy}
-          className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+          className="ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
         >
           <RotateCw
             className={`h-3.5 w-3.5 text-orange-400 ${restartAllBusy ? 'animate-spin' : ''}`}
@@ -166,10 +166,40 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
         })}
       </div>
 
+      {/* Selection action bar */}
+      {selectedContainers.length > 0 && (
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-[#0c0c0f] px-4 py-2.5">
+          <span className="text-xs font-medium text-zinc-300">{selectedContainers.length} selected</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={restartAllBusy}
+              onClick={async () => {
+                for (const name of selectedContainers) {
+                  await backendApi.appContainerAction(app.id, name, 'restart');
+                }
+                toast.success(`Restarted ${selectedContainers.length} container(s)`);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw className="h-3.5 w-3.5 text-orange-400" /> Restart ({selectedContainers.length})
+            </button>
+            <button
+              type="button"
+              disabled={isDeletingContainers}
+              onClick={() => handleRemoveSelectedContainers()}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-300 transition-colors hover:bg-rose-500/20 cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete ({selectedContainers.length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Desktop Table View */}
       <div className="hidden md:block">
-        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#111115]/90">
+          <table className="w-full min-w-[820px] text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-[#09090b]/80 font-mono text-[11px] uppercase tracking-wider text-zinc-400">
                 <th className="w-9 px-3 py-2.5 text-center">
@@ -247,7 +277,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                                 const isProdSlot = containerSlot === activeSlotLower;
                                 return (
                                   <span
-                                    className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                                    className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase ${
                                       isProdSlot
                                         ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-400'
                                         : 'border-violet-500/25 bg-violet-500/15 text-violet-300'
@@ -280,10 +310,13 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                         )}
                       </td>
 
-                      <td className="px-3 py-2.5 min-w-0 font-mono text-[11px]">
-                        <div className="flex items-center gap-1.5">
+                      <td className="px-3 py-2.5 min-w-0">
+                        <div className="flex flex-col items-start gap-1">
                           <StatusBadge status={svc.state} />
-                          <span className="text-zinc-400 truncate">
+                          <span
+                            className="max-w-full truncate font-mono text-[11px] text-zinc-400"
+                            title={svc.uptime}
+                          >
                             {formatCompactUptime(svc.uptime)}
                           </span>
                         </div>
@@ -399,7 +432,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                   <StatusBadge status={svc.state} />
                   {containerSlot && (
                     <span
-                      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase ${
                         isProdSlot
                           ? 'border-emerald-500/25 bg-emerald-500/15 text-emerald-400'
                           : 'border-violet-500/25 bg-violet-500/15 text-violet-300'
@@ -413,7 +446,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                       type="button"
                       onClick={() => onOpenLogs?.(svc.service)}
                       title="View logs"
-                      className="inline-flex h-8 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex h-9 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
                     >
                       Logs
                     </button>
@@ -425,7 +458,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                         await onRefresh?.();
                       }}
                       title="Restart container"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
                     >
                       <RotateCw className="h-3.5 w-3.5" />
                     </button>
@@ -443,7 +476,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                         await onRefresh?.();
                       }}
                       title={svc.state === 'running' ? 'Stop container' : 'Start container'}
-                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
                         svc.state === 'running'
                           ? 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
                           : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
@@ -459,7 +492,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                       type="button"
                       onClick={() => handleRemoveSelectedContainers([name])}
                       title="Delete container"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

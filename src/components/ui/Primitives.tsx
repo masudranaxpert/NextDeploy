@@ -405,7 +405,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ items }) => {
         ref={btnRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`flex h-7 w-7 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+        className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
           open
             ? 'border-white/[0.18] bg-zinc-800 text-zinc-100'
             : 'border-transparent bg-transparent text-zinc-400 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-zinc-100'

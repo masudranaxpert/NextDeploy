@@ -31,6 +31,7 @@ export const MergedComposeModal: React.FC<MergedComposeModalProps> = ({
           filename="docker-compose.merged.yml"
           language="yaml"
           value={yaml}
+          onChange={() => {}}
           readOnly
           height={280}
         />

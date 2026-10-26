@@ -89,6 +89,22 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   };
 
   const m = data.mysql;
+  const serviceList = (data.containers ?? []).filter((c) => c.kind !== 'route');
+  const runningCount = serviceList.filter((c) => c.state === 'running').length;
+  const [restartAllBusy, setRestartAllBusy] = useState(false);
+
+  const restartAllServices = async () => {
+    if (runningCount === 0) return;
+    setRestartAllBusy(true);
+    try {
+      await Promise.all(serviceList.filter((c) => c.state === 'running').map((c) => backendApi.phpRestartContainer(c.name)));
+      toast.success(`Restarted ${runningCount} service(s)`);
+      await load();
+      await onChanged();
+    } finally {
+      setRestartAllBusy(false);
+    }
+  };
   const mysqlTone = m.ready ? 'green' : m.running ? 'amber' : data.mysql_task.running ? 'amber' : 'zinc';
   const mysqlLabel = m.ready ? 'running' : data.mysql_task.running ? 'starting…' : m.running ? 'starting' : m.exists ? 'stopped' : 'not set up';
   const logBuild = (data.versions ?? []).find((v) => v.version === logVersion)?.build;
@@ -109,13 +125,25 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
       </div>
 
       <Card
-        title={<span className="inline-flex items-center gap-2"><MariaDbIcon className="h-4 w-4" />Database server</span>}
-        actions={<Pill tone={mysqlTone}>{mysqlLabel}</Pill>}
+        title={
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-500/30 bg-sky-500/10">
+              <Database className="h-4 w-4 text-sky-400" />
+            </span>
+            <span className="text-sm font-semibold text-zinc-100">Database server</span>
+          </span>
+        }
+        actions={
+          <Pill tone={mysqlTone}>
+            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${mysqlTone === 'green' ? 'bg-emerald-400' : mysqlTone === 'amber' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
+            {mysqlLabel}
+          </Pill>
+        }
       >
         {data.mysql_task.error && (
           <div className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">{data.mysql_task.error}</div>
         )}
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid grid-cols-2 gap-2.5">
           <Field label="Image"><ValueBox>{m.image}</ValueBox></Field>
           <Field label="Memory (MB)">
             <input
@@ -123,7 +151,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
               min={256}
               max={m.host_memory_mb || undefined}
               step={1}
-              className={`${inputCls} !w-32`}
+              className={inputCls}
               value={memory}
               onChange={(e) => setMemory(Number(e.target.value))}
               onBlur={() => setMemory((prev) => snapToBinaryRAM(prev, m.host_memory_mb))}
@@ -134,6 +162,9 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
               }}
             />
           </Field>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
           {!m.running ? (
             <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', snapToBinaryRAM(memory, m.host_memory_mb)), 'Starting database server…')}>
               <Power className="h-3.5 w-3.5" /> {m.exists ? 'Start' : 'Set up'} database
@@ -151,7 +182,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         </div>
 
         {/* Quick Memory Presets */}
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="text-[10.5px] text-zinc-500">Quick presets:</span>
           {[512, 1024, 2048, 4096, 8192]
             .filter((p) => !m.host_memory_mb || p <= m.host_memory_mb)
@@ -181,55 +212,76 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
           )}
         </div>
 
-        {/* Live Tuning Bar & Documentation Modal Trigger */}
-        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-white/[0.07] bg-zinc-900/40 p-2.5 px-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-zinc-400">
-            <span className="inline-flex items-center gap-1.5 font-medium text-zinc-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span>Buffer Pool: <strong className="font-mono text-emerald-400">{m.buffer_pool_mb} MB</strong> (50%)</span>
-            </span>
-            <span className="text-zinc-600 hidden sm:inline">·</span>
-            <span>Max Conns: <strong className="font-mono text-zinc-200">{m.max_connections}</strong></span>
-            <span className="text-zinc-600 hidden sm:inline">·</span>
-            <span>Idle Timeout: <strong className="font-mono text-zinc-200">{m.idle_seconds}s</strong></span>
-            <span className="text-zinc-600 hidden sm:inline">·</span>
-            <span>Statement Limit: <strong className="font-mono text-amber-400">{m.query_seconds > 0 ? `${m.query_seconds}s` : 'Off'}</strong></span>
+        {/* Live Tuning Stats + Documentation */}
+        <div className="mt-3.5 rounded-xl border border-white/[0.07] bg-zinc-900/40 p-2.5">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                Buffer Pool
+              </div>
+              <div className="mt-1 font-mono text-xs font-semibold text-emerald-400">
+                {m.buffer_pool_mb} MB <span className="font-normal text-zinc-500">(50%)</span>
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+              <div className="text-[11px] text-zinc-400">Max Conns</div>
+              <div className="mt-1 font-mono text-xs font-semibold text-zinc-100">{m.max_connections}</div>
+            </div>
+            <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+              <div className="text-[11px] text-zinc-400">Idle Timeout</div>
+              <div className="mt-1 font-mono text-xs font-semibold text-zinc-100">{m.idle_seconds}s</div>
+            </div>
+            <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+              <div className="text-[11px] text-zinc-400">Statement Limit</div>
+              <div className="mt-1 font-mono text-xs font-semibold text-amber-400">
+                {m.query_seconds > 0 ? `${m.query_seconds}s` : 'Off'}
+              </div>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={() => setShowDocs(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[11px] font-medium text-orange-400 transition hover:bg-orange-500/20 hover:text-orange-300 cursor-pointer shadow-sm"
+            className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-400 transition hover:bg-orange-500/20 hover:text-orange-300 cursor-pointer"
           >
             <BookOpen className="h-3.5 w-3.5" />
-            <span>Architecture & Tuning Docs (গাইড)</span>
+            <span>Architecture &amp; Tuning Docs (গাইড)</span>
           </button>
         </div>
 
         {m.exists && (
-          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-white/[0.06] pt-4">
-            <Field label="Query time limit (seconds)" hint={m.query_limit_supported ? 'Site query abort threshold (0 = off)' : 'only MariaDB supports per-user limits'}>
+          <div className="mt-4 border-t border-white/[0.06] pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[13px] font-medium text-zinc-200">Query time limit (seconds)</span>
+              <span className="text-[11px] text-zinc-500">
+                {m.query_limit_supported ? '0 = off' : 'N/A'}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2.5">
               <input
                 type="number"
                 min={0}
                 max={3600}
                 step={10}
                 disabled={!m.query_limit_supported}
-                className={`${inputCls} !w-32`}
+                className={inputCls}
                 value={querySeconds}
                 onChange={(e) => setQuerySeconds(Number(e.target.value))}
               />
-            </Field>
-            <GhostButton
-              busy={busy === 'my-q'}
-              disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
-              onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
-            >
-              Save limit
-            </GhostButton>
-            <span className="pb-2 text-[11px] text-zinc-500">
-              phpMyAdmin gets 5x ({querySeconds * 5}s); panel root and backups are unlimited.
-            </span>
+              <GhostButton
+                busy={busy === 'my-q'}
+                disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
+                onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
+                className="!border-emerald-500/30 !bg-emerald-500/10 !text-emerald-300 hover:!bg-emerald-500/20"
+              >
+                Save limit
+              </GhostButton>
+            </div>
+            <p className="mt-2 text-[11px] leading-snug text-zinc-500">
+              {m.query_limit_supported ? `Site query abort threshold (${querySeconds}s active). ` : ''}
+              phpMyAdmin gets 5× ({querySeconds * 5}s); panel root and backups are unlimited.
+            </p>
           </div>
         )}
       </Card>
@@ -363,25 +415,42 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
         </div>
       </Card>
 
-      <Card title="Running services">
+      <Card
+        title={<span className="text-sm font-semibold text-zinc-100">Running services</span>}
+        actions={
+          <span className="flex items-center gap-2">
+            <Pill tone="green">
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              {runningCount}/{(data.containers ?? []).length}
+            </Pill>
+            <GhostButton busy={restartAllBusy} onClick={restartAllServices} disabled={runningCount === 0}>
+              <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart All
+            </GhostButton>
+          </span>
+        }
+      >
         {(data.containers ?? []).length === 0 ? (
           <EmptyState icon={<Server className="h-6 w-6" />} text="Nothing is running yet." />
         ) : (
-          <ul className="divide-y divide-white/[0.05]">
+          <ul className="space-y-2.5">
             {(data.containers ?? []).filter((c) => c.kind !== 'route').map((c) => (
-              <li key={c.name} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+              <li key={c.name} className="space-y-2">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  {c.kind === 'mysql' ? <Database className="h-4 w-4 text-sky-400" /> : <Server className="h-4 w-4 text-violet-400" />}
-                  <div className="min-w-0">
-                    <div className="truncate font-mono text-xs text-zinc-100">{c.name}</div>
-                    <div className="truncate text-[11px] text-zinc-500">{c.image} · {c.status}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Pill tone={c.state === 'running' ? 'green' : 'red'}>{c.state}</Pill>
-                  <GhostButton busy={busy === 'rs' + c.name} onClick={() => act('rs' + c.name, () => backendApi.phpRestartContainer(c.name), `${c.name} restarted`)}>
-                    <RotateCw className="h-3.5 w-3.5" />
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${c.kind === 'mysql' ? 'border-sky-500/30 bg-sky-500/10' : 'border-violet-500/30 bg-violet-500/10'}`}>
+                    {c.kind === 'mysql' ? <Database className="h-4 w-4 text-sky-400" /> : <Server className="h-4 w-4 text-violet-400" />}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-zinc-100">{c.name}</span>
+                  <Pill tone={c.state === 'running' ? 'green' : 'red'}>
+                    <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${c.state === 'running' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                    {c.state}
+                  </Pill>
+                  <GhostButton busy={busy === 'rs' + c.name} onClick={() => act('rs' + c.name, () => backendApi.phpRestartContainer(c.name), `${c.name} restarted`)} title={`Restart ${c.name}`} className="!h-9 !w-9 !px-0">
+                    <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
                   </GhostButton>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="min-w-0 truncate font-mono text-zinc-500">{c.image}</span>
+                  <span className="shrink-0 font-mono text-zinc-500">{c.status}</span>
                 </div>
               </li>
             ))}

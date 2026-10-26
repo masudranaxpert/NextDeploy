@@ -377,6 +377,11 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                             <span className="flex items-center gap-1.5">
                               <span className="truncate font-mono font-semibold text-zinc-100">{app.name}</span>
                               <OwnerBadge id={app.ownerId} name={app.owner} role={app.ownerRole} />
+                              {app.php && (
+                                <span className="shrink-0 rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-px font-mono text-[10px] font-semibold uppercase text-violet-300">
+                                  PHP
+                                </span>
+                              )}
                             </span>
                             {app.primaryDomain && (
                               <span className="block truncate font-mono text-[10px] text-zinc-500">

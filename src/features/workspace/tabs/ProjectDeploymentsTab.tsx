@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   Pin,
   PinOff,
@@ -27,6 +27,7 @@ import { ActionMenu, StatusBadge } from '../../../components/ui/Primitives';
 interface ProjectDeploymentsTabProps {
   app: AppStack;
   onUpdateApp: (updated: AppStack) => void;
+  onRefresh?: () => Promise<void>;
   hasGitConnection: boolean;
   liveDeployState: {
     running: boolean;
@@ -35,39 +36,70 @@ interface ProjectDeploymentsTabProps {
   };
   isBuildLogExpanded: boolean | null;
   setIsBuildLogExpanded: (expanded: boolean) => void;
-  liveDeployLogRef: React.RefObject<HTMLDivElement | null>;
   renderStyledBuildLog: (logText: string) => React.ReactNode;
   triggerDeploy: (options?: { noCache?: boolean; rollbackFrom?: DeploymentRecord }) => Promise<void>;
   setBuildLogsDeployment: (dep: DeploymentRecord | null) => void;
   isPinnedProduction: boolean;
-  isPinningSlot: boolean;
-  handleTogglePinSlot: () => Promise<void>;
-  isPromotingSlot: boolean;
-  handlePromotePreviewSlot: () => Promise<void>;
 }
 
 export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
   app,
   onUpdateApp,
+  onRefresh,
   hasGitConnection,
   liveDeployState,
   isBuildLogExpanded,
   setIsBuildLogExpanded,
-  liveDeployLogRef,
   renderStyledBuildLog,
   triggerDeploy,
   setBuildLogsDeployment,
   isPinnedProduction,
-  isPinningSlot,
-  handleTogglePinSlot,
-  isPromotingSlot,
-  handlePromotePreviewSlot,
 }) => {
+  const liveDeployLogRef = useRef<HTMLDivElement | null>(null);
+  const [isPinningSlot, setIsPinningSlot] = useState(false);
+  const [isPromotingSlot, setIsPromotingSlot] = useState(false);
   const [deployEnvFilter, setDeployEnvFilter] = useState<'all' | 'production' | 'rollback'>('all');
 
   const activeSlotLower = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
   const standbySlotName = (activeSlotLower === 'green' ? 'blue' : 'green') as 'blue' | 'green';
   const standbySlotHasImage = Boolean(app.slotImages?.[standbySlotName]);
+
+  const handleTogglePinSlot = async () => {
+    setIsPinningSlot(true);
+    try {
+      const target = isPinnedProduction ? 'unpin' : activeSlotLower;
+      const res = await backendApi.pinAppSlot(app.id, target);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to update production pin');
+        return;
+      }
+      const nextPin = res.data?.pinned_slot ?? (isPinnedProduction ? '' : activeSlotLower);
+      onUpdateApp({ ...app, pinnedSlot: nextPin });
+      if (nextPin) {
+        toast.success(`Pinned Production on Slot ${nextPin.toUpperCase()}. New deploys will run on Preview Slot ${standbySlotName.toUpperCase()}.`);
+      } else {
+        toast.success('Unpinned Production Slot. Normal zero-downtime cutover resumed.');
+      }
+    } finally {
+      setIsPinningSlot(false);
+    }
+  };
+
+  const handlePromotePreviewSlot = async () => {
+    setIsPromotingSlot(true);
+    try {
+      toast.info(`Promoting Slot ${standbySlotName.toUpperCase()} to Production...`);
+      const res = await backendApi.promoteAppSlot(app.id);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to promote preview slot');
+        return;
+      }
+      toast.success(res.data?.message || `Promoted Slot ${standbySlotName.toUpperCase()} to Production!`);
+      await onRefresh?.();
+    } finally {
+      setIsPromotingSlot(false);
+    }
+  };
   const isStandbyContainerRunning = Boolean(
     app.services?.some(
       (s) =>
@@ -80,9 +112,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
   const activeProductionDeployment = useMemo(() => {
     return (
       app.deployments?.find(
-        (d) =>
-          d.slot?.toLowerCase() === activeSlotLower &&
-          (d.status === 'ready' || d.status === 'running')
+        (d) => d.slot?.toLowerCase() === activeSlotLower && d.status === 'ready'
       ) ||
       app.deployments?.[0] ||
       null
@@ -102,16 +132,16 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
     if (custom) {
       return `${custom.forceHttps !== false ? 'https' : 'http'}://${custom.domain}`;
     }
-    return activeProductionDeployment?.previewUrl || '';
-  }, [app.domains, activeProductionDeployment]);
+    return '';
+  }, [app.domains]);
 
   const previewUrl = useMemo(() => {
     const previewDomain = app.domains?.find((d) => d.domain && d.domain.startsWith('preview-'));
     if (previewDomain) {
       return `${previewDomain.forceHttps !== false ? 'https' : 'http'}://${previewDomain.domain}`;
     }
-    return latestStandbyDeployment?.previewUrl || '';
-  }, [app.domains, latestStandbyDeployment]);
+    return '';
+  }, [app.domains]);
 
   const previewHost = previewUrl ? previewUrl.replace(/^https?:\/\//, '') : '';
 
@@ -120,16 +150,6 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
     const latestStandbyId = latestStandbyDeployment?.id;
 
     return (app.deployments || [])
-      .filter((dep) => {
-        if (deployEnvFilter === 'all') return true;
-        if (deployEnvFilter === 'production') {
-          return dep.slot?.toLowerCase() === activeSlotLower;
-        }
-        if (deployEnvFilter === 'rollback') {
-          return dep.envType === 'rollback';
-        }
-        return true;
-      })
       .map((dep) => {
         const isCurrentProd = dep.id === currentProdId;
         const isLatestStandby = dep.id === latestStandbyId;
@@ -138,12 +158,32 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
           !isCurrentProd &&
           (dep.slot?.toLowerCase() === standbySlotName || isLatestStandby);
 
+        const envType = dep.commitMessage.toLowerCase().includes('rollback')
+          ? ('rollback' as const)
+          : isLatestStandby && isPinnedProduction
+          ? ('preview' as const)
+          : ('production' as const);
+
+        const rowUrl = isCurrentProd ? productionUrl : previewUrl;
+
         return {
           ...dep,
           isCurrentProd,
           isLatestStandby,
           canInstantRollback,
+          envType,
+          previewUrl: rowUrl,
         };
+      })
+      .filter((dep) => {
+        if (deployEnvFilter === 'all') return true;
+        if (deployEnvFilter === 'production') {
+          return dep.envType === 'production' || dep.envType === 'preview';
+        }
+        if (deployEnvFilter === 'rollback') {
+          return dep.envType === 'rollback';
+        }
+        return true;
       });
   }, [
     app.deployments,
@@ -488,11 +528,9 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
               const statusDotColor =
                 dep.status === 'ready'
                   ? 'bg-emerald-400'
-                  : dep.status === 'building' || dep.status === 'running'
+                  : dep.status === 'building'
                   ? 'bg-amber-400'
-                  : dep.status === 'failed' || dep.status === 'error'
-                  ? 'bg-rose-400'
-                  : 'bg-zinc-500';
+                  : 'bg-rose-400';
 
               return (
                 <div key={dep.id} className="p-3.5 space-y-2.5">

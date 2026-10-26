@@ -33,11 +33,6 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
   const [envSearch, setEnvSearch] = useState('');
   const [isEnvDirty, setIsEnvDirty] = useState(false);
 
-  const emptyEnvCount = useMemo(
-    () => app.envVars.filter((e) => !e.value || e.value.trim().length === 0).length,
-    [app.envVars]
-  );
-
   const filteredEnvVars = useMemo(
     () =>
       app.envVars.filter(
@@ -124,7 +119,7 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
-      {/* Header with Title, Count & Test Empty Badge */}
+      {/* Header with Title & Count */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-zinc-100">Environment Variables</h2>
@@ -132,9 +127,6 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
             {app.envVars.length}
           </span>
         </div>
-        <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-mono text-[11px] font-medium text-amber-300">
-          Test Empty ({emptyEnvCount})
-        </span>
       </div>
 
       {!envRawMode && (

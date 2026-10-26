@@ -891,7 +891,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <button
             type="button"
             onClick={() => setFontSize((f) => (f === 'xs' ? 'sm' : 'xs'))}
-            className="inline-flex h-7 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-2 font-mono text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+            className="inline-flex h-8 items-center rounded-lg border border-white/[0.08] bg-zinc-900 px-2 font-mono text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
             title="Toggle font size"
           >
             {fontSize === 'xs' ? '12px' : '13px'}
@@ -900,7 +900,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <button
             type="button"
             onClick={() => setWordWrap((w) => !w)}
-            className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
+            className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer ${
               wordWrap
                 ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
                 : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
@@ -914,7 +914,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
           >
             {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
             <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
@@ -923,7 +923,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
           <button
             type="button"
             onClick={handleDownload}
-            className="inline-flex h-7 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white cursor-pointer"
             title="Download file"
           >
             <Download className="h-3 w-3" />
@@ -933,7 +933,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
             <button
               type="button"
               onClick={onSave}
-              className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white transition-colors cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white transition-colors cursor-pointer"
             >
               <Save className="h-3 w-3" />
               <span>Save</span>

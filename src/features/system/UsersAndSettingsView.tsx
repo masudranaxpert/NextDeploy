@@ -1428,7 +1428,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 type="button"
                 disabled={safeAuditPage <= 1}
                 onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
                 Prev
@@ -1453,7 +1453,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 type="button"
                 disabled={safeAuditPage >= totalAuditPages}
                 onClick={() => setAuditPage((p) => Math.min(totalAuditPages, p + 1))}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
               >
                 Next
                 <ChevronRight className="h-3.5 w-3.5" />

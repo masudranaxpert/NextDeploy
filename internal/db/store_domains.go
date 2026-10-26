@@ -63,9 +63,12 @@ func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error) {
 	cleanDomain := strings.TrimSpace(strings.ToLower(d.Domain))
 	if cleanDomain != "" {
-		var existingAppID string
-		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? LIMIT 1`, cleanDomain).Scan(&existingAppID)
+		var existingAppID, siteName string
+		err := s.db.QueryRowContext(ctx, `SELECT ad.app_id, COALESCE(a.name,'') FROM app_domains ad LEFT JOIN apps a ON a.id = ad.app_id WHERE LOWER(ad.domain) = ? LIMIT 1`, cleanDomain).Scan(&existingAppID, &siteName)
 		if err == nil && existingAppID != d.AppID {
+			if siteName != "" {
+				return 0, fmt.Errorf("domain %q is already used by site %q", d.Domain, siteName)
+			}
 			return 0, fmt.Errorf("domain %q is not available", d.Domain)
 		}
 	}
@@ -91,9 +94,12 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 func (s *Store) UpdateAppDomain(ctx context.Context, d AppDomain) error {
 	cleanDomain := strings.TrimSpace(strings.ToLower(d.Domain))
 	if cleanDomain != "" {
-		var existingAppID string
-		err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE LOWER(domain) = ? AND id != ? LIMIT 1`, cleanDomain, d.ID).Scan(&existingAppID)
+		var existingAppID, siteName string
+		err := s.db.QueryRowContext(ctx, `SELECT ad.app_id, COALESCE(a.name,'') FROM app_domains ad LEFT JOIN apps a ON a.id = ad.app_id WHERE LOWER(ad.domain) = ? AND ad.id != ? LIMIT 1`, cleanDomain, d.ID).Scan(&existingAppID, &siteName)
 		if err == nil && existingAppID != d.AppID {
+			if siteName != "" {
+				return fmt.Errorf("domain %q is already used by site %q", d.Domain, siteName)
+			}
 			return fmt.Errorf("domain %q is not available", d.Domain)
 		}
 	}

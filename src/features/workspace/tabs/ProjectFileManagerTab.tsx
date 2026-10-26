@@ -84,10 +84,10 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           return {
             path: p,
             name: item.name || p.split('/').pop() || p,
-            type: (item.type === 'directory' ? 'directory' : 'file') as 'file' | 'directory',
+            type: (item.type === 'directory' ? 'dir' : 'file') as ComposeFileNode['type'],
             sizeBytes: item.size,
             updatedAt: item.modified || 'Just now',
-            language: lang,
+            language: lang as ComposeFileNode['language'],
             content: contentByPath.get(p) || '',
           };
         });
@@ -105,9 +105,9 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           const freshNode = liveNodes.find((f) => f.path === editingFilePath);
           if (freshNode) {
             try {
-              const fetchRes = await backendApi.fileGet(app.id, editingFilePath);
-              if (fetchRes.ok && typeof fetchRes.content === 'string') {
-                freshNode.content = fetchRes.content;
+              const fetchRes = await backendApi.fileBlob(app.id, editingFilePath);
+              if (fetchRes.ok && typeof fetchRes.data?.text === 'string') {
+                freshNode.content = fetchRes.data.text;
                 setLiveFileList([...liveNodes]);
               }
             } catch {
@@ -319,12 +319,13 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     }
     if (!file.content) {
       try {
-        const res = await backendApi.fileGet(app.id, file.path);
-        if (res.ok && typeof res.content === 'string') {
-          file.content = res.content;
+        const res = await backendApi.fileBlob(app.id, file.path);
+        const text = res.data?.text;
+        if (res.ok && typeof text === 'string') {
+          file.content = text;
           onUpdateApp({
             ...app,
-            files: app.files.map((f) => (f.path === file.path ? { ...f, content: res.content } : f)),
+            files: app.files.map((f) => (f.path === file.path ? { ...f, content: text } : f)),
           });
         }
       } catch {
@@ -429,7 +430,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       type: 'file',
       sizeBytes: new Blob([starterContent]).size,
       updatedAt: 'Just now',
-      language: lang,
+      language: lang as ComposeFileNode['language'],
       content: starterContent,
     };
     setLiveFileList((prev) =>
@@ -474,7 +475,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     toast.info(`Compressing ${sources.length} items into ${archiveName}...`);
 
     const destFolder = currentDir || '';
-    const res = await backendApi.filesCompress(app.id, sources, archiveName, destFolder);
+    const res = await backendApi.fileZip(app.id, sources, archiveName, destFolder);
     if (!res.ok) {
       toast.error(res.error || res.message || 'Compression failed');
       return;
@@ -493,7 +494,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     const destDir = extractDestDir.trim().replace(/^\/+|\/+$/g, '');
     toast.info(`Extracting ${archivePath} into /${destDir || 'root'}...`);
 
-    const res = await backendApi.filesExtract(app.id, archivePath, destDir);
+    const res = await backendApi.fileUnzip(app.id, archivePath, destDir);
     if (!res.ok) {
       toast.error(res.error || res.message || 'Extraction failed');
       return;
@@ -546,7 +547,9 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     for (const src of paths) {
       const fname = src.split('/').pop() || src;
       const targetDest = destFolder ? `${destFolder}/${fname}` : fname;
-      const res = await backendApi.fileMoveOrCopy(app.id, src, targetDest, isMove, replace);
+      const res = isMove
+        ? await backendApi.fileMove(app.id, [src], destFolder, replace)
+        : await backendApi.fileCopy(app.id, [src], destFolder, replace);
       if (!res.ok) {
         toast.error(res.error || res.message || `Failed to ${mode} ${src}`);
         return;
@@ -610,7 +613,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
         setUploadProgress(pct);
         const res = await backendApi.fileUpload(app.id, file, currentDir || '');
         if (!res.ok) {
-          toast.error(res.error || res.message || `Failed to upload ${file.name}`);
+          toast.error(res.message || `Failed to upload ${file.name}`);
           return false;
         }
       }

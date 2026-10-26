@@ -202,17 +202,17 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
                     {j.last_status && <Pill tone={statusTone(j.last_status)}>{j.last_status}</Pill>}
                     <span className="ml-auto flex shrink-0 items-center gap-1.5">
                       {j.last_output && (
-                        <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output" className="!h-8 !w-8 !px-0">
+                        <GhostButton onClick={() => setOutput({ title: `Last output: ${j.command}`, text: j.last_output })} title="Last output" className="!h-9 !w-9 !px-0">
                           <Terminal className="h-3.5 w-3.5" />
                         </GhostButton>
                       )}
                       <GhostButton busy={busy === 'r' + j.id} onClick={() => runNow(j)} title="Run now">
                         <Play className="h-3.5 w-3.5" /> Run
                       </GhostButton>
-                      <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'} className="!h-8 !w-8 !px-0">
+                      <GhostButton busy={busy === 't' + j.id} onClick={() => toggle(j)} title={j.enabled ? 'Pause' : 'Resume'} className="!h-9 !w-9 !px-0">
                         {j.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                       </GhostButton>
-                      <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)} title="Delete cron job" className="!h-8 !w-8 !px-0">
+                      <GhostButton tone="danger" busy={busy === 'd' + j.id} onClick={() => remove(j)} title="Delete cron job" className="!h-9 !w-9 !px-0">
                         <Trash2 className="h-3.5 w-3.5" />
                       </GhostButton>
                     </span>
