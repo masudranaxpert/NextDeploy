@@ -53,7 +53,7 @@ import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitiv
 import { NextDeployLogoMark } from './components/ui/BrandIcons';
 import { OverviewDashboard } from './features/overview/OverviewDashboard';
 import { AuthView } from './features/auth/AuthView';
-import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp } from './lib/backendApi';
+import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
 
 // Each screen is its own chunk: only the code for the page you open is downloaded first,
@@ -551,6 +551,9 @@ export default function App() {
     if (data.public_ip) {
       setServerPublicIp(data.public_ip);
     }
+    if (Array.isArray(data.shield_nodes)) {
+      setCachedShieldNodes(data.shield_nodes, data.origin_ip || data.public_ip || data.sys?.PublicIP || '');
+    }
     if (data.user) {
       setCurrentUser({
         id: data.user.id,
@@ -571,6 +574,11 @@ export default function App() {
 
     // 1. Live Apps
     if (Array.isArray(data.apps)) {
+      data.apps.forEach((a: any) => {
+        if (a.php || a.PHP) {
+          try { sessionStorage.setItem(`nd_php_app_${a.id || a.ID}`, '1'); } catch {}
+        }
+      });
       loadLiveApps(data.apps, liveContainers, liveImages);
     }
 
@@ -1463,24 +1471,42 @@ export default function App() {
                 }}
               />
             ) : selectedAppId && !selectedApp ? (
-              <div className="rounded-xl border border-white/[0.08] bg-[#0e0e12] p-8 text-center max-w-lg mx-auto mt-12 space-y-3">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-                  <Box className="h-5 w-5 text-zinc-400" />
-                </div>
-                <h3 className="font-semibold text-zinc-200">App not found</h3>
-                <p className="text-xs text-zinc-400">
-                  The application <code className="text-orange-400 bg-white/[0.05] px-1.5 py-0.5 rounded">{selectedAppId}</code> could not be found or you don&apos;t have permission to access it.
-                </p>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => navigateTo('apps')}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] px-3.5 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
-                  >
-                    Back to Projects
-                  </button>
-                </div>
-              </div>
+              (() => {
+                const isPhpSite404 = Boolean(
+                  selectedAppId &&
+                    (sessionStorage.getItem(`nd_php_app_${selectedAppId}`) === '1' ||
+                      window.location.search.includes('php') ||
+                      activeNav === 'php-sites')
+                );
+                return (
+                  <div className="rounded-xl border border-white/[0.08] bg-[#0e0e12] p-8 text-center max-w-lg mx-auto mt-12 space-y-3">
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+                      <Box className="h-5 w-5 text-zinc-400" />
+                    </div>
+                    <h3 className="font-semibold text-zinc-200">
+                      {isPhpSite404 ? 'PHP site not found' : 'App not found'}
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      The {isPhpSite404 ? 'PHP site' : 'application'}{' '}
+                      <code className="text-orange-400 bg-white/[0.05] px-1.5 py-0.5 rounded">{selectedAppId}</code>{' '}
+                      could not be found or has been removed.
+                    </p>
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => navigateTo(isPhpSite404 ? 'php-sites' : 'apps')}
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-colors cursor-pointer ${
+                          isPhpSite404
+                            ? 'bg-orange-600 hover:bg-orange-500 text-white'
+                            : 'bg-white/[0.06] hover:bg-white/[0.1] text-zinc-200'
+                        }`}
+                      >
+                        {isPhpSite404 ? 'Back to PHP Sites' : 'Back to Projects'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
             ) : activeNav === 'overview' ? (
               <OverviewDashboard
                 telemetry={telemetry}
@@ -1512,7 +1538,13 @@ export default function App() {
               <PhpSitesView
                 apps={apps}
                 isAdmin={currentUser?.role === 'admin'}
-                onOpenSite={(id) => navigateTo('apps', id)}
+                onOpenSite={(id) => {
+                  try { sessionStorage.setItem(`nd_php_app_${id}`, '1'); } catch {}
+                  navigateTo('apps', id);
+                }}
+                onDeleteSite={(id) => {
+                  setApps((prev) => prev.filter((a) => a.id !== id));
+                }}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();
                   if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);

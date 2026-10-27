@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi, formatSlotPreviewDomain, formatWildcardDomain } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, getCachedShieldNodes } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -149,7 +149,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const [domainMediaPath, setDomainMediaPath] = useState('/var/www/media');
   const [domainMediaPrefix, setDomainMediaPrefix] = useState('/media/');
   const [domainShieldNodeId, setDomainShieldNodeId] = useState<number | null>(null);
-  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => getCachedShieldNodes().nodes || []);
   const [saving, setSaving] = useState(false);
   const detectedServices = useMemo(() => extractComposeServices(app), [app]);
   const [tab, setTab] = useState<'domains' | 'preview' | 'ports'>('domains');

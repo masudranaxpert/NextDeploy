@@ -77,6 +77,8 @@ func (p *Panel) SPAVersion(c *fiber.Ctx) error {
 // SPABootstrap returns a unified JSON payload for the React SPA control plane.
 // GET /api/panel/bootstrap
 func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
+	c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Set("Pragma", "no-cache")
 	ctx := c.UserContext()
 	u, ok := currentUser(c)
 	if !ok {
@@ -557,6 +559,12 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				}
 			}
 			return sys.PublicIP
+		}(),
+		"origin_ip": func() string {
+			if !isAdmin {
+				return ""
+			}
+			return sysinfo.DetectHostIP()
 		}(),
 		"shield_nodes": func() []db.ShieldNode {
 			nodes, _ := p.DB.ListShieldNodes(ctx)

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Clock, WrapText, SlidersHorizontal, Copy, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, LogEntry } from '../../../types/nextdeploy';
@@ -122,6 +122,20 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
   const [logShowTimestamps, setLogShowTimestamps] = useState(true);
   const [logWordWrap, setLogWordWrap] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const desktopLogContainerRef = useRef<HTMLDivElement>(null);
+  const mobileLogContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll log console to bottom when streaming live logs
+  useEffect(() => {
+    if (!logLiveTail) return;
+    if (desktopLogContainerRef.current) {
+      desktopLogContainerRef.current.scrollTop = desktopLogContainerRef.current.scrollHeight;
+    }
+    if (mobileLogContainerRef.current) {
+      mobileLogContainerRef.current.scrollTop = mobileLogContainerRef.current.scrollHeight;
+    }
+  }, [filteredLogs, logLiveTail]);
 
   // Discover all distinct services in the stack and log history
   const availableServices = useMemo(() => {
@@ -295,7 +309,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
         {/* Desktop Log Console Stream */}
         <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#07070a]">
-          <div className="divide-y divide-white/[0.03] font-mono text-xs max-h-[560px] overflow-y-auto">
+          <div ref={desktopLogContainerRef} className="divide-y divide-white/[0.03] font-mono text-xs max-h-[560px] overflow-y-auto">
             {filteredLogs.length === 0 ? (
               <div className="p-8 text-center text-xs text-zinc-500 font-mono">
                 {logLiveTail ? 'Listening for container log output...' : 'No logs recorded'}
@@ -558,7 +572,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
       {/* Log Entries Stream Box */}
       <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-[#09090d]">
-        <div className="divide-y divide-zinc-800/50 max-h-[560px] overflow-y-auto">
+        <div ref={mobileLogContainerRef} className="divide-y divide-zinc-800/50 max-h-[560px] overflow-y-auto">
           {filteredLogs.length === 0 ? (
             <div className="py-12 text-center text-xs text-zinc-500 font-mono">
               {logLiveTail ? 'Listening for container log output...' : 'No logs recorded'}

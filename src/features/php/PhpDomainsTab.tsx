@@ -3,7 +3,7 @@ import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } fro
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
-import { backendApi, formatWildcardDomain } from '../../lib/backendApi';
+import { backendApi, formatWildcardDomain, getCachedShieldNodes } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { ShadcnSelect } from '../../components/ui/Primitives';
@@ -20,8 +20,12 @@ export const PhpDomainsTab: React.FC<{
   const [domain, setDomain] = useState('');
   const [https, setHttps] = useState(true);
   const [www, setWww] = useState(false);
-  const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
-  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const cachedShield = getCachedShieldNodes();
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
+  const [shieldNodeId, setShieldNodeId] = useState<number | null>(() => {
+    const active = (cachedShield.nodes || []).find((s) => s.status === 'connected') || cachedShield.nodes?.[0];
+    return active ? active.id : null;
+  });
   const [busy, setBusy] = useState('');
   const [copiedDomainId, setCopiedDomainId] = useState<number | null>(null);
 

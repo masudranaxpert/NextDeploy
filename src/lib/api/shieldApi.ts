@@ -13,9 +13,27 @@ const putJson = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+let cachedShieldNodes: ShieldNode[] | null = null;
+let cachedOriginIp: string = '';
+
+export const setCachedShieldNodes = (nodes: ShieldNode[], originIp?: string) => {
+  if (Array.isArray(nodes)) cachedShieldNodes = nodes;
+  if (originIp) cachedOriginIp = originIp;
+};
+
+export const getCachedShieldNodes = (): { nodes: ShieldNode[] | null; originIp: string } => ({
+  nodes: cachedShieldNodes,
+  originIp: cachedOriginIp,
+});
+
 export const shieldApi = {
-  listShieldNodes: () =>
-    requestJson<ShieldNodesResponse>('/api/v1/shield-nodes'),
+  listShieldNodes: async () => {
+    const res = await requestJson<ShieldNodesResponse>('/api/v1/shield-nodes');
+    if (res.ok && Array.isArray(res.nodes)) {
+      setCachedShieldNodes(res.nodes, res.origin_ip);
+    }
+    return res;
+  },
 
   createShieldNode: (name: string, ip: string) =>
     requestJson<CreateShieldNodeResponse>('/api/v1/shield-nodes', json({ name, ip })),

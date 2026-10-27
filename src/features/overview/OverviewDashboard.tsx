@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowUpRight, Check, Copy, GitBranch, Globe, Server, Shield, User } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
-import { backendApi } from '../../lib/backendApi';
+import { backendApi, getCachedShieldNodes } from '../../lib/backendApi';
 import { getServerPublicIp } from '../../lib/api/http';
 import { ShieldNode } from '../../types/shield';
 
@@ -45,8 +45,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onSelectNav,
 }) => {
   const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
-  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
-  const [originIp, setOriginIp] = useState<string>(sys?.PublicIP || getServerPublicIp() || '');
+  const cachedShield = getCachedShieldNodes();
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
+  const [originIp, setOriginIp] = useState<string>(
+    () => cachedShield.originIp || sys?.PublicIP || getServerPublicIp() || ''
+  );
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {

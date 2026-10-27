@@ -7,7 +7,12 @@ import { backupsAndMigrateApi } from './api/backupsAndMigrateApi';
 import { systemAndTokensApi } from './api/systemAndTokensApi';
 import { phpApi } from './api/phpApi';
 import { caddyApi } from './api/caddyApi';
-import { shieldApi } from './api/shieldApi';
+import { shieldApi, getCachedShieldNodes, setCachedShieldNodes } from './api/shieldApi';
+
+export {
+  getCachedShieldNodes,
+  setCachedShieldNodes,
+};
 
 export {
   type ApiResult,

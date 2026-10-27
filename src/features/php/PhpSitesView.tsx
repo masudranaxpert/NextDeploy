@@ -23,11 +23,12 @@ interface Props {
   apps: AppStack[];
   isAdmin: boolean;
   onOpenSite: (id: string) => void;
+  onDeleteSite?: (id: string) => void;
   onRefresh: () => Promise<void>;
   onGoInstance: () => void;
 }
 
-export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRefresh, onGoInstance }) => {
+export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onDeleteSite, onRefresh, onGoInstance }) => {
   const sites = useMemo(() => apps.filter((a) => a.php), [apps]);
   const [status, setStatus] = useState<PhpStatusData | null>(null);
   const [search, setSearch] = useState('');
@@ -159,7 +160,14 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onRef
         </div>
       )}
 
-      <DeleteSiteDialog site={toDelete} onClose={() => setToDelete(null)} onDeleted={() => onRefresh()} />
+      <DeleteSiteDialog
+        site={toDelete}
+        onClose={() => setToDelete(null)}
+        onDeleted={async (deletedId) => {
+          onDeleteSite?.(deletedId);
+          await onRefresh();
+        }}
+      />
 
       <ShadcnDialog
         open={open}

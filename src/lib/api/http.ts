@@ -102,6 +102,7 @@ export async function requestJson<T = Record<string, unknown>>(
     }
     const res = await fetch(path, {
       credentials: 'same-origin',
+      cache: 'no-store',
       ...options,
       headers,
     });
@@ -326,6 +327,8 @@ export interface BootstrapData {
   };
   mcp_enabled?: boolean;
   public_ip?: string;
+  origin_ip?: string;
+  shield_nodes?: Array<any>;
   server_time?: string;
 }
 

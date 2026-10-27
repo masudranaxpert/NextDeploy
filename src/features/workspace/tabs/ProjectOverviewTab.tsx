@@ -19,7 +19,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi, getServerPublicIp } from '../../../lib/backendApi';
+import { backendApi, getServerPublicIp, getCachedShieldNodes } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnDialog, ShadcnSwitch } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -67,7 +67,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
   const [gitRepoInput, setGitRepoInput] = useState(app.gitRepo || '');
   const [gitBranchInput, setGitBranchInput] = useState(app.gitBranch || 'main');
-  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => getCachedShieldNodes().nodes || []);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const handleCopy = async (key: string, text: string) => {
