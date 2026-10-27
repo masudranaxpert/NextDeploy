@@ -7,7 +7,6 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
-	"panel/internal/sysinfo"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -42,7 +41,8 @@ func previewHostBase(app db.App, cfg PreviewConfig, publicIP string) string {
 // previewSite builds the explicit preview route for a slot, or nil when preview is disabled.
 func (p *Panel) previewSite(ctx context.Context, app db.App, slot string) *db.AppDomain {
 	cfg := p.previewConfig(ctx, app.ID)
-	base := previewHostBase(app, cfg, sysinfo.Collect(ctx).PublicIP)
+	targetIP, targetShieldID := p.ResolveAppPublicIP(ctx, app)
+	base := previewHostBase(app, cfg, targetIP)
 	if base == "" || cfg.Service == "" {
 		return nil
 	}
@@ -51,10 +51,11 @@ func (p *Panel) previewSite(ctx context.Context, app db.App, slot string) *db.Ap
 		port = 3000
 	}
 	return &db.AppDomain{
-		Domain:      caddy.SlotPreviewDomain(base, slot),
-		Service:     cfg.Service,
-		Port:        port,
-		EnableHTTPS: true,
+		Domain:       caddy.SlotPreviewDomain(base, slot),
+		Service:      cfg.Service,
+		Port:         port,
+		EnableHTTPS:  true,
+		ShieldNodeID: targetShieldID,
 	}
 }
 
@@ -88,9 +89,10 @@ func (p *Panel) AppPreviewSave(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 	app, _ := p.DB.GetApp(c.UserContext(), id)
+	targetIP, _ := p.ResolveAppPublicIP(c.UserContext(), app)
 	return c.JSON(fiber.Map{
 		"ok":        true,
 		"preview":   cfg,
-		"host_base": previewHostBase(app, cfg, sysinfo.Collect(c.UserContext()).PublicIP),
+		"host_base": previewHostBase(app, cfg, targetIP),
 	})
 }

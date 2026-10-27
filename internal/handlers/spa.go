@@ -283,7 +283,10 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				Schedules:     bSched,
 				EnvContent:    envStr,
 				Preview:       pvCfg,
-				PreviewBase:   previewHostBase(app, pvCfg, sys.PublicIP),
+				PreviewBase: func() string {
+					targetIP, _ := p.ResolveAppPublicIP(ctx, app)
+					return previewHostBase(app, pvCfg, targetIP)
+				}(),
 				Ports:         appPorts,
 				PHP:           phpInfo,
 				Usage:         p.usageForApp(ctx, app, usageByProject),
@@ -547,11 +550,29 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"php":               p.phpBootstrap(ctx),
 		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") == "1",
 		"telemetry_history": telemetry,
-		"public_ip":         sys.PublicIP,
+		"public_ip": func() string {
+			if !isAdmin {
+				if node := p.ResolveUserShield(ctx, &u); node != nil && node.IP != "" {
+					return node.IP
+				}
+			}
+			return sys.PublicIP
+		}(),
 		"shield_nodes": func() []db.ShieldNode {
 			nodes, _ := p.DB.ListShieldNodes(ctx)
 			if nodes == nil {
 				return []db.ShieldNode{}
+			}
+			if !isAdmin {
+				userShield := p.ResolveUserShield(ctx, &u)
+				var filtered []db.ShieldNode
+				for _, n := range nodes {
+					n.Token = ""
+					if userShield == nil || n.ID == userShield.ID {
+						filtered = append(filtered, n)
+					}
+				}
+				return filtered
 			}
 			return nodes
 		}(),

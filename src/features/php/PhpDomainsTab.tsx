@@ -26,11 +26,14 @@ export const PhpDomainsTab: React.FC<{
   const [copiedDomainId, setCopiedDomainId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!isAdmin) return;
     backendApi.listShieldNodes().then((res) => {
-      if (res.ok && res.nodes) setShieldNodes(res.nodes);
+      if (res.ok && res.nodes) {
+        setShieldNodes(res.nodes);
+        const active = res.nodes.find((s) => s.status === 'connected') || res.nodes[0];
+        if (active) setShieldNodeId(active.id);
+      }
     }).catch(() => {});
-  }, [isAdmin]);
+  }, []);
 
   const add = async () => {
     const d = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
@@ -38,9 +41,10 @@ export const PhpDomainsTab: React.FC<{
       toast.error('Enter a valid domain such as example.com');
       return;
     }
-    if (isAdmin && shieldNodeId) {
-      const target = shieldNodes.find((s) => s.id === shieldNodeId);
-      if (target && target.status !== 'connected') {
+    const targetShieldId = shieldNodeId || (shieldNodes.find((s) => s.status === 'connected')?.id ?? (shieldNodes[0]?.id ?? null));
+    if (targetShieldId) {
+      const target = shieldNodes.find((s) => s.id === targetShieldId);
+      if (target && target.status !== 'connected' && isAdmin) {
         toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
         return;
       }
@@ -52,7 +56,7 @@ export const PhpDomainsTab: React.FC<{
       port: 80,
       enable_https: https,
       enable_www: www,
-      shield_node_id: isAdmin ? shieldNodeId : null,
+      shield_node_id: targetShieldId,
       is_primary: app.domains.length === 0 || undefined,
     });
     setBusy('');
@@ -72,7 +76,7 @@ export const PhpDomainsTab: React.FC<{
         tlsStatus: 'active' as const,
         forceHttps: https,
         enableWww: www,
-        shield_node_id: isAdmin ? shieldNodeId : null,
+        shield_node_id: targetShieldId,
         gzip: true,
         createdAt: 'Just now',
       };
@@ -152,8 +156,8 @@ export const PhpDomainsTab: React.FC<{
           </label>
         </div>
 
-        {/* Edge Shield Proxy (Admin Only) */}
-        {isAdmin && (
+        {/* Edge Shield Proxy Route Notice / Selector */}
+        {shieldNodes.length > 0 && (
           <div className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5 space-y-1.5">
             <div className="flex items-center justify-between text-xs font-medium text-zinc-300">
               <span className="inline-flex items-center gap-1.5">
@@ -162,28 +166,37 @@ export const PhpDomainsTab: React.FC<{
               </span>
               <span className="text-[11px] text-zinc-500 font-normal">Origin Masking</span>
             </div>
-            <div className="pt-0.5">
-              <ShadcnSelect
-                value={shieldNodeId ?? ''}
-                onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
-                options={[
-                  { value: '', label: 'Direct Origin (Server IP)' },
-                  ...shieldNodes.map((s) => ({
-                    value: s.id,
-                    label: s.name,
-                    sublabel: s.ip,
-                    disabled: s.status !== 'connected',
-                    badge:
-                      s.status !== 'connected'
-                        ? {
-                            text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
-                            tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
-                          }
-                        : undefined,
-                  })),
-                ]}
-              />
-            </div>
+            {isAdmin ? (
+              <div className="pt-0.5">
+                <ShadcnSelect
+                  value={shieldNodeId ?? ''}
+                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                  options={[
+                    { value: '', label: 'Direct Origin (Server IP)' },
+                    ...shieldNodes.map((s) => ({
+                      value: s.id,
+                      label: s.name,
+                      sublabel: s.ip,
+                      disabled: s.status !== 'connected',
+                      badge:
+                        s.status !== 'connected'
+                          ? {
+                              text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                              tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                            }
+                          : undefined,
+                    })),
+                  ]}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between pt-0.5 text-xs text-zinc-400">
+                <span>DNS A-Record IP</span>
+                <span className="font-mono text-emerald-400 font-semibold">
+                  {shieldNodes.find((s) => s.id === shieldNodeId)?.ip || shieldNodes[0]?.ip}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -308,7 +321,14 @@ export const PhpDomainsTab: React.FC<{
                     </div>
                   </div>
 
-                  {/* Line 3: Dedicated Full-Width Route Selector (Admin Only) */}
+                  {/* Line 3: Dedicated Route Indicator/Selector */}
+                  {!isAdmin && d.shield_node_id && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium pt-0.5">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>Edge Shield Protected ({matchedShield?.ip || 'Active'})</span>
+                    </div>
+                  )}
+
                   {isAdmin && (
                     <div className="pt-0.5">
                       <ShadcnSelect

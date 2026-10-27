@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import {
   Globe,
   Plus,
@@ -23,6 +23,7 @@ import { ShieldNode } from '../../../types/shield';
 import { backendApi } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
+import { OwnerContext } from '../../../components/ui/OwnerBadge';
 
 interface ProjectDomainsTabProps {
   app: AppStack;
@@ -33,6 +34,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   app,
   onUpdateApp,
 }) => {
+  const { isAdmin } = useContext(OwnerContext);
   const [showDomainModal, setShowDomainModal] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState('');
 
@@ -110,7 +112,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(false);
     setDomainMediaPath('/var/www/media');
     setDomainMediaPrefix('/media/');
-    setDomainShieldNodeId(null);
+    const defaultShield = shieldNodes.find((s) => s.status === 'connected') || shieldNodes[0];
+    setDomainShieldNodeId(defaultShield ? defaultShield.id : null);
     setShowDomainModal(true);
   };
 
@@ -401,7 +404,9 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                             : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
                         }`}>
                           <ShieldCheck className="h-3 w-3" />
-                          Shield: {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}
+                          {isAdmin
+                            ? `Shield: ${matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}`
+                            : `Protected (${matchedShield ? matchedShield.ip : 'Edge Shield'})`}
                           {isBroken && <span className="ml-1 text-[10px] uppercase font-bold text-rose-400">({matchedShield?.status || 'offline'})</span>}
                         </span>
                       );
@@ -642,26 +647,38 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <span className="text-[11px] text-zinc-500">Origin Masking</span>
                 </div>
                 <div className="pt-1">
-                  <ShadcnSelect
-                    value={domainShieldNodeId ?? ''}
-                    onChange={(val) => setDomainShieldNodeId(val ? Number(val) : null)}
-                    options={[
-                      { value: '', label: 'Direct Origin (Server IP)' },
-                      ...shieldNodes.map((s) => ({
-                        value: s.id,
-                        label: s.name,
-                        sublabel: s.ip,
-                        disabled: s.status !== 'connected' && s.id !== domainShieldNodeId,
-                        badge:
-                          s.status !== 'connected'
-                            ? {
-                                text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
-                                tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
-                              }
-                            : undefined,
-                      })),
-                    ]}
-                  />
+                  {isAdmin ? (
+                    <ShadcnSelect
+                      value={domainShieldNodeId ?? ''}
+                      onChange={(val) => setDomainShieldNodeId(val ? Number(val) : null)}
+                      options={[
+                        { value: '', label: 'Direct Origin (Server IP)' },
+                        ...shieldNodes.map((s) => ({
+                          value: s.id,
+                          label: s.name,
+                          sublabel: s.ip,
+                          disabled: s.status !== 'connected' && s.id !== domainShieldNodeId,
+                          badge:
+                            s.status !== 'connected'
+                              ? {
+                                  text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                                  tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                                }
+                              : undefined,
+                        })),
+                      ]}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between px-3 py-2 rounded bg-zinc-950/60 border border-emerald-500/20 text-xs">
+                      <span className="text-zinc-200 font-medium flex items-center gap-1.5">
+                        <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                        Protected by Edge Shield
+                      </span>
+                      <span className="font-mono text-emerald-400 text-[11px] font-semibold">
+                        {shieldNodes.find((s) => s.id === domainShieldNodeId)?.ip || shieldNodes[0]?.ip || 'Active'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

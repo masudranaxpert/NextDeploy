@@ -368,7 +368,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-zinc-400">
-                  {isShieldActive ? 'DNS Target (Edge Shield)' : 'DNS Target (Server IP)'}
+                  Server IP (DNS Target)
                 </p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
@@ -399,22 +399,22 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               {isShieldActive ? (
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
                   <Shield className="h-3.5 w-3.5" />
-                  Shield Active
+                  Protected
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs font-medium text-sky-400 ring-1 ring-sky-500/20 shrink-0">
                   <Globe className="h-3.5 w-3.5" />
-                  Direct Origin
+                  Direct
                 </span>
               )}
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-1 font-mono text-xs text-zinc-500 border-t border-white/[0.04] pt-2.5">
               <span className="truncate">
-                {isShieldActive ? `Edge Node: ${activeShield.name}` : 'Point domain A-records to this IP'}
+                Point domain A-records to this IP
               </span>
-              {isShieldActive && originIp && originIp !== targetIp && (
-                <span className="text-[11px] text-zinc-500 truncate">Origin: {originIp}</span>
-              )}
+              <span className="text-[11px] text-zinc-500 truncate">
+                {isShieldActive ? 'DDoS Protection & SSL' : 'Direct Server Routing'}
+              </span>
             </div>
           </div>
         </div>

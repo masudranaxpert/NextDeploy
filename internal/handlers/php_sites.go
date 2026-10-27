@@ -210,11 +210,13 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 	p.PHP.FixOwnership(*site)
 
 	domain := ""
-	if ip := sysinfo.Collect(ctx).PublicIP; ip != "" {
-		domain = caddy.FormatWildcardDomain(id, ip, "sslip.io")
+	targetIP, targetShieldID := p.ResolveUserPublicIP(ctx, &u)
+	if targetIP != "" {
+		domain = caddy.FormatWildcardDomain(id, targetIP, "sslip.io")
 		if _, err := p.DB.CreateAppDomain(ctx, db.AppDomain{
 			AppID: id, Domain: domain, Service: "php", Port: 80, IsPrimary: true,
 			EnableHTTPS: true, RouteRulesJSON: "[]",
+			ShieldNodeID: targetShieldID,
 		}); err != nil {
 			domain = ""
 		}

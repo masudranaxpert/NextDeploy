@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import {
   GitBranch,
   Folder,
@@ -22,6 +22,7 @@ import { ShieldNode } from '../../../types/shield';
 import { backendApi, getServerPublicIp } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnDialog, ShadcnSwitch } from '../../../components/ui/Primitives';
+import { OwnerContext } from '../../../components/ui/OwnerBadge';
 
 interface ProjectOverviewTabProps {
   app: AppStack;
@@ -60,6 +61,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
   onOpenGitTab,
   onViewCaddyCompose,
 }) => {
+  const { isAdmin } = useContext(OwnerContext);
   const [switchSourceModalOpen, setSwitchSourceModalOpen] = useState(false);
   const [gitSyncModalOpen, setGitSyncModalOpen] = useState(false);
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
@@ -322,8 +324,10 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
 
             {(() => {
               const assignedShieldId = app.domains.find((d) => d.shield_node_id)?.shield_node_id;
-              const matchedShield = assignedShieldId ? shieldNodes.find((s) => s.id === assignedShieldId) : null;
-              const directIP = getServerPublicIp();
+              const matchedShield = assignedShieldId
+                ? shieldNodes.find((s) => s.id === assignedShieldId)
+                : (shieldNodes.find((s) => s.status === 'connected') || shieldNodes[0]);
+              const directIP = !matchedShield ? getServerPublicIp() : '';
 
               if (matchedShield) {
                 return (
@@ -334,7 +338,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                       <code className="font-mono text-white font-bold bg-zinc-900/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
                         {matchedShield.ip}
                       </code>
-                      <span className="text-[10px] text-zinc-400 truncate">({matchedShield.name})</span>
+                      {isAdmin && (
+                        <span className="text-[10px] text-zinc-400 truncate">({matchedShield.name})</span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -352,7 +358,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 );
               }
 
-              if (directIP) {
+              if (directIP && isAdmin) {
                 return (
                   <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-[11px]">
                     <div className="flex items-center gap-1.5 text-zinc-400 font-medium min-w-0">

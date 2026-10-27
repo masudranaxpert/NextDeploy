@@ -382,14 +382,20 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		port = 3000
 	}
 	var shieldIDPtr *int64
-	if sVal := c.FormValue("shield_node_id"); sVal != "" {
-		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
-			shieldIDPtr = &sID
+	u, _ := currentUser(c)
+	app, _ := p.DB.GetApp(c.UserContext(), id)
+	if u.Role != db.RoleAdmin {
+		if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
+			shieldIDPtr = &node.ID
 		}
 	} else {
-		if app, err := p.DB.GetApp(c.UserContext(), id); err == nil && app.OwnerID > 0 {
-			if owner, err := p.DB.GetUserByID(c.UserContext(), app.OwnerID); err == nil && owner.DefaultShieldID != nil {
-				shieldIDPtr = owner.DefaultShieldID
+		if sVal := c.FormValue("shield_node_id"); sVal != "" {
+			if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
+				shieldIDPtr = &sID
+			}
+		} else {
+			if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
+				shieldIDPtr = &node.ID
 			}
 		}
 	}
@@ -488,9 +494,19 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		isPrimary = v == "on" || v == "true" || v == "1"
 	}
 	var shieldIDPtr *int64 = nil
-	if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
-		if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
-			shieldIDPtr = &sID
+	u, _ := currentUser(c)
+	app, _ := p.DB.GetApp(c.UserContext(), id)
+	if u.Role != db.RoleAdmin {
+		if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
+			shieldIDPtr = &node.ID
+		} else {
+			shieldIDPtr = current.ShieldNodeID
+		}
+	} else {
+		if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
+			if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
+				shieldIDPtr = &sID
+			}
 		}
 	}
 

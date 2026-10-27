@@ -441,6 +441,23 @@ func (p *Panel) ListShieldNodes(c *fiber.Ctx) error {
 	if nodes == nil {
 		nodes = []db.ShieldNode{}
 	}
+	u, ok := currentUser(c)
+	if ok && u.Role != db.RoleAdmin {
+		userShield := p.ResolveUserShield(ctx, &u)
+		var filtered []db.ShieldNode
+		for _, n := range nodes {
+			n.Token = ""
+			if userShield == nil || n.ID == userShield.ID {
+				filtered = append(filtered, n)
+			}
+		}
+		// Mask origin IP from non-admins
+		return c.JSON(fiber.Map{
+			"ok":        true,
+			"nodes":     filtered,
+			"origin_ip": "",
+		})
+	}
 	originIP := sysinfo.DetectHostIP()
 	return c.JSON(fiber.Map{
 		"ok":        true,
@@ -593,6 +610,56 @@ func (p *Panel) TestShieldNode(c *fiber.Ctx) error {
 	})
 }
 
+// ResolveUserShield returns the assigned or active shield node for the given user.
+func (p *Panel) ResolveUserShield(ctx context.Context, u *db.User) *db.ShieldNode {
+	if u == nil {
+		return nil
+	}
+	if u.DefaultShieldID != nil && *u.DefaultShieldID > 0 {
+		if node, err := p.DB.GetShieldNode(ctx, *u.DefaultShieldID); err == nil && node != nil {
+			return node
+		}
+	}
+	if u.Role != db.RoleAdmin {
+		nodes, err := p.DB.ListShieldNodes(ctx)
+		if err == nil && len(nodes) > 0 {
+			for _, n := range nodes {
+				if n.Status == "connected" {
+					return &n
+				}
+			}
+			return &nodes[0]
+		}
+	}
+	return nil
+}
+
+// ResolveAppShield returns the shield node associated with an app based on its owner.
+func (p *Panel) ResolveAppShield(ctx context.Context, app db.App) *db.ShieldNode {
+	if app.OwnerID > 0 {
+		if owner, err := p.DB.GetUserByID(ctx, app.OwnerID); err == nil {
+			return p.ResolveUserShield(ctx, &owner)
+		}
+	}
+	return nil
+}
+
+// ResolveUserPublicIP returns the IP and ShieldNodeID to be used for the given user.
+func (p *Panel) ResolveUserPublicIP(ctx context.Context, u *db.User) (string, *int64) {
+	if node := p.ResolveUserShield(ctx, u); node != nil && node.IP != "" {
+		return node.IP, &node.ID
+	}
+	return sysinfo.Collect(ctx).PublicIP, nil
+}
+
+// ResolveAppPublicIP returns the IP and ShieldNodeID to be used for the given app.
+func (p *Panel) ResolveAppPublicIP(ctx context.Context, app db.App) (string, *int64) {
+	if node := p.ResolveAppShield(ctx, app); node != nil && node.IP != "" {
+		return node.IP, &node.ID
+	}
+	return sysinfo.Collect(ctx).PublicIP, nil
+}
+
 // ReassignShieldNodeDomains migrates all domains from one Shield node to another (or to Direct Origin).
 // POST /api/v1/shield-nodes/:id/reassign
 func (p *Panel) ReassignShieldNodeDomains(c *fiber.Ctx) error {
@@ -607,12 +674,40 @@ func (p *Panel) ReassignShieldNodeDomains(c *fiber.Ctx) error {
 	_ = c.BodyParser(&body)
 
 	ctx := c.UserContext()
+	oldNode, _ := p.DB.GetShieldNode(ctx, int64(id))
+
 	_, err = p.DB.DB().ExecContext(ctx, `UPDATE app_domains SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE proxy_routes SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
 	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE users SET default_shield_id = ? WHERE default_shield_id = ?`, body.TargetShieldID, id)
+
+	// Update any auto-domains (.sslip.io / .nip.io) containing the old dashed IP
+	if oldNode != nil && oldNode.IP != "" {
+		oldDashed := strings.ReplaceAll(strings.TrimSpace(oldNode.IP), ".", "-")
+		var newDashed string
+		if body.TargetShieldID != nil && *body.TargetShieldID > 0 {
+			if newNode, _ := p.DB.GetShieldNode(ctx, *body.TargetShieldID); newNode != nil && newNode.IP != "" {
+				newDashed = strings.ReplaceAll(strings.TrimSpace(newNode.IP), ".", "-")
+			}
+		} else {
+			originIP := sysinfo.Collect(ctx).PublicIP
+			newDashed = strings.ReplaceAll(strings.TrimSpace(originIP), ".", "-")
+		}
+
+		if oldDashed != "" && newDashed != "" && oldDashed != newDashed {
+			_, _ = p.DB.DB().ExecContext(ctx,
+				`UPDATE app_domains 
+				 SET domain = REPLACE(domain, ?, ?) 
+				 WHERE (shield_node_id = ? OR (? IS NULL AND shield_node_id IS NULL))
+				   AND (domain LIKE '%.sslip.io' OR domain LIKE '%.nip.io')`,
+				oldDashed, newDashed, body.TargetShieldID, body.TargetShieldID)
+		}
+	}
+
+	p.syncShieldProxiesToCaddy(ctx)
+	_ = p.syncRootStackCompose(ctx)
 
 	return c.JSON(fiber.Map{"ok": true})
 }
