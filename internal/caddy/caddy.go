@@ -648,6 +648,9 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	}
 	// server-wide options chosen on the Caddy options page (timeouts, real visitor IP, grace period)
 	removeLabels(caddySvc, IsGlobalOptionLabel)
+	// Disable automatic HTTP-to-HTTPS redirect on port 80 globally.
+	// This prevents infinite redirect loops when traffic is SSL-terminated by Edge Shield nodes or Cloudflare.
+	mergeLabels(caddySvc, map[string]string{"caddy.auto_https": "disable_redirects"})
 	if len(opts.Labels()) > 0 {
 		mergeLabels(caddySvc, opts.Labels())
 	}
