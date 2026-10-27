@@ -218,25 +218,96 @@ if ! command -v caddy &> /dev/null; then
     fi
 fi
 
-echo "==> [Kernel Tuning] Enabling Google BBR, socket limits & swap protection..."
-if ! grep -q 'tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null; then
-    echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
-    echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
-    echo 'net.ipv4.tcp_slow_start_after_idle=0' >> /etc/sysctl.conf
-    echo 'net.core.somaxconn=65535' >> /etc/sysctl.conf
-    sysctl -p 2>/dev/null || true
+echo "==> [Kernel & Memory Tuning Check]..."
+TOTAL_RAM_MB=$(free -m 2>/dev/null | awk '/Mem:/{print $2}' || echo "0")
+CURRENT_SWAP_MB=$(free -m 2>/dev/null | awk '/Swap:/{print $2}' || echo "0")
+CURRENT_CC=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
+
+IS_INTERACTIVE=0
+if [ -c /dev/tty ] && [ -t 1 ]; then
+    IS_INTERACTIVE=1
 fi
 
-# Ensure at least 2GB swap for buffer stability on low-memory edge nodes
-if command -v free &>/dev/null && [ $(free -m 2>/dev/null | awk '/Swap/{print $2}') -eq 0 ]; then
-    echo "==> Configuring swapfile for buffer safety..."
-    (fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null) || true
-    if [ -f /swapfile ]; then
-        chmod 600 /swapfile
-        mkswap /swapfile 2>/dev/null || true
-        swapon /swapfile 2>/dev/null || true
-        if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
-            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+# 1. Google BBR + FQ Congestion Control
+if [ "$CURRENT_CC" = "bbr" ]; then
+    echo "==> [Network] Google BBR is already active. Skipping."
+else
+    ENABLE_BBR="y"
+    if [ "$IS_INTERACTIVE" -eq 1 ]; then
+        read -r -p "Enable Google BBR + FQ network pacing for cross-continental speed? [Y/n]: " BBR_ANS </dev/tty || BBR_ANS="y"
+        if [ "$BBR_ANS" = "n" ] || [ "$BBR_ANS" = "N" ]; then
+            ENABLE_BBR="n"
+        fi
+    fi
+    if [ "$ENABLE_BBR" = "y" ]; then
+        echo "==> Enabling Google BBR & FQ pacing..."
+        modprobe tcp_bbr 2>/dev/null || true
+        if ! grep -q 'tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null; then
+            echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
+            echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+            echo 'net.ipv4.tcp_slow_start_after_idle=0' >> /etc/sysctl.conf
+            echo 'net.core.somaxconn=65535' >> /etc/sysctl.conf
+        fi
+        sysctl -p 2>/dev/null || true
+    fi
+fi
+
+# 2. Swap Safety & Configuration Check
+echo "==> [Memory] Total RAM: ${TOTAL_RAM_MB} MB | Existing Swap: ${CURRENT_SWAP_MB} MB"
+SWAP_TARGET_GB=""
+
+if [ "$CURRENT_SWAP_MB" -gt 0 ]; then
+    if [ "$IS_INTERACTIVE" -eq 1 ]; then
+        read -r -p "Existing Swap is ${CURRENT_SWAP_MB} MB. Keep existing swap? [Y/n, or enter size in GB (0 to remove)]: " SWAP_ANS </dev/tty || SWAP_ANS="y"
+        if [ "$SWAP_ANS" = "0" ]; then
+            SWAP_TARGET_GB="0"
+        elif [ -n "$SWAP_ANS" ] && [ "$SWAP_ANS" -eq "$SWAP_ANS" ] 2>/dev/null; then
+            SWAP_TARGET_GB="$SWAP_ANS"
+        else
+            echo "==> Keeping existing ${CURRENT_SWAP_MB} MB swap."
+        fi
+    else
+        echo "==> Existing swap detected (${CURRENT_SWAP_MB} MB). Keeping intact."
+    fi
+else
+    # No swap exists
+    if [ "$IS_INTERACTIVE" -eq 1 ]; then
+        read -r -p "No swap found. Configure Swapfile for buffer protection? [Default: 2 GB, 0 to skip, or enter GB]: " SWAP_ANS </dev/tty || SWAP_ANS="2"
+        if [ -z "$SWAP_ANS" ]; then
+            SWAP_TARGET_GB="2"
+        elif [ "$SWAP_ANS" -eq "$SWAP_ANS" ] 2>/dev/null; then
+            SWAP_TARGET_GB="$SWAP_ANS"
+        fi
+    else
+        # In non-interactive mode, check environment or default to 2GB if RAM <= 2GB
+        if [ -n "$SHIELD_SWAP_GB" ]; then
+            SWAP_TARGET_GB="$SHIELD_SWAP_GB"
+        elif [ "$TOTAL_RAM_MB" -gt 0 ] && [ "$TOTAL_RAM_MB" -le 2048 ]; then
+            SWAP_TARGET_GB="2"
+        fi
+    fi
+fi
+
+if [ -n "$SWAP_TARGET_GB" ]; then
+    if [ "$SWAP_TARGET_GB" -eq 0 ]; then
+        echo "==> Disabling swap..."
+        swapoff -a 2>/dev/null || true
+        rm -f /swapfile 2>/dev/null || true
+        sed -i '\|/swapfile|d' /etc/fstab 2>/dev/null || true
+        echo "==> [✓] Swap removed/disabled."
+    else
+        echo "==> Setting up ${SWAP_TARGET_GB} GB Swapfile (/swapfile)..."
+        swapoff /swapfile 2>/dev/null || true
+        rm -f /swapfile 2>/dev/null || true
+        (fallocate -l "${SWAP_TARGET_GB}G" /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_TARGET_GB * 1024)) 2>/dev/null) || true
+        if [ -f /swapfile ]; then
+            chmod 600 /swapfile
+            mkswap /swapfile 2>/dev/null || true
+            swapon /swapfile 2>/dev/null || true
+            if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
+            echo "==> [✓] ${SWAP_TARGET_GB} GB swapfile active and persistent."
         fi
     fi
 fi
