@@ -324,12 +324,24 @@ http:// {
 CADDY_EOF
 fi
 
-echo "==> [3/4] Validating and starting Caddy service..."
-if command -v systemctl &> /dev/null; then
-    systemctl enable caddy
-    systemctl restart caddy
+echo "==> [3/4] Validating and reloading Caddy service..."
+caddy fmt --overwrite /etc/caddy/Caddyfile 2>/dev/null || true
+
+if caddy validate --config /etc/caddy/Caddyfile; then
+    echo "==> [✓] Caddy configuration validated successfully!"
+    if command -v systemctl &> /dev/null; then
+        systemctl enable caddy
+        systemctl reload caddy || systemctl restart caddy
+    else
+        caddy reload --config /etc/caddy/Caddyfile || caddy start --config /etc/caddy/Caddyfile
+    fi
 else
-    caddy reload --config /etc/caddy/Caddyfile || caddy start --config /etc/caddy/Caddyfile
+    echo "==> [ERROR] Caddyfile validation failed! Rolling back to original configuration..."
+    if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+        cp -f "$BACKUP_FILE" /etc/caddy/Caddyfile
+        echo "==> [✓] Restored original Caddyfile. Your existing websites were kept completely safe."
+    fi
+    exit 1
 fi
 
 echo "==> [4/4] Sending registration heartbeat to NextDeploy origin..."
