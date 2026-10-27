@@ -272,6 +272,10 @@ https:// {{
         transport http {{
             {tls_directive}
             tls_server_name {{host}}
+            versions 2 1.1
+            keepalive 10m
+            keepalive_idle_conns 100
+            keepalive_idle_conns_per_host 50
             response_header_timeout 600s
             dial_timeout 15s
         }}
