@@ -156,29 +156,6 @@ tune_system() {
   else
     success "TCP BBR is already active"
   fi
-
-  local swap_kb
-  swap_kb=$(grep SwapTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
-  if [[ "$swap_kb" -eq 0 && "$MEM_MB" -le 2048 && "$MEM_MB" -gt 0 ]]; then
-    info "Low RAM ($MEM_MB MB) and no swap detected. Creating 2GB swapfile..."
-    (fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null) || true
-    if [[ -f /swapfile ]]; then
-      chmod 600 /swapfile
-      mkswap /swapfile 2>/dev/null || true
-      swapon /swapfile 2>/dev/null || true
-      if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
-        echo '/swapfile none swap sw 0 0' >> /etc/fstab
-      fi
-      success "2GB swapfile created and activated"
-    fi
-  fi
-
-  if [[ -f /swapfile || "$swap_kb" -gt 0 ]]; then
-    if ! grep -q 'vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
-      echo 'vm.swappiness=10' >> /etc/sysctl.conf
-      sysctl -w vm.swappiness=10 2>/dev/null || true
-    fi
-  fi
 }
 
 # ── Docker install (if missing) ───────────────────────────────────────────────
