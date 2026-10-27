@@ -134,10 +134,21 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
           </span>
         }
         actions={
-          <Pill tone={mysqlTone}>
-            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${mysqlTone === 'green' ? 'bg-emerald-400' : mysqlTone === 'amber' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
-            {mysqlLabel}
-          </Pill>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDocs(true)}
+              className="hidden sm:inline-flex h-7 items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] font-medium text-orange-400 hover:bg-orange-500/20 transition-colors cursor-pointer"
+              title="View MariaDB Architecture & Tuning Documentation"
+            >
+              <BookOpen className="h-3 w-3" />
+              <span>Tuning Docs</span>
+            </button>
+            <Pill tone={mysqlTone}>
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${mysqlTone === 'green' ? 'bg-emerald-400' : mysqlTone === 'amber' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
+              {mysqlLabel}
+            </Pill>
+          </div>
         }
       >
         {data.mysql_task.error && (
@@ -214,7 +225,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
 
         {/* Live Tuning Stats + Documentation */}
         <div className="mt-3.5 rounded-xl border border-white/[0.07] bg-zinc-900/40 p-2.5">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
               <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -243,45 +254,49 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
           <button
             type="button"
             onClick={() => setShowDocs(true)}
-            className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-400 transition hover:bg-orange-500/20 hover:text-orange-300 cursor-pointer"
+            className="sm:hidden mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-400 transition hover:bg-orange-500/20 hover:text-orange-300 cursor-pointer"
           >
             <BookOpen className="h-3.5 w-3.5" />
-            <span>Architecture &amp; Tuning Docs (গাইড)</span>
+            <span>Architecture &amp; Tuning Docs</span>
           </button>
         </div>
 
         {m.exists && (
           <div className="mt-4 border-t border-white/[0.06] pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[13px] font-medium text-zinc-200">Query time limit (seconds)</span>
-              <span className="text-[11px] text-zinc-500">
-                {m.query_limit_supported ? '0 = off' : 'N/A'}
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-medium text-zinc-200">Query time limit (seconds)</span>
+                  <span className="text-[11px] text-zinc-500 font-mono">
+                    {m.query_limit_supported ? '(0 = off)' : 'N/A'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+                  {m.query_limit_supported ? `Site query abort threshold (${querySeconds}s active). ` : ''}
+                  phpMyAdmin gets 5× ({querySeconds * 5}s); panel root and backups are unlimited.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  step={10}
+                  disabled={!m.query_limit_supported}
+                  className={`${inputCls} !w-24 text-right font-mono`}
+                  value={querySeconds}
+                  onChange={(e) => setQuerySeconds(Number(e.target.value))}
+                />
+                <GhostButton
+                  busy={busy === 'my-q'}
+                  disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
+                  onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
+                  className="!border-emerald-500/30 !bg-emerald-500/10 !text-emerald-300 hover:!bg-emerald-500/20 shrink-0"
+                >
+                  Save limit
+                </GhostButton>
+              </div>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2.5 sm:flex sm:items-center">
-              <input
-                type="number"
-                min={0}
-                max={3600}
-                step={10}
-                disabled={!m.query_limit_supported}
-                className={`${inputCls} sm:w-36`}
-                value={querySeconds}
-                onChange={(e) => setQuerySeconds(Number(e.target.value))}
-              />
-              <GhostButton
-                busy={busy === 'my-q'}
-                disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
-                onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
-                className="!border-emerald-500/30 !bg-emerald-500/10 !text-emerald-300 hover:!bg-emerald-500/20 sm:w-auto"
-              >
-                Save limit
-              </GhostButton>
-            </div>
-            <p className="mt-2 text-[11px] leading-snug text-zinc-500">
-              {m.query_limit_supported ? `Site query abort threshold (${querySeconds}s active). ` : ''}
-              phpMyAdmin gets 5× ({querySeconds * 5}s); panel root and backups are unlimited.
-            </p>
           </div>
         )}
       </Card>
