@@ -315,6 +315,10 @@ if [ -n "$SWAP_TARGET_GB" ]; then
             if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
                 echo '/swapfile none swap sw 0 0' >> /etc/fstab
             fi
+            if ! grep -q 'vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
+                echo 'vm.swappiness=10' >> /etc/sysctl.conf
+                sysctl -w vm.swappiness=10 2>/dev/null || true
+            fi
             echo "==> [✓] ${SWAP_TARGET_GB} GB swapfile active and persistent."
         fi
     fi
@@ -375,7 +379,8 @@ https:// {{
             {tls_directive}
             tls_server_name {{host}}
             versions 2 1.1
-            keepalive 10m
+            keepalive 90s
+            keepalive_interval 30s
             keepalive_idle_conns 100
             keepalive_idle_conns_per_host 50
             response_header_timeout 600s
