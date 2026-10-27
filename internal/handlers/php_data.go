@@ -582,8 +582,18 @@ func (p *Panel) PHPLogs(c *fiber.Ctx) error {
 		if site.SiteType == phphosting.SiteTypeStatic {
 			return c.JSON(fiber.Map{"ok": true, "source": source, "text": ""})
 		}
-		res := p.PHP.ContainerLogs(ctx, phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion), lines)
-		return c.JSON(fiber.Map{"ok": true, "source": source, "text": res})
+		// Fetch a larger buffer so that filtering sibling sites leaves enough lines for the requested count.
+		fetchLines := lines * 4
+		if fetchLines < 200 {
+			fetchLines = 200
+		}
+		if fetchLines > 5000 {
+			fetchLines = 5000
+		}
+		raw := p.PHP.ContainerLogs(ctx, phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion), fetchLines)
+		siblings, _ := p.DB.ListPHPSitesForRuntime(ctx, site.OwnerID, site.PHPVersion)
+		filtered := filterPHPRuntimeLogs(raw, site, siblings, lines)
+		return c.JSON(fiber.Map{"ok": true, "source": source, "text": filtered})
 	}
 	return phpJSONErr(c, 400, "unknown log source")
 }
@@ -618,4 +628,76 @@ func tailFile(path string, n int) string {
 		parts = parts[len(parts)-n:]
 	}
 	return strings.Join(parts, "\n")
+}
+
+// filterPHPRuntimeLogs isolates shared PHP-FPM container logs so that lines specific to
+// other sibling sites (different pool, different socket, or different workspace path)
+// are stripped out, preserving general daemon lifecycle notices and target site events.
+func filterPHPRuntimeLogs(raw string, target db.PHPSite, siblings []db.PHPSite, maxLines int) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+
+	type siblingToken struct {
+		appID string
+		pool  string
+	}
+	var sibs []siblingToken
+	for _, s := range siblings {
+		if s.AppID != target.AppID {
+			sibs = append(sibs, siblingToken{
+				appID: s.AppID,
+				pool:  fmt.Sprintf("site-%d", s.UID),
+			})
+		}
+	}
+	targetPool := fmt.Sprintf("site-%d", target.UID)
+
+	rawLines := strings.Split(strings.TrimRight(raw, "\r\n"), "\n")
+	kept := make([]string, 0, len(rawLines))
+
+	for _, line := range rawLines {
+		trimmed := strings.TrimRight(line, "\r")
+		if trimmed == "" {
+			continue
+		}
+
+		// 1. Drop if line explicitly contains another sibling app ID or sibling pool.
+		isOther := false
+		for _, sib := range sibs {
+			if strings.Contains(trimmed, sib.appID) || (sib.pool != "" && strings.Contains(trimmed, sib.pool)) {
+				isOther = true
+				break
+			}
+		}
+		if isOther {
+			continue
+		}
+
+		// 2. Drop if line contains a [pool site-XXXX] tag that does not match target pool.
+		if idx := strings.Index(trimmed, "[pool "); idx != -1 {
+			end := strings.Index(trimmed[idx:], "]")
+			if end != -1 {
+				poolTag := trimmed[idx+len("[pool ") : idx+end]
+				if strings.HasPrefix(poolTag, "site-") && poolTag != targetPool {
+					continue
+				}
+			}
+		}
+
+		// 3. Drop if line references /run/php/<other>.sock or /data/workspaces/<other>/.
+		if strings.Contains(trimmed, "/run/php/") && !strings.Contains(trimmed, target.AppID) {
+			continue
+		}
+		if strings.Contains(trimmed, "/data/workspaces/") && !strings.Contains(trimmed, target.AppID) {
+			continue
+		}
+
+		kept = append(kept, trimmed)
+	}
+
+	if len(kept) > maxLines {
+		kept = kept[len(kept)-maxLines:]
+	}
+	return strings.Join(kept, "\n")
 }
