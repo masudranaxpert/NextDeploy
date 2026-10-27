@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ArrowUpRight,
+  Box,
   Copy,
   ExternalLink,
   GitBranch,
@@ -10,6 +11,7 @@ import {
   LayoutGrid,
   List,
   Play,
+  Plus,
   RotateCw,
   Search,
   Square,
@@ -37,6 +39,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
   apps,
   onSelectApp,
   onUpdateApps,
+  onCreateApp,
   onRefresh,
 }) => {
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -222,6 +225,45 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
             ))}
           </div>
         </div>
+        {filteredApps.length === 0 && (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-[#111115]/50 px-6 py-16 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-zinc-900/80 shadow-inner">
+              <Box className="h-7 w-7 text-zinc-500" />
+            </div>
+            <h3 className="mt-4 text-sm font-semibold text-zinc-200">
+              {apps.length === 0 ? 'No projects deployed yet' : 'No matching projects'}
+            </h3>
+            <p className="mt-1.5 max-w-sm text-xs text-zinc-400 leading-relaxed">
+              {apps.length === 0
+                ? 'Get started by creating a new project from a Git repository, Docker Compose file, or template.'
+                : 'No projects match your current search or status filter. Try clearing filters.'}
+            </p>
+            {apps.length === 0 && onCreateApp && (
+              <button
+                type="button"
+                onClick={onCreateApp}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600 transition-all cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Create Your First Project</span>
+              </button>
+            )}
+            {apps.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAppSearch('');
+                  setAppStatusFilter('all');
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-[#18181b] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <RotateCw className="h-3.5 w-3.5 text-zinc-400" />
+                <span>Reset Filters</span>
+              </button>
+            )}
+          </div>
+        )}
+
 
         {appsLayout === 'grid' && (
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">

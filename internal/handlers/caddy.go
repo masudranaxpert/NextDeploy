@@ -449,6 +449,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	if d.IsPrimary {
+		p.syncWordPressDomainIfApplicable(id, d.Domain)
+	}
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -469,6 +472,15 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	}
 	if err := p.DB.DeleteAppDomain(c.UserContext(), d.ID); err != nil {
 		return c.Status(500).SendString(err.Error())
+	}
+	// Always sync WordPress with the active primary domain if domains remain
+	if doms, _ := p.DB.ListAppDomains(context.Background(), id); len(doms) > 0 {
+		for _, dm := range doms {
+			if dm.IsPrimary {
+				p.syncWordPressDomainIfApplicable(id, dm.Domain)
+				break
+			}
+		}
 	}
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -562,6 +574,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	if d.IsPrimary {
+		p.syncWordPressDomainIfApplicable(id, d.Domain)
+	}
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
@@ -583,12 +598,42 @@ func (p *Panel) AppDomainSetPrimary(c *fiber.Ctx) error {
 	if err := p.DB.SetPrimaryAppDomain(c.UserContext(), id, d.ID); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
+	p.syncWordPressDomainIfApplicable(id, d.Domain)
 	doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
 	return c.JSON(fiber.Map{
 		"ok":             true,
 		"primary_domain": d.Domain,
 		"domains":        doms,
 	})
+}
+
+func (p *Panel) syncWordPressDomainIfApplicable(appID, domain string) {
+	if p.PHP == nil || strings.TrimSpace(domain) == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if !p.DB.IsPHPSite(ctx, appID) {
+			return
+		}
+		site, err := p.DB.GetPHPSite(ctx, appID)
+		if err != nil {
+			return
+		}
+		_ = p.PHP.SyncWordPressDomain(ctx, site, domain)
+	}()
+}
+
+// AutoHealWordPressSitesOnStart heals all existing WordPress sites across the system
+// on panel boot without requiring any manual intervention from users.
+func (p *Panel) AutoHealWordPressSitesOnStart() {
+	if p.PHP == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	p.PHP.AutoHealExistingWordPressSites(ctx)
 }
 
 // GET /apps/:id/domains/:did/labels — return generated labels as JSON (for preview modal)

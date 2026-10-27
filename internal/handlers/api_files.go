@@ -54,7 +54,7 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "access denied"})
 	}
 
-	reqPath := strings.TrimSpace(c.Query("path"))
+	reqPath := ResolveSafePathQuery(c)
 	recursive := c.Query("recursive") == "true" || c.Query("recursive") == "1"
 	isGit := p.IsGitApp(ctx, appID)
 
@@ -202,7 +202,7 @@ func (p *Panel) APIAppFileContent(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "access denied"})
 	}
 
-	reqPath := strings.TrimSpace(c.Query("path"))
+	reqPath := ResolveSafePathQuery(c)
 	if reqPath == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path query parameter required"})
 	}
@@ -318,7 +318,7 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	}
 
 	if reqPath == "" {
-		reqPath = strings.TrimSpace(c.Query("path"))
+		reqPath = ResolveSafePathQuery(c)
 		if reqPath == "" {
 			reqPath = strings.TrimSpace(c.FormValue("path"))
 		}
@@ -412,7 +412,7 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "access denied: developer role required to modify workspace"})
 	}
 
-	reqPath := strings.TrimSpace(c.Query("path"))
+	reqPath := ResolveSafePathQuery(c)
 	if reqPath == "" {
 		var body struct {
 			Path string `json:"path"`

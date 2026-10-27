@@ -237,6 +237,7 @@ export default function App() {
     [sys],
   );
   const [apps, setApps] = useState<AppStack[]>([]);
+  const [liveContainers, setLiveContainers] = useState<any[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [images, setImages] = useState<DockerImageItem[]>([]);
   const [registries, setRegistries] = useState<RegistryCredential[]>([]);
@@ -323,16 +324,22 @@ export default function App() {
 
     const appContainers = liveContainers.filter((c: any) => {
       const cp = (c.ComposeProject || '').toLowerCase();
+      const rawName = String(c.Name || '').toLowerCase().replace(/^\//, '');
       return (
-        cp === idNorm ||
-        cp === idUnderscore ||
-        cp === nameNorm ||
-        cp.startsWith(`${idNorm}_`) ||
-        cp.startsWith(`${idUnderscore}_`) ||
-        cp.startsWith(`${nameNorm}_`) ||
-        cp.startsWith(`${idNorm}-`) ||
-        cp.startsWith(`${idUnderscore}-`) ||
-        cp.startsWith(`${nameNorm}-`)
+        (cp && (
+          cp === idNorm ||
+          cp === idUnderscore ||
+          cp === nameNorm ||
+          cp.startsWith(`${idNorm}_`) ||
+          cp.startsWith(`${idUnderscore}_`) ||
+          cp.startsWith(`${nameNorm}_`) ||
+          cp.startsWith(`${idNorm}-`) ||
+          cp.startsWith(`${idUnderscore}-`) ||
+          cp.startsWith(`${nameNorm}-`)
+        )) ||
+        rawName === `nd-phpr-${idNorm}` ||
+        rawName === `nd-phpr-${idUnderscore}` ||
+        rawName === `nd-phpr-${nameNorm}`
       );
     });
 
@@ -559,6 +566,8 @@ export default function App() {
 
     const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
     const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
+
+    setLiveContainers(liveContainers);
 
     // 1. Live Apps
     if (Array.isArray(data.apps)) {
@@ -1527,10 +1536,11 @@ export default function App() {
             ) : activeNav === 'containers' ? (
               <ContainersView
                 apps={apps}
+                liveContainers={liveContainers}
                 onOpenAppTab={(id) => navigateTo('apps', id)}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();
-                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                  if (r.ok && r.data) applyBootstrapData(r.data);
                 }}
               />
             ) : activeNav === 'images' ? (

@@ -2,12 +2,34 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/base64"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/gofiber/fiber/v2"
 )
+
+// ResolveSafePathQuery extracts a relative file path from request query.
+// It checks "p_b64" first (Base64-encoded to bypass external WAF / Cloudflare 403 blocks
+// on sensitive files like wp-config.php or .env) and falls back to "path".
+func ResolveSafePathQuery(c *fiber.Ctx) string {
+	if b64 := strings.TrimSpace(c.Query("p_b64")); b64 != "" {
+		b64Clean := strings.TrimRight(b64, "=")
+		if decoded, err := base64.RawURLEncoding.DecodeString(b64Clean); err == nil {
+			return strings.TrimSpace(string(decoded))
+		}
+		if decoded, err := base64.URLEncoding.DecodeString(b64); err == nil {
+			return strings.TrimSpace(string(decoded))
+		}
+		if decoded, err := base64.StdEncoding.DecodeString(b64); err == nil {
+			return strings.TrimSpace(string(decoded))
+		}
+	}
+	return strings.TrimSpace(c.Query("path"))
+}
 
 func WorkspaceFileContentType(abs string, head []byte) string {
 	t := http.DetectContentType(head)

@@ -150,7 +150,7 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 	if p.IsGitApp(c.UserContext(), id) {
 		return c.Status(400).SendString("file view is disabled for git-backed apps")
 	}
-	rel := c.Query("path", "")
+	rel := ResolveSafePathQuery(c)
 	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
 		return c.Status(400).SendString("invalid path")

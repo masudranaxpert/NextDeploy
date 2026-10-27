@@ -8,6 +8,8 @@ node_modules/
 /nextdeploy
 /nextdeploy-server
 /panel
+/panel-*
+panel-*
 *.exe
 *.exe~
 *.dll

@@ -3,6 +3,7 @@ package handlers
 import (
 	"archive/zip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +52,7 @@ func (p *Panel) WorkspaceFilesTree(c *fiber.Ctx) error {
 		}
 		return c.Status(code).JSON(fiber.Map{"error": msg})
 	}
-	rel := c.Query("path", "")
+	rel := ResolveSafePathQuery(c)
 	children, err := p.Store.ListChildren(appID, rel)
 	if err != nil {
 		if errors.Is(err, os.ErrInvalid) {
@@ -91,7 +92,7 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"error": "not available"})
 	}
-	rel := c.Query("path", "")
+	rel := ResolveSafePathQuery(c)
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
@@ -110,8 +111,8 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "not a file"})
 	}
 	name := filepath.Base(rel)
-	q := url.QueryEscape(rel)
-	rawURL := fmt.Sprintf("/apps/%s/file?path=%s", appID, q)
+	b64Path := base64.RawURLEncoding.EncodeToString([]byte(rel))
+	rawURL := fmt.Sprintf("/apps/%s/file?p_b64=%s", appID, b64Path)
 	downloadURL := rawURL + "&download=1"
 	if st.Size() > int64(maxWorkspaceBlobJSON) {
 		return c.JSON(fiber.Map{
@@ -158,6 +159,8 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 
 type workspaceFileSaveBody struct {
 	Content string `json:"content"`
+	Path    string `json:"path,omitempty"`
+	PathB64 string `json:"p_b64,omitempty"`
 }
 
 const generatedComposeName = ".nextdeploy.generated.compose.yml"
@@ -185,13 +188,25 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 	if code := p.workspaceFilesGate(c, appID); code != 0 {
 		return c.Status(code).JSON(fiber.Map{"ok": false, "message": "save not allowed"})
 	}
-	rel := c.Query("path", "")
-	if strings.TrimSpace(rel) == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "path required"})
-	}
+	rel := ResolveSafePathQuery(c)
 	var body workspaceFileSaveBody
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "invalid JSON body"})
+	}
+	if strings.TrimSpace(rel) == "" {
+		if body.PathB64 != "" {
+			if b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(body.PathB64, "=")); err == nil {
+				rel = string(b)
+			} else if b, err := base64.StdEncoding.DecodeString(body.PathB64); err == nil {
+				rel = string(b)
+			}
+		}
+		if rel == "" && body.Path != "" {
+			rel = body.Path
+		}
+	}
+	if strings.TrimSpace(rel) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "path required"})
 	}
 	if len(body.Content) > maxWorkspaceFileSaveBytes {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{

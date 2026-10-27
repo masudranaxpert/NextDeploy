@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Copy,
   Box,
+  Server,
   Network,
   FileCode2,
   Info,
@@ -22,6 +23,7 @@ import { formatCompactImage, formatCompactPort } from '../../lib/dockerFormatter
 
 interface ContainersViewProps {
   apps: AppStack[];
+  liveContainers?: any[];
   onOpenAppTab: (appId: string) => void;
   /** Reloads the project and container lists from the server. */
   onRefresh: () => Promise<void> | void;
@@ -29,6 +31,7 @@ interface ContainersViewProps {
 
 export const ContainersView: React.FC<ContainersViewProps> = ({
   apps,
+  liveContainers = [],
   onOpenAppTab,
   onRefresh,
 }) => {
@@ -38,7 +41,8 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     (ContainerService & { appId: string; appName: string; owner: string; ownerId?: number; ownerRole?: string }) | null
   >(null);
 
-  const allContainers = apps.flatMap((app) =>
+  // 1. Containers mapped to projects/compose services
+  const appContainers = apps.flatMap((app) =>
     app.services.map((svc) => ({
       ...svc,
       appId: app.id,
@@ -48,6 +52,52 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
       ownerRole: app.ownerRole,
     }))
   );
+
+  const seenIds = new Set(appContainers.map((c) => c.id));
+  const seenNames = new Set(appContainers.map((c) => c.name.replace(/^\//, '')));
+
+  // 2. Extra containers from Docker engine (PHP runtimes, standalone, system containers)
+  const extraContainers = (liveContainers || [])
+    .filter((lc: any) => {
+      const shortId = (lc.ID || '').slice(0, 12);
+      const name = String(lc.Name || '').replace(/^\//, '');
+      return !seenIds.has(shortId) && !seenNames.has(name);
+    })
+    .map((lc: any) => {
+      const name = String(lc.Name || '').replace(/^\//, '');
+      const matchedApp = apps.find(
+        (a) =>
+          name === `nd-phpr-${a.id}` ||
+          name === `nd-phpr-${a.name}` ||
+          name.startsWith(`nd-phpr-${a.id}`) ||
+          name.startsWith(a.id) ||
+          name.startsWith(a.name)
+      );
+
+      const appName = matchedApp?.name || (name.startsWith('nd-php') ? 'PHP Runtime' : 'System');
+      const isRunning = (lc.State || '').toLowerCase() === 'running';
+
+      return {
+        id: (lc.ID || '').slice(0, 12),
+        name: name,
+        service: lc.ComposeService || (name.startsWith('nd-phpr-') ? 'php-route' : name.startsWith('nd-php') ? 'php-fpm' : 'container'),
+        image: lc.Image || 'unknown',
+        state: (isRunning ? 'running' : 'exited') as 'running' | 'exited',
+        uptime: lc.Status || (isRunning ? 'Active' : 'Exited'),
+        cpuPct: Math.round((lc.cpu_percent || 0) * 100) / 100,
+        memUsedMB: lc.memory_mb || 0,
+        memLimitMB: 1024,
+        ports: lc.Ports || '',
+        appId: matchedApp?.id || '',
+        appName: appName,
+        owner: matchedApp?.owner || 'system',
+        ownerId: matchedApp?.ownerId,
+        ownerRole: matchedApp?.ownerRole || (matchedApp ? undefined : 'system'),
+        system: !matchedApp,
+      };
+    });
+
+  const allContainers = [...appContainers, ...extraContainers];
 
   const filtered = allContainers.filter((c) => {
     if (stateFilter !== 'all' && c.state !== stateFilter) return false;
@@ -68,7 +118,12 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     action: 'start' | 'stop' | 'restart',
   ) => {
     const verb = { start: 'Started', stop: 'Stopped', restart: 'Restarted' }[action];
-    const res = await backendApi.appContainerAction(c.appId, c.name, action);
+    let res;
+    if (c.appId) {
+      res = await backendApi.appContainerAction(c.appId, c.name, action);
+    } else {
+      res = await backendApi.globalContainerRestart(c.name);
+    }
     if (!res.ok) {
       toast.error(res.error || `Could not ${action} ${c.name}`);
       return;
@@ -149,8 +204,8 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {filtered.map((c) => {
-                const hasAppPrefix = c.name.startsWith(c.appName);
-                const suffix = hasAppPrefix ? c.name.slice(c.appName.length) : `-${c.service}`;
+                const hasAppPrefix = c.appName && c.name.startsWith(c.appName);
+                const suffix = hasAppPrefix ? c.name.slice(c.appName.length) : (c.service ? `-${c.service}` : '');
                 const imgInfo = formatCompactImage(c.image);
                 const shortPort = formatCompactPort(c.ports);
 
@@ -163,23 +218,40 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
-                          <Box className="h-3.5 w-3.5 text-orange-400" />
+                          {c.appId ? (
+                            <Box className="h-3.5 w-3.5 text-orange-400" />
+                          ) : (
+                            <Server className="h-3.5 w-3.5 text-purple-400" />
+                          )}
                         </div>
                         <div className="min-w-0 truncate font-mono text-xs">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenAppTab(c.appId);
-                            }}
-                            className="font-semibold text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
-                            title={`Open ${c.appName}`}
-                          >
-                            {c.appName}
-                          </button>
-                          <span className="font-semibold text-zinc-100">{suffix}</span>
+                          {c.appId ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenAppTab(c.appId);
+                                }}
+                                className="font-semibold text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
+                                title={`Open ${c.appName}`}
+                              >
+                                {c.appName}
+                              </button>
+                              <span className="font-semibold text-zinc-100">{suffix}</span>
+                            </>
+                          ) : (
+                            <span className="font-semibold text-zinc-100" title={c.name}>
+                              {c.name}
+                            </span>
+                          )}
                         </div>
-                        <OwnerBadge id={c.ownerId} name={c.owner} role={c.ownerRole} />
+                        <OwnerBadge
+                          id={c.ownerId}
+                          name={c.owner}
+                          role={c.ownerRole}
+                          system={!c.appId || c.owner === 'system'}
+                        />
                       </div>
                     </td>
 
@@ -189,10 +261,15 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                           {imgInfo.shortName}
                           <span className="text-orange-400">:{imgInfo.tagPart}</span>
                         </span>
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
-                          <Network className="h-2.5 w-2.5 text-emerald-400" />
-                          {shortPort}
-                        </span>
+                        {shortPort ? (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300 max-w-[140px]"
+                            title={c.ports || shortPort}
+                          >
+                            <Network className="h-2.5 w-2.5 text-emerald-400 shrink-0" />
+                            <span className="truncate">{shortPort}</span>
+                          </span>
+                        ) : null}
                       </div>
                     </td>
 
@@ -224,11 +301,15 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
                             icon: <Info className="h-3.5 w-3.5" />,
                             onClick: () => setInspectedContainer(c),
                           },
-                          {
-                            label: 'Open Project',
-                            icon: <ExternalLink className="h-3.5 w-3.5" />,
-                            onClick: () => onOpenAppTab(c.appId),
-                          },
+                          ...(c.appId
+                            ? [
+                                {
+                                  label: 'Open Project',
+                                  icon: <ExternalLink className="h-3.5 w-3.5" />,
+                                  onClick: () => onOpenAppTab(c.appId),
+                                },
+                              ]
+                            : []),
                           {
                             label: 'Copy Container ID',
                             icon: <Copy className="h-3.5 w-3.5" />,
@@ -317,11 +398,13 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-zinc-500">Port Mapping</span>
-                <span className="text-orange-400">{inspectedContainer.ports}</span>
+                <span className="text-orange-400 truncate max-w-[260px]" title={inspectedContainer.ports}>
+                  {inspectedContainer.ports || '—'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-zinc-500">Bridge Network</span>
-                <span className="text-emerald-400">nextdeploy_net (172.18.0.14)</span>
+                <span className="text-emerald-400">nextdeploy_net</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-zinc-500">Restart Policy</span>
@@ -329,20 +412,22 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const id = inspectedContainer.appId;
-                  setInspectedContainer(null);
-                  onOpenAppTab(id);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open Project Workspace
-              </button>
-            </div>
+            {inspectedContainer.appId ? (
+              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = inspectedContainer.appId;
+                    setInspectedContainer(null);
+                    onOpenAppTab(id);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open Project Workspace
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </ShadcnDialog>

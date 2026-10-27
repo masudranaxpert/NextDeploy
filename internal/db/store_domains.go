@@ -82,7 +82,11 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 		}
 	}
 
-	if d.IsPrimary {
+	var existingCount int
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM app_domains WHERE app_id=?`, d.AppID).Scan(&existingCount)
+	if existingCount == 0 {
+		d.IsPrimary = true
+	} else if d.IsPrimary {
 		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=?`, d.AppID)
 	}
 	res, err := s.db.ExecContext(ctx,
@@ -146,8 +150,24 @@ func (s *Store) SetPrimaryAppDomain(ctx context.Context, appID string, domainID 
 }
 
 func (s *Store) DeleteAppDomain(ctx context.Context, id int64) error {
+	var appID string
+	_ = s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE id=?`, id).Scan(&appID)
+
 	_, err := s.db.ExecContext(ctx, `DELETE FROM app_domains WHERE id=?`, id)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Auto-promote: If at least one domain remains and none is marked primary,
+	// automatically promote the first remaining domain to primary!
+	if appID != "" {
+		var primCount int
+		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM app_domains WHERE app_id=? AND is_primary=1`, appID).Scan(&primCount)
+		if primCount == 0 {
+			_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=1 WHERE id = (SELECT id FROM app_domains WHERE app_id=? ORDER BY id ASC LIMIT 1)`, appID)
+		}
+	}
+	return nil
 }
 
 func boolInt(b bool) int {

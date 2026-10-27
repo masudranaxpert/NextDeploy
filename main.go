@@ -170,6 +170,7 @@ func main() {
 		p.PHP.StartCronScheduler(context.Background())
 		p.PHP.StartPMAJanitor(context.Background())
 		p.PHP.StartSymlinkSweeper(context.Background())
+		go p.AutoHealWordPressSitesOnStart()
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()

@@ -14,7 +14,7 @@ export interface OwnerLike {
 const TONES = {
   admin: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
   user: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
-  system: 'border-zinc-500/30 bg-zinc-500/10 text-zinc-400',
+  system: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
 } as const;
 
 /**
@@ -23,7 +23,18 @@ const TONES = {
  */
 export const OwnerBadge: React.FC<OwnerLike & { className?: string }> = ({ id, name, role, system, className = '' }) => {
   const { viewerId, isAdmin } = useContext(OwnerContext);
-  const kind = system || role === 'system' ? 'system' : role === 'admin' ? 'admin' : 'user';
+  const isSystem =
+    Boolean(system) ||
+    role === 'system' ||
+    name?.toLowerCase() === 'system' ||
+    id === 0;
+
+  const kind = isSystem
+    ? 'system'
+    : role === 'admin'
+    ? 'admin'
+    : 'user';
+
   if (!name) return null;
   if (!isAdmin && id !== undefined && id === viewerId) return null;
   const Icon = kind === 'system' ? Server : kind === 'admin' ? ShieldCheck : User;

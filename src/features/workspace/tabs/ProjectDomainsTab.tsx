@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Globe,
   Plus,
@@ -16,11 +16,13 @@ import {
   Copy,
   Check,
   Server,
+  Network,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppStack, DomainRoute } from '../../../types/nextdeploy';
+import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain, formatWildcardDomain } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -30,6 +32,96 @@ interface ProjectDomainsTabProps {
   onUpdateApp: (updated: AppStack) => void;
 }
 
+const detectPortFromServiceString = (portsStr?: string): number | null => {
+  if (!portsStr) return null;
+  const arrowMatch = portsStr.match(/->(\d+)/);
+  if (arrowMatch) return parseInt(arrowMatch[1], 10);
+  const numMatch = portsStr.match(/(\d+)\/(?:tcp|udp)/i) || portsStr.match(/\b(\d{2,5})\b/);
+  if (numMatch) return parseInt(numMatch[1], 10);
+  return null;
+};
+
+const extractComposeServices = (app: AppStack): { name: string; port: number | null }[] => {
+  const map = new Map<string, number | null>();
+
+  // 1. Running / active container services
+  for (const s of app.services || []) {
+    if (s.service) {
+      const port = detectPortFromServiceString(s.ports);
+      map.set(s.service, port);
+    }
+  }
+
+  // 2. Exposed ports
+  for (const p of app.ports || []) {
+    if (p.service) {
+      if (!map.has(p.service) || map.get(p.service) === null) {
+        map.set(p.service, p.port || null);
+      }
+    }
+  }
+
+  // 3. Compose file in workspace
+  const composeNode = (app.files || []).find((f) =>
+    f.type === 'file' && /(?:docker-compose|\bcompose)\.ya?ml$/i.test(f.path)
+  );
+  if (composeNode?.content) {
+    const lines = composeNode.content.split('\n');
+    let inServices = false;
+    let currentSvc: string | null = null;
+
+    for (const rawLine of lines) {
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+
+      if (/^services:\s*$/i.test(rawLine.trimEnd())) {
+        inServices = true;
+        currentSvc = null;
+        continue;
+      }
+      if (inServices && /^[a-zA-Z0-9_-]+:\s*$/.test(rawLine.trimEnd()) && !/^services:\s*$/i.test(rawLine.trimEnd())) {
+        inServices = false;
+        currentSvc = null;
+        continue;
+      }
+      if (inServices) {
+        const svcMatch = rawLine.match(/^ {2}([a-zA-Z0-9_-]+):\s*$/);
+        if (svcMatch) {
+          currentSvc = svcMatch[1];
+          if (!map.has(currentSvc)) {
+            map.set(currentSvc, null);
+          }
+          continue;
+        }
+
+        if (currentSvc && /^\s*-\s*["']?(?:\d+:)?\d+/.test(rawLine)) {
+          const m = rawLine.match(/^\s*-\s*["']?(?:(\d+):)?(\d+)(?:\/(?:tcp|udp))?["']?/);
+          if (m) {
+            const containerPort = parseInt(m[2] || m[1], 10);
+            if (containerPort && (!map.has(currentSvc) || map.get(currentSvc) === null)) {
+              map.set(currentSvc, containerPort);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Existing domain routes
+  for (const d of app.domains || []) {
+    if (d.targetService) {
+      if (!map.has(d.targetService) || map.get(d.targetService) === null) {
+        map.set(d.targetService, d.targetPort || null);
+      }
+    }
+  }
+
+  if (map.size === 0) {
+    map.set('app', 3000);
+  }
+
+  return Array.from(map.entries()).map(([name, port]) => ({ name, port }));
+};
 export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   app,
   onUpdateApp,
@@ -59,6 +151,53 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const [domainShieldNodeId, setDomainShieldNodeId] = useState<number | null>(null);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [saving, setSaving] = useState(false);
+  const detectedServices = useMemo(() => extractComposeServices(app), [app]);
+  const [tab, setTab] = useState<'domains' | 'preview' | 'ports'>('domains');
+  const [pvProvider, setPvProvider] = useState<PreviewConfig['provider']>(app.preview?.provider || '');
+  const [pvBase, setPvBase] = useState(app.preview?.base || '');
+  const [pvService, setPvService] = useState(app.preview?.service || '');
+  const [isCustomPvService, setIsCustomPvService] = useState(false);
+  const [pvPort, setPvPort] = useState(String(app.preview?.port || 3000));
+  const [pvSaving, setPvSaving] = useState(false);
+  const standbySlotLower = (app.activeSlot || 'blue').toLowerCase() === 'green' ? 'blue' : 'green';
+
+  useEffect(() => {
+    if (!pvService && detectedServices[0]) {
+      setPvService(detectedServices[0].name);
+      if (detectedServices[0].port) {
+        setPvPort(String(detectedServices[0].port));
+      }
+    }
+  }, [detectedServices, pvService]);
+
+  const handleSavePreview = async () => {
+    setPvSaving(true);
+    try {
+      const res = await backendApi.previewSave(app.id, {
+        provider: pvProvider,
+        base: pvBase,
+        service: pvService.trim(),
+        port: parseInt(pvPort, 10) || 3000,
+      });
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to save Preview URL');
+        return;
+      }
+      onUpdateApp({
+        ...app,
+        preview: {
+          provider: pvProvider,
+          base: pvBase,
+          service: pvService.trim(),
+          port: parseInt(pvPort, 10) || 3000,
+        },
+        previewHostBase: res.data?.host_base || '',
+      });
+      toast.success(pvProvider ? 'Preview URL saved' : 'Preview URL disabled');
+    } finally {
+      setPvSaving(false);
+    }
+  };
 
   useEffect(() => {
     backendApi.listShieldNodes().then((res) => {
@@ -307,27 +446,206 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   return (
     <div className="space-y-4">
       {/* Header Bar */}
-      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4">
-        <div className="flex items-center gap-2.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4">
+        <div className="flex items-center gap-2.5 min-w-0">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
             <Globe className="h-4 w-4 text-orange-400" />
           </span>
           <h2 className="min-w-0 truncate text-sm font-semibold text-zinc-100">
             Caddy Reverse Proxy & Domains
           </h2>
-          <span className="ml-auto inline-flex h-[18px] min-w-[21px] shrink-0 items-center justify-center rounded-full bg-white/[0.08] px-1.5 font-mono text-[10.5px] tabular-nums text-zinc-300">
+          <span className="inline-flex h-[18px] min-w-[21px] shrink-0 items-center justify-center rounded-full bg-white/[0.08] px-1.5 font-mono text-[10.5px] tabular-nums text-zinc-300">
             {app.domains.length}
           </span>
         </div>
         <button
           type="button"
           onClick={openAddModal}
-          className="mt-3.5 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-950 transition-colors hover:bg-white cursor-pointer"
+          className="inline-flex h-9 w-full sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 transition-colors hover:bg-white cursor-pointer"
         >
           <Plus className="h-3.5 w-3.5" />
           Add Domain Route
         </button>
       </div>
+
+      {/* Section switcher */}
+      <div className="inline-flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 max-w-full overflow-x-auto">
+        {(
+          [
+            { id: 'domains', label: 'Domains', icon: Globe },
+            { id: 'preview', label: 'Preview URL', icon: Eye },
+            { id: 'ports', label: 'Exposed Ports', icon: Network },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+              tab === t.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <t.icon className="h-3.5 w-3.5" />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'preview' && (
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1">Domain source</label>
+              <select
+                value={pvProvider}
+                onChange={(e) => {
+                  const val = e.target.value as PreviewConfig['provider'];
+                  setPvProvider(val);
+                  if (val !== '' && !pvService && detectedServices[0]) {
+                    setPvService(detectedServices[0].name);
+                    if (detectedServices[0].port) {
+                      setPvPort(String(detectedServices[0].port));
+                    }
+                  }
+                }}
+                className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500"
+              >
+                <option value="">Disabled</option>
+                <option value="sslip.io">sslip.io</option>
+                <option value="nip.io">nip.io</option>
+                <option value="custom">My own domain</option>
+              </select>
+            </div>
+
+            {pvProvider === 'custom' && (
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">Preview base domain</label>
+                <input
+                  type="text"
+                  value={pvBase}
+                  onChange={(e) => setPvBase(e.target.value)}
+                  placeholder="preview.example.com"
+                  className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500"
+                />
+              </div>
+            )}
+
+            {pvProvider !== '' && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Compose service</label>
+                  <select
+                    value={
+                      isCustomPvService
+                        ? '__custom__'
+                        : detectedServices.some((s) => s.name === pvService)
+                          ? pvService
+                          : '__custom__'
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__custom__') {
+                        setIsCustomPvService(true);
+                      } else {
+                        setIsCustomPvService(false);
+                        setPvService(val);
+                        const match = detectedServices.find((s) => s.name === val);
+                        if (match?.port) setPvPort(String(match.port));
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500 cursor-pointer"
+                  >
+                    {detectedServices.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.name} {s.port ? `(:${s.port})` : ''}
+                      </option>
+                    ))}
+                    <option value="__custom__">+ Custom service name</option>
+                  </select>
+                  {isCustomPvService && (
+                    <input
+                      type="text"
+                      value={pvService}
+                      onChange={(e) => setPvService(e.target.value)}
+                      placeholder="Service name"
+                      className="mt-2 w-full px-3 py-1.5 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Container port</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={pvPort}
+                    onChange={(e) => setPvPort(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono tabular-nums focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {pvProvider !== '' && (
+            <div className="rounded-lg border border-white/[0.06] bg-[#09090b] px-3 py-2 text-xs flex items-center justify-between gap-2">
+              <span className="text-zinc-400">Standby ({standbySlotLower.toUpperCase()})</span>
+              <span className="font-mono text-violet-300 truncate">
+                {formatSlotPreviewDomain(
+                  pvProvider === 'custom'
+                    ? pvBase.trim().toLowerCase() || 'preview.example.com'
+                    : formatWildcardDomain(app.slug, pvProvider),
+                  standbySlotLower
+                )}
+              </span>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={pvSaving}
+              onClick={handleSavePreview}
+              className="px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+            >
+              {pvSaving ? 'Saving...' : 'Save Preview URL'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'ports' && (
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
+          {(app.ports || []).length === 0 ? (
+            <div className="p-8 text-center text-xs text-zinc-500">No exposed ports</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-[#09090b]/80 text-[11px] uppercase tracking-wider text-zinc-400">
+                    <th className="px-4 py-2.5 font-medium">Host port</th>
+                    <th className="px-4 py-2.5 font-medium">Bind address</th>
+                    <th className="px-4 py-2.5 font-medium">Service</th>
+                    <th className="px-4 py-2.5 font-medium">Protocol</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.05] font-mono">
+                  {(app.ports || []).map((pt) => (
+                    <tr key={`${pt.bind_ip}:${pt.port}`}>
+                      <td className="px-4 py-2.5 text-emerald-400 tabular-nums">:{pt.port}</td>
+                      <td className="px-4 py-2.5 text-zinc-300">{pt.bind_ip}</td>
+                      <td className="px-4 py-2.5 text-zinc-200">{pt.service}</td>
+                      <td className="px-4 py-2.5 text-zinc-400 uppercase">{pt.protocol}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'domains' && (<>
 
       {/* Domain List */}
       {app.domains.length === 0 ? (
@@ -536,6 +854,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           })}
         </div>
       )}
+      </>)}
 
       {/* Create / Edit Domain Modal */}
       {showDomainModal && (

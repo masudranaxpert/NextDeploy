@@ -1,5 +1,18 @@
 import { BootstrapData, DomainFormPayload, requestJson, requestText, resultFromResponse, toFormBody } from './http';
 
+// Helper to encode file paths in Base64 for query parameters.
+// This prevents external WAFs (like Cloudflare Managed Rules for WordPress / PHP)
+// from inspecting queries and throwing 403 Forbidden on sensitive files like wp-config.php or .env.
+const toPathB64Param = (path = ''): string => {
+  if (!path) return '';
+  try {
+    const b64 = btoa(unescape(encodeURIComponent(path)));
+    return `p_b64=${encodeURIComponent(b64)}`;
+  } catch {
+    return `path=${encodeURIComponent(path)}`;
+  }
+};
+
 export const appsAndDockerApi = {
   // Bootstrap & Auth
   // The first call reuses the request index.html started before the scripts finished loading.
@@ -142,8 +155,10 @@ export const appsAndDockerApi = {
     }),
 
   // Workspace File Manager
-  filesList: (appId: string, path = '', recursive = true) =>
-    requestJson<
+  filesList: (appId: string, path = '', recursive = true) => {
+    const pParam = toPathB64Param(path);
+    const q = pParam ? `${pParam}&` : '';
+    return requestJson<
       Array<{
         name: string;
         rel_path: string;
@@ -152,9 +167,12 @@ export const appsAndDockerApi = {
         mod_time: number;
         perms: string;
       }>
-    >(`/api/v1/apps/${encodeURIComponent(appId)}/files?path=${encodeURIComponent(path)}&recursive=${recursive ? 'true' : 'false'}`),
-  filesTree: (appId: string, path = '') =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/files/tree?path=${encodeURIComponent(path)}`),
+    >(`/api/v1/apps/${encodeURIComponent(appId)}/files?${q}recursive=${recursive ? 'true' : 'false'}`);
+  },
+  filesTree: (appId: string, path = '') => {
+    const pParam = toPathB64Param(path);
+    return requestJson(`/apps/${encodeURIComponent(appId)}/files/tree${pParam ? `?${pParam}` : ''}`);
+  },
   fileBlob: (appId: string, path: string) =>
     requestJson<{
       path: string;
@@ -163,13 +181,18 @@ export const appsAndDockerApi = {
       text?: string;
       binary?: boolean;
       too_large?: boolean;
-    }>(`/apps/${encodeURIComponent(appId)}/files/blob?path=${encodeURIComponent(path)}`),
-  fileSave: (appId: string, path: string, content: string) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/files/save?path=${encodeURIComponent(path)}`, {
+    }>(`/apps/${encodeURIComponent(appId)}/files/blob?${toPathB64Param(path)}`),
+  fileSave: (appId: string, path: string, content: string) => {
+    let pB64 = '';
+    try {
+      pB64 = btoa(unescape(encodeURIComponent(path)));
+    } catch {}
+    return requestJson(`/apps/${encodeURIComponent(appId)}/files/save?${toPathB64Param(path)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    }),
+      body: JSON.stringify({ content, p_b64: pB64, path }),
+    });
+  },
   fileCreate: (appId: string, path: string, isDir = false) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/files/${isDir ? 'mkdir' : 'create'}`, {
       method: 'POST',
@@ -308,6 +331,12 @@ export const appsAndDockerApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ name: containerName, container: containerName }),
+    }),
+  globalContainerRestart: (containerName: string) =>
+    requestJson('/containers/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ name: containerName }),
     }),
   appExec: (appId: string, container: string, command: string) => {
     const fd = new FormData();

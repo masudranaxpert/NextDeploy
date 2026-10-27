@@ -62,7 +62,7 @@ export const BuildLogsModal: React.FC<BuildLogsModalProps> = ({
               </div>
               {app.services.map((s) => (
                 <div key={s.id} className="text-emerald-400 pl-4">
-                  ✔ Container {s.name} Healthy ({formatCompactPort(s.ports)})
+                  ✔ Container {s.name} Healthy ({formatCompactPort(s.ports, 'internal')})
                 </div>
               ))}
               <div className="text-orange-400">

@@ -9,18 +9,50 @@ export const formatCompactImage = (fullImage: string) => {
   return { shortName, tagPart, registryPrefix, fullImage };
 };
 
-export const formatCompactPort = (rawPort: string) => {
-  if (!rawPort) return 'internal';
-  const internalMatch = rawPort.match(/^(\d+)\/(tcp|udp)$/);
-  if (internalMatch) {
-    return `:${internalMatch[1]}`;
+export const formatCompactPort = (rawPort?: string, fallback: string = ''): string => {
+  if (!rawPort) return fallback;
+  const trimmed = rawPort.trim();
+  if (!trimmed || trimmed === '—' || trimmed === '-' || trimmed.toLowerCase() === 'none') {
+    return fallback;
   }
-  const arrowIdx = rawPort.indexOf('->');
-  if (arrowIdx !== -1) {
-    const bound = rawPort.slice(arrowIdx + 2).replace(/\/(tcp|udp)$/, '');
-    return `:${bound}`;
+
+  // Parse comma-separated port list from Docker engine
+  const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+  const portsSet = new Set<string>();
+
+  for (const part of parts) {
+    const hostMatch = part.match(/:(\d+)->/);
+    if (hostMatch) {
+      portsSet.add(hostMatch[1]);
+      continue;
+    }
+    const arrowMatch = part.match(/->(\d+)/);
+    if (arrowMatch) {
+      portsSet.add(arrowMatch[1]);
+      continue;
+    }
+    const protoMatch = part.match(/^(\d+)\/(tcp|udp)$/);
+    if (protoMatch) {
+      portsSet.add(protoMatch[1]);
+      continue;
+    }
+    const numMatch = part.match(/\b\d{2,5}\b/);
+    if (numMatch) {
+      portsSet.add(numMatch[0]);
+    }
   }
-  return rawPort.startsWith(':') ? rawPort : `:${rawPort}`;
+
+  const ports = Array.from(portsSet);
+  if (ports.length === 0) {
+    return fallback;
+  }
+
+  ports.sort((a, b) => Number(a) - Number(b));
+
+  if (ports.length <= 2) {
+    return ports.map((p) => `:${p}`).join(', ');
+  }
+  return `${ports.slice(0, 2).map((p) => `:${p}`).join(', ')} (+${ports.length - 2})`;
 };
 
 export const formatCompactUptime = (uptime?: string): string => {

@@ -375,7 +375,8 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	}
 
 	// High-performance fallback: use NextDeploy self-image with nsenter (Zero external image pull)
-	cmd := exec.Command("docker", "run", "--rm", "-it", "--privileged", "--pid=host", "--entrypoint", "nsenter", runutil.HelperImage(), "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
+	termName := fmt.Sprintf("nd-term-%d", time.Now().Unix())
+	cmd := exec.Command("docker", "run", "--name", termName, "--label", "nextdeploy.terminal=true", "--rm", "-it", "--privileged", "--pid=host", "--entrypoint", "nsenter", runutil.HelperImage(), "-t", "1", "-m", "-u", "-n", "-i", "su", "-")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 	)
@@ -393,6 +394,7 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 			_ = cmd.Process.Kill()
 		}
 		_ = cmd.Wait()
+		_ = exec.Command("docker", "rm", "-f", termName).Run()
 	}()
 
 	vpsCtx, vpsCancel := context.WithCancel(context.Background())
