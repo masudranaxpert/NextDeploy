@@ -322,71 +322,6 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               </a>
             )}
 
-            {(() => {
-              const assignedShieldId = app.domains.find((d) => d.shield_node_id)?.shield_node_id;
-              const matchedShield = assignedShieldId
-                ? shieldNodes.find((s) => s.id === assignedShieldId)
-                : (shieldNodes.find((s) => s.status === 'connected') || shieldNodes[0]);
-              const directIP = !matchedShield ? getServerPublicIp() : '';
-
-              if (matchedShield) {
-                return (
-                  <div className="flex items-center justify-between rounded-lg border border-cyan-500/25 bg-cyan-500/[0.05] px-3 py-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-cyan-300 font-medium min-w-0">
-                      <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-                      <span className="truncate">DNS A-Record:</span>
-                      <code className="font-mono text-white font-bold bg-zinc-900/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
-                        {matchedShield.ip}
-                      </code>
-                      {isAdmin && (
-                        <span className="text-[10px] text-zinc-400 truncate">({matchedShield.name})</span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy('shield-ip', matchedShield.ip)}
-                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer transition-colors"
-                      title="Copy Shield IP"
-                    >
-                      {copiedKey === 'shield-ip' ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-                );
-              }
-
-              if (directIP && isAdmin) {
-                return (
-                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-zinc-400 font-medium min-w-0">
-                      <Server className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                      <span className="truncate">Server IP (DNS):</span>
-                      <code className="font-mono text-zinc-200 font-bold bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-700">
-                        {directIP}
-                      </code>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy('server-ip', directIP)}
-                      className="rounded p-1 text-zinc-400 hover:text-white shrink-0 cursor-pointer transition-colors"
-                      title="Copy Server IP"
-                    >
-                      {copiedKey === 'server-ip' ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-                );
-              }
-
-              return null;
-            })()}
-
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -410,7 +345,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
 
         {/* Right Card: Container Resource Limits & Styled Delete Project Button */}
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 flex flex-col justify-between gap-4">
-          <div>
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10">
@@ -423,42 +358,88 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               <button
                 type="button"
                 onClick={onOpenLimitsModal}
-                className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
+                className="rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 cursor-pointer"
               >
                 Adjust
               </button>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2.5 font-mono text-xs">
-              <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
-                <span className="text-[10px] text-zinc-500 block">Max CPU</span>
-                <div className="mt-0.5 flex items-baseline justify-between">
-                  <span className="text-zinc-100 font-semibold">
+            <div className="space-y-2.5">
+              {/* CPU Usage Bar */}
+              <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-zinc-400">Max CPU</span>
+                  <span className="font-mono font-medium text-emerald-400">
                     {limitsInfo?.limits.cpus
                       ? `${limitsInfo.limits.cpus} vCPU`
-                      : limitsInfo
-                      ? 'Shared'
-                      : '…'}
-                  </span>
-                  <span className="text-[10px] text-emerald-400">
-                    {limitsInfo
-                      ? `${(limitsInfo.usage.cpu_cores * 100).toFixed(2)}% in use`
-                      : ''}
+                      : 'Shared'}
+                    <span className="text-zinc-500 text-[11px] ml-1.5">
+                      ({limitsInfo ? `${(limitsInfo.usage.cpu_cores * 100).toFixed(1)}%` : '0%'} in use)
+                    </span>
                   </span>
                 </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          2,
+                          limitsInfo?.limits.cpus
+                            ? (limitsInfo.usage.cpu_cores / limitsInfo.limits.cpus) * 100
+                            : (limitsInfo?.usage.cpu_cores ? limitsInfo.usage.cpu_cores * 100 : 0)
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
               </div>
-              <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
-                <span className="text-[10px] text-zinc-500 block">Max Memory</span>
-                <div className="mt-0.5 flex items-baseline justify-between">
-                  <span className="text-zinc-100 font-semibold">
+
+              {/* Memory Usage Bar */}
+              <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-zinc-400">Max Memory</span>
+                  <span className="font-mono font-medium text-sky-400">
                     {limitsInfo?.limits.memory_mb
                       ? `${limitsInfo.limits.memory_mb} MB`
-                      : limitsInfo
-                      ? 'Shared'
-                      : '…'}
+                      : 'Shared'}
+                    <span className="text-zinc-500 text-[11px] ml-1.5">
+                      ({limitsInfo ? `${limitsInfo.usage.memory_mb} MB` : '0 MB'} in use)
+                    </span>
                   </span>
-                  <span className="text-[10px] text-sky-400">
-                    {limitsInfo ? `${limitsInfo.usage.memory_mb} MB in use` : ''}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          2,
+                          limitsInfo?.limits.memory_mb
+                            ? (limitsInfo.usage.memory_mb / limitsInfo.limits.memory_mb) * 100
+                            : limitsInfo?.usage.memory_mb ? (limitsInfo.usage.memory_mb / 1024) * 100 : 0
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* App Status & Runtime overview */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Stack State</span>
+                  <span className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-xs font-medium text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {app.status === 'running' ? 'Active' : app.status}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Containers</span>
+                  <span className="mt-0.5 font-mono text-xs text-zinc-200 block">
+                    {app.services?.length || 1} service{(app.services?.length || 1) > 1 ? 's' : ''}
                   </span>
                 </div>
               </div>

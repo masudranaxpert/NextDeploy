@@ -766,12 +766,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 </div>
 
                 {/* Actions */}
-                <div className="mt-2.5 flex items-center gap-1.5">
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
                   <button
                     type="button"
                     onClick={() => handleCheckDns(d)}
                     disabled={dnsLoadingId === d.id}
-                    className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 min-h-[34px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                    className="inline-flex min-w-0 flex-1 sm:flex-initial sm:w-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw
                       className={`h-3.5 w-3.5 shrink-0 ${
@@ -781,32 +781,34 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     Verify DNS
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleInspectLabels(d)}
-                    className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
-                  >
-                    <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                    Caddy
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleInspectLabels(d)}
+                      className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                    >
+                      <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      Caddy
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(d)}
-                    className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
-                  >
-                    <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                    Edit
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(d)}
+                      className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                    >
+                      <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      Edit
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteDomain(d)}
-                    title="Remove domain"
-                    className="inline-flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDomain(d)}
+                      title="Remove domain"
+                      className="inline-flex h-8.5 w-8.5 sm:h-7.5 sm:w-7.5 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Live DNS Diagnostic Result */}
@@ -875,9 +877,31 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
             <form onSubmit={handleSaveDomain} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1">
-                  Domain Name
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-zinc-300">
+                    Domain Name
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDomainHost(formatWildcardDomain(app.slug, 'sslip.io'))
+                      }
+                      className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                    >
+                      + sslip.io
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDomainHost(formatWildcardDomain(app.slug, 'nip.io'))
+                      }
+                      className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
+                    >
+                      + nip.io
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="text"
                   required

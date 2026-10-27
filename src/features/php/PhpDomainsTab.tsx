@@ -3,7 +3,7 @@ import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } fro
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
-import { backendApi } from '../../lib/backendApi';
+import { backendApi, formatWildcardDomain } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { ShadcnSelect } from '../../components/ui/Primitives';
@@ -132,7 +132,27 @@ export const PhpDomainsTab: React.FC<{
 
   return (
     <div className="space-y-5">
-      <Card title="Add domain">
+      <Card
+        title="Add domain"
+        actions={
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setDomain(formatWildcardDomain(app.slug, 'sslip.io'))}
+              className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+            >
+              + sslip.io
+            </button>
+            <button
+              type="button"
+              onClick={() => setDomain(formatWildcardDomain(app.slug, 'nip.io'))}
+              className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
+            >
+              + nip.io
+            </button>
+          </div>
+        }
+      >
         {/* Desktop Layout (sm:): Compact single-row input toolbar */}
         <div className="hidden sm:block space-y-3">
           <div className="flex items-center gap-2.5">
