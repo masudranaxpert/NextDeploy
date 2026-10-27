@@ -58,7 +58,7 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	if socket != "" {
 		labels[prefix+".php_fastcgi"] = "unix/" + socket
 		if d.ShieldNodeID != nil || d.EnableHTTPS {
-			labels[prefix+".php_fastcgi.env.HTTPS"] = "on"
+			labels[prefix+".php_fastcgi.env"] = "HTTPS on"
 		}
 	}
 	labels[prefix+".file_server"] = `{{""}}`

@@ -248,7 +248,7 @@ caddyfile_path = "/etc/caddy/Caddyfile"
 origin_ca_path = "/etc/caddy/origin-root.crt"
 
 has_ca = os.path.isfile(origin_ca_path) and os.path.getsize(origin_ca_path) > 0
-tls_directive = f"tls_trusted_ca_certs {origin_ca_path}" if has_ca else "tls_insecure_skip_verify"
+tls_directive = f"tls_trust_pool file {{\n            pem_file {origin_ca_path}\n        }}" if has_ca else "tls_insecure_skip_verify"
 
 content = ""
 try:
@@ -352,7 +352,9 @@ CADDY_EOF
     fi
     TLS_VERIFY="tls_insecure_skip_verify"
     if [ -s /etc/caddy/origin-root.crt ]; then
-        TLS_VERIFY="tls_trusted_ca_certs /etc/caddy/origin-root.crt"
+        TLS_VERIFY="tls_trust_pool file {
+            pem_file /etc/caddy/origin-root.crt
+        }"
     fi
     cat << CADDY_EOF >> /etc/caddy/Caddyfile
 
