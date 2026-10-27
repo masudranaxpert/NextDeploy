@@ -99,6 +99,27 @@ func (p *Panel) ReconcileProxyRoutes(ctx context.Context) {
 	}
 }
 
+// ReconcileAllAppSlotCompose reconciles compose slot overrides for all active apps on startup.
+func (p *Panel) ReconcileAllAppSlotCompose(ctx context.Context) {
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return
+	}
+	for _, a := range apps {
+		if p.PHP != nil && p.DB.IsPHPSite(ctx, a.ID) {
+			continue
+		}
+		slot := strings.TrimSpace(a.ActiveSlot)
+		if slot == "" {
+			slot = "blue"
+		}
+		_, _ = p.SyncAppSlotComposeCtx(ctx, a.ID, slot, false)
+		if strings.TrimSpace(a.PinnedSlot) != "" && strings.TrimSpace(a.StandbySlot) != "" {
+			_, _ = p.SyncAppSlotComposeCtx(ctx, a.ID, strings.TrimSpace(a.StandbySlot), true)
+		}
+	}
+}
+
 // GET /caddy/routes
 func (p *Panel) CaddyRoutesList(c *fiber.Ctx) error {
 	routes, err := p.DB.ListProxyRoutes(c.UserContext())

@@ -175,6 +175,7 @@ func main() {
 			defer cancel()
 			p.PHP.Reconcile(ctx)
 			p.ReconcileProxyRoutes(ctx)
+			p.ReconcileAllAppSlotCompose(ctx)
 		}()
 	}
 
