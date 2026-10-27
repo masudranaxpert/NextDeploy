@@ -469,7 +469,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
       </div>
 
       {/* Section switcher */}
-      <div className="inline-flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 max-w-full overflow-x-auto">
+      <div className="grid grid-cols-3 sm:inline-flex sm:w-auto w-full items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
         {(
           [
             { id: 'domains', label: 'Domains', icon: Globe },
@@ -481,12 +481,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+            className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer text-center ${
               tab === t.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            <t.icon className="h-3.5 w-3.5" />
-            {t.label}
+            <t.icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{t.label}</span>
           </button>
         ))}
       </div>

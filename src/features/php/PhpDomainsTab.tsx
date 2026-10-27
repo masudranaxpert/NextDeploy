@@ -133,63 +133,129 @@ export const PhpDomainsTab: React.FC<{
   return (
     <div className="space-y-5">
       <Card title="Add domain">
-        <div className="flex items-center gap-2">
-          <input
-            className={`${inputCls} min-w-0 flex-1`}
-            placeholder="example.com"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void add()}
-          />
-          <PrimaryButton busy={busy === 'add'} onClick={add} disabled={!domain.trim()}>
-            <Plus className="h-3.5 w-3.5" /> Add
-          </PrimaryButton>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-5 text-xs text-zinc-300">
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} className="accent-orange-500" />
-            HTTPS
-          </label>
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={www} onChange={(e) => setWww(e.target.checked)} className="accent-orange-500" />
-            Include www
-          </label>
-        </div>
-
-        {/* Edge Shield Proxy Route Selector (Admin Only) */}
-        {isAdmin && shieldNodes.length > 0 && (
-          <div className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5 space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-medium text-zinc-300">
-              <span className="inline-flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                Edge Shield Proxy
-              </span>
-              <span className="text-[11px] text-zinc-500 font-normal">Origin Masking</span>
-            </div>
-            <div className="pt-0.5">
-              <ShadcnSelect
-                value={shieldNodeId ?? ''}
-                onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
-                options={[
-                  { value: '', label: 'Direct Origin (Server IP)' },
-                  ...shieldNodes.map((s) => ({
-                    value: s.id,
-                    label: s.name,
-                    sublabel: s.ip,
-                    disabled: s.status !== 'connected',
-                    badge:
-                      s.status !== 'connected'
-                        ? {
-                            text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
-                            tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
-                          }
-                        : undefined,
-                  })),
-                ]}
+        {/* Desktop Layout (sm:): Compact single-row input toolbar */}
+        <div className="hidden sm:block space-y-3">
+          <div className="flex items-center gap-2.5">
+            <div className="relative min-w-0 flex-1">
+              <input
+                className={`${inputCls} w-full`}
+                placeholder="example.com"
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void add()}
               />
             </div>
+
+            {isAdmin && shieldNodes.length > 0 && (
+              <div className="w-64 shrink-0" title="Route traffic through Edge Shield Proxy or Direct Origin">
+                <ShadcnSelect
+                  value={shieldNodeId ?? ''}
+                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                  options={[
+                    { value: '', label: 'Direct Origin (Server IP)' },
+                    ...shieldNodes.map((s) => ({
+                      value: s.id,
+                      label: s.name,
+                      sublabel: s.ip,
+                      disabled: s.status !== 'connected',
+                      badge:
+                        s.status !== 'connected'
+                          ? {
+                              text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                              tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                            }
+                          : undefined,
+                    })),
+                  ]}
+                />
+              </div>
+            )}
+
+            <PrimaryButton busy={busy === 'add'} onClick={add} disabled={!domain.trim()} className="shrink-0">
+              <Plus className="h-3.5 w-3.5" /> Add domain
+            </PrimaryButton>
           </div>
-        )}
+
+          <div className="flex items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-5 text-zinc-300">
+              <label className="inline-flex cursor-pointer items-center gap-2 select-none">
+                <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} className="accent-orange-500 rounded" />
+                <span>HTTPS</span>
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 select-none">
+                <input type="checkbox" checked={www} onChange={(e) => setWww(e.target.checked)} className="accent-orange-500 rounded" />
+                <span>Include www</span>
+              </label>
+            </div>
+            {isAdmin && shieldNodes.length > 0 && (
+              <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 font-normal">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Edge Shield Proxy · Origin Masking</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile Layout (<sm): Untouched vertical stacked layout */}
+        <div className="sm:hidden space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              className={`${inputCls} min-w-0 flex-1`}
+              placeholder="example.com"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void add()}
+            />
+            <PrimaryButton busy={busy === 'add'} onClick={add} disabled={!domain.trim()}>
+              <Plus className="h-3.5 w-3.5" /> Add
+            </PrimaryButton>
+          </div>
+          <div className="flex flex-wrap items-center gap-5 text-xs text-zinc-300">
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} className="accent-orange-500" />
+              HTTPS
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <input type="checkbox" checked={www} onChange={(e) => setWww(e.target.checked)} className="accent-orange-500" />
+              Include www
+            </label>
+          </div>
+
+          {/* Edge Shield Proxy Route Selector (Admin Only) */}
+          {isAdmin && shieldNodes.length > 0 && (
+            <div className="rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-medium text-zinc-300">
+                <span className="inline-flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                  Edge Shield Proxy
+                </span>
+                <span className="text-[11px] text-zinc-500 font-normal">Origin Masking</span>
+              </div>
+              <div className="pt-0.5">
+                <ShadcnSelect
+                  value={shieldNodeId ?? ''}
+                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                  options={[
+                    { value: '', label: 'Direct Origin (Server IP)' },
+                    ...shieldNodes.map((s) => ({
+                      value: s.id,
+                      label: s.name,
+                      sublabel: s.ip,
+                      disabled: s.status !== 'connected',
+                      badge:
+                        s.status !== 'connected'
+                          ? {
+                              text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                              tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                            }
+                          : undefined,
+                    })),
+                  ]}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </Card>
 
       <Card title="Domains" actions={<Pill>{app.domains.length}</Pill>}>
@@ -312,9 +378,9 @@ export const PhpDomainsTab: React.FC<{
                     </div>
                   </div>
 
-                  {/* Line 3: Dedicated Full-Width Route Selector (Admin Only) */}
+                  {/* Line 3: Route Selector (Admin Only, max-w-xs on desktop) */}
                   {isAdmin && (
-                    <div className="pt-0.5">
+                    <div className="pt-0.5 sm:max-w-xs">
                       <ShadcnSelect
                         value={d.shield_node_id ?? ''}
                         disabled={busy === 'shield' + d.id}
