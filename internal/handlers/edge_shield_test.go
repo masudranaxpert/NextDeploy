@@ -93,7 +93,7 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 
 	// 8. Test setup script endpoint
 	req = httptest.NewRequest("GET", "/api/v1/edge/setup.sh?token=test_token_123", nil)
-	resp, err = app.Test(req)
+	resp, err = app.Test(req, 5000)
 	if err != nil {
 		t.Fatalf("setup script request failed: %v", err)
 	}

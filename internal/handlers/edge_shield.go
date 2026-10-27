@@ -220,7 +220,9 @@ fi
 
 echo "==> [Kernel & Memory Tuning Check]..."
 TOTAL_RAM_MB=$(free -m 2>/dev/null | awk '/Mem:/{print $2}' || echo "0")
+TOTAL_RAM_MB=${TOTAL_RAM_MB:-0}
 CURRENT_SWAP_MB=$(free -m 2>/dev/null | awk '/Swap:/{print $2}' || echo "0")
+CURRENT_SWAP_MB=${CURRENT_SWAP_MB:-0}
 CURRENT_CC=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
 
 IS_INTERACTIVE=0
@@ -249,6 +251,12 @@ else
             echo 'net.core.somaxconn=65535' >> /etc/sysctl.conf
         fi
         sysctl -p 2>/dev/null || true
+        APPLIED_CC=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "")
+        if [ "$APPLIED_CC" = "bbr" ]; then
+            echo "==> [✓] Google BBR active."
+        else
+            echo "==> [Notice] Kernel did not switch to BBR (requires kernel 4.9+). Kept $APPLIED_CC."
+        fi
     fi
 fi
 
