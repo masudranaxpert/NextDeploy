@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"panel/internal/caddy"
@@ -279,12 +280,29 @@ func (m *Manager) PublishHolder(ctx context.Context, name string, labels map[str
 	if res := docker(ctx, args...); !res.OK {
 		return fmt.Errorf("publish routes: %s", res.Output)
 	}
+	m.ReloadCaddy(ctx)
 	return nil
 }
 
 // RemoveHolder deletes a label holder (no error when it does not exist).
 func (m *Manager) RemoveHolder(ctx context.Context, name string) {
 	removeContainer(ctx, name)
+	m.ReloadCaddy(ctx)
+}
+
+var caddyReloadDebounce atomic.Int64
+
+// ReloadCaddy triggers a debounced graceful reload of Caddy to flush idle reverse-proxy pools.
+func (m *Manager) ReloadCaddy(ctx context.Context) {
+	now := time.Now().UnixNano()
+	caddyReloadDebounce.Store(now)
+	go func(triggerTime int64) {
+		time.Sleep(750 * time.Millisecond)
+		if caddyReloadDebounce.Load() != triggerTime {
+			return // superseded by a newer reload request
+		}
+		_ = docker(context.Background(), "exec", "caddy", "caddy", "reload", "--config", "/config/caddy/autosave.json")
+	}(now)
 }
 
 // ---- site level operations ----
@@ -378,10 +396,14 @@ func (m *Manager) TeardownSite(ctx context.Context, appID string) error {
 		return err
 	}
 	if site.SiteType != SiteTypeStatic {
+		dir := m.runtimeDir(site.OwnerID, site.PHPVersion)
+		_ = os.Remove(filepath.Join(dir, "run", appID+".sock"))
+		_ = os.Remove(filepath.Join(dir, "pools", appID+".conf"))
 		if err := m.EnsureRuntime(ctx, site.OwnerID, site.PHPVersion); err != nil {
 			return err
 		}
 	}
+	m.ReloadCaddy(ctx)
 	return nil
 }
 
