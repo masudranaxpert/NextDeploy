@@ -368,7 +368,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-zinc-400">
-                  Server IP (DNS Target)
+                  Server IP
                 </p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">

@@ -53,7 +53,7 @@ func (m *Manager) InstallWordPress(ctx context.Context, site db.PHPSite, o WPOpt
 		cmd  string
 	}{
 		{"Downloading WordPress", fmt.Sprintf("wp core download --path=%s --locale=en_US", shellQuote(htdocs))},
-		{"Writing wp-config.php", fmt.Sprintf("wp config create --path=%s --dbname=%s --dbuser=%s --dbpass=%s --dbhost=%s --dbcharset=utf8mb4 --skip-check --extra-php <<'PHP'\ndefine('FS_METHOD', 'direct');\ndefine('WP_AUTO_UPDATE_CORE', 'minor');\nPHP",
+		{"Writing wp-config.php", fmt.Sprintf("wp config create --path=%s --dbname=%s --dbuser=%s --dbpass=%s --dbhost=%s --dbcharset=utf8mb4 --skip-check --extra-php <<'PHP'\ndefine('FS_METHOD', 'direct');\ndefine('WP_AUTO_UPDATE_CORE', 'minor');\nif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {\n    $_SERVER['HTTPS'] = 'on';\n}\nPHP",
 			shellQuote(htdocs), shellQuote(o.DBName), shellQuote(o.DBUser), shellQuote(o.DBPass), MySQLContainer)},
 		{"Installing WordPress", fmt.Sprintf("wp core install --path=%s --url=%s --title=%s --admin_user=%s --admin_password=%s --admin_email=%s --skip-email",
 			shellQuote(htdocs), shellQuote(o.URL), shellQuote(o.Title), shellQuote(o.AdminUser), shellQuote(o.AdminPass), shellQuote(o.AdminEmail))},

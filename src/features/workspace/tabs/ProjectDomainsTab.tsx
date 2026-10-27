@@ -393,7 +393,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     </span>
                   )}
 
-                  {d.shield_node_id ? (
+                  {isAdmin && d.shield_node_id ? (
                     (() => {
                       const matchedShield = shieldNodes.find((s) => s.id === d.shield_node_id);
                       const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
@@ -637,17 +637,17 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 </label>
               </div>
 
-              {/* Shield VPS Proxy Node Selector */}
-              <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                    Edge Shield Proxy
-                  </label>
-                  <span className="text-[11px] text-zinc-500">Origin Masking</span>
-                </div>
-                <div className="pt-1">
-                  {isAdmin ? (
+              {/* Shield VPS Proxy Node Selector (Admin Only) */}
+              {isAdmin && (
+                <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      Edge Shield Proxy
+                    </label>
+                    <span className="text-[11px] text-zinc-500">Origin Masking</span>
+                  </div>
+                  <div className="pt-1">
                     <ShadcnSelect
                       value={domainShieldNodeId ?? ''}
                       onChange={(val) => setDomainShieldNodeId(val ? Number(val) : null)}
@@ -668,19 +668,9 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         })),
                       ]}
                     />
-                  ) : (
-                    <div className="flex items-center justify-between px-3 py-2 rounded bg-zinc-950/60 border border-emerald-500/20 text-xs">
-                      <span className="text-zinc-200 font-medium flex items-center gap-1.5">
-                        <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                        Protected by Edge Shield
-                      </span>
-                      <span className="font-mono text-emerald-400 text-[11px] font-semibold">
-                        {shieldNodes.find((s) => s.id === domainShieldNodeId)?.ip || shieldNodes[0]?.ip || 'Active'}
-                      </span>
-                    </div>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Static File Serving */}
               <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-3">

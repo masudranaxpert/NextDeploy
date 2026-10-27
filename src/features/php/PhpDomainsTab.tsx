@@ -156,8 +156,8 @@ export const PhpDomainsTab: React.FC<{
           </label>
         </div>
 
-        {/* Edge Shield Proxy Route Notice / Selector */}
-        {shieldNodes.length > 0 && (
+        {/* Edge Shield Proxy Route Selector (Admin Only) */}
+        {isAdmin && shieldNodes.length > 0 && (
           <div className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-950/60 p-2.5 space-y-1.5">
             <div className="flex items-center justify-between text-xs font-medium text-zinc-300">
               <span className="inline-flex items-center gap-1.5">
@@ -166,37 +166,28 @@ export const PhpDomainsTab: React.FC<{
               </span>
               <span className="text-[11px] text-zinc-500 font-normal">Origin Masking</span>
             </div>
-            {isAdmin ? (
-              <div className="pt-0.5">
-                <ShadcnSelect
-                  value={shieldNodeId ?? ''}
-                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
-                  options={[
-                    { value: '', label: 'Direct Origin (Server IP)' },
-                    ...shieldNodes.map((s) => ({
-                      value: s.id,
-                      label: s.name,
-                      sublabel: s.ip,
-                      disabled: s.status !== 'connected',
-                      badge:
-                        s.status !== 'connected'
-                          ? {
-                              text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
-                              tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
-                            }
-                          : undefined,
-                    })),
-                  ]}
-                />
-              </div>
-            ) : (
-              <div className="flex items-center justify-between pt-0.5 text-xs text-zinc-400">
-                <span>DNS A-Record IP</span>
-                <span className="font-mono text-emerald-400 font-semibold">
-                  {shieldNodes.find((s) => s.id === shieldNodeId)?.ip || shieldNodes[0]?.ip}
-                </span>
-              </div>
-            )}
+            <div className="pt-0.5">
+              <ShadcnSelect
+                value={shieldNodeId ?? ''}
+                onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                options={[
+                  { value: '', label: 'Direct Origin (Server IP)' },
+                  ...shieldNodes.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    sublabel: s.ip,
+                    disabled: s.status !== 'connected',
+                    badge:
+                      s.status !== 'connected'
+                        ? {
+                            text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                            tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                          }
+                        : undefined,
+                  })),
+                ]}
+              />
+            </div>
           </div>
         )}
       </Card>
@@ -321,14 +312,7 @@ export const PhpDomainsTab: React.FC<{
                     </div>
                   </div>
 
-                  {/* Line 3: Dedicated Route Indicator/Selector */}
-                  {!isAdmin && d.shield_node_id && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium pt-0.5">
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      <span>Edge Shield Protected ({matchedShield?.ip || 'Active'})</span>
-                    </div>
-                  )}
-
+                  {/* Line 3: Dedicated Full-Width Route Selector (Admin Only) */}
                   {isAdmin && (
                     <div className="pt-0.5">
                       <ShadcnSelect
