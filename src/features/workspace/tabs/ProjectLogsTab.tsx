@@ -257,7 +257,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                 value={logSearch}
                 onChange={(e) => setLogSearch(e.target.value)}
                 placeholder="Search logs..."
-                className="h-7 w-40 rounded-lg border border-white/[0.07] bg-[#09090b] pl-7 pr-2 font-mono text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none"
+                className="h-7 w-56 sm:w-64 md:w-80 rounded-lg border border-white/[0.07] bg-[#09090b] pl-7 pr-2 font-mono text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none"
               />
             </div>
 
