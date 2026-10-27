@@ -324,7 +324,21 @@ http:// {
 CADDY_EOF
 fi
 
-echo "==> [3/4] Validating and reloading Caddy service..."
+echo "==> [3/4] Configuring resilient auto-restart & validating Caddy service..."
+if command -v systemctl &> /dev/null; then
+    mkdir -p /etc/systemd/system/caddy.service.d
+    cat << 'SVC_EOF' > /etc/systemd/system/caddy.service.d/override.conf
+[Unit]
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=3s
+SVC_EOF
+    systemctl daemon-reload
+fi
+
 caddy fmt --overwrite /etc/caddy/Caddyfile 2>/dev/null || true
 
 if caddy validate --config /etc/caddy/Caddyfile; then
@@ -344,8 +358,56 @@ else
     exit 1
 fi
 
-echo "==> [4/4] Sending registration heartbeat to NextDeploy origin..."
-curl -sS -X POST "%s" || true
+echo "==> [4/4] Setting up persistent watchdog & auto-healing heartbeat..."
+mkdir -p /usr/local/bin
+cat << 'WD_EOF' > /usr/local/bin/nextdeploy-shield-watchdog.sh
+#!/usr/bin/env bash
+if command -v systemctl &>/dev/null; then
+    systemctl is-active --quiet caddy || systemctl restart caddy || true
+fi
+curl -fsS -m 8 -X POST "%s" >/dev/null 2>&1 || true
+WD_EOF
+chmod +x /usr/local/bin/nextdeploy-shield-watchdog.sh
+
+if command -v systemctl &> /dev/null; then
+    cat << 'UNIT_EOF' > /etc/systemd/system/nextdeploy-shield-watchdog.service
+[Unit]
+Description=NextDeploy Edge Shield Watchdog & Heartbeat
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nextdeploy-shield-watchdog.sh
+UNIT_EOF
+
+    cat << 'TIMER_EOF' > /etc/systemd/system/nextdeploy-shield-watchdog.timer
+[Unit]
+Description=NextDeploy Edge Shield Watchdog Timer
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+TIMER_EOF
+
+    systemctl daemon-reload
+    systemctl enable --now nextdeploy-shield-watchdog.timer 2>/dev/null || true
+fi
+
+if [ -d /etc/cron.d ]; then
+    cat << 'CRON_EOF' > /etc/cron.d/nextdeploy-shield
+* * * * * root /usr/local/bin/nextdeploy-shield-watchdog.sh >/dev/null 2>&1
+@reboot root sleep 10 && /usr/local/bin/nextdeploy-shield-watchdog.sh >/dev/null 2>&1
+CRON_EOF
+    chmod 0644 /etc/cron.d/nextdeploy-shield
+fi
+
+# Send initial registration heartbeat
+/usr/local/bin/nextdeploy-shield-watchdog.sh || true
 
 echo ""
 echo "=========================================================================="
@@ -415,6 +477,17 @@ else
         systemctl disable caddy || true
     fi
 fi
+
+echo "==> [2/3] Cleaning up watchdog services and timers..."
+if command -v systemctl &> /dev/null; then
+    systemctl stop nextdeploy-shield-watchdog.timer 2>/dev/null || true
+    systemctl disable nextdeploy-shield-watchdog.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/nextdeploy-shield-watchdog.*
+    rm -f /etc/systemd/system/caddy.service.d/override.conf
+    systemctl daemon-reload 2>/dev/null || true
+fi
+rm -f /etc/cron.d/nextdeploy-shield
+rm -f /usr/local/bin/nextdeploy-shield-watchdog.sh
 
 echo "==> [3/3] Notifying NextDeploy origin..."
 curl -sS -X POST "%s" || true
@@ -739,5 +812,44 @@ func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context) {
 		raw, _ := json.Marshal(opts)
 		_ = p.DB.SetCaddyConfig(ctx, caddyOptionsKey, string(raw))
 		_ = p.syncRootStackCompose(ctx)
+	}
+}
+
+// StartShieldNodeHealthLoop runs proactive background health checks on all shield nodes.
+func (p *Panel) StartShieldNodeHealthLoop() {
+	p.probeAllShieldNodes()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		p.probeAllShieldNodes()
+	}
+}
+
+func (p *Panel) probeAllShieldNodes() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	nodes, err := p.DB.ListShieldNodes(ctx)
+	if err != nil || len(nodes) == 0 {
+		return
+	}
+
+	for _, node := range nodes {
+		ip := strings.TrimSpace(node.IP)
+		if ip == "" {
+			continue
+		}
+		// Probe TCP port 80 with short 2.5s timeout
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, "80"), 2500*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			_ = p.DB.UpdateShieldNodeHeartbeat(ctx, node.ID)
+		} else {
+			// If last heartbeat was more than 10 minutes ago and unreachable, mark offline
+			if node.LastHeartbeatAt != nil && time.Since(*node.LastHeartbeatAt) > 10*time.Minute && node.Status == "connected" {
+				_ = p.DB.UpdateShieldNodeStatus(ctx, node.ID, "offline")
+			}
+		}
 	}
 }

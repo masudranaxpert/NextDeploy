@@ -1128,6 +1128,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.caddyNetworkReconcileLoop()
 	go p.StartBandwidthQoSLoop()
 	go p.StartMonitorCollector()
+	go p.StartShieldNodeHealthLoop()
 	migrate.StartupSweep(p.DB)
 }
 
