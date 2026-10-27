@@ -204,6 +204,7 @@ https:// {{
         flush_interval -1
         transport http {{
             tls_insecure_skip_verify
+            tls_server_name {{host}}
             response_header_timeout 600s
             dial_timeout 15s
         }}
@@ -286,6 +287,7 @@ https:// {
         flush_interval -1
         transport http {
             tls_insecure_skip_verify
+            tls_server_name {host}
             response_header_timeout 600s
             dial_timeout 15s
         }

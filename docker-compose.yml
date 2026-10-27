@@ -10,6 +10,8 @@ services:
             - CADDY_DOCKER_POLLING_INTERVAL=5s
             - CADDY_INGRESS_NETWORKS=NextDeploy
         image: lucaslorentz/caddy-docker-proxy:ci-alpine
+        labels:
+            caddy.auto_https: disable_redirects
         networks:
             - nextdeploy
         ports:

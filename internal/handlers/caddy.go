@@ -427,6 +427,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		RouteRulesJSON:  "[]",
 		ShieldNodeID:    shieldIDPtr,
 	}
+	if d.ShieldNodeID != nil {
+		d.EnableHTTPS = true
+	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")
 	}
@@ -537,6 +540,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
 		RouteRulesJSON:  "[]",
 		ShieldNodeID:    shieldIDPtr,
+	}
+	if d.ShieldNodeID != nil {
+		d.EnableHTTPS = true
 	}
 	if d.Domain == "" {
 		return c.Status(400).SendString("domain required")

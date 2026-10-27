@@ -31,7 +31,7 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 		return
 	}
 	var sites []string
-	if d.EnableHTTPS {
+	if d.EnableHTTPS || d.ShieldNodeID != nil {
 		sites = append(sites, domain)
 		if d.EnableWWW {
 			sites = append(sites, "www."+domain)
@@ -43,7 +43,7 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 		}
 	}
 	labels[prefix] = strings.Join(sites, ", ")
-	if d.EnableHTTPS && (d.ShieldNodeID != nil || ShouldUseInternalTLS(domain)) {
+	if (d.EnableHTTPS || d.ShieldNodeID != nil) && (d.ShieldNodeID != nil || ShouldUseInternalTLS(domain)) {
 		labels[prefix+".tls"] = "internal"
 	}
 	labels[prefix+".root"] = "* " + root

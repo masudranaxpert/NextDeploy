@@ -61,7 +61,7 @@ func ValidateRoute(r *db.ProxyRoute, isValidHost func(string) bool) error {
 func RouteLabels(r db.ProxyRoute) map[string]string {
 	labels := map[string]string{}
 	var sites []string
-	if r.EnableHTTPS {
+	if r.EnableHTTPS || r.ShieldNodeID != nil {
 		sites = append(sites, r.Domain)
 		if r.EnableWWW {
 			sites = append(sites, "www."+r.Domain)
@@ -73,7 +73,7 @@ func RouteLabels(r db.ProxyRoute) map[string]string {
 		}
 	}
 	labels["caddy"] = strings.Join(sites, ", ")
-	if r.EnableHTTPS && (r.ShieldNodeID != nil || ShouldUseInternalTLS(r.Domain)) {
+	if (r.EnableHTTPS || r.ShieldNodeID != nil) && (r.ShieldNodeID != nil || ShouldUseInternalTLS(r.Domain)) {
 		labels["caddy.tls"] = "internal"
 	}
 	switch r.Kind {

@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http/httptest"
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,9 +13,7 @@ import (
 )
 
 func TestEdgeShieldEndpoints(t *testing.T) {
-	tmpDB := "/tmp/test_edge_shield.db"
-	_ = os.Remove(tmpDB)
-	defer os.Remove(tmpDB)
+	tmpDB := filepath.Join(t.TempDir(), "test_edge_shield.db")
 
 	store, err := db.Open(tmpDB)
 	if err != nil {
@@ -95,7 +93,10 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 	// 8. Test setup script endpoint
 	req = httptest.NewRequest("GET", "/api/v1/edge/setup.sh?token=test_token_123", nil)
 	resp, err = app.Test(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
+		t.Fatalf("setup script request failed: %v", err)
+	}
+	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200 for setup script, got %d", resp.StatusCode)
 	}
 
