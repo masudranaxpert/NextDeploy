@@ -1,8 +1,11 @@
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
-import React, { useState } from 'react';
-import { GitBranch, Server, Shield, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Check, Copy, GitBranch, Globe, Server, Shield, User } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
+import { backendApi } from '../../lib/backendApi';
+import { getServerPublicIp } from '../../lib/api/http';
+import { ShieldNode } from '../../types/shield';
 
 interface OverviewDashboardProps {
   telemetry: TelemetryPoint[];
@@ -42,6 +45,31 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onSelectNav,
 }) => {
   const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
+  const [originIp, setOriginIp] = useState<string>(sys?.PublicIP || getServerPublicIp() || '');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    backendApi.listShieldNodes().then((res) => {
+      if (res && res.ok) {
+        if (Array.isArray(res.nodes)) setShieldNodes(res.nodes);
+        if (res.origin_ip) setOriginIp(res.origin_ip);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const activeShield = shieldNodes.find((n) => n.status === 'connected') || shieldNodes[0];
+  const isShieldActive = Boolean(activeShield && (activeShield.status === 'connected' || shieldNodes.length > 0));
+  const targetIp = isShieldActive
+    ? activeShield.ip
+    : (originIp || sys?.PublicIP || getServerPublicIp() || (typeof window !== 'undefined' ? window.location.hostname : ''));
+
+  const handleCopyIp = () => {
+    if (!targetIp) return;
+    navigator.clipboard.writeText(targetIp);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const memUsedGB = sys?.MemUsedGB != null ? sys.MemUsedGB.toFixed(1) : '0.0';
   const memTotalGB = sys?.MemTotalGB != null ? Math.round(sys.MemTotalGB) : 0;
@@ -172,85 +200,225 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           ))}
         </div>
       )}
-      {/* Row 1: 4 Host Telemetry Cards */}
-      <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-medium text-zinc-400">Host Memory</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
-              </p>
+      {/* Row 1/2: Host Telemetry & DNS Target Cards */}
+      {isAdmin ? (
+        <div className="space-y-3.5 xl:space-y-4">
+          <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-zinc-400">Host Memory</p>
+                  <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
+                  </p>
+                </div>
+                <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-sky-400 ring-1 ring-sky-500/20">
+                  {memPct}%
+                </span>
+              </div>
+              <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
+                  style={{ width: `${memPct}%` }}
+                />
+              </div>
             </div>
-            <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-sky-400 ring-1 ring-sky-500/20">
-              {memPct}%
-            </span>
-          </div>
-          <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
-              style={{ width: `${memPct}%` }}
-            />
-          </div>
-        </div>
 
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-medium text-zinc-400">Storage (/)</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {diskUsedGB} <span className="text-xs font-normal text-zinc-500">/ {diskTotalGB} GB</span>
-              </p>
+            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-zinc-400">Storage (/)</p>
+                  <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {diskUsedGB} <span className="text-xs font-normal text-zinc-500">/ {diskTotalGB} GB</span>
+                  </p>
+                </div>
+                <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-orange-400 ring-1 ring-orange-500/20">
+                  {diskPct}%
+                </span>
+              </div>
+              <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
+                  style={{ width: `${diskPct}%` }}
+                />
+              </div>
             </div>
-            <span className="rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-orange-400 ring-1 ring-orange-500/20">
-              {diskPct}%
-            </span>
-          </div>
-          <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-              style={{ width: `${diskPct}%` }}
-            />
-          </div>
-        </div>
 
-        <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {cpuPct}
-                <span className="text-xs font-normal text-zinc-500">%</span>
-              </p>
+            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-zinc-400">CPU Load ({numCPU} vCPU)</p>
+                  <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {cpuPct}
+                    <span className="text-xs font-normal text-zinc-500">%</span>
+                  </p>
+                </div>
+                <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
+                  Healthy
+                </span>
+              </div>
+              <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
+                  style={{ width: `${cpuPct}%` }}
+                />
+              </div>
             </div>
-            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-              Healthy
-            </span>
-          </div>
-          <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-              style={{ width: `${cpuPct}%` }}
-            />
-          </div>
-        </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-medium text-zinc-400">Containers & TLS</p>
-              <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
-                {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
-              </p>
+            <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-zinc-400">Containers & TLS</p>
+                  <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
+                  </p>
+                </div>
+                <StatusBadge status="active" label="TLS 1.3" />
+              </div>
+              <div className="mt-3 flex items-center justify-between font-mono text-xs text-zinc-500">
+                <span>{apps.length} projects</span>
+                <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
+              </div>
             </div>
-            <StatusBadge status="active" label="TLS 1.3" />
           </div>
-          <div className="mt-3 flex items-center justify-between font-mono text-xs text-zinc-500">
-            <span>{apps.length} projects</span>
-            <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
+
+          {/* Admin DNS Target Banner Card */}
+          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                  isShieldActive ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'border-sky-500/25 bg-sky-500/10 text-sky-400'
+                }`}>
+                  {isShieldActive ? <Shield className="h-5 w-5" /> : <Globe className="h-5 w-5" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-medium text-zinc-400">
+                      {isShieldActive ? 'DNS Pointing Target (Shield Node)' : 'DNS Pointing Target (Server Origin IP)'}
+                    </p>
+                    {isShieldActive ? (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
+                        Shield Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-sky-400 ring-1 ring-sky-500/20">
+                        Direct
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2.5 flex-wrap">
+                    <span className="font-mono text-lg sm:text-xl font-bold tabular-nums text-zinc-100">
+                      {targetIp || 'Detecting IP...'}
+                    </span>
+                    {targetIp && (
+                      <button
+                        type="button"
+                        onClick={handleCopyIp}
+                        title="Copy IP for DNS A-record"
+                        className="inline-flex h-6 items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:border-white/[0.16] px-2 text-xs font-medium text-zinc-300 hover:text-white transition-all cursor-pointer active:scale-95"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="h-3 w-3 text-emerald-400" />
+                            <span className="text-emerald-400 font-mono text-[11px]">Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3 text-zinc-400" />
+                            <span className="font-mono text-[11px]">Copy</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="font-mono text-xs text-zinc-400 sm:text-right">
+                <p>{isShieldActive ? `Edge Proxy Node: ${activeShield.name}` : 'Point customer domain A-records to this IP'}</p>
+                {isShieldActive && originIp && originIp !== targetIp && (
+                  <p className="text-[11px] text-zinc-500 mt-0.5">Origin Server: {originIp}</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* User Balanced Grid: 2 equal-width cards */
+        <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2">
+          {/* Card 1: Containers & TLS */}
+          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-medium text-zinc-400">Containers & TLS</p>
+                <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                  {containersCount} <span className="text-xs font-normal text-zinc-500">running</span>
+                </p>
+              </div>
+              <StatusBadge status="active" label="TLS 1.3" />
+            </div>
+            <div className="mt-3 flex items-center justify-between font-mono text-xs text-zinc-500 border-t border-white/[0.04] pt-2.5">
+              <span>{apps.length} projects</span>
+              <span>{apps.reduce((acc, a) => acc + (a.domains?.length || 0), 0)} SSL routes</span>
+            </div>
+          </div>
+
+          {/* Card 2: DNS Target IP (Shield or Direct) */}
+          <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col justify-between">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-zinc-400">
+                  {isShieldActive ? 'DNS Target (Edge Shield)' : 'DNS Target (Server IP)'}
+                </p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
+                    {targetIp || 'Detecting IP...'}
+                  </span>
+                  {targetIp && (
+                    <button
+                      type="button"
+                      onClick={handleCopyIp}
+                      title="Copy IP for DNS A-record"
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:border-white/[0.16] px-2 text-xs font-medium text-zinc-300 hover:text-white transition-all cursor-pointer active:scale-95 shrink-0"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-400" />
+                          <span className="text-emerald-400 font-mono text-[10px]">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3 text-zinc-400" />
+                          <span className="font-mono text-[10px]">Copy</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {isShieldActive ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
+                  <Shield className="h-3.5 w-3.5" />
+                  Shield Active
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-xs font-medium text-sky-400 ring-1 ring-sky-500/20 shrink-0">
+                  <Globe className="h-3.5 w-3.5" />
+                  Direct Origin
+                </span>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-1 font-mono text-xs text-zinc-500 border-t border-white/[0.04] pt-2.5">
+              <span className="truncate">
+                {isShieldActive ? `Edge Node: ${activeShield.name}` : 'Point domain A-records to this IP'}
+              </span>
+              {isShieldActive && originIp && originIp !== targetIp && (
+                <span className="text-[11px] text-zinc-500 truncate">Origin: {originIp}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Row 2: Telemetry Area Chart Card */}
       <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>

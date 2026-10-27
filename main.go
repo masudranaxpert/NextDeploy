@@ -353,7 +353,7 @@ func main() {
 	app.Get("/api/v1/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
 	app.Get("/shield-proxies", p.RequireAdminMiddleware, p.ServeSPA)
-	app.Get("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.ListShieldNodes)
+	app.Get("/api/v1/shield-nodes", p.APIAuthMiddleware, p.ListShieldNodes)
 	app.Post("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.CreateShieldNode)
 	app.Put("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.UpdateShieldNode)
 	app.Delete("/api/v1/shield-nodes/:id", p.RequireAdminMiddleware, p.DeleteShieldNode)

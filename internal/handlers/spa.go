@@ -548,6 +548,13 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") == "1",
 		"telemetry_history": telemetry,
 		"public_ip":         sys.PublicIP,
+		"shield_nodes": func() []db.ShieldNode {
+			nodes, _ := p.DB.ListShieldNodes(ctx)
+			if nodes == nil {
+				return []db.ShieldNode{}
+			}
+			return nodes
+		}(),
 		"server_time":       time.Now().UTC().Format(time.RFC3339),
 	})
 }
