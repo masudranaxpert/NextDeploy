@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/runutil"
 	"panel/internal/sysinfo"
 
 	"github.com/gofiber/fiber/v2"
@@ -107,6 +109,57 @@ func (p *Panel) EdgeShieldHeartbeat(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "status": "connected", "node": node.Name})
 }
 
+// GetOriginCaddyRootCA returns the Origin Caddy local root CA certificate (PEM).
+// GET /api/v1/edge/origin-ca.crt?token=shld_...
+func (p *Panel) GetOriginCaddyRootCA(c *fiber.Ctx) error {
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
+	}
+
+	ctx := c.UserContext()
+	node, err := p.DB.GetShieldNodeByToken(ctx, token)
+	if err != nil || node == nil {
+		return c.Status(fiber.StatusUnauthorized).SendString("Invalid shield token")
+	}
+
+	// 1. Try reading directly from Caddy container via docker exec
+	res := runutil.Run(ctx, "", nil, "docker", "exec", "caddy", "cat", "/data/caddy/pki/authorities/local/root.crt")
+	if res.OK && strings.Contains(res.Output, "-----BEGIN CERTIFICATE-----") {
+		c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
+		return c.SendString(res.Output)
+	}
+
+	// 2. Try reading from host filesystem (if caddy_data volume or local path exists)
+	for _, path := range []string{
+		"/data/caddy/pki/authorities/local/root.crt",
+		"/var/lib/docker/volumes/nextdeploy_caddy_data/_data/caddy/pki/authorities/local/root.crt",
+	} {
+		if data, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
+			c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
+			return c.Send(data)
+		}
+	}
+
+	// 3. Fallback: query Caddy Admin API on internal docker network
+	client := http.Client{Timeout: 3 * time.Second}
+	for _, adminURL := range []string{"http://caddy:2019/pki/ca/local", "http://127.0.0.1:2019/pki/ca/local"} {
+		resp, aerr := client.Get(adminURL)
+		if aerr == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			var caInfo struct {
+				RootCert string `json:"root_certificate"`
+			}
+			if jerr := json.NewDecoder(resp.Body).Decode(&caInfo); jerr == nil && strings.Contains(caInfo.RootCert, "-----BEGIN CERTIFICATE-----") {
+				c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
+				return c.SendString(caInfo.RootCert)
+			}
+		}
+	}
+
+	return c.Status(fiber.StatusNotFound).SendString("Origin Caddy local root CA certificate not generated yet")
+}
+
 // GetEdgeShieldSetupScript returns a complete, automated bash installer for a Shield VPS node.
 // GET /api/v1/edge/setup.sh?id=1&token=shld_...
 func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
@@ -135,6 +188,7 @@ func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
 	}
 
 	askURL := fmt.Sprintf("%s://%s/api/v1/edge/verify-domain?token=%s", scheme, panelHost, token)
+	originCAURL := fmt.Sprintf("%s://%s/api/v1/edge/origin-ca.crt?token=%s", scheme, panelHost, token)
 	heartbeatURL := fmt.Sprintf("%s://%s/api/v1/edge/shield-heartbeat?token=%s", scheme, panelHost, token)
 
 	script := fmt.Sprintf(`#!/usr/bin/env bash
@@ -172,16 +226,29 @@ if [ -f /etc/caddy/Caddyfile ]; then
     cp /etc/caddy/Caddyfile "$BACKUP_FILE"
 fi
 
+ORIGIN_CA_URL="%s"
 ASK_URL="%s"
 ORIGIN_IP="%s"
 
+if curl -fsSL "$ORIGIN_CA_URL" -o /etc/caddy/origin-root.crt 2>/dev/null && [ -s /etc/caddy/origin-root.crt ]; then
+    echo "==> [✓] Origin Root CA pinned successfully at /etc/caddy/origin-root.crt"
+else
+    echo "==> [Notice] Origin Root CA not available yet, using fallback verification"
+    rm -f /etc/caddy/origin-root.crt 2>/dev/null || true
+fi
+
 if command -v python3 &>/dev/null; then
     python3 - "$ASK_URL" "$ORIGIN_IP" << 'PYEOF'
+import os
 import sys
 
 ask_url = sys.argv[1]
 origin_ip = sys.argv[2]
 caddyfile_path = "/etc/caddy/Caddyfile"
+origin_ca_path = "/etc/caddy/origin-root.crt"
+
+has_ca = os.path.isfile(origin_ca_path) and os.path.getsize(origin_ca_path) > 0
+tls_directive = f"tls_trusted_ca_certs {origin_ca_path}" if has_ca else "tls_insecure_skip_verify"
 
 content = ""
 try:
@@ -203,7 +270,7 @@ https:// {{
         header_up X-Forwarded-Proto https
         flush_interval -1
         transport http {{
-            tls_insecure_skip_verify
+            {tls_directive}
             tls_server_name {{host}}
             response_header_timeout 600s
             dial_timeout 15s
@@ -214,7 +281,8 @@ https:// {{
 # Catch-all HTTP (redirects visitor to HTTPS edge)
 http:// {{
     redir https://{{host}}{{uri}} permanent
-}}"""
+}}
+# === End NextDeploy Edge Shield Catch-all ==="""
 
 if not content:
     merged = f"""{{
@@ -248,12 +316,19 @@ else:
 
 """ + content
 
-    # Cleanly remove any existing NextDeploy catch-all section to prevent duplicate site address errors
-    marker = "# === NextDeploy Edge Shield Catch-all"
-    if marker in content:
-        content = content.split(marker)[0].rstrip()
+    start_marker = "# === NextDeploy Edge Shield Catch-all"
+    end_marker = "# === End NextDeploy Edge Shield Catch-all ==="
 
-    merged = content.rstrip() + "\n\n" + new_catchall + "\n"
+    if start_marker in content:
+        if end_marker in content:
+            before = content.split(start_marker)[0].rstrip()
+            after = content.split(end_marker)[1].lstrip()
+            merged = before + "\n\n" + new_catchall + "\n\n" + after
+        else:
+            before = content.split(start_marker)[0].rstrip()
+            merged = before + "\n\n" + new_catchall
+    else:
+        merged = content.rstrip() + "\n\n" + new_catchall
 
 with open(caddyfile_path, "w", encoding="utf-8") as f:
     f.write(merged.strip() + "\n")
@@ -269,8 +344,15 @@ else
 }
 CADDY_EOF
     elif grep -q "# === NextDeploy Edge Shield Catch-all" /etc/caddy/Caddyfile; then
-        # Remove previous catch-all block to prevent duplicate site address validation failure
-        sed -i '/# === NextDeploy Edge Shield Catch-all/,$d' /etc/caddy/Caddyfile
+        if grep -q "# === End NextDeploy Edge Shield Catch-all ===" /etc/caddy/Caddyfile; then
+            sed -i '/# === NextDeploy Edge Shield Catch-all/,/# === End NextDeploy Edge Shield Catch-all ===/d' /etc/caddy/Caddyfile
+        else
+            sed -i '/# === NextDeploy Edge Shield Catch-all/,$d' /etc/caddy/Caddyfile
+        fi
+    fi
+    TLS_VERIFY="tls_insecure_skip_verify"
+    if [ -s /etc/caddy/origin-root.crt ]; then
+        TLS_VERIFY="tls_trusted_ca_certs /etc/caddy/origin-root.crt"
     fi
     cat << CADDY_EOF >> /etc/caddy/Caddyfile
 
@@ -286,7 +368,7 @@ https:// {
         header_up X-Forwarded-Proto https
         flush_interval -1
         transport http {
-            tls_insecure_skip_verify
+            $TLS_VERIFY
             tls_server_name {host}
             response_header_timeout 600s
             dial_timeout 15s
@@ -296,6 +378,7 @@ https:// {
 http:// {
     redir https://{host}{uri} permanent
 }
+# === End NextDeploy Edge Shield Catch-all ===
 CADDY_EOF
 fi
 
@@ -329,7 +412,7 @@ echo " Public IP: %s -> Forwarding to Origin: %s"
 echo " All client domains pointed to %s will now automatically receive"
 echo " Let's Encrypt SSL and proxy seamlessly with zero manual effort."
 echo "=========================================================================="
-`, node.Name, node.IP, originIP, askURL, originIP, heartbeatURL, node.Name, node.IP, originIP, node.IP)
+`, node.Name, node.IP, originIP, originCAURL, askURL, originIP, heartbeatURL, node.Name, node.IP, originIP, node.IP)
 
 	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	return c.SendString(script)

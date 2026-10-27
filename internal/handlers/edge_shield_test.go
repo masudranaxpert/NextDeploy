@@ -26,6 +26,7 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 
 	app.Get("/api/v1/edge/verify-domain", p.EdgeVerifyDomain)
 	app.Get("/api/v1/edge/setup.sh", p.GetEdgeShieldSetupScript)
+	app.Get("/api/v1/edge/origin-ca.crt", p.GetOriginCaddyRootCA)
 	app.Post("/api/v1/edge/shield-heartbeat", p.EdgeShieldHeartbeat)
 	app.Get("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.ListShieldNodes)
 	app.Post("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.CreateShieldNode)
@@ -98,6 +99,19 @@ func TestEdgeShieldEndpoints(t *testing.T) {
 	}
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200 for setup script, got %d", resp.StatusCode)
+	}
+
+	// 8b. Test origin-ca.crt endpoint (without token -> 400, invalid token -> 401)
+	req = httptest.NewRequest("GET", "/api/v1/edge/origin-ca.crt", nil)
+	resp, err = app.Test(req)
+	if err != nil || resp.StatusCode != 400 {
+		t.Fatalf("expected 400 for origin-ca.crt without token, got %v (status %d)", err, resp.StatusCode)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/edge/origin-ca.crt?token=invalid_token", nil)
+	resp, err = app.Test(req)
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("expected 401 for origin-ca.crt with invalid token, got %v (status %d)", err, resp.StatusCode)
 	}
 
 	// 9. Test heartbeat endpoint

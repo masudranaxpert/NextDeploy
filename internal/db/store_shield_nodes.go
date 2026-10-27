@@ -51,6 +51,10 @@ func (s *Store) migrateShieldNodes() error {
 		_, _ = s.db.Exec(`ALTER TABLE proxy_routes ADD COLUMN shield_node_id INTEGER DEFAULT NULL`)
 	}
 
+	// Auto-heal existing shielded records so UI toggle accurately reflects HTTPS
+	_, _ = s.db.Exec(`UPDATE app_domains SET enable_https = 1 WHERE shield_node_id IS NOT NULL AND enable_https = 0`)
+	_, _ = s.db.Exec(`UPDATE proxy_routes SET enable_https = 1 WHERE shield_node_id IS NOT NULL AND enable_https = 0`)
+
 	return nil
 }
 
