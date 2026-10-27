@@ -401,6 +401,8 @@ export interface PanelUser {
   status?: 'active' | 'suspended';
   appsCount: number;
   maxApps: number;
+  databasesCount?: number;
+  maxDatabases?: number;
   cpuQuotaCores: number;
   memUsedGB: number;
   memUsedMB?: number;

@@ -245,6 +245,7 @@ export const systemAndTokensApi = {
       max_memory_mb: number;
       max_cpus: number;
       max_storage_mb: number;
+      max_databases?: number;
       bandwidth_limit_mbps?: number;
       allow_domain_file_server: boolean;
       default_shield_id?: number | null;
@@ -258,6 +259,7 @@ export const systemAndTokensApi = {
         max_memory_mb: payload.max_memory_mb,
         max_cpus: payload.max_cpus,
         max_storage_mb: payload.max_storage_mb,
+        max_databases: payload.max_databases !== undefined ? payload.max_databases : '',
         bandwidth_limit_mbps: payload.bandwidth_limit_mbps ?? 0,
         allow_domain_file_server: payload.allow_domain_file_server ? 'on' : '',
         default_shield_id: payload.default_shield_id ?? '',

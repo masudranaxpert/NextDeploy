@@ -133,6 +133,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [limitMaxCpus, setLimitMaxCpus] = useState('4');
   const [limitMaxMemoryMb, setLimitMaxMemoryMb] = useState('8192');
   const [limitMaxStorageMb, setLimitMaxStorageMb] = useState('51200');
+  const [limitMaxDatabases, setLimitMaxDatabases] = useState('5');
   const [limitAllowDomainFileServer, setLimitAllowDomainFileServer] = useState(true);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [limitDefaultShieldId, setLimitDefaultShieldId] = useState<number | null>(null);
@@ -280,6 +281,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setLimitMaxCpus(String(user.cpuQuotaCores ?? 0));
     setLimitMaxMemoryMb(String(user.maxMemoryMB ?? (user.memQuotaGB ? user.memQuotaGB * 1024 : 0)));
     setLimitMaxStorageMb(String(user.maxStorageMB ?? (user.diskQuotaGB ? user.diskQuotaGB * 1024 : 0)));
+    setLimitMaxDatabases(String(user.maxDatabases ?? 5));
     setLimitAllowDomainFileServer(user.allowDomainFileServer ?? true);
     setLimitDefaultShieldId(user.default_shield_id ?? null);
   };
@@ -345,6 +347,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     const maxCpus = Math.max(0, parseFloat(limitMaxCpus) || 0);
     const maxMemoryMb = Math.max(0, parseInt(limitMaxMemoryMb, 10) || 0);
     const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
+    const maxDatabases = Math.max(0, parseInt(limitMaxDatabases, 10) || 0);
 
     if (host) {
       const over =
@@ -382,6 +385,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         max_cpus: maxCpus,
         max_memory_mb: maxMemoryMb,
         max_storage_mb: maxStorageMb,
+        max_databases: maxDatabases,
         allow_domain_file_server: limitAllowDomainFileServer,
         default_shield_id: limitDefaultShieldId,
       });
@@ -407,6 +411,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               memQuotaGB: Math.round((maxMemoryMb / 1024) * 10) / 10,
               maxStorageMB: maxStorageMb,
               diskQuotaGB: Math.round((maxStorageMb / 1024) * 10) / 10,
+              maxDatabases,
               allowDomainFileServer: limitAllowDomainFileServer,
               default_shield_id: limitDefaultShieldId,
             }
@@ -646,7 +651,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                 <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
                   <th className="px-4 py-2.5 font-medium">User Account</th>
                   <th className="px-4 py-2.5 font-medium">Role & Status</th>
-                  <th className="px-4 py-2.5 font-medium">Projects Quota</th>
+                  <th className="px-4 py-2.5 font-medium">Apps & DB Quota</th>
                   <th className="px-4 py-2.5 font-medium">CPU / RAM / Disk Limits</th>
                   <th className="px-4 py-2.5 font-medium">Static File Server</th>
                   <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
@@ -692,13 +697,29 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-zinc-300">
-                        {isUnlimitedApps ? (
-                          <span className="text-emerald-400">{u.appsCount} / Unlimited</span>
-                        ) : (
-                          <span>
-                            {u.appsCount} / {u.maxApps} apps
-                          </span>
-                        )}
+                        <div className="space-y-0.5">
+                          <div>
+                            {isUnlimitedApps ? (
+                              <span className="text-emerald-400">{u.appsCount} apps / Unlimited</span>
+                            ) : (
+                              <span className={u.appsCount >= u.maxApps ? 'text-amber-400 font-semibold' : 'text-zinc-200'}>
+                                {u.appsCount} / {u.maxApps} apps
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">
+                            {isAdmin ? (
+                              <span className="text-emerald-400">{u.databasesCount ?? 0} DBs / Unlimited</span>
+                            ) : (
+                              <span>
+                                <span className={(u.databasesCount ?? 0) >= (u.maxDatabases || 5) ? 'text-amber-400 font-semibold' : 'text-zinc-300'}>
+                                  {u.databasesCount ?? 0}
+                                </span>
+                                {' '}/ {(u.maxDatabases && u.maxDatabases > 0) ? `${u.maxDatabases} DBs` : 'Unlimited'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-[11px] text-zinc-300">
                         {isAdmin ? (
@@ -958,6 +979,14 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   value={limitMaxApps}
                   onChange={setLimitMaxApps}
                   hint={Number(limitMaxApps) > 0 ? `${limitMaxApps} projects at most` : 'Unlimited'}
+                />
+                <LimitField
+                  label="Databases"
+                  unit="DBs"
+                  step="1"
+                  value={limitMaxDatabases}
+                  onChange={setLimitMaxDatabases}
+                  hint={Number(limitMaxDatabases) > 0 ? `${limitMaxDatabases} databases at most` : 'Unlimited'}
                 />
                 <LimitField
                   label="CPU"

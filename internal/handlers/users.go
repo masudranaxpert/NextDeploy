@@ -568,9 +568,27 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	} else {
 		var sBody struct {
 			DefaultShieldID *int64 `json:"default_shield_id"`
+			MaxDatabases    *int   `json:"max_databases"`
 		}
-		if c.BodyParser(&sBody) == nil && sBody.DefaultShieldID != nil {
-			_ = p.DB.UpdateUserShield(c.UserContext(), id, sBody.DefaultShieldID)
+		if c.BodyParser(&sBody) == nil {
+			if sBody.DefaultShieldID != nil {
+				_ = p.DB.UpdateUserShield(c.UserContext(), id, sBody.DefaultShieldID)
+			}
+			if sBody.MaxDatabases != nil && *sBody.MaxDatabases >= 0 {
+				lim := p.DB.GetPHPUserLimits(c.UserContext(), id)
+				lim.UserID = id
+				lim.MaxDatabases = *sBody.MaxDatabases
+				_ = p.DB.SetPHPUserLimits(c.UserContext(), lim)
+			}
+		}
+	}
+
+	if maxDBStr := c.FormValue("max_databases"); maxDBStr != "" {
+		if maxDB, err := strconv.Atoi(maxDBStr); err == nil && maxDB >= 0 {
+			lim := p.DB.GetPHPUserLimits(c.UserContext(), id)
+			lim.UserID = id
+			lim.MaxDatabases = maxDB
+			_ = p.DB.SetPHPUserLimits(c.UserContext(), lim)
 		}
 	}
 

@@ -250,7 +250,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
               title="Compress files or folders into .zip or .tar.gz"
             >
-              <Archive className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <Archive className="h-3.5 w-3.5 text-purple-400 shrink-0" />
               <span>Compress</span>
             </button>
 
@@ -260,7 +260,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 hover:text-white text-zinc-300 px-2.5 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
               title="Extract .zip or .tar.gz archive"
             >
-              <FolderOpen className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <FolderOpen className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span>Extract</span>
             </button>
 
@@ -269,7 +269,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
               triggerClassName="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white px-3 text-xs font-medium transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
               trigger={
                 <div className="flex items-center gap-1.5">
-                  <Wrench className="h-3.5 w-3.5 text-zinc-400" />
+                  <Wrench className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Tools</span>
                   <ChevronDown className="h-3 w-3 text-zinc-500" />
                 </div>

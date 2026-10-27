@@ -665,30 +665,44 @@ export default function App() {
     // 6. Live Users & Audit Logs
     if (Array.isArray(data.users)) {
       setUsers(
-        data.users.map((u: any) => ({
-          id: String(u.ID || u.id),
-          username: u.Username || u.username,
-          email: u.Email || u.email || `${u.Username || u.username}@nextdeploy.local`,
-          role: (u.Role || u.role || 'user') as any,
-          status: (u.Status || u.status || 'active') as any,
-          appsCount: 0,
-          maxApps: u.MaxApps || u.max_apps || 5,
-          cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
-          memUsedGB: (data.user_usage?.[String(u.ID || u.id)]?.memory_mb || 0) / 1024,
-          memUsedMB: data.user_usage?.[String(u.ID || u.id)]?.memory_mb || 0,
-          cpuUsedCores: data.user_usage?.[String(u.ID || u.id)]?.cpu_cores || 0,
-          storageUsedBytes: data.user_usage?.[String(u.ID || u.id)]?.storage_bytes || 0,
-          storageBreakdown: data.user_usage?.[String(u.ID || u.id)]?.storage,
-          memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
-          maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
-          diskUsedGB: (data.user_usage?.[String(u.ID || u.id)]?.storage_bytes || 0) / (1024 * 1024 * 1024),
-          diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
-          maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
-          bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
-          allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
-          twoFactorEnabled: false,
-          lastLoginAt: 'Recently',
-        }))
+        data.users.map((u: any) => {
+          const uid = String(u.ID || u.id);
+          const uUsage = data.user_usage?.[uid];
+          let appsCountFromList = 0;
+          if (Array.isArray(data.apps)) {
+            appsCountFromList = data.apps.filter((a: any) => String(a.owner_id ?? a.OwnerID ?? '') === uid).length;
+          }
+          const appsCount = Math.max(uUsage?.apps_count ?? 0, appsCountFromList);
+          const databasesCount = uUsage?.databases_count ?? 0;
+          const maxDatabases = uUsage?.max_databases ?? 5;
+
+          return {
+            id: uid,
+            username: u.Username || u.username,
+            email: u.Email || u.email || `${u.Username || u.username}@nextdeploy.local`,
+            role: (u.Role || u.role || 'user') as any,
+            status: (u.Status || u.status || 'active') as any,
+            appsCount,
+            databasesCount,
+            maxDatabases,
+            maxApps: u.MaxApps || u.max_apps || 5,
+            cpuQuotaCores: u.MaxCPUs || u.max_cpus || 2,
+            memUsedGB: (uUsage?.memory_mb || 0) / 1024,
+            memUsedMB: uUsage?.memory_mb || 0,
+            cpuUsedCores: uUsage?.cpu_cores || 0,
+            storageUsedBytes: uUsage?.storage_bytes || 0,
+            storageBreakdown: uUsage?.storage,
+            memQuotaGB: Math.round((u.MaxMemoryMB || u.max_memory_mb || 2048) / 1024),
+            maxMemoryMB: u.MaxMemoryMB || u.max_memory_mb || 2048,
+            diskUsedGB: (uUsage?.storage_bytes || 0) / (1024 * 1024 * 1024),
+            diskQuotaGB: Math.round((u.MaxStorageMB || u.max_storage_mb || 5120) / 1024),
+            maxStorageMB: u.MaxStorageMB || u.max_storage_mb || 5120,
+            bandwidthLimitMbps: u.BandwidthLimitMbps ?? u.bandwidth_limit_mbps ?? 0,
+            allowDomainFileServer: u.AllowDomainFileServer ?? u.allow_domain_file_server ?? false,
+            twoFactorEnabled: false,
+            lastLoginAt: 'Recently',
+          };
+        })
       );
     }
     const apiTokensMap = new Map<string, string>();

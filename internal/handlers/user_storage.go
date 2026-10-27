@@ -89,10 +89,13 @@ func (p *Panel) UserStorageBytes(ctx context.Context, userID int64) int64 {
 
 // userUsageRow is one user's live use of the server, for the admin's Team & Quotas page.
 type userUsageRow struct {
-	Storage  StorageUsage `json:"storage"`
-	Total    int64        `json:"storage_bytes"`
-	MemoryMB int64        `json:"memory_mb"`
-	CPUCores float64      `json:"cpu_cores"`
+	Storage        StorageUsage `json:"storage"`
+	Total          int64        `json:"storage_bytes"`
+	MemoryMB       int64        `json:"memory_mb"`
+	CPUCores       float64      `json:"cpu_cores"`
+	AppsCount      int          `json:"apps_count"`
+	DatabasesCount int          `json:"databases_count"`
+	MaxDatabases   int          `json:"max_databases"`
 }
 
 // allUserUsage measures every user's storage, memory and CPU at the same time (each number is
@@ -107,8 +110,22 @@ func (p *Panel) allUserUsage(ctx context.Context, users []db.User) map[string]us
 			defer wg.Done()
 			st := p.UserStorage(ctx, u.ID, false)
 			mem, cpu := p.userLiveUsage(ctx, u)
+			apps := p.ownedApps(ctx, u.ID)
+			var dbCount int
+			if p.PHP != nil {
+				dbCount, _ = p.DB.CountPHPDatabasesForOwner(ctx, u.ID)
+			}
+			lim := p.DB.GetPHPUserLimits(ctx, u.ID)
 			mu.Lock()
-			out[strconv.FormatInt(u.ID, 10)] = userUsageRow{Storage: st, Total: st.Total(), MemoryMB: mem, CPUCores: cpu}
+			out[strconv.FormatInt(u.ID, 10)] = userUsageRow{
+				Storage:        st,
+				Total:          st.Total(),
+				MemoryMB:       mem,
+				CPUCores:       cpu,
+				AppsCount:      len(apps),
+				DatabasesCount: dbCount,
+				MaxDatabases:   lim.MaxDatabases,
+			}
 			mu.Unlock()
 		}(u)
 	}
