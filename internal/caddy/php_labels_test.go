@@ -20,6 +20,10 @@ func TestSiteSecurityLabels(t *testing.T) {
 		"caddy.@xmlrpc.path":               "/xmlrpc.php",
 		"caddy.basic_auth.bob":             "$2a$10$x",
 		"caddy.header.X-Frame-Options":     "SAMEORIGIN",
+		"caddy.@media.path":                "*.ico *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2 *.webp *.avif *.ttf *.eot",
+		"caddy.header_0":                   `@media Cache-Control "public, max-age=2592000, immutable"`,
+		"caddy.@code.path":                 "*.css *.js",
+		"caddy.header_1":                   `@code Cache-Control "public, max-age=604800, stale-while-revalidate=86400"`,
 	}
 	for k, v := range want {
 		if l[k] != v {
