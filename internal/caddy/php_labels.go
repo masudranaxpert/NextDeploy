@@ -50,6 +50,8 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	labels[prefix+".encode"] = "zstd gzip"
 	labels[prefix+".header.X-Content-Type-Options"] = "nosniff"
 	labels[prefix+".header.Referrer-Policy"] = "strict-origin-when-cross-origin"
+	labels[prefix+".@static.path"] = "*.ico *.css *.js *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2 *.webp *.avif *.ttf *.eot"
+	labels[prefix+".header_0"] = `@static Cache-Control "public, max-age=2592000, immutable"`
 	// Never serve VCS metadata or dotenv files, but keep /.well-known reachable.
 	// (any depth, so a link or subfolder cannot expose them)
 	labels[prefix+".@hidden.path_regexp"] = `(^|/)\.(git|svn|hg|env|nextdeploy-db|ht[a-z]*)(/|$|\.)`
