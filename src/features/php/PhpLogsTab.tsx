@@ -96,17 +96,6 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
   const desktopLogContainerRef = useRef<HTMLDivElement>(null);
   const mobileLogContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll log console to bottom when streaming live logs
-  useEffect(() => {
-    if (!live) return;
-    if (desktopLogContainerRef.current) {
-      desktopLogContainerRef.current.scrollTop = desktopLogContainerRef.current.scrollHeight;
-    }
-    if (mobileLogContainerRef.current) {
-      mobileLogContainerRef.current.scrollTop = mobileLogContainerRef.current.scrollHeight;
-    }
-  }, [filteredLogs, live]);
-
   const load = useCallback(async () => {
     setBusy(true);
     const res = await backendApi.phpLogs(app.id, source, lines);
@@ -182,6 +171,17 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
       debug: parsedEntries.filter((l) => l.level === 'debug').length,
     };
   }, [parsedEntries]);
+
+  // Auto-scroll log console to bottom when streaming live logs
+  useEffect(() => {
+    if (!live) return;
+    if (desktopLogContainerRef.current) {
+      desktopLogContainerRef.current.scrollTop = desktopLogContainerRef.current.scrollHeight;
+    }
+    if (mobileLogContainerRef.current) {
+      mobileLogContainerRef.current.scrollTop = mobileLogContainerRef.current.scrollHeight;
+    }
+  }, [filteredLogs, live]);
 
   const handleCopyLog = (id: string, fullText: string) => {
     void copyToClipboard(fullText);
