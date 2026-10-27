@@ -149,13 +149,13 @@ echo "==> [1/4] Checking requirements & installing Caddy..."
 if ! command -v caddy &> /dev/null; then
     if [ -f /etc/debian_version ]; then
         apt-get update -qy
-        apt-get install -qy debian-keyring debian-archive-keyring apt-transport-https curl
+        apt-get install -qy debian-keyring debian-archive-keyring apt-transport-https curl python3
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg --yes
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
         apt-get update -qy
         apt-get install -qy caddy
     elif [ -f /etc/redhat-release ]; then
-        yum install -y yum-plugin-copr curl
+        yum install -y yum-plugin-copr curl python3
         yum copr enable -y @caddy/caddy
         yum install -y caddy
     else
@@ -172,47 +172,157 @@ if [ -f /etc/caddy/Caddyfile ]; then
     cp /etc/caddy/Caddyfile "$BACKUP_FILE"
 fi
 
-cat << 'EOF' > /etc/caddy/Caddyfile
-{
+ASK_URL="%s"
+ORIGIN_IP="%s"
+
+if command -v python3 &>/dev/null; then
+    python3 - "$ASK_URL" "$ORIGIN_IP" << 'PYEOF'
+import sys
+
+ask_url = sys.argv[1]
+origin_ip = sys.argv[2]
+caddyfile_path = "/etc/caddy/Caddyfile"
+
+content = ""
+try:
+    with open(caddyfile_path, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+except Exception:
+    content = ""
+
+has_catchall = ("NextDeploy Edge Shield Catch-all" in content) or (f"http://{origin_ip}:80" in content and "https://" in content)
+
+if not content:
+    merged = f"""{{
     # Global On-Demand TLS with NextDeploy verification
+    on_demand_tls {{
+        ask {ask_url}
+    }}
+}}
+
+# === NextDeploy Edge Shield Catch-all ===
+https:// {{
+    tls {{
+        on_demand
+    }}
+
+    reverse_proxy http://{origin_ip}:80 {{
+        header_up Host {{host}}
+        header_up X-Real-IP {{remote_host}}
+        header_up X-Forwarded-For {{remote_host}}
+        header_up X-Forwarded-Proto {{scheme}}
+        flush_interval -1
+        transport http {{
+            response_header_timeout 600s
+            dial_timeout 15s
+        }}
+    }}
+}}
+
+# Catch-all HTTP (handles ACME challenges & basic forwarding)
+http:// {{
+    reverse_proxy http://{origin_ip}:80 {{
+        header_up Host {{host}}
+        header_up X-Real-IP {{remote_host}}
+        header_up X-Forwarded-For {{remote_host}}
+        header_up X-Forwarded-Proto {{scheme}}
+    }}
+}}
+"""
+else:
+    # Smart merge: preserve all existing user sites and append NextDeploy catch-all
+    if "on_demand_tls" not in content:
+        lines = content.splitlines()
+        first_code_idx = -1
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                first_code_idx = i
+                break
+        if first_code_idx != -1 and lines[first_code_idx].strip() == "{":
+            lines.insert(first_code_idx + 1, f"    # NextDeploy verification\n    on_demand_tls {{\n        ask {ask_url}\n    }}")
+            content = "\n".join(lines)
+        else:
+            content = f"""{{
+    on_demand_tls {{
+        ask {ask_url}
+    }}
+}}
+
+""" + content
+
+    if not has_catchall:
+        content += f"""
+
+# === NextDeploy Edge Shield Catch-all (Preserves all existing sites above) ===
+https:// {{
+    tls {{
+        on_demand
+    }}
+
+    reverse_proxy http://{origin_ip}:80 {{
+        header_up Host {{host}}
+        header_up X-Real-IP {{remote_host}}
+        header_up X-Forwarded-For {{remote_host}}
+        header_up X-Forwarded-Proto {{scheme}}
+        flush_interval -1
+        transport http {{
+            response_header_timeout 600s
+            dial_timeout 15s
+        }}
+    }}
+}}
+
+# Catch-all HTTP (handles ACME challenges & basic forwarding)
+http:// {{
+    reverse_proxy http://{origin_ip}:80 {{
+        header_up Host {{host}}
+        header_up X-Real-IP {{remote_host}}
+        header_up X-Forwarded-For {{remote_host}}
+        header_up X-Forwarded-Proto {{scheme}}
+    }}
+}}
+"""
+    merged = content
+
+with open(caddyfile_path, "w", encoding="utf-8") as f:
+    f.write(merged.strip() + "\n")
+print("==> [Notice] NextDeploy Shield successfully merged into /etc/caddy/Caddyfile without modifying existing sites!")
+PYEOF
+else
+    if [ ! -s /etc/caddy/Caddyfile ]; then
+        cat << CADDY_EOF > /etc/caddy/Caddyfile
+{
     on_demand_tls {
-        ask %s
+        ask $ASK_URL
     }
 }
+CADDY_EOF
+    fi
+    cat << CADDY_EOF >> /etc/caddy/Caddyfile
 
-# Catch-all HTTPS for all verified domains
+# === NextDeploy Edge Shield Catch-all ===
 https:// {
     tls {
         on_demand
     }
-
-    reverse_proxy http://%s:80 {
+    reverse_proxy http://$ORIGIN_IP:80 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
-        
-        # Real-time WebSocket & streaming support
-        flush_interval -1
-
-        # Resilient timeouts for large file uploads & migrations
-        transport http {
-            response_header_timeout 600s
-            dial_timeout 15s
-        }
     }
 }
-
-# Catch-all HTTP (handles ACME challenges & basic forwarding)
 http:// {
-    reverse_proxy http://%s:80 {
+    reverse_proxy http://$ORIGIN_IP:80 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
 }
-EOF
+CADDY_EOF
+fi
 
 echo "==> [3/4] Validating and starting Caddy service..."
 if command -v systemctl &> /dev/null; then
@@ -232,7 +342,7 @@ echo " Public IP: %s -> Forwarding to Origin: %s"
 echo " All client domains pointed to %s will now automatically receive"
 echo " Let's Encrypt SSL and proxy seamlessly with zero manual effort."
 echo "=========================================================================="
-`, node.Name, node.IP, originIP, askURL, originIP, originIP, heartbeatURL, node.Name, node.IP, originIP, node.IP)
+`, node.Name, node.IP, originIP, askURL, originIP, heartbeatURL, node.Name, node.IP, originIP, node.IP)
 
 	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	return c.SendString(script)
