@@ -481,12 +481,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer text-center ${
-              tab === t.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+            className={`inline-flex items-center justify-center gap-1 sm:gap-1.5 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors cursor-pointer text-center ${
+              tab === t.id ? 'bg-zinc-800 text-zinc-100 shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <t.icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{t.label}</span>
+            <span className="whitespace-nowrap">{t.label}</span>
           </button>
         ))}
       </div>
