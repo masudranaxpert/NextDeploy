@@ -190,7 +190,7 @@ try:
 except Exception:
     content = ""
 
-has_catchall = ("NextDeploy Edge Shield Catch-all" in content) or (f"http://{origin_ip}:80" in content and "https://" in content)
+has_catchall = ("NextDeploy Edge Shield Catch-all" in content) or (f"https://{origin_ip}:443" in content and "https://" in content)
 
 if not content:
     merged = f"""{{
@@ -206,27 +206,23 @@ https:// {{
         on_demand
     }}
 
-    reverse_proxy http://{origin_ip}:80 {{
+    reverse_proxy https://{origin_ip}:443 {{
         header_up Host {{host}}
         header_up X-Real-IP {{remote_host}}
         header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto {{scheme}}
+        header_up X-Forwarded-Proto https
         flush_interval -1
         transport http {{
+            tls_insecure_skip_verify
             response_header_timeout 600s
             dial_timeout 15s
         }}
     }}
 }}
 
-# Catch-all HTTP (handles ACME challenges & basic forwarding)
+# Catch-all HTTP (redirects visitor to HTTPS edge)
 http:// {{
-    reverse_proxy http://{origin_ip}:80 {{
-        header_up Host {{host}}
-        header_up X-Real-IP {{remote_host}}
-        header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto {{scheme}}
-    }}
+    redir https://{{host}}{{uri}} permanent
 }}
 """
 else:
@@ -260,27 +256,23 @@ https:// {{
         on_demand
     }}
 
-    reverse_proxy http://{origin_ip}:80 {{
+    reverse_proxy https://{origin_ip}:443 {{
         header_up Host {{host}}
         header_up X-Real-IP {{remote_host}}
         header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto {{scheme}}
+        header_up X-Forwarded-Proto https
         flush_interval -1
         transport http {{
+            tls_insecure_skip_verify
             response_header_timeout 600s
             dial_timeout 15s
         }}
     }}
 }}
 
-# Catch-all HTTP (handles ACME challenges & basic forwarding)
+# Catch-all HTTP (redirects visitor to HTTPS edge)
 http:// {{
-    reverse_proxy http://{origin_ip}:80 {{
-        header_up Host {{host}}
-        header_up X-Real-IP {{remote_host}}
-        header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto {{scheme}}
-    }}
+    redir https://{{host}}{{uri}} permanent
 }}
 """
     merged = content
@@ -306,20 +298,20 @@ https:// {
     tls {
         on_demand
     }
-    reverse_proxy http://$ORIGIN_IP:80 {
+    reverse_proxy https://$ORIGIN_IP:443 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Proto https
+        transport http {
+            tls_insecure_skip_verify
+            response_header_timeout 600s
+            dial_timeout 15s
+        }
     }
 }
 http:// {
-    reverse_proxy http://$ORIGIN_IP:80 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+    redir https://{host}{uri} permanent
 }
 CADDY_EOF
 fi

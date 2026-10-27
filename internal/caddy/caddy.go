@@ -696,7 +696,7 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	}
 
 	sites := make([]string, 0, 2)
-	if d.EnableHTTPS && d.ShieldNodeID == nil {
+	if d.EnableHTTPS {
 		sites = append(sites, domain)
 		if d.EnableWWW {
 			sites = append(sites, "www."+domain)
@@ -716,7 +716,7 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 	labels[prefix+".header.Referrer-Policy"] = "strict-origin-when-cross-origin"
 	labels[prefix+".header.X-XSS-Protection"] = "1; mode=block"
 
-	if d.EnableHTTPS && d.ShieldNodeID == nil && ShouldUseInternalTLS(domain) {
+	if d.EnableHTTPS && (d.ShieldNodeID != nil || ShouldUseInternalTLS(domain)) {
 		labels[prefix+".tls"] = "internal"
 	}
 
