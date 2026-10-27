@@ -136,6 +136,51 @@ check_memory() {
   fi
 }
 
+tune_system() {
+  info "Checking kernel and network tuning..."
+  local current_cc
+  current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "")
+  if [[ "$current_cc" != "bbr" ]]; then
+    info "Enabling Google BBR + FQ network pacing..."
+    modprobe tcp_bbr 2>/dev/null || true
+    if ! grep -q 'tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null; then
+      echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
+      echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+      echo 'net.ipv4.tcp_slow_start_after_idle=0' >> /etc/sysctl.conf
+      echo 'net.core.somaxconn=65535' >> /etc/sysctl.conf
+    fi
+    sysctl -p 2>/dev/null || true
+    if [[ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" == "bbr" ]]; then
+      success "Google BBR congestion control enabled"
+    fi
+  else
+    success "TCP BBR is already active"
+  fi
+
+  local swap_kb
+  swap_kb=$(grep SwapTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+  if [[ "$swap_kb" -eq 0 && "$MEM_MB" -le 2048 && "$MEM_MB" -gt 0 ]]; then
+    info "Low RAM ($MEM_MB MB) and no swap detected. Creating 2GB swapfile..."
+    (fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null) || true
+    if [[ -f /swapfile ]]; then
+      chmod 600 /swapfile
+      mkswap /swapfile 2>/dev/null || true
+      swapon /swapfile 2>/dev/null || true
+      if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      fi
+      success "2GB swapfile created and activated"
+    fi
+  fi
+
+  if [[ -f /swapfile || "$swap_kb" -gt 0 ]]; then
+    if ! grep -q 'vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
+      echo 'vm.swappiness=10' >> /etc/sysctl.conf
+      sysctl -w vm.swappiness=10 2>/dev/null || true
+    fi
+  fi
+}
+
 # ── Docker install (if missing) ───────────────────────────────────────────────
 install_docker() {
   info "Installing Docker via official script..."
@@ -620,6 +665,7 @@ main() {
   check_ports
   check_docker
   check_docker_compose
+  tune_system
 
   echo ""
   echo -e "${BOLD}Installing NextDeploy...${RESET}"
