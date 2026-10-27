@@ -100,8 +100,20 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 
 	ci := inspectContainer(ctx, name)
 	if ci.Exists && ci.Running && ci.Labels["nd.php.hash"] == want {
-		if err := WritePools(poolsDir, pools); err != nil {
+		changed, err := WritePools(poolsDir, pools)
+		if err != nil {
 			return err
+		}
+		// If pool configuration did not change and all pool sockets are alive, keep serving without reloading.
+		socketsOk := true
+		for _, id := range ids {
+			if _, err := os.Stat(filepath.Join(runDir, id+".sock")); err != nil {
+				socketsOk = false
+				break
+			}
+		}
+		if !changed && socketsOk {
+			return nil
 		}
 		if res := docker(ctx, "kill", "-s", "USR2", name); !res.OK {
 			return fmt.Errorf("reload php-fpm: %s", res.Output)
@@ -110,7 +122,7 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 	}
 
 	removeContainer(ctx, name)
-	if err := WritePools(poolsDir, pools); err != nil {
+	if _, err := WritePools(poolsDir, pools); err != nil {
 		return err
 	}
 	if socks, _ := filepath.Glob(filepath.Join(runDir, "*.sock")); len(socks) > 0 {

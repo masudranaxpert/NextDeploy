@@ -1,6 +1,7 @@
 package phphosting
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path"
@@ -108,18 +109,24 @@ func RenderPool(sp PoolSpec) (string, error) {
 }
 
 // WritePools writes the given pool files into dir and removes stale ones.
-func WritePools(dir string, pools map[string]string) error {
+// It returns true if any pool configuration was added, updated, or removed.
+func WritePools(dir string, pools map[string]string) (bool, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		return false, err
 	}
+	changed := false
 	for name, content := range pools {
-		if err := writeFileAtomic(filepath.Join(dir, name+".conf"), []byte(content), 0644); err != nil {
-			return err
+		c, err := writeFileAtomic(filepath.Join(dir, name+".conf"), []byte(content), 0644)
+		if err != nil {
+			return false, err
+		}
+		if c {
+			changed = true
 		}
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, e := range entries {
 		n := e.Name()
@@ -128,30 +135,38 @@ func WritePools(dir string, pools map[string]string) error {
 		}
 		if _, ok := pools[strings.TrimSuffix(n, ".conf")]; !ok {
 			_ = os.Remove(filepath.Join(dir, n))
+			changed = true
 		}
 	}
-	return nil
+	return changed, nil
 }
 
-func writeFileAtomic(p string, data []byte, perm os.FileMode) error {
+func writeFileAtomic(p string, data []byte, perm os.FileMode) (bool, error) {
+	if existing, err := os.ReadFile(p); err == nil && bytes.Equal(existing, data) {
+		return false, nil
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(p), ".tmp-*")
 	if err != nil {
-		return err
+		return false, err
 	}
 	name := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(name)
-		return err
+		return false, err
 	}
 	if err := tmp.Chmod(perm); err != nil {
 		tmp.Close()
 		os.Remove(name)
-		return err
+		return false, err
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(name)
-		return err
+		return false, err
 	}
-	return os.Rename(name, p)
+	if err := os.Rename(name, p); err != nil {
+		os.Remove(name)
+		return false, err
+	}
+	return true, nil
 }
