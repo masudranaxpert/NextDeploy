@@ -124,7 +124,8 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
       )}
 
       <Card title="Site">
-        <div className="divide-y divide-white/[0.05]">
+        {/* Mobile: stacked key-value rows */}
+        <div className="divide-y divide-white/[0.05] sm:hidden">
           <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
             <div className="shrink-0 text-xs text-zinc-500">Type</div>
             <Pill tone="orange">
@@ -172,6 +173,75 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
                   onClick={onOpenFiles}
                   title="Open in File Manager"
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-[#09090b] text-zinc-400 transition-colors hover:border-white/[0.14] hover:text-orange-400 cursor-pointer"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop: 4-column horizontal card grid */}
+        <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-4">
+          <div>
+            <div className="text-[11px] text-zinc-500">Site Type</div>
+            <div className="mt-1">
+              <Pill tone="orange">
+                <SiteTypeIcon type={detail.site.site_type} className="h-3 w-3" />
+                {SITE_TYPE_LABEL[detail.site.site_type]}
+              </Pill>
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] text-zinc-500">Runtime</div>
+            <div className="mt-1 flex items-center gap-1.5">
+              {isStatic ? <Pill>no PHP</Pill> : (
+                <>
+                  <Pill tone="violet">PHP {detail.site.php_version}</Pill>
+                  <Pill tone={runtimeTone}>
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${runtimeTone === 'green' ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]' : runtimeTone === 'red' ? 'bg-rose-400' : 'bg-zinc-400'}`} aria-hidden="true" />
+                    {detail.runtime.state}
+                  </Pill>
+                </>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] text-zinc-500">System user (UID)</div>
+            <div className="mt-1">
+              <button
+                type="button"
+                onClick={() => void copyValue(String(detail.site.uid), 'uid')}
+                title="Click to copy UID"
+                className="group inline-flex items-center gap-1.5 font-mono text-xs font-medium tabular-nums text-zinc-100 transition-colors hover:text-white cursor-pointer"
+              >
+                {detail.site.uid}
+                <span className="flex h-5 w-5 items-center justify-center rounded bg-white/[0.04] text-zinc-500 transition-colors group-hover:bg-white/[0.09] group-hover:text-zinc-100">
+                  {copied === 'uid' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                </span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] text-zinc-500">Document root</div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void copyValue(detail.doc_root, 'docroot')}
+                title="Click to copy document root"
+                className="group flex min-w-0 flex-1 items-center justify-between gap-1.5 rounded-lg border border-white/[0.07] bg-[#09090b] px-2.5 py-1 font-mono text-[11px] text-zinc-300 transition-colors hover:border-white/[0.14] hover:text-zinc-100 cursor-pointer"
+              >
+                <span className="truncate" title={detail.doc_root}>{detail.doc_root}</span>
+                <span className="shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-100">
+                  {copied === 'docroot' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                </span>
+              </button>
+              {onOpenFiles && (
+                <button
+                  type="button"
+                  onClick={onOpenFiles}
+                  title="Open in File Manager"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-[#09090b] text-zinc-400 transition-colors hover:border-white/[0.14] hover:text-orange-400 cursor-pointer"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                 </button>

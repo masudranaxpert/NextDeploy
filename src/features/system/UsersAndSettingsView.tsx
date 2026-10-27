@@ -1629,11 +1629,11 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2 w-full">
+          <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:w-auto">
             <button
               type="button"
               onClick={() => setShowCleanupLogModal(true)}
-              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
+              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer flex items-center justify-center gap-1.5 transition-colors sm:w-auto"
             >
               <Terminal className="h-3.5 w-3.5 text-zinc-400" />
               <span>Last Output</span>
@@ -1655,7 +1655,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   toast.success('Executed Docker container, image & network prune');
                 }
               }}
-              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-orange-400 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
+              className="h-9 px-3 rounded-lg border border-white/[0.08] bg-zinc-900 text-xs font-medium text-orange-400 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 transition-colors sm:w-auto"
             >
               <RefreshCw className={`h-3.5 w-3.5 text-orange-400 ${cleanupRunning ? 'animate-spin' : ''}`} />
               <span>{cleanupRunning ? 'Running...' : 'Run Cleanup Now'}</span>

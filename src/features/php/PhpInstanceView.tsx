@@ -164,17 +164,17 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
           </Field>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <div className="mt-3 grid grid-cols-2 gap-2.5 sm:flex sm:items-center">
           {!m.running ? (
-            <PrimaryButton busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', snapToBinaryRAM(memory, m.host_memory_mb)), 'Starting database server…')}>
+            <PrimaryButton className="col-span-2 sm:w-auto" busy={busy === 'my-on' || data.mysql_task.running} onClick={() => act('my-on', () => backendApi.phpMysql('enable', snapToBinaryRAM(memory, m.host_memory_mb)), 'Starting database server…')}>
               <Power className="h-3.5 w-3.5" /> {m.exists ? 'Start' : 'Set up'} database
             </PrimaryButton>
           ) : (
             <>
-              <GhostButton busy={busy === 'my-re' || data.mysql_task.running} onClick={() => act('my-re', () => backendApi.phpMysql('restart', snapToBinaryRAM(memory, m.host_memory_mb)), 'Restarting database server…')}>
+              <GhostButton className="sm:w-auto" busy={busy === 'my-re' || data.mysql_task.running} onClick={() => act('my-re', () => backendApi.phpMysql('restart', snapToBinaryRAM(memory, m.host_memory_mb)), 'Restarting database server…')}>
                 <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Apply / restart
               </GhostButton>
-              <GhostButton tone="danger" busy={busy === 'my-off'} onClick={() => { if (window.confirm('Stop the database server? Sites that use databases will stop working until it is started again.')) void act('my-off', () => backendApi.phpMysql('disable'), 'Database server stopped'); }}>
+              <GhostButton className="sm:w-auto" tone="danger" busy={busy === 'my-off'} onClick={() => { if (window.confirm('Stop the database server? Sites that use databases will stop working until it is started again.')) void act('my-off', () => backendApi.phpMysql('disable'), 'Database server stopped'); }}>
                 Stop
               </GhostButton>
             </>
@@ -258,14 +258,14 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
                 {m.query_limit_supported ? '0 = off' : 'N/A'}
               </span>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2.5">
+            <div className="mt-2 grid grid-cols-2 gap-2.5 sm:flex sm:items-center">
               <input
                 type="number"
                 min={0}
                 max={3600}
                 step={10}
                 disabled={!m.query_limit_supported}
-                className={inputCls}
+                className={`${inputCls} sm:w-36`}
                 value={querySeconds}
                 onChange={(e) => setQuerySeconds(Number(e.target.value))}
               />
@@ -273,7 +273,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
                 busy={busy === 'my-q'}
                 disabled={!m.query_limit_supported || querySeconds === m.query_seconds}
                 onClick={() => act('my-q', () => backendApi.phpMysqlQueryLimit(querySeconds), 'Query limit saved')}
-                className="!border-emerald-500/30 !bg-emerald-500/10 !text-emerald-300 hover:!bg-emerald-500/20"
+                className="!border-emerald-500/30 !bg-emerald-500/10 !text-emerald-300 hover:!bg-emerald-500/20 sm:w-auto"
               >
                 Save limit
               </GhostButton>

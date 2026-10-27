@@ -130,8 +130,8 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
       </div>
 
       {!envRawMode && (
-        <div className="space-y-2.5">
-          <div className="relative w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+          <div className="relative w-full sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
             <input
               type="text"

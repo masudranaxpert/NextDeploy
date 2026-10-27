@@ -163,10 +163,24 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
             <span className="text-sm font-semibold text-zinc-100">Cronjobs</span>
           </span>
         }
-        actions={!limits.unlimited ? <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill> : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            {!limits.unlimited && (
+              <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_cron_jobs}/{limits.max_cron_jobs || '∞'} used</Pill>
+            )}
+            <div className="hidden sm:flex sm:items-center sm:gap-2">
+              <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
+                <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
+              </GhostButton>
+              <PrimaryButton onClick={openCreate} disabled={limitReached}>
+                <Plus className="h-3.5 w-3.5" /> Add cron job
+              </PrimaryButton>
+            </div>
+          </div>
+        }
       >
         {min > 1 && <p className="mb-3 text-[11px] text-zinc-500">Minimum interval: {min} minutes.</p>}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:hidden">
           <GhostButton onClick={() => setHelp(true)} title="How to add a cron job">
             <BookOpen className="h-3.5 w-3.5 text-zinc-400" /> Docs
           </GhostButton>
@@ -175,7 +189,7 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
           </PrimaryButton>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 sm:mt-0">
         {(detail.cron_jobs ?? []).length === 0 ? (
           <EmptyState icon={<Clock className="h-6 w-6" />} text="No cron jobs yet." />
         ) : (

@@ -180,14 +180,30 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
             </span>
           </span>
         }
-        actions={<Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_databases}/{limits.max_databases || '∞'} used</Pill>}
+        actions={
+          <div className="flex items-center gap-2">
+            {!limits.unlimited && (
+              <Pill tone={limitReached ? 'amber' : 'zinc'}>{limits.used_databases}/{limits.max_databases || '∞'} used</Pill>
+            )}
+            <div className="hidden sm:flex sm:items-center sm:gap-2">
+              {detail.pma?.enabled && databases.length > 0 && (
+                <GhostButton disabled={!mysql.ready} busy={busy === 'pma'} onClick={() => void openPma()}>
+                  <PhpMyAdminIcon className="h-3.5 w-3.5" /> phpMyAdmin
+                </GhostButton>
+              )}
+              <PrimaryButton disabled={!mysql.ready || limitReached} onClick={() => setDbOpen(true)}>
+                <Plus className="h-3.5 w-3.5" /> Add database
+              </PrimaryButton>
+            </div>
+          </div>
+        }
       >
         {!mysql.ready && (
           <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             The database server is not running.
           </div>
         )}
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:hidden">
           {detail.pma?.enabled && databases.length > 0 && (
             <GhostButton disabled={!mysql.ready} busy={busy === 'pma'} onClick={() => void openPma()}>
               <PhpMyAdminIcon className="h-3.5 w-3.5" /> phpMyAdmin
