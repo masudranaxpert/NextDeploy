@@ -828,9 +828,6 @@ func ShouldUseInternalTLS(domain string) bool {
 			return true
 		}
 	}
-	if IsBehindCloudflare(domain) {
-		return true
-	}
 	return false
 }
 

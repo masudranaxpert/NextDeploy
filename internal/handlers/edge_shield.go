@@ -177,8 +177,6 @@ cat << 'EOF' > /etc/caddy/Caddyfile
     # Global On-Demand TLS with NextDeploy verification
     on_demand_tls {
         ask %s
-        interval 2m
-        burst 10
     }
 }
 
