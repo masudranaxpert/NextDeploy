@@ -190,17 +190,7 @@ try:
 except Exception:
     content = ""
 
-has_catchall = ("NextDeploy Edge Shield Catch-all" in content) or (f"https://{origin_ip}:443" in content and "https://" in content)
-
-if not content:
-    merged = f"""{{
-    # Global On-Demand TLS with NextDeploy verification
-    on_demand_tls {{
-        ask {ask_url}
-    }}
-}}
-
-# === NextDeploy Edge Shield Catch-all ===
+new_catchall = f"""# === NextDeploy Edge Shield Catch-all ===
 https:// {{
     tls {{
         on_demand
@@ -223,10 +213,20 @@ https:// {{
 # Catch-all HTTP (redirects visitor to HTTPS edge)
 http:// {{
     redir https://{{host}}{{uri}} permanent
+}}"""
+
+if not content:
+    merged = f"""{{
+    # Global On-Demand TLS with NextDeploy verification
+    on_demand_tls {{
+        ask {ask_url}
+    }}
 }}
+
+{new_catchall}
 """
 else:
-    # Smart merge: preserve all existing user sites and append NextDeploy catch-all
+    # Smart merge: preserve all existing user sites and cleanly update NextDeploy catch-all
     if "on_demand_tls" not in content:
         lines = content.splitlines()
         first_code_idx = -1
@@ -247,35 +247,12 @@ else:
 
 """ + content
 
-    if not has_catchall:
-        content += f"""
+    # Cleanly remove any existing NextDeploy catch-all section to prevent duplicate site address errors
+    marker = "# === NextDeploy Edge Shield Catch-all"
+    if marker in content:
+        content = content.split(marker)[0].rstrip()
 
-# === NextDeploy Edge Shield Catch-all (Preserves all existing sites above) ===
-https:// {{
-    tls {{
-        on_demand
-    }}
-
-    reverse_proxy https://{origin_ip}:443 {{
-        header_up Host {{host}}
-        header_up X-Real-IP {{remote_host}}
-        header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto https
-        flush_interval -1
-        transport http {{
-            tls_insecure_skip_verify
-            response_header_timeout 600s
-            dial_timeout 15s
-        }}
-    }}
-}}
-
-# Catch-all HTTP (redirects visitor to HTTPS edge)
-http:// {{
-    redir https://{{host}}{{uri}} permanent
-}}
-"""
-    merged = content
+    merged = content.rstrip() + "\n\n" + new_catchall + "\n"
 
 with open(caddyfile_path, "w", encoding="utf-8") as f:
     f.write(merged.strip() + "\n")
@@ -290,6 +267,9 @@ else
     }
 }
 CADDY_EOF
+    elif grep -q "# === NextDeploy Edge Shield Catch-all" /etc/caddy/Caddyfile; then
+        # Remove previous catch-all block to prevent duplicate site address validation failure
+        sed -i '/# === NextDeploy Edge Shield Catch-all/,$d' /etc/caddy/Caddyfile
     fi
     cat << CADDY_EOF >> /etc/caddy/Caddyfile
 
@@ -303,6 +283,7 @@ https:// {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto https
+        flush_interval -1
         transport http {
             tls_insecure_skip_verify
             response_header_timeout 600s
