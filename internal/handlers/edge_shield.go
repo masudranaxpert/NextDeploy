@@ -218,6 +218,29 @@ if ! command -v caddy &> /dev/null; then
     fi
 fi
 
+echo "==> [Kernel Tuning] Enabling Google BBR, socket limits & swap protection..."
+if ! grep -q 'tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null; then
+    echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
+    echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+    echo 'net.ipv4.tcp_slow_start_after_idle=0' >> /etc/sysctl.conf
+    echo 'net.core.somaxconn=65535' >> /etc/sysctl.conf
+    sysctl -p 2>/dev/null || true
+fi
+
+# Ensure at least 2GB swap for buffer stability on low-memory edge nodes
+if command -v free &>/dev/null && [ $(free -m 2>/dev/null | awk '/Swap/{print $2}') -eq 0 ]; then
+    echo "==> Configuring swapfile for buffer safety..."
+    (fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null) || true
+    if [ -f /swapfile ]; then
+        chmod 600 /swapfile
+        mkswap /swapfile 2>/dev/null || true
+        swapon /swapfile 2>/dev/null || true
+        if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+        fi
+    fi
+fi
+
 echo "==> [2/4] Generating optimized Caddy reverse-proxy configuration..."
 mkdir -p /etc/caddy
 if [ -f /etc/caddy/Caddyfile ]; then
