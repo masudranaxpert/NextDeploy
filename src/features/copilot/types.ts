@@ -65,6 +65,7 @@ export interface CopilotMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  attached?: string[];
   thinking?: string;
   thinkingDurationSec?: number;
   toolCalls?: ToolExecution[];
@@ -77,6 +78,7 @@ export interface CopilotMessage {
 export interface ChatSession {
   id: string;
   title: string;
+  group?: string;
   createdAt: number;
   updatedAt: number;
   messageCount: number;

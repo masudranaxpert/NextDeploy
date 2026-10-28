@@ -10,6 +10,7 @@ import type {
   OAuthPrompt,
   ThinkingLevel,
   ChatSession,
+  AutonomyMode,
 } from './types';
 
 const SESSIONS_STORAGE_KEY = 'nd_ai_sessions';
@@ -474,15 +475,29 @@ export function useCopilot() {
     };
   }, [refreshEngine]);
 
+  // Set Autonomy Mode
+  const setAutonomyMode = useCallback(
+    async (mode: AutonomyMode) => {
+      setStatus((prev) => ({ ...prev, autonomyMode: mode }));
+      await requestJson('/api/v1/copilot/mode', {
+        method: 'POST',
+        body: JSON.stringify({ mode }),
+      });
+      await refreshEngine();
+    },
+    [refreshEngine]
+  );
+
   // Send prompt
   const sendPrompt = useCallback(
-    async (messageText: string) => {
+    async (messageText: string, attachedFiles: string[] = []) => {
       if (!messageText.trim() || isProcessing) return;
 
       const userMsg: CopilotMessage = {
         id: `u_${Date.now()}`,
         role: 'user',
         content: messageText.trim(),
+        attached: attachedFiles.length ? attachedFiles : undefined,
         timestamp: Date.now(),
       };
 
@@ -520,9 +535,14 @@ export function useCopilot() {
         return next;
       });
 
+      let fullPrompt = messageText.trim();
+      if (attachedFiles.length > 0) {
+        fullPrompt = `[Attached files: ${attachedFiles.join(', ')}]\n\n${fullPrompt}`;
+      }
+
       const res = await requestJson('/api/v1/copilot/prompt', {
         method: 'POST',
-        body: JSON.stringify({ message: messageText }),
+        body: JSON.stringify({ message: fullPrompt }),
       });
 
       if (!res.ok) {
@@ -593,6 +613,7 @@ export function useCopilot() {
     submitOAuthInput,
     saveProviders,
     status,
+    setAutonomyMode,
     isProcessing,
     connectionError,
     sendPrompt,
