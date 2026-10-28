@@ -97,11 +97,31 @@ export function toolToStep(tc: ToolExecution): Step {
     case 'ast_edit':
       label = `${running ? 'Editing' : 'Edited'} ${base(args.path)}`;
       patch = (typeof details?.diff === 'string' && ompDiffToPatch(details.diff)) || patchFromArgs(args);
+      if (!patch && typeof args.input === 'string') {
+        detail = args.input; // omp's edit tool takes one `input` text
+        detailLabel = 'Edit';
+      }
       break;
-    case 'bash':
-      label = `${running ? 'Running' : 'Ran'} ${trim(String(args.command ?? ''), 72)}`;
-      detail = String(args.command ?? '');
-      detailLabel = 'Command';
+    case 'bash': {
+      const cmd = String(args.command ?? '');
+      const bg = args.async || args.name ? ' in the background' : '';
+      label = `${running ? 'Running' : 'Ran'} ${trim(cmd.split('\n')[0], 72)}${bg}`;
+      detail = cmd;
+      detailLabel = args.cwd ? `Command in ${args.cwd}` : 'Command';
+      break;
+    }
+    case 'eval': {
+      // omp's code tool (Python / JavaScript): show the code that ran.
+      const code = String(args.code ?? '');
+      label = intent || `${running ? 'Running' : 'Ran'} ${args.language || 'code'}`;
+      hint = trim(code.split('\n').find((l) => l.trim()) ?? '', 90);
+      detail = code;
+      detailLabel = args.language ? `Code (${args.language})` : 'Code';
+      break;
+    }
+    case 'container_action':
+      label = intent || 'Container action';
+      hint = `${args.action ?? ''} ${args.container ?? ''}`.trim();
       break;
     case 'grep':
       label = `Searched for “${trim(String(args.pattern ?? ''), 48)}”`;
@@ -132,6 +152,8 @@ export function toolToStep(tc: ToolExecution): Step {
   }
   if (!hint && (name === 'read' || name === 'write' || name === 'edit' || name === 'ast_edit') && typeof args.path === 'string') hint = trim(args.path, 70);
   if (!hint && name === 'grep' && typeof args.path === 'string') hint = trim(args.path, 60);
+  if (!hint && name === 'web_search') hint = undefined;
+  if (!hint && name === 'bash' && args.cwd) hint = trim(String(args.cwd), 60);
 
   if (!detail && Object.keys(args).length) {
     const { i: _i, ...rest } = args;
