@@ -42,7 +42,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 const components: Components = {
   p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-400 underline underline-offset-2 hover:text-sky-300">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-orange-400 underline underline-offset-2 hover:text-orange-300">
       {children}
     </a>
   ),
@@ -52,11 +52,11 @@ const components: Components = {
   h2: ({ children }) => <h2 className="mt-4 mb-1.5 text-[15px] font-semibold text-foreground">{children}</h2>,
   h3: ({ children }) => <h3 className="mt-3 mb-1 text-sm font-semibold text-foreground">{children}</h3>,
   h4: ({ children }) => <h4 className="mt-3 mb-1 text-[13px] font-semibold text-foreground">{children}</h4>,
-  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 marker:text-muted-foreground">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 marker:text-muted-foreground">{children}</ol>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 marker:text-orange-400/80">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 marker:text-orange-400/80">{children}</ol>,
   li: ({ children }) => <li className="pl-0.5">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>
+    <blockquote className="my-2 border-l-2 border-orange-500/40 pl-3 text-muted-foreground">{children}</blockquote>
   ),
   hr: () => <hr className="my-4 border-border/70" />,
   img: ({ src, alt }) => <img src={src} alt={alt} loading="lazy" className="my-2 max-h-96 max-w-full rounded-md" />,
@@ -76,7 +76,9 @@ const components: Components = {
     return <CodeBlock code={code} lang={lang} />;
   },
   code: ({ className, children }) => (
-    <code className={cn('rounded-sm bg-foreground/[0.08] px-1 py-0.5 font-mono text-[0.92em] break-words', className)}>{children}</code>
+    <code className={cn('rounded border border-orange-500/25 bg-orange-500/[0.08] px-1.5 py-0.5 font-mono text-[0.9em] text-orange-300 break-words', className)}>
+      {children}
+    </code>
   ),
 };
 
