@@ -1,7 +1,7 @@
 # Multi-stage build for NextDeploy Panel
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
-ARG TARGETOS
-ARG TARGETARCH
+FROM golang:1.24-alpine AS build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 WORKDIR /src
 
 # Download dependencies
