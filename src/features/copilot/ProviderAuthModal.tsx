@@ -402,10 +402,10 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowNewVal(!showNewVal)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       aria-label={showNewVal ? 'Hide secret' : 'Show secret'}
                     >
-                      {showNewVal ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                      {showNewVal ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
                     </button>
                   </div>
                 </div>
@@ -460,18 +460,15 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
                               onClick={() => toggleReveal(sec.name)}
                               title={isRevealed ? 'Mask secret' : 'Reveal secret'}
                               aria-label={isRevealed ? 'Mask secret' : 'Reveal secret'}
-                              className={cn(
-                                btn,
-                                'size-8 px-0 text-muted-foreground hover:bg-accent hover:text-foreground md:size-8'
-                              )}
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                             >
-                              {isRevealed ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                              {isRevealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
                             </button>
 
                             <button
@@ -479,15 +476,12 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                               onClick={() => handleCopySecret(sec.name, sec.value)}
                               title="Copy secret value"
                               aria-label="Copy secret value"
-                              className={cn(
-                                btn,
-                                'size-8 px-0 text-muted-foreground hover:bg-accent hover:text-foreground md:size-8'
-                              )}
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                             >
                               {isCopied ? (
-                                <CheckIcon className="size-3.5 text-emerald-400" />
+                                <CheckIcon className="size-4 text-emerald-400" />
                               ) : (
-                                <CopyIcon className="size-3.5" />
+                                <CopyIcon className="size-4" />
                               )}
                             </button>
 
@@ -497,15 +491,12 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                               onClick={() => handleDeleteSecret(sec.name)}
                               title="Delete secret"
                               aria-label="Delete secret"
-                              className={cn(
-                                btn,
-                                'size-8 px-0 text-muted-foreground hover:bg-destructive/15 hover:text-destructive md:size-8'
-                              )}
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground hover:bg-destructive/15 hover:text-destructive transition-colors disabled:opacity-50"
                             >
                               {isBusy ? (
-                                <Loader2Icon className="size-3.5 animate-spin" />
+                                <Loader2Icon className="size-4 animate-spin" />
                               ) : (
-                                <Trash2Icon className="size-3.5" />
+                                <Trash2Icon className="size-4" />
                               )}
                             </button>
                           </div>
