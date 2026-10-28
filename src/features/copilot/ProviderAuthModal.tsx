@@ -65,6 +65,13 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
     onStartOAuth(providerId);
   };
 
+  // When oauthPrompt arrives, clear connecting spinner
+  useEffect(() => {
+    if (oauthPrompt) {
+      setConnectingProviderId(null);
+    }
+  }, [oauthPrompt]);
+
   const toggleShow = (key: string) => {
     setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }));
   };

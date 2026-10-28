@@ -410,11 +410,15 @@ export function useCopilot() {
           }
 
           case 'oauth_open_url': {
-            setOauthPrompt({
-              id: ev.token,
+            setOauthPrompt((prev) => ({
+              ...(prev || { id: ev.token }),
+              id: ev.token || prev?.id || 'oauth',
               url: ev.url,
               instructions: ev.instructions,
-            });
+            }));
+            if (ev.url) {
+              window.open(ev.url, '_blank', 'noopener,noreferrer');
+            }
             break;
           }
 

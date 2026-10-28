@@ -1,0 +1,1 @@
+import"./rolldown-runtime-BWaJ3C7D.js";import{i as e,t}from"./vendor-react-Crg9zhOY.js";import{t as n}from"./index-CWEVnXS-.js";e();var r=t(),i=()=>(0,r.jsx)(`div`,{className:`h-[calc(100vh-4rem)] w-full overflow-hidden rounded-2xl border border-white/[0.08] bg-[#090a0b] shadow-2xl`,children:(0,r.jsx)(n,{initialSidebarOpen:!0})});export{i as CopilotView};

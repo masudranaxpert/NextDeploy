@@ -13,6 +13,7 @@ export type ApiResult<T = Record<string, unknown>> = {
 
 const DEFAULT_HEADERS: Record<string, string> = {
   Accept: 'application/json',
+  'Content-Type': 'application/json',
   'X-Requested-With': 'XMLHttpRequest',
   'X-NextDeploy-Client': 'spa',
 };
@@ -98,6 +99,9 @@ export async function requestJson<T = Record<string, unknown>>(
       ...(options.headers as Record<string, string> | undefined),
     };
     if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+      delete headers['Content-Type'];
+    }
+    if (!options.body && method === 'GET') {
       delete headers['Content-Type'];
     }
     const res = await fetch(path, {
