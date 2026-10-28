@@ -8,6 +8,12 @@ export interface SlashCommandItem {
   name: string
   description?: string
   hint?: string
+  source?: string
+  subcommands?: Array<{
+    name: string
+    description?: string
+    usage?: string
+  }>
 }
 
 function Composer({
@@ -46,6 +52,7 @@ function Composer({
   slashCommands?: SlashCommandItem[]
 }) {
   const textarea = React.useRef<HTMLTextAreaElement>(null)
+  const listRef = React.useRef<HTMLDivElement>(null)
   const ready = canSubmit ?? value.trim().length > 0
   const stops = running && !ready
   const Icon = stops ? Square : ArrowUp
@@ -55,24 +62,36 @@ function Composer({
   const [slashOpen, setSlashOpen] = React.useState(false)
 
   // Detect slash command at start or active word
-  const matchSlash = value.startsWith("/") ? value.slice(1).trim().toLowerCase() : null
+  const isSlashActive = value.startsWith("/")
+  const slashQuery = isSlashActive ? value.slice(1).trim().toLowerCase() : null
   const filteredCommands = React.useMemo(() => {
-    if (matchSlash === null) return []
+    if (slashQuery === null) return []
+    if (slashQuery === "") return slashCommands
     return slashCommands.filter(
       (cmd) =>
-        cmd.name.toLowerCase().includes(matchSlash) ||
-        (cmd.description && cmd.description.toLowerCase().includes(matchSlash))
+        cmd.name.toLowerCase().includes(slashQuery) ||
+        (cmd.description && cmd.description.toLowerCase().includes(slashQuery)) ||
+        (cmd.hint && cmd.hint.toLowerCase().includes(slashQuery))
     )
-  }, [matchSlash, slashCommands])
+  }, [slashQuery, slashCommands])
 
   React.useEffect(() => {
-    if (matchSlash !== null && filteredCommands.length > 0) {
+    if (slashQuery !== null && filteredCommands.length > 0) {
       setSlashOpen(true)
       setSlashIndex(0)
     } else {
       setSlashOpen(false)
     }
-  }, [matchSlash, filteredCommands.length])
+  }, [slashQuery, filteredCommands.length])
+
+  React.useEffect(() => {
+    if (slashOpen && listRef.current) {
+      const activeEl = listRef.current.children[slashIndex] as HTMLElement
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: "nearest" })
+      }
+    }
+  }, [slashIndex, slashOpen])
 
   const resize = React.useCallback(() => {
     const el = textarea.current
@@ -121,22 +140,41 @@ function Composer({
       {slashOpen && filteredCommands.length > 0 && (
         <div
           data-slot="slash-menu"
-          className="glass-panel absolute bottom-full left-0 mb-2 w-72 overflow-hidden rounded-lg p-1.5 shadow-xl ring-1 ring-foreground/10 z-50 animate-in fade-in-0 zoom-in-95"
+          className="absolute bottom-full left-0 mb-2 w-full max-w-[560px] overflow-hidden rounded-xl border border-white/[0.12] bg-[#0c0d0e]/95 p-1.5 shadow-2xl backdrop-blur-md z-50 animate-in fade-in-0 zoom-in-95 duration-100"
         >
-          <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">Slash Commands</div>
-          <div className="max-h-48 overflow-y-auto [scrollbar-width:thin] flex flex-col gap-0.5">
+          <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-white/[0.04] mb-1">
+            <span>OMP Commands & Skills</span>
+            <span className="font-mono text-[9px] text-zinc-600">Tab or ↵ to select</span>
+          </div>
+          <div ref={listRef} className="max-h-64 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] flex flex-col gap-0.5">
             {filteredCommands.map((cmd, i) => (
               <button
                 key={cmd.name}
                 type="button"
                 onClick={() => applySlashCommand(cmd)}
                 className={cn(
-                  "flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors outline-none",
-                  i === slashIndex ? "glass-chosen text-foreground font-medium" : "text-foreground/80 hover:bg-accent"
+                  "flex w-full items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors outline-none",
+                  i === slashIndex ? "bg-orange-500/20 text-orange-200 font-medium" : "text-zinc-300 hover:bg-white/[0.04]"
                 )}
               >
-                <span className="font-mono text-accent-foreground font-semibold shrink-0">/{cmd.name}</span>
-                <span className="flex-1 truncate text-muted-foreground">{cmd.description || cmd.hint || ""}</span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate font-mono font-semibold text-orange-400">/{cmd.name}</span>
+                    {cmd.hint && cmd.hint !== "arguments" && (
+                      <span className="font-mono text-[10px] text-zinc-400 bg-white/[0.04] border border-white/[0.08] px-1.5 py-0.5 rounded shrink-0 max-w-[40%] truncate">
+                        {cmd.hint}
+                      </span>
+                    )}
+                  </div>
+                  {cmd.description && (
+                    <span className="line-clamp-2 text-[11px] leading-snug text-zinc-400">{cmd.description}</span>
+                  )}
+                </div>
+                {cmd.source && (
+                  <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-500 shrink-0 self-start pt-0.5">
+                    {cmd.source}
+                  </span>
+                )}
               </button>
             ))}
           </div>

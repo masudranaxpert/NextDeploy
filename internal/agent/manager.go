@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,29 +18,50 @@ import (
 	"panel/internal/phphosting"
 )
 
-// AutonomyMode defines whether mutating actions require user confirmation.
+// AutonomyMode is omp's own `tools.approvalMode`; the panel does not invent
+// a second approval system. Legacy "safe"/"autonomous" map onto it.
 type AutonomyMode string
 
 const (
-	AutonomySafe       AutonomyMode = "safe"       // Mutating actions require confirmation
-	AutonomyAutonomous AutonomyMode = "autonomous" // Fully autonomous execution
+	AutonomyAskAlways  AutonomyMode = "always-ask"        // confirm every tool call
+	AutonomyAskCached  AutonomyMode = "always-ask-cached" // confirm once per tool/path, then remember
+	AutonomySafe       AutonomyMode = "write"             // confirm changes, read freely
+	AutonomyAutonomous AutonomyMode = "yolo"              // never ask
 )
+
+// ParseAutonomyMode accepts omp's values and the legacy panel names.
+func ParseAutonomyMode(s string) (AutonomyMode, bool) {
+	switch s {
+	case "always-ask", "always-ask-cached", "write", "yolo":
+		return AutonomyMode(s), true
+	case "safe":
+		return AutonomySafe, true
+	case "autonomous":
+		return AutonomyAutonomous, true
+	}
+	return "", false
+}
 
 // AgentEvent is sent over SSE to connected frontend clients.
 type AgentEvent struct {
-	Type         string           `json:"type"`                // ready, text_delta, thinking_delta, tool_start, tool_end, approval_required, agent_end, oauth_open_url, oauth_input_required, error
-	MessageID    string           `json:"messageId,omitempty"` // correlation ID
-	Delta        string           `json:"delta,omitempty"`     // streaming text or thinking chunk
-	ToolName     string           `json:"toolName,omitempty"`  // active tool
-	ToolArgs     string           `json:"toolArgs,omitempty"`  // arguments JSON string
-	Result       string           `json:"result,omitempty"`    // tool execution output
-	IsError      bool             `json:"isError,omitempty"`   // whether tool execution failed
-	Approval     *ApprovalRequest `json:"approval,omitempty"`  // pending confirmation details
-	URL          string           `json:"url,omitempty"`       // OAuth URL to open in browser
-	Instructions string           `json:"instructions,omitempty"`
-	Token        string           `json:"token,omitempty"`
-	Placeholder  string           `json:"placeholder,omitempty"`
-	Timestamp    int64            `json:"timestamp"`
+	Type          string           `json:"type"`                // ready, text_delta, thinking_delta, tool_start, tool_end, approval_required, agent_end, oauth_open_url, oauth_input_required, error, commands_update, thinking_level_changed
+	MessageID     string           `json:"messageId,omitempty"` // correlation ID
+	Delta         string           `json:"delta,omitempty"`     // streaming text or thinking chunk
+	ThinkingLevel string           `json:"thinkingLevel,omitempty"`
+	ToolName      string           `json:"toolName,omitempty"` // active tool
+	ToolArgs      string           `json:"toolArgs,omitempty"` // arguments JSON string
+	Result        string           `json:"result,omitempty"`   // tool execution output
+	IsError       bool             `json:"isError,omitempty"`  // whether tool execution failed
+	Approval      *ApprovalRequest `json:"approval,omitempty"` // pending confirmation details
+	URL           string           `json:"url,omitempty"`      // OAuth URL to open in browser
+	Instructions  string           `json:"instructions,omitempty"`
+	Token         string           `json:"token,omitempty"`
+	Placeholder   string           `json:"placeholder,omitempty"`
+	ToolCallID    string           `json:"toolCallId,omitempty"`
+	Level         string           `json:"level,omitempty"`  // notice severity
+	Data          any              `json:"data,omitempty"`   // structured payload (state, subagents, compaction, retry)
+	Intent        string           `json:"intent,omitempty"` // the model's one-line description of a tool call
+	Timestamp     int64            `json:"timestamp"`
 }
 
 // ApprovalRequest represents a pending confirmation for safe mode.
@@ -65,6 +89,9 @@ type Manager struct {
 	// Pending inputs for OAuth and extension UI
 	pendingInputs map[string]chan string
 
+	// Pending multi-question "ask" dialogs
+	pendingAsks map[string]chan []omprpc.AskAnswer
+
 	// OMP available slash commands
 	availableCommands []omprpc.AvailableSlashCommand
 
@@ -73,20 +100,85 @@ type Manager struct {
 	subscribers map[chan AgentEvent]struct{}
 
 	ompPath string
+
+	// DataDir is the panel's persistent volume. omp keeps its logins, skills,
+	// settings and conversation history under <DataDir>/omp/agent so they
+	// survive container rebuilds. Empty means omp's default (~/.omp/agent).
+	dataDir string
+
+	// Idle reaper: omp is stopped when unused (it is resumed from its session
+	// file on the next request) so an idle panel costs no memory.
+	lastActivity atomic.Int64 // unix ms
+	reaperOnce   sync.Once
+	stop         chan struct{}
+
+	// needsLogin is true when omp only started thanks to the placeholder key.
+	needsLogin bool
+
+	// Working directory the omp subprocess runs in (see workdir.go).
+	cwdKind  string // "root" | "site" | "temp"
+	cwdAppID string
+	tempDir  string
 }
 
 // NewManager creates a new agent manager instance.
 func NewManager(database *db.Store, phpMgr *phphosting.Manager, root string) *Manager {
-	return &Manager{
+	m := &Manager{
 		DB:            database,
 		PHP:           phpMgr,
 		Root:          root,
 		autonomyMode:  AutonomySafe,
 		confirmations: make(map[string]chan bool),
 		pendingInputs: make(map[string]chan string),
+		pendingAsks:   make(map[string]chan []omprpc.AskAnswer),
 		subscribers:   make(map[chan AgentEvent]struct{}),
 		ompPath:       findOMPBinary(),
+		cwdKind:       "root",
+		stop:          make(chan struct{}),
 	}
+	m.touch()
+	if database != nil {
+		ctx := context.Background()
+		if mode, ok := ParseAutonomyMode(database.GetSetting(ctx, "ai_approval_mode")); ok {
+			m.autonomyMode = mode
+		}
+		switch database.GetSetting(ctx, "ai_workdir_kind") {
+		case "site":
+			if id := database.GetSetting(ctx, "ai_workdir_app"); ValidAppID(id) {
+				if _, err := m.siteDir(id); err == nil {
+					m.cwdKind, m.cwdAppID = "site", id
+				}
+			}
+		case "temp":
+			m.cwdKind = "temp"
+		}
+	}
+	return m
+}
+
+const bootstrapEnv = "ANTHROPIC_API_KEY=nextdeploy-no-credentials"
+
+var appIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+
+// ValidAppID reports whether id is a safe single path segment for a workspace.
+func ValidAppID(id string) bool {
+	return appIDPattern.MatchString(id) && id != "." && id != ".."
+}
+
+// siteDir resolves a workspace directory for app id, refusing anything outside Root.
+func (m *Manager) siteDir(id string) (string, error) {
+	if !ValidAppID(id) {
+		return "", fmt.Errorf("invalid app id")
+	}
+	dir := filepath.Join(m.Root, id)
+	if rel, err := filepath.Rel(m.Root, dir); err != nil || rel != id {
+		return "", fmt.Errorf("invalid app id")
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("workspace not found: %s", id)
+	}
+	return dir, nil
 }
 
 func findOMPBinary() string {
@@ -114,7 +206,7 @@ func findOMPBinary() string {
 
 // Subscribe returns a channel of events and a cancel function.
 func (m *Manager) Subscribe() (chan AgentEvent, func()) {
-	ch := make(chan AgentEvent, 128)
+	ch := make(chan AgentEvent, 512)
 	m.subMu.Lock()
 	m.subscribers[ch] = struct{}{}
 	m.subMu.Unlock()
@@ -130,12 +222,20 @@ func (m *Manager) Subscribe() (chan AgentEvent, func()) {
 
 func (m *Manager) broadcast(ev AgentEvent) {
 	ev.Timestamp = time.Now().UnixMilli()
+	critical := ev.Type == "approval_required" || ev.Type == "agent_end" || ev.Type == "error" ||
+		ev.Type == "oauth_open_url" || ev.Type == "oauth_input_required"
 	m.subMu.RLock()
 	defer m.subMu.RUnlock()
 	for ch := range m.subscribers {
 		select {
 		case ch <- ev:
 		default:
+			if critical {
+				select {
+				case ch <- ev:
+				case <-time.After(2 * time.Second):
+				}
+			}
 		}
 	}
 }
@@ -158,55 +258,87 @@ func (m *Manager) GetAutonomyMode() AutonomyMode {
 func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.touch()
+	m.reaperOnce.Do(func() { go m.reapIdle() })
 
 	if m.client != nil && m.client.Err() == nil {
 		return m.client, nil
 	}
 
 	tools := m.buildHostTools()
-	cmd := exec.Command(m.ompPath, "--mode", "rpc-ui", "--no-session")
-	cmd.Dir = m.Root
-	cmd.Stderr = os.Stderr
-
+	cwd, err := m.resolveCwdLocked()
+	if err != nil {
+		return nil, err
+	}
 	env := os.Environ()
-	hasAnyKey := false
+	if dir := m.AgentDir(); m.dataDir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("agent: create omp state dir: %w", err)
+		}
+		env = append(env, "PI_CODING_AGENT_DIR="+dir)
+		// HOME inside the volume too: ~/.ssh keys, ~/.agents/skills, git and docker
+		// config the agent sets up survive container rebuilds.
+		home := m.HomeDir()
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			return nil, fmt.Errorf("agent: create omp home: %w", err)
+		}
+		env = append(env, "HOME="+home)
+	}
 	if m.DB != nil {
-		keys := []struct {
-			setting string
-			envVar  string
-		}{
-			{"ai_openai_api_key", "OPENAI_API_KEY"},
-			{"ai_anthropic_api_key", "ANTHROPIC_API_KEY"},
-			{"ai_deepseek_api_key", "DEEPSEEK_API_KEY"},
-			{"ai_gemini_api_key", "GEMINI_API_KEY"},
-			{"ai_openrouter_api_key", "OPENROUTER_API_KEY"},
-			{"ai_groq_api_key", "GROQ_API_KEY"},
-			{"ai_xai_api_key", "XAI_API_KEY"},
-			{"ai_zai_api_key", "ZAI_API_KEY"},
-			{"ai_zhipu_api_key", "ZHIPU_API_KEY"},
-			{"ai_custom_api_key", "CUSTOM_API_KEY"},
-			{"ai_custom_base_url", "OPENAI_BASE_URL"},
-			{"ai_ollama_host", "OLLAMA_HOST"},
-		}
-		for _, item := range keys {
-			if k := m.DB.GetSetting(ctx, item.setting); k != "" {
-				env = append(env, item.envVar+"="+k)
-				hasAnyKey = true
-			}
+		if all, err := m.DB.GetAllSettings(ctx); err == nil {
+			env = append(env, ProviderEnv(all)...)
 		}
 	}
-	// Bootstrap key so omp doesn't exit when no provider is authenticated yet
-	if !hasAnyKey && os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("OPENAI_API_KEY") == "" {
-		env = append(env, "ANTHROPIC_API_KEY=none")
-	}
-	cmd.Env = env
 
-	client, err := omprpc.Start(ctx, cmd, omprpc.WithHostTools(tools...))
+	start := func(env []string, extra ...string) (*omprpc.Client, error) {
+		args := []string{"--mode", "rpc-ui", "--cwd", cwd}
+		if overlay, err := m.writeOverlay(); err == nil {
+			args = append(args, "--config", overlay)
+		}
+		cmd := exec.Command(m.ompPath, append(args, extra...)...)
+		cmd.Dir = cwd
+		cmd.Stderr = os.Stderr
+		cmd.Env = env
+		return omprpc.Start(ctx, cmd, omprpc.WithHostTools(tools...))
+	}
+	launch := func(env []string) (*omprpc.Client, error) {
+		if m.cwdKind == "temp" {
+			return start(env, "--no-session") // scratch dir: nothing worth keeping
+		}
+		// Resume the last conversation for this directory. omp refuses to start
+		// when that conversation's model is no longer available (e.g. the login
+		// was removed), so fall back to a fresh conversation instead of failing.
+		if c, err := start(env, "--continue"); err == nil {
+			return c, nil
+		}
+		return start(env)
+	}
+	client, err := launch(env)
+	m.needsLogin = false
+	if err != nil {
+		// With no credentials at all omp exits ("No default model selected")
+		// before the RPC handshake, which would also hide the login flow. A
+		// placeholder key lets it start; GetLoginProviders never reports that
+		// placeholder as a real login.
+		client, err = launch(append(env, bootstrapEnv))
+		m.needsLogin = err == nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("agent: failed to start omp rpc: %w", err)
 	}
 
+	// Surface subagent progress and apply persisted engine toggles.
+	_, _ = client.SetSubagentSubscription(ctx, omprpc.SetSubagentSubscriptionCommand{Level: omprpc.SubagentSubscriptionLevelProgress})
 	if m.DB != nil {
+		if v := m.DB.GetSetting(ctx, "ai_fast_mode"); v != "" {
+			_, _ = client.SetFastMode(ctx, omprpc.SetFastModeCommand{Enabled: v == "1"})
+		}
+		if v := m.DB.GetSetting(ctx, "ai_auto_compaction"); v != "" {
+			_ = client.SetAutoCompaction(ctx, omprpc.SetAutoCompactionCommand{Enabled: v == "1"})
+		}
+		if v := m.DB.GetSetting(ctx, "ai_auto_retry"); v != "" {
+			_ = client.SetAutoRetry(ctx, omprpc.SetAutoRetryCommand{Enabled: v == "1"})
+		}
 		activeProvider := m.DB.GetSetting(ctx, "ai_active_provider")
 		activeModel := m.DB.GetSetting(ctx, "ai_active_model")
 		if activeModel != "" {
@@ -225,6 +357,19 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 
 	m.client = client
 	go m.processEvents(client)
+	go m.pushState(client)
+
+	// Eagerly prefetch available slash commands catalog from omp
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if cmds, err := client.GetAvailableCommands(bgCtx); err == nil && len(cmds) > 0 {
+			m.mu.Lock()
+			m.availableCommands = cmds
+			m.mu.Unlock()
+			m.broadcast(AgentEvent{Type: "commands_update"})
+		}
+	}()
 
 	m.broadcast(AgentEvent{Type: "ready", Delta: "OMP Engine initialized successfully"})
 	return client, nil
@@ -235,55 +380,156 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 	defer client.Close()
 
 	for frame := range client.Frames() {
+		m.touch()
 		switch v := frame.Value.(type) {
 		case omprpc.MessageUpdateEvent:
 			m.handleMessageUpdate(v)
 
 		case omprpc.ToolExecutionStartEvent:
-			rawArgs, _ := json.Marshal(v.Args)
 			m.broadcast(AgentEvent{
-				Type:     "tool_start",
-				ToolName: v.ToolName,
-				ToolArgs: string(rawArgs),
+				Type:       "tool_start",
+				ToolCallID: v.ToolCallID,
+				ToolName:   v.ToolName,
+				ToolArgs:   string(v.Args),
+				Intent:     derefStr(v.Intent),
 			})
 
 		case omprpc.ToolExecutionUpdateEvent:
-			rawPartial, _ := json.Marshal(v.PartialResult)
 			m.broadcast(AgentEvent{
-				Type:     "tool_update",
-				ToolName: v.ToolName,
-				Result:   string(rawPartial),
+				Type:       "tool_update",
+				ToolCallID: v.ToolCallID,
+				ToolName:   v.ToolName,
+				Result:     string(v.PartialResult),
 			})
 
 		case omprpc.ToolExecutionEndEvent:
-			rawResult, _ := json.Marshal(v.Result)
 			m.broadcast(AgentEvent{
-				Type:     "tool_end",
-				ToolName: v.ToolName,
-				Result:   string(rawResult),
-				IsError:  v.IsError != nil && *v.IsError,
+				Type:       "tool_end",
+				ToolCallID: v.ToolCallID,
+				ToolName:   v.ToolName,
+				Result:     string(v.Result),
+				IsError:    v.IsError != nil && *v.IsError,
 			})
+			if strings.Contains(strings.ToLower(v.ToolName), "todo") {
+				go m.pushState(client)
+			}
 
 		case omprpc.AvailableCommandsUpdateEvent:
 			m.mu.Lock()
 			m.availableCommands = v.Commands
 			m.mu.Unlock()
-			m.broadcast(AgentEvent{
-				Type: "commands_update",
-			})
+			m.broadcast(AgentEvent{Type: "commands_update"})
+
+		case omprpc.ThinkingLevelChangedEvent:
+			lvl := ""
+			if v.ThinkingLevel != nil {
+				lvl = string(*v.ThinkingLevel)
+			} else if v.Configured != nil {
+				lvl = string(*v.Configured)
+			}
+			m.broadcast(AgentEvent{Type: "thinking_level_changed", ThinkingLevel: lvl})
 
 		case omprpc.ExtensionUiRequest:
 			m.handleExtensionUI(client, v)
 
 		case omprpc.PromptResultEvent:
-			m.activePrompt.Store(false)
-			m.broadcast(AgentEvent{Type: "agent_end"})
+			if !v.AgentInvoked || v.Status != omprpc.PromptStatusCompleted {
+				m.activePrompt.Store(false)
+			}
+			if v.Error != nil {
+				m.broadcast(AgentEvent{Type: "error", Delta: v.Error.Message})
+			}
+			if !v.AgentInvoked {
+				m.broadcast(AgentEvent{Type: "agent_end"})
+			}
 
 		case omprpc.AgentEndEvent:
-			m.activePrompt.Store(false)
-			m.broadcast(AgentEvent{Type: "agent_end"})
+			// isTerminal:false means async delivery will resume the session.
+			if v.IsTerminal == nil || *v.IsTerminal {
+				m.activePrompt.Store(false)
+				m.broadcast(AgentEvent{Type: "agent_end"})
+				go m.pushState(client)
+			}
+
+		case omprpc.NoticeEvent:
+			m.broadcast(AgentEvent{Type: "notice", Level: string(v.Level), Delta: v.Message})
+
+		case omprpc.SessionInfoUpdateEvent:
+			m.broadcast(AgentEvent{Type: "session_info"})
+
+		case omprpc.CommandOutputEvent:
+			m.broadcast(AgentEvent{Type: "command_output", Delta: v.Text})
+
+		case omprpc.ModelChangedEvent, omprpc.ConfigUpdateEvent, omprpc.TodoReminderEvent, omprpc.TodoAutoClearEvent:
+			go m.pushState(client)
+
+		case omprpc.AutoCompactionStartEvent:
+			m.broadcast(AgentEvent{Type: "compaction_start", Data: map[string]any{"reason": v.Reason, "action": v.Action}})
+
+		case omprpc.AutoCompactionEndEvent:
+			msg := ""
+			if v.ErrorMessage != nil {
+				msg = *v.ErrorMessage
+			}
+			m.broadcast(AgentEvent{Type: "compaction_end", Data: map[string]any{"aborted": v.Aborted, "willRetry": v.WillRetry, "error": msg}})
+			go m.pushState(client)
+
+		case omprpc.RetryFallbackAppliedEvent:
+			m.broadcast(AgentEvent{Type: "notice", Level: "warning", Delta: "Switched model: " + v.From + " → " + v.To})
+
+		case omprpc.AutoRetryStartEvent:
+			m.broadcast(AgentEvent{Type: "retry_start", Delta: v.ErrorMessage, Data: map[string]any{"attempt": v.Attempt, "maxAttempts": v.MaxAttempts, "delayMs": v.DelayMs}})
+
+		case omprpc.AutoRetryEndEvent:
+			final := ""
+			if v.FinalError != nil {
+				final = *v.FinalError
+			}
+			m.broadcast(AgentEvent{Type: "retry_end", Delta: final, Data: map[string]any{"success": v.Success, "attempt": v.Attempt}})
+
+		case omprpc.SubagentLifecycleEvent:
+			m.broadcast(AgentEvent{Type: "subagent", Data: v.Payload})
+
+		case omprpc.SubagentProgressEvent:
+			m.broadcast(AgentEvent{Type: "subagent_progress", Data: v.Payload})
 		}
 	}
+	// An intentional stop (restart, idle reaper) clears m.client first; only a
+	// crash leaves it pointing here and needs the UI unblocked.
+	m.mu.RLock()
+	crashed := m.client == client
+	m.mu.RUnlock()
+	if crashed {
+		m.activePrompt.Store(false)
+		m.broadcast(AgentEvent{Type: "engine_exit"})
+	}
+}
+
+// pushState broadcasts a snapshot of the omp session (model, thinking, context, todos).
+func (m *Manager) pushState(client *omprpc.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	st, err := client.GetState(ctx)
+	if err != nil {
+		return
+	}
+	data := map[string]any{
+		"isStreaming":  st.IsStreaming,
+		"isCompacting": st.IsCompacting,
+		"fastMode":     st.FastModeEnabled,
+		"autoCompact":  st.AutoCompactionEnabled,
+		"todoPhases":   st.TodoPhases,
+		"contextUsage": st.ContextUsage,
+		"queued":       st.QueuedMessageCount,
+	}
+	if st.Model != nil {
+		data["model"] = st.Model.ID
+		data["provider"] = st.Model.Provider
+	}
+	if st.ThinkingLevel != nil {
+		data["thinkingLevel"] = string(*st.ThinkingLevel)
+	}
+	m.broadcast(AgentEvent{Type: "state", Data: data})
 }
 
 func (m *Manager) handleMessageUpdate(v omprpc.MessageUpdateEvent) {
@@ -292,6 +538,9 @@ func (m *Manager) handleMessageUpdate(v omprpc.MessageUpdateEvent) {
 		m.broadcast(AgentEvent{Type: "text_delta", Delta: ev.Delta})
 	case omprpc.AssistantThinkingDeltaEvent:
 		m.broadcast(AgentEvent{Type: "thinking_delta", Delta: ev.Delta})
+	case omprpc.AssistantErrorEvent:
+		msg := derefStr(ev.Error.ErrorMessage)
+		m.broadcast(AgentEvent{Type: "assistant_error", Level: string(ev.Reason), Delta: msg})
 	}
 }
 
@@ -367,19 +616,94 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 			Placeholder: placeholder,
 			Timestamp:   time.Now().UnixMilli(),
 		})
+		m.awaitInput(client, ui.ID, ch, ui.Timeout)
 
-		go func(id string, c chan string) {
+	case omprpc.SelectUiRequest:
+		ch := make(chan string, 1)
+		m.mu.Lock()
+		m.pendingInputs[ui.ID] = ch
+		m.mu.Unlock()
+		m.broadcast(AgentEvent{
+			Type:  "ui_select",
+			Token: ui.ID,
+			Delta: ui.Title,
+			Data:  map[string]any{"options": ui.Options, "details": ui.OptionDetails},
+		})
+		m.awaitInput(client, ui.ID, ch, ui.Timeout)
+
+	case omprpc.EditorUiRequest:
+		ch := make(chan string, 1)
+		m.mu.Lock()
+		m.pendingInputs[ui.ID] = ch
+		m.mu.Unlock()
+		prefill := ""
+		if ui.Prefill != nil {
+			prefill = *ui.Prefill
+		}
+		m.broadcast(AgentEvent{Type: "ui_editor", Token: ui.ID, Delta: ui.Title, Placeholder: prefill})
+		m.awaitInput(client, ui.ID, ch, nil)
+
+	case omprpc.AskUiRequest:
+		ch := make(chan []omprpc.AskAnswer, 1)
+		m.mu.Lock()
+		m.pendingAsks[ui.ID] = ch
+		m.mu.Unlock()
+		m.broadcast(AgentEvent{Type: "ui_ask", Token: ui.ID, Data: map[string]any{"questions": ui.Questions}})
+		d := 10 * time.Minute
+		if ui.Timeout != nil && *ui.Timeout > 0 {
+			d = time.Duration(*ui.Timeout) * time.Millisecond
+		}
+		go func(id string) {
 			select {
-			case val := <-c:
-				_ = client.Send(omprpc.ValueUiResponse{ID: id, Value: val})
-			case <-time.After(10 * time.Minute):
-				_ = client.Send(omprpc.CancelUiResponse{ID: id})
+			case answers := <-ch:
+				if answers != nil {
+					_ = client.Send(omprpc.AnswersUiResponse{ID: id, Answers: answers})
+				} else {
+					_ = client.Send(omprpc.CancelUiResponse{ID: id})
+				}
+			case <-time.After(d):
+				_ = client.Send(omprpc.CancelUiResponse{ID: id, TimedOut: omprpc.Ptr(true)})
 			}
 			m.mu.Lock()
-			delete(m.pendingInputs, id)
+			delete(m.pendingAsks, id)
 			m.mu.Unlock()
-		}(ui.ID, ch)
+		}(ui.ID)
+
+	case omprpc.NotifyUiRequest:
+		level := "info"
+		if ui.NotifyType != nil {
+			level = string(*ui.NotifyType)
+		}
+		m.broadcast(AgentEvent{Type: "notice", Level: level, Delta: ui.Message})
+
+	case omprpc.CancelUiRequest:
+		m.mu.Lock()
+		delete(m.pendingInputs, ui.TargetID)
+		delete(m.pendingAsks, ui.TargetID)
+		delete(m.confirmations, ui.TargetID)
+		m.mu.Unlock()
+		m.broadcast(AgentEvent{Type: "ui_cancel", Token: ui.TargetID})
 	}
+}
+
+// awaitInput waits for the user's reply to a pending extension UI request and
+// forwards it (or a cancellation on timeout) back to omp.
+func (m *Manager) awaitInput(client *omprpc.Client, id string, ch chan string, timeoutMs *int64) {
+	d := 10 * time.Minute
+	if timeoutMs != nil && *timeoutMs > 0 {
+		d = time.Duration(*timeoutMs) * time.Millisecond
+	}
+	go func() {
+		select {
+		case val := <-ch:
+			_ = client.Send(omprpc.ValueUiResponse{ID: id, Value: val})
+		case <-time.After(d):
+			_ = client.Send(omprpc.CancelUiResponse{ID: id, TimedOut: omprpc.Ptr(true)})
+		}
+		m.mu.Lock()
+		delete(m.pendingInputs, id)
+		m.mu.Unlock()
+	}()
 }
 
 // SubmitInput resolves a pending extension UI input request (such as an OAuth redirect code).
@@ -417,22 +741,23 @@ func (m *Manager) ConfirmApproval(id string, confirmed bool) bool {
 	return false
 }
 
-// SendPrompt feeds a task into the active omp RPC agent.
-func (m *Manager) SendPrompt(ctx context.Context, message string) error {
+// SendPrompt feeds a task into the active omp RPC agent. While a turn is
+// streaming the message is delivered as a steering message instead.
+func (m *Manager) SendPrompt(ctx context.Context, message string, images []omprpc.ImageContent) error {
 	client, err := m.EnsureStarted(ctx)
 	if err != nil {
+		m.broadcast(AgentEvent{Type: "error", Delta: err.Error()})
 		return err
 	}
 
-	m.activePrompt.Store(true)
+	cmd := omprpc.PromptCommand{Message: message, Images: images}
+	if m.activePrompt.Swap(true) {
+		cmd.StreamingBehavior = omprpc.Ptr(omprpc.StreamingBehaviorSteer)
+	}
 	reqID := fmt.Sprintf("p_%d", time.Now().UnixNano())
-	ctxWithID := omprpc.WithRequestID(ctx, reqID)
-
-	_, err = client.Prompt(ctxWithID, omprpc.PromptCommand{
-		Message: message,
-	})
-	if err != nil {
+	if _, err = client.Prompt(omprpc.WithRequestID(ctx, reqID), cmd); err != nil {
 		m.activePrompt.Store(false)
+		m.broadcast(AgentEvent{Type: "error", Delta: err.Error()})
 		return fmt.Errorf("agent: prompt failed: %w", err)
 	}
 	return nil
@@ -456,6 +781,7 @@ func (m *Manager) GetStatus() map[string]any {
 	m.mu.RLock()
 	running := m.client != nil && m.client.Err() == nil
 	mode := m.autonomyMode
+	needsLogin := m.needsLogin
 	m.mu.RUnlock()
 
 	return map[string]any{
@@ -463,6 +789,7 @@ func (m *Manager) GetStatus() map[string]any {
 		"autonomyMode": string(mode),
 		"active":       m.activePrompt.Load(),
 		"binaryPath":   m.ompPath,
+		"needsLogin":   needsLogin,
 	}
 }
 
@@ -476,6 +803,18 @@ func (m *Manager) GetModels(ctx context.Context) ([]omprpc.ModelInfo, string, er
 	models, err := client.GetAvailableModels(ctx)
 	if err != nil {
 		return nil, "", err
+	}
+	m.mu.RLock()
+	placeholder := m.needsLogin
+	m.mu.RUnlock()
+	if placeholder { // the placeholder key must not make Anthropic models look usable
+		kept := models[:0]
+		for _, mo := range models {
+			if mo.Provider != "anthropic" {
+				kept = append(kept, mo)
+			}
+		}
+		models = kept
 	}
 
 	activeModel := ""
@@ -524,7 +863,21 @@ func (m *Manager) GetLoginProviders(ctx context.Context) ([]omprpc.LoginProvider
 	if err != nil {
 		return nil, err
 	}
-	return client.GetLoginProviders(ctx)
+	provs, err := client.GetLoginProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	placeholder := m.needsLogin
+	m.mu.RUnlock()
+	if placeholder {
+		for i := range provs {
+			if provs[i].ID == "anthropic" {
+				provs[i].Authenticated = false
+			}
+		}
+	}
+	return provs, nil
 }
 
 // Login triggers an OAuth login flow for the given provider via omp.
@@ -533,7 +886,18 @@ func (m *Manager) Login(ctx context.Context, providerID string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return client.Login(ctx, omprpc.LoginCommand{ProviderID: providerID})
+	out, err := client.Login(ctx, omprpc.LoginCommand{ProviderID: providerID})
+	ev := AgentEvent{Type: "login_done", Delta: providerID}
+	if err != nil {
+		ev.IsError, ev.Result = true, err.Error()
+	} else if m.NeedsLogin() {
+		// The engine only started thanks to the placeholder key; restart it so it
+		// runs with the real credentials and the full model list.
+		_ = m.Restart(ctx)
+		_, _ = m.EnsureStarted(ctx)
+	}
+	m.broadcast(ev)
+	return out, err
 }
 
 // GetState returns a snapshot of omp session state (current model, thinkingLevel, etc.).
@@ -556,21 +920,224 @@ func (m *Manager) SetThinkingLevel(ctx context.Context, level string) error {
 	})
 }
 
+// GetAvailableThinkingLevels returns the supported thinking levels for the active model in omp.
+func (m *Manager) GetAvailableThinkingLevels(ctx context.Context) ([]string, error) {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return nil, err
+	}
+	levels, err := client.GetAvailableThinkingLevels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, len(levels))
+	for i, l := range levels {
+		res[i] = string(l)
+	}
+	return res, nil
+}
+
 // GetAvailableCommands returns the list of slash commands registered with omp.
-func (m *Manager) GetAvailableCommands() []omprpc.AvailableSlashCommand {
+func (m *Manager) GetAvailableCommands(ctx context.Context) []omprpc.AvailableSlashCommand {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.availableCommands
+	cmds := m.availableCommands
+	m.mu.RUnlock()
+	if len(cmds) > 0 {
+		return cmds
+	}
+
+	client, err := m.EnsureStarted(ctx)
+	if err == nil {
+		if fetched, err := client.GetAvailableCommands(ctx); err == nil && len(fetched) > 0 {
+			m.mu.Lock()
+			m.availableCommands = fetched
+			m.mu.Unlock()
+			return fetched
+		}
+	}
+	return nil
 }
 
 // Close gracefully stops the omp subprocess.
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var err error
 	if m.client != nil {
-		err := m.client.Close()
+		c := m.client
 		m.client = nil
+		err = c.Close()
+	}
+	m.removeTempDirLocked()
+	select {
+	case <-m.stop:
+	default:
+		close(m.stop)
+	}
+	return err
+}
+
+// ProviderEnv converts stored "ai_<provider>_api_key" settings (and the custom
+// base URL / Ollama host) into the environment variables omp reads.
+func ProviderEnv(settings map[string]string) []string {
+	var env []string
+	for k, v := range settings {
+		if v == "" || !strings.HasPrefix(k, "ai_") {
+			continue
+		}
+		name := strings.TrimPrefix(k, "ai_")
+		switch {
+		case name == "custom_base_url":
+			env = append(env, "OPENAI_BASE_URL="+v)
+		case name == "ollama_host":
+			env = append(env, "OLLAMA_HOST="+v)
+		case strings.HasSuffix(name, "_api_key"):
+			id := strings.TrimSuffix(name, "_api_key")
+			if appIDPattern.MatchString(id) {
+				env = append(env, strings.ToUpper(strings.ReplaceAll(id, "-", "_"))+"_API_KEY="+v)
+			}
+		}
+	}
+	return env
+}
+
+// SetDataDir points omp's persistent state at <dir>/omp/agent.
+func (m *Manager) SetDataDir(dir string) {
+	m.mu.Lock()
+	m.dataDir = dir
+	m.mu.Unlock()
+}
+
+// AgentDir is where omp stores auth, skills, settings and sessions.
+func (m *Manager) AgentDir() string {
+	if m.dataDir != "" {
+		return filepath.Join(m.dataDir, "omp", "agent")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".omp", "agent")
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// SubmitAnswers resolves a pending "ask" dialog; nil answers cancels it.
+func (m *Manager) SubmitAnswers(id string, answers []omprpc.AskAnswer) bool {
+	m.mu.Lock()
+	ch, ok := m.pendingAsks[id]
+	if ok {
+		delete(m.pendingAsks, id)
+	}
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+	ch <- answers
+	return true
+}
+
+// NeedsLogin reports whether omp is running on the placeholder key only.
+func (m *Manager) NeedsLogin() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.needsLogin
+}
+
+// HomeDir is the HOME omp runs with (inside the data volume).
+func (m *Manager) HomeDir() string {
+	return filepath.Join(m.dataDir, "omp", "home")
+}
+
+func (m *Manager) touch() { m.lastActivity.Store(time.Now().UnixMilli()) }
+
+func (m *Manager) idleTimeout(ctx context.Context) time.Duration {
+	mins := 15
+	if m.DB != nil {
+		if v := m.DB.GetSetting(ctx, "ai_idle_minutes"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				mins = n
+			}
+		}
+	}
+	return time.Duration(mins) * time.Minute // 0 disables
+}
+
+// reapIdle stops omp after a quiet period. It never stops a running turn,
+// pending background work, or an open approval/question.
+func (m *Manager) reapIdle() {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-t.C:
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		limit := m.idleTimeout(ctx)
+		cancel()
+		if limit <= 0 || time.Since(time.UnixMilli(m.lastActivity.Load())) < limit || m.activePrompt.Load() {
+			continue
+		}
+		m.mu.Lock()
+		busy := len(m.confirmations)+len(m.pendingInputs)+len(m.pendingAsks) > 0
+		client := m.client
+		m.mu.Unlock()
+		if client == nil || busy {
+			continue
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+		st, err := client.GetState(sctx)
+		scancel()
+		if err != nil || st.IsStreaming || st.IsCompacting || st.HasPendingAsyncWork {
+			continue
+		}
+		m.mu.Lock()
+		if m.client == client {
+			m.client = nil
+			_ = client.Close()
+		}
+		m.mu.Unlock()
+	}
+}
+
+// writeOverlay writes the per-launch omp config overlay carrying the approval mode.
+func (m *Manager) writeOverlay() (string, error) {
+	dir := os.TempDir()
+	if m.dataDir != "" {
+		dir = m.AgentDir()
+	}
+	path := filepath.Join(dir, "nextdeploy-overlay.yml")
+	body := "tools:\n  approvalMode: " + string(m.autonomyMode) + "\n"
+	return path, os.WriteFile(path, []byte(body), 0o600)
+}
+
+// ApplyAutonomyMode persists a new approval mode and restarts omp so it takes
+// effect (omp reads it at startup). Refused while a turn is running.
+func (m *Manager) ApplyAutonomyMode(ctx context.Context, mode AutonomyMode) error {
+	if m.GetAutonomyMode() == mode {
+		return nil
+	}
+	if m.activePrompt.Load() {
+		return fmt.Errorf("agent is busy; stop the current turn before changing the approval mode")
+	}
+	m.mu.Lock()
+	m.autonomyMode = mode
+	if m.client != nil {
+		c := m.client
+		m.client = nil
+		_ = c.Close()
+	}
+	m.mu.Unlock()
+	if m.DB != nil {
+		_ = m.DB.SetSetting(ctx, "ai_approval_mode", string(mode))
+	}
+	if _, err := m.EnsureStarted(ctx); err != nil {
 		return err
 	}
+	m.broadcast(AgentEvent{Type: "workdir"}) // clients reload their view of the engine
 	return nil
 }

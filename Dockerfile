@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 
 # Runtime container
 FROM docker:27-cli
-RUN apk add --no-cache rclone ca-certificates util-linux bash libstdc++
+RUN apk add --no-cache rclone ca-certificates util-linux bash libstdc++ openssh-client python3 curl jq git
 COPY --from=build /panel /usr/local/bin/panel
 COPY bin/omp /usr/local/bin/omp
 

@@ -1,0 +1,1 @@
+import"./rolldown-runtime-BWaJ3C7D.js";import{i as e,t}from"./vendor-react-Crg9zhOY.js";import{t as n}from"./index-BW_zugGu.js";e();var r=t(),i=()=>(0,r.jsx)(`div`,{className:`h-full w-full overflow-hidden bg-background`,children:(0,r.jsx)(n,{initialSidebarOpen:!0})});export{i as CopilotView};

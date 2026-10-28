@@ -1,6 +1,6 @@
-export type AutonomyMode = 'safe' | 'autonomous';
+export type AutonomyMode = 'always-ask' | 'always-ask-cached' | 'write' | 'yolo';
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ThinkingLevel = 'inherit' | 'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | string;
 
 export interface AIModel {
   id: string;
@@ -55,7 +55,8 @@ export interface ToolExecution {
   id: string;
   name: string;
   args?: Record<string, unknown>;
-  result?: string;
+  intent?: string;
+  result?: unknown; // omp tool result: {content, details} (or text)
   status: 'running' | 'completed' | 'failed';
   startedAt: number;
   endedAt?: number;
@@ -63,7 +64,8 @@ export interface ToolExecution {
 
 export interface CopilotMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
+  kind?: 'compaction' | 'branch' | 'note';
   content: string;
   attached?: string[];
   thinking?: string;
@@ -84,11 +86,19 @@ export interface ChatSession {
   messageCount: number;
 }
 
+export interface SlashSubcommand {
+  name: string;
+  description?: string;
+  usage?: string;
+}
+
 export interface SlashCommand {
   name: string;
   description?: string;
   source?: string;
+  aliases?: string[];
   input?: { hint?: string };
+  subcommands?: SlashSubcommand[];
 }
 
 export interface ContextUsage {
@@ -102,4 +112,64 @@ export interface CopilotStatus {
   active: boolean;
   autonomyMode: AutonomyMode;
   binaryPath?: string;
+  needsLogin?: boolean;
+}
+
+export interface WorkDir {
+  kind: 'root' | 'site' | 'temp';
+  appId?: string;
+  path: string;
+  sites?: string[];
+}
+
+export interface EngineSettings {
+  fastMode: boolean;
+  autoCompaction: boolean;
+  autoRetry: boolean;
+}
+
+export interface UiPrompt {
+  id: string;
+  kind: 'select' | 'editor';
+  title: string;
+  options?: string[];
+  prefill?: string;
+}
+
+export interface Subagent {
+  id: string;
+  index: number;
+  agent: string;
+  description?: string;
+  status: string; // started | running | completed | failed | aborted
+  startedAt: number;
+  detached?: boolean;
+}
+
+export interface AskOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  multi: boolean;
+  options: AskOption[];
+  recommended?: number;
+}
+
+export interface AskPrompt {
+  id: string;
+  questions: AskQuestion[];
+}
+
+export interface SessionStats {
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  tokens: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number; total: number };
+  cost: number;
+  contextUsage?: ContextUsage;
 }

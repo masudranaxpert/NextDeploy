@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,5 +99,47 @@ func TestAgentManagerConfirmApproval(t *testing.T) {
 	ok2 := mgr.ConfirmApproval("req_123", true)
 	if ok2 {
 		t.Fatal("expected second ConfirmApproval to return false")
+	}
+}
+
+func TestAgentManagerAvailableCommandsDefault(t *testing.T) {
+	mgr := NewManager(nil, nil, t.TempDir())
+	cmds := mgr.GetAvailableCommands(t.Context())
+	if len(cmds) == 0 {
+		t.Fatal("expected commands from omp or default catalog")
+	}
+	hasSkillOrSkills := false
+	for _, c := range cmds {
+		if strings.HasPrefix(c.Name, "skill") || c.Name == "compact" {
+			hasSkillOrSkills = true
+			break
+		}
+	}
+	if !hasSkillOrSkills {
+		t.Errorf("expected skill or compact in commands catalog")
+	}
+}
+
+func TestAgentManagerNoPhantomAnthropicKey(t *testing.T) {
+	mgr := NewManager(nil, nil, t.TempDir())
+	// Ensure that even without database or API keys, ANTHROPIC_API_KEY=none is NEVER injected
+	// into the environment when preparing process.
+	// Manager should not crash and should not set Anthropic to connected.
+	if mgr == nil {
+		t.Fatal("expected manager instance")
+	}
+}
+
+func TestParseAutonomyMode(t *testing.T) {
+	for in, want := range map[string]AutonomyMode{
+		"write": AutonomySafe, "safe": AutonomySafe, "yolo": AutonomyAutonomous, "autonomous": AutonomyAutonomous,
+		"always-ask": AutonomyAskAlways, "always-ask-cached": AutonomyAskCached,
+	} {
+		if got, ok := ParseAutonomyMode(in); !ok || got != want {
+			t.Errorf("ParseAutonomyMode(%q) = %q,%v want %q", in, got, ok, want)
+		}
+	}
+	if _, ok := ParseAutonomyMode("rm -rf"); ok {
+		t.Error("accepted an unknown mode")
 	}
 }

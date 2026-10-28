@@ -4,16 +4,65 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"panel/internal/agent/omprpc"
 	"panel/internal/db"
 	"panel/internal/sysinfo"
 )
 
+var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+
+const (
+	maxToolOutput = 64 << 10 // bytes returned to the model per tool call
+	bashTimeout   = 2 * time.Minute
+)
+
+// tailFile returns at most maxBytes from the end of path without reading the whole file.
+func tailFile(path string, maxBytes int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	off := int64(0)
+	if fi.Size() > maxBytes {
+		off = fi.Size() - maxBytes
+	}
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(f)
+	return string(b), err
+}
+
+func truncateOutput(s string) string {
+	if len(s) > maxToolOutput {
+		return "...[truncated]...\n" + s[len(s)-maxToolOutput:]
+	}
+	return s
+}
+
 func (m *Manager) buildHostTools() []omprpc.HostTool {
+	tools := append(m.coreHostTools(), m.extraHostTools()...)
+	for i := range tools {
+		// Essential: the model sees each tool directly instead of having to
+		// discover it through omp's xd:// URL indirection (fewer calls and tokens).
+		tools[i].Definition.LoadMode = omprpc.Ptr(omprpc.ToolLoadModeEssential)
+	}
+	return tools
+}
+
+func (m *Manager) coreHostTools() []omprpc.HostTool {
 	return []omprpc.HostTool{
 		m.toolListSites(),
 		m.toolGetSiteDetails(),
@@ -29,6 +78,14 @@ func (m *Manager) buildHostTools() []omprpc.HostTool {
 	}
 }
 
+// lookupSite validates app_id (no path separators) and loads the PHP site.
+func (m *Manager) lookupSite(ctx context.Context, appID string) (db.PHPSite, error) {
+	if !ValidAppID(appID) {
+		return db.PHPSite{}, fmt.Errorf("invalid app_id")
+	}
+	return m.DB.GetPHPSite(ctx, appID)
+}
+
 // 1. list_sites
 func (m *Manager) toolListSites() omprpc.HostTool {
 	return omprpc.HostTool{
@@ -36,7 +93,7 @@ func (m *Manager) toolListSites() omprpc.HostTool {
 			Name:        "list_sites",
 			Description: "Lists all deployed PHP/WordPress and Docker applications in NextDeploy.",
 			Parameters: map[string]json.RawMessage{
-				"type": json.RawMessage(`"object"`),
+				"type":       json.RawMessage(`"object"`),
 				"properties": json.RawMessage(`{}`),
 			},
 		},
@@ -96,7 +153,7 @@ func (m *Manager) toolGetSiteDetails() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
-			site, err := m.DB.GetPHPSite(ctx, p.AppID)
+			site, err := m.lookupSite(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
 			}
@@ -144,6 +201,15 @@ func (m *Manager) toolAddDomain() omprpc.HostTool {
 			}
 
 			domain := strings.TrimSpace(strings.ToLower(p.Domain))
+			if !domainPattern.MatchString(domain) {
+				return omprpc.TextResult(fmt.Sprintf("Invalid domain name: %q", p.Domain)), nil
+			}
+			if _, err := m.lookupSite(ctx, p.AppID); err != nil {
+				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
+			}
+			if !m.requestApproval(ctx, "add_domain", "Add domain", fmt.Sprintf("Attach %s to site %s and reload Caddy?", domain, p.AppID)) {
+				return omprpc.TextResult("Action declined by the user."), nil
+			}
 			id, err := m.DB.CreateAppDomain(ctx, db.AppDomain{
 				AppID:  p.AppID,
 				Domain: domain,
@@ -187,9 +253,15 @@ func (m *Manager) toolRemoveDomain() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
+			if _, err := m.lookupSite(ctx, p.AppID); err != nil {
+				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
+			}
 			domains, err := m.DB.ListAppDomains(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Failed to list domains: %v", err)), nil
+			}
+			if !m.requestApproval(ctx, "remove_domain", "Remove domain", fmt.Sprintf("Remove %s from site %s?", p.Domain, p.AppID)) {
+				return omprpc.TextResult("Action declined by the user."), nil
 			}
 
 			found := false
@@ -237,7 +309,7 @@ func (m *Manager) toolDiagnosePerformance() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
-			site, err := m.DB.GetPHPSite(ctx, p.AppID)
+			site, err := m.lookupSite(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
 			}
@@ -245,18 +317,8 @@ func (m *Manager) toolDiagnosePerformance() omprpc.HostTool {
 			// Read logs and settings
 			var slowLogs, errLogs string
 			logDir := filepath.Join(m.Root, site.AppID, "logs")
-			if b, err := os.ReadFile(filepath.Join(logDir, "php-fpm-slow.log")); err == nil && len(b) > 0 {
-				slowLogs = string(b)
-				if len(slowLogs) > 2000 {
-					slowLogs = slowLogs[len(slowLogs)-2000:]
-				}
-			}
-			if b, err := os.ReadFile(filepath.Join(logDir, "php-error.log")); err == nil && len(b) > 0 {
-				errLogs = string(b)
-				if len(errLogs) > 2000 {
-					errLogs = errLogs[len(errLogs)-2000:]
-				}
-			}
+			slowLogs, _ = tailFile(filepath.Join(logDir, "php-fpm-slow.log"), 2000)
+			errLogs, _ = tailFile(filepath.Join(logDir, "php-error.log"), 2000)
 
 			diag := map[string]any{
 				"site":         site.AppID,
@@ -299,9 +361,20 @@ func (m *Manager) toolUpdatePHPConfig() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
-			site, err := m.DB.GetPHPSite(ctx, p.AppID)
+			site, err := m.lookupSite(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
+			}
+
+			sizeRe := regexp.MustCompile(`^\d{1,5}[KMG]?$`)
+			numRe := regexp.MustCompile(`^\d{1,5}$`)
+			if (p.MemoryLimit != "" && p.MemoryLimit != "-1" && !sizeRe.MatchString(p.MemoryLimit)) ||
+				(p.UploadMaxFilesize != "" && !sizeRe.MatchString(p.UploadMaxFilesize)) ||
+				(p.MaxExecutionTime != "" && !numRe.MatchString(p.MaxExecutionTime)) {
+				return omprpc.TextResult("Invalid value: use sizes like 256M and whole seconds like 120."), nil
+			}
+			if !m.requestApproval(ctx, "update_php_config", "Update PHP settings", fmt.Sprintf("Change PHP limits for %s (memory_limit=%q, max_execution_time=%q, upload_max_filesize=%q)?", site.AppID, p.MemoryLimit, p.MaxExecutionTime, p.UploadMaxFilesize)) {
+				return omprpc.TextResult("Action declined by the user."), nil
 			}
 
 			var currentSettings map[string]any
@@ -360,11 +433,14 @@ func (m *Manager) toolRestartSite() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
-			site, err := m.DB.GetPHPSite(ctx, p.AppID)
+			site, err := m.lookupSite(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
 			}
 
+			if !m.requestApproval(ctx, "restart_site", "Reload site", fmt.Sprintf("Re-sync and reload site %s?", site.AppID)) {
+				return omprpc.TextResult("Action declined by the user."), nil
+			}
 			if m.PHP != nil {
 				_ = m.PHP.SyncSite(ctx, site.AppID)
 				m.PHP.ReloadCaddy(ctx)
@@ -402,13 +478,19 @@ func (m *Manager) toolGetSiteLogs() omprpc.HostTool {
 				p.Lines = 100
 			}
 
+			if _, err := m.lookupSite(ctx, p.AppID); err != nil {
+				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
+			}
+			if p.Lines > 2000 {
+				p.Lines = 2000
+			}
 			logDir := filepath.Join(m.Root, p.AppID, "logs")
 			var out strings.Builder
 			for _, file := range []string{"php-error.log", "php-fpm-slow.log", "caddy-access.log"} {
 				path := filepath.Join(logDir, file)
-				if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+				if tail, err := tailFile(path, maxToolOutput); err == nil && len(tail) > 0 {
 					out.WriteString(fmt.Sprintf("=== %s ===\n", file))
-					lines := strings.Split(string(b), "\n")
+					lines := strings.Split(tail, "\n")
 					start := 0
 					if len(lines) > p.Lines {
 						start = len(lines) - p.Lines
@@ -421,7 +503,7 @@ func (m *Manager) toolGetSiteLogs() omprpc.HostTool {
 			if out.Len() == 0 {
 				return omprpc.TextResult(fmt.Sprintf("No logs found for site '%s'", p.AppID)), nil
 			}
-			return omprpc.TextResult(out.String()), nil
+			return omprpc.TextResult(truncateOutput(out.String())), nil
 		},
 	}
 }
@@ -433,7 +515,7 @@ func (m *Manager) toolCheckEdgeShield() omprpc.HostTool {
 			Name:        "check_edge_shield",
 			Description: "Inspects status of all registered Swiss Edge Shield nodes, verifying ping, BBR, and Caddy catch-all proxy.",
 			Parameters: map[string]json.RawMessage{
-				"type": json.RawMessage(`"object"`),
+				"type":       json.RawMessage(`"object"`),
 				"properties": json.RawMessage(`{}`),
 			},
 		},
@@ -456,7 +538,7 @@ func (m *Manager) toolGetServerResources() omprpc.HostTool {
 			Name:        "get_server_resources",
 			Description: "Returns current host system metrics: CPU count, memory usage, 5GB Swap usage, swappiness, and disk space.",
 			Parameters: map[string]json.RawMessage{
-				"type": json.RawMessage(`"object"`),
+				"type":       json.RawMessage(`"object"`),
 				"properties": json.RawMessage(`{}`),
 			},
 		},
@@ -503,14 +585,22 @@ func (m *Manager) toolExecuteBash() omprpc.HostTool {
 				return omprpc.TextResult("Invalid arguments"), err
 			}
 
-			site, err := m.DB.GetPHPSite(ctx, p.AppID)
+			site, err := m.lookupSite(ctx, p.AppID)
 			if err != nil {
 				return omprpc.TextResult(fmt.Sprintf("Site not found: %s", p.AppID)), nil
 			}
 
+			if strings.TrimSpace(p.Command) == "" {
+				return omprpc.TextResult("Empty command"), nil
+			}
+			if !m.requestApproval(ctx, "execute_bash", "Run shell command", fmt.Sprintf("Run in %s:\n%s", site.AppID, p.Command)) {
+				return omprpc.TextResult("Action declined by the user."), nil
+			}
 			if m.PHP != nil {
-				res := m.PHP.RunInSite(ctx, site, p.Command)
-				return omprpc.TextResult(fmt.Sprintf("Exit code: %d\nOutput:\n%s", res.ExitCode, res.Output)), nil
+				runCtx, cancel := context.WithTimeout(ctx, bashTimeout)
+				defer cancel()
+				res := m.PHP.RunInSite(runCtx, site, p.Command)
+				return omprpc.TextResult(fmt.Sprintf("Exit code: %d\nOutput:\n%s", res.ExitCode, truncateOutput(res.Output))), nil
 			}
 
 			return omprpc.TextResult("PHP manager not initialized"), nil
