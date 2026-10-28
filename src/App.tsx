@@ -264,7 +264,7 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
   React.useEffect(() => {
-    const adminOnly = ['monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'shield-proxies', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
+    const adminOnly = ['nextdeploy-ai', 'monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'shield-proxies', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
     if (currentUser && currentUser.role !== 'admin' && !selectedAppId && adminOnly.includes(activeNav)) {
       setActiveNav('overview');
       window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
@@ -311,12 +311,13 @@ export default function App() {
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [newAppModalOpen, setNewAppModalOpen] = useState(false);
 
+  const isAdminRef = React.useRef(false);
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCmdPaletteOpen((prev) => !prev);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j' && isAdminRef.current) {
         e.preventDefault();
         navigateTo('nextdeploy-ai');
       }
@@ -1177,6 +1178,7 @@ export default function App() {
 
   // Pages that only make sense for (and are only allowed to) administrators.
   const ADMIN_ONLY_NAV: NavigationSection[] = [
+    'nextdeploy-ai',
     'monitor',
     'terminal',
     'proxy',
@@ -1190,6 +1192,7 @@ export default function App() {
     'php-instance',
   ];
   const isAdminUser = currentUser?.role === 'admin';
+  isAdminRef.current = isAdminUser;
   const visibleNavGroups = navGroups
     .map((g) => ({ ...g, items: g.items.filter((i) => isAdminUser || !ADMIN_ONLY_NAV.includes(i.id)) }))
     .filter((g) => g.items.length > 0);
@@ -1557,7 +1560,7 @@ export default function App() {
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
-            ) : activeNav === 'nextdeploy-ai' ? (
+            ) : isAdminUser && activeNav === 'nextdeploy-ai' ? (
               <CopilotView />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
@@ -1839,7 +1842,7 @@ export default function App() {
       />
 
       {/* Floating shortcut to the NextDeploy AI page */}
-      {activeNav !== 'nextdeploy-ai' && (
+      {isAdminUser && activeNav !== 'nextdeploy-ai' && (
         <button
           type="button"
           onClick={() => navigateTo('nextdeploy-ai')}
