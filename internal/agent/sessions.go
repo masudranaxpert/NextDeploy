@@ -23,6 +23,27 @@ type SessionInfo struct {
 	Title     string `json:"title"`
 	UpdatedAt int64  `json:"updatedAt"` // unix ms
 	Current   bool   `json:"current"`
+	Kind      string `json:"kind"`            // root | site: where the conversation runs
+	AppID     string `json:"appId,omitempty"` // for kind "site"
+	Scope     string `json:"scope"`           // human label: "Workspace root" or the site name
+}
+
+// scopeOf classifies a session's working directory relative to the workspace root.
+func (m *Manager) scopeOf(cwd string) (kind, appID string, ok bool) {
+	root, err := filepath.EvalSymlinks(m.Root)
+	if err != nil {
+		root = m.Root
+	}
+	rel, err := filepath.Rel(root, cwd)
+	switch {
+	case err != nil || strings.HasPrefix(rel, ".."):
+		return "", "", false // temp or foreign directory: not selectable from the panel
+	case rel == ".":
+		return "root", "", true
+	case !strings.Contains(rel, string(os.PathSeparator)) && ValidAppID(rel):
+		return "site", rel, true
+	}
+	return "", "", false
 }
 
 func (m *Manager) sessionsRoot() string { return filepath.Join(m.AgentDir(), "sessions") }
@@ -81,11 +102,6 @@ func readSessionHeader(path string) (title, id, cwd string, ok bool) {
 // ListSessions returns the saved conversations for the current working
 // directory, newest first.
 func (m *Manager) ListSessions(ctx context.Context) ([]SessionInfo, error) {
-	wd := m.WorkDir()
-	if wd.Kind == "temp" {
-		return []SessionInfo{}, nil
-	}
-	cwd, _ := filepath.EvalSymlinks(wd.Path)
 	current := ""
 	if st, err := m.GetState(ctx); err == nil && st.SessionFile != nil {
 		current = *st.SessionFile
@@ -109,7 +125,8 @@ func (m *Manager) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 		if real, err := filepath.EvalSymlinks(scwd); err == nil {
 			scwd = real
 		}
-		if scwd != cwd {
+		kind, appID, inScope := m.scopeOf(scwd)
+		if !inScope {
 			return nil
 		}
 		fi, err := d.Info()
@@ -125,7 +142,11 @@ func (m *Manager) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 		if title == "" {
 			title = "New conversation"
 		}
-		out = append(out, SessionInfo{Path: path, ID: id, Title: title, UpdatedAt: fi.ModTime().UnixMilli(), Current: path == current})
+		scope := "Workspace root"
+		if kind == "site" {
+			scope = appID
+		}
+		out = append(out, SessionInfo{Path: path, ID: id, Title: title, UpdatedAt: fi.ModTime().UnixMilli(), Current: path == current, Kind: kind, AppID: appID, Scope: scope})
 		return nil
 	})
 	m.pruneOrphanUploads(known)
@@ -148,6 +169,19 @@ func (m *Manager) OpenSession(ctx context.Context, path string) error {
 	abs, err := m.safeSessionPath(path)
 	if err != nil {
 		return err
+	}
+	// A conversation belongs to the directory it ran in: move omp there first.
+	if _, _, scwd, ok := readSessionHeader(abs); ok {
+		if real, err := filepath.EvalSymlinks(scwd); err == nil {
+			scwd = real
+		}
+		if kind, appID, inScope := m.scopeOf(scwd); inScope {
+			if cur := m.WorkDir(); cur.Kind != kind || cur.AppID != appID {
+				if _, err := m.SetWorkDir(ctx, kind, appID); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	c, err := m.EnsureStarted(ctx)
 	if err != nil {
@@ -211,6 +245,12 @@ type HistoryToolCall struct {
 	Status  string          `json:"status"`
 }
 
+// HistoryImage is an image the user attached to a message.
+type HistoryImage struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"` // base64
+}
+
 type HistoryMessage struct {
 	ID        string            `json:"id"`
 	Role      string            `json:"role"`           // user | assistant | system
@@ -219,6 +259,7 @@ type HistoryMessage struct {
 	Thinking  string            `json:"thinking,omitempty"`
 	ToolCalls []HistoryToolCall `json:"toolCalls,omitempty"`
 	Attached  []string          `json:"attached,omitempty"`
+	Images    []HistoryImage    `json:"images,omitempty"`
 	Timestamp int64             `json:"timestamp"`
 }
 
@@ -334,16 +375,18 @@ func mapHistory(raw json.RawMessage) ([]HistoryMessage, error) {
 			flush()
 			um := HistoryMessage{ID: id, Role: "user", Content: textOf(msg["content"]), Timestamp: ts}
 			var blocks []struct {
-				Type string `json:"type"`
+				Type     string `json:"type"`
+				Data     string `json:"data"`
+				MimeType string `json:"mimeType"`
 			}
 			if json.Unmarshal(msg["content"], &blocks) == nil {
 				for _, b := range blocks {
-					if b.Type == "image" {
-						um.Attached = append(um.Attached, "image")
+					if b.Type == "image" && b.Data != "" {
+						um.Images = append(um.Images, HistoryImage{MimeType: b.MimeType, Data: b.Data})
 					}
 				}
 			}
-			if um.Content != "" || len(um.Attached) > 0 {
+			if um.Content != "" || len(um.Attached) > 0 || len(um.Images) > 0 {
 				out = append(out, um)
 			}
 		case "assistant":

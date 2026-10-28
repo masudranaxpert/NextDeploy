@@ -69,6 +69,7 @@ export interface CopilotMessage {
   kind?: 'compaction' | 'branch' | 'note';
   content: string;
   attached?: string[];
+  images?: Array<{ mimeType: string; data: string }>;
   thinking?: string;
   thinkingDurationSec?: number;
   toolCalls?: ToolExecution[];

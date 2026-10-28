@@ -336,6 +336,7 @@ export function HextaAICanvas({
 
   // Files state
   const [tree, setTree] = React.useState<Node[]>([])
+  const [filePaths, setFilePaths] = React.useState<string[]>([])
   const [open, setOpen] = React.useState<Set<string>>(() => new Set())
   const [chosen, setChosen] = React.useState("")
   const [looking, setLooking] = React.useState("")
@@ -353,7 +354,11 @@ export function HextaAICanvas({
     const res = await requestJson<{ files: Array<{ name: string; rel_path: string; is_dir: boolean; size: number }> }>(
       "/api/v1/copilot/files"
     )
-    if (res.ok && res.data) setTree(buildTreeFromFlatList(res.data.files || []))
+    if (res.ok && res.data) {
+      const files = res.data.files || []
+      setTree(buildTreeFromFlatList(files))
+      setFilePaths(files.filter((f) => !f.is_dir).map((f) => f.rel_path))
+    }
     window.setTimeout(() => setTurning(false), 300)
   }, [])
 
@@ -505,29 +510,20 @@ export function HextaAICanvas({
     else void setWorkDir(v === "temp" ? "temp" : "root")
   }
 
-  // Slash commands (with subcommands) for the composer popup
-  const flattenedSlashCommands = React.useMemo(() => {
-    const list: Array<{ name: string; description?: string; hint?: string; source?: string }> = []
-    slashCommands.forEach((cmd) => {
-      list.push({
-        name: cmd.name,
-        description: cmd.description,
-        hint: cmd.input?.hint,
-        source: cmd.source,
-      })
-      if (cmd.subcommands?.length) {
-        cmd.subcommands.forEach((sub) => {
-          list.push({
-            name: `${cmd.name} ${sub.name}`,
-            description: sub.description || cmd.description,
-            hint: sub.usage,
-            source: cmd.source,
-          })
-        })
-      }
-    })
-    return list
-  }, [slashCommands])
+  // "/" lists omp's skills (as /skill:name, the way omp's own CLI does) plus /compact;
+  // the rest of omp's command catalogue is not useful in a web chat.
+  const flattenedSlashCommands = React.useMemo(
+    () =>
+      slashCommands
+        .filter((cmd) => cmd.source === "skill" || cmd.name === "compact")
+        .map((cmd) => ({
+          name: cmd.name,
+          description: cmd.description,
+          hint: cmd.source === "skill" ? cmd.input?.hint : undefined,
+          source: cmd.source,
+        })),
+    [slashCommands]
+  )
 
   // Thinking levels come from omp for the active model; fall back to a static set.
   const effortOptions = React.useMemo(() => {
@@ -831,20 +827,43 @@ export function HextaAICanvas({
             {messages.map((turn: CopilotMessage) => (
               <React.Fragment key={turn.id}>
                 {/* User Message */}
-                {turn.role === "user" && turn.content && (
+                {turn.role === "user" && (turn.content || turn.images?.length) && (
                   <div className="flex flex-col items-end gap-1.5">
+                    {!!turn.images?.length && (
+                      <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+                        {turn.images.map((img, i) => (
+                          <a
+                            key={i}
+                            href={`data:${img.mimeType};base64,${img.data}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open image"
+                            className="block overflow-hidden rounded-[8px] border border-border/60 outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                          >
+                            <img
+                              alt=""
+                              src={`data:${img.mimeType};base64,${img.data}`}
+                              loading="lazy"
+                              className="max-h-44 min-h-12 min-w-12 max-w-[14rem] object-cover"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     {!!turn.attached?.length && (
                       <div className="flex flex-wrap justify-end gap-1">
                         {turn.attached.map((name) => (
-                          <Tag key={name} icon={<FileTextIcon />}>
-                            {name}
+                          <Tag key={name} icon={<FileTextIcon />} title={name}>
+                            <span className="block max-w-[12rem] truncate">{name.split("/").pop()}</span>
                           </Tag>
                         ))}
                       </div>
                     )}
-                    <div className="glass-control rounded-2xl bg-secondary px-3.5 py-2 text-sm leading-relaxed max-w-[85%] whitespace-pre-wrap">
-                      {turn.content}
-                    </div>
+                    {!!turn.content && (
+                      <div className="glass-control rounded-2xl bg-secondary px-3.5 py-2 text-sm leading-relaxed max-w-[85%] whitespace-pre-wrap">
+                        {turn.content}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1031,6 +1050,8 @@ export function HextaAICanvas({
               running={isProcessing}
               onStop={abort}
               slashCommands={flattenedSlashCommands}
+              mentionFiles={filePaths}
+              onMention={(path) => setAttached((all) => (all.includes(path) ? all : [...all, path]))}
               onBackspaceAtStart={() => {
                 if (images.length) {
                   setImages((all) => all.slice(0, -1))

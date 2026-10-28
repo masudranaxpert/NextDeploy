@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ArrowUp, ChevronDown, Check, Square } from "lucide-react"
+import { ArrowUp, ChevronDown, Check, FileText, Square } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,8 @@ function Composer({
   sendLabel = "Send",
   stopLabel = "Stop",
   slashCommands = [],
+  mentionFiles = [],
+  onMention,
   className,
   ...props
 }: Omit<React.ComponentProps<"div">, "onSubmit"> & {
@@ -50,6 +52,9 @@ function Composer({
   sendLabel?: string
   stopLabel?: string
   slashCommands?: SlashCommandItem[]
+  /** Paths offered after typing @ (relative to the agent's working directory). */
+  mentionFiles?: string[]
+  onMention?: (path: string) => void
 }) {
   const textarea = React.useRef<HTMLTextAreaElement>(null)
   const listRef = React.useRef<HTMLDivElement>(null)
@@ -60,6 +65,52 @@ function Composer({
   // Slash commands autocomplete state
   const [slashIndex, setSlashIndex] = React.useState(0)
   const [slashOpen, setSlashOpen] = React.useState(false)
+
+  // @file mentions: the word under the caret starting with @
+  const [caret, setCaret] = React.useState(0)
+  const [mentionIndex, setMentionIndex] = React.useState(0)
+  const [mentionDismissed, setMentionDismissed] = React.useState<string | null>(null)
+  const mention = React.useMemo(() => {
+    if (!onMention) return null
+    const m = /(^|\s)@([^\s@]*)$/.exec(value.slice(0, caret))
+    return m ? { query: m[2], start: caret - m[2].length - 1 } : null
+  }, [value, caret, onMention])
+  const mentionItems = React.useMemo(() => {
+    if (!mention) return []
+    const q = mention.query.toLowerCase()
+    const scored: Array<[number, string]> = []
+    for (const path of mentionFiles) {
+      const lower = path.toLowerCase()
+      const name = lower.slice(lower.lastIndexOf("/") + 1)
+      let score = -1
+      if (!q) score = 3
+      else if (name.startsWith(q)) score = 0
+      else if (name.includes(q)) score = 1
+      else if (lower.includes(q)) score = 2
+      if (score >= 0) scored.push([score, path])
+      if (!q && scored.length >= 40) break
+    }
+    scored.sort((a, b) => a[0] - b[0] || a[1].length - b[1].length)
+    return scored.slice(0, 40).map(([, p]) => p)
+  }, [mention, mentionFiles])
+  const mentionOpen = !!mention && mentionItems.length > 0 && mentionDismissed !== `${mention.start}`
+
+  React.useEffect(() => setMentionIndex(0), [mention?.query])
+
+  const applyMention = (path: string) => {
+    if (!mention) return
+    const el = textarea.current
+    const before = value.slice(0, mention.start)
+    const after = value.slice(caret)
+    onValueChange(before + after)
+    onMention?.(path)
+    setMentionDismissed(null)
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(before.length, before.length)
+      setCaret(before.length)
+    })
+  }
 
   // Detect slash command at start or active word
   const isSlashActive = value.startsWith("/")
@@ -143,6 +194,43 @@ function Composer({
       )}
       {...props}
     >
+      {mentionOpen && (
+        <div
+          data-slot="mention-menu"
+          className="absolute bottom-full left-0 z-50 mb-2 w-full max-w-[560px] overflow-hidden rounded-lg border border-white/[0.12] bg-[#0c0d0e] p-1.5 shadow-2xl animate-in fade-in-0 zoom-in-95 duration-100"
+        >
+          <p className="px-2.5 pt-1 pb-1 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Files in this directory</p>
+          <div className="scrollbar-thin flex max-h-64 flex-col gap-0.5 overflow-x-hidden overflow-y-auto" role="listbox">
+            {mentionItems.map((path, i) => {
+              const slash = path.lastIndexOf("/")
+              return (
+                <button
+                  key={path}
+                  type="button"
+                  role="option"
+                  aria-selected={i === mentionIndex}
+                  ref={(el) => {
+                    if (el && i === mentionIndex) el.scrollIntoView({ block: "nearest" })
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyMention(path)}
+                  className={cn(
+                    "flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors",
+                    i === mentionIndex ? "bg-orange-500/20 text-orange-200" : "text-zinc-300 hover:bg-white/[0.04]"
+                  )}
+                >
+                  <FileText className="size-3.5 shrink-0 text-zinc-500" />
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium">{path.slice(slash + 1)}</span>
+                    {slash >= 0 && <span className="ml-2 text-[11.5px] text-zinc-500">{path.slice(0, slash)}</span>}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Slash command popover floating above composer */}
       {slashOpen && filteredCommands.length > 0 && (
         <div
@@ -150,7 +238,7 @@ function Composer({
           className="absolute bottom-full left-0 mb-2 w-full max-w-[560px] overflow-hidden rounded-lg border border-white/[0.12] bg-[#0c0d0e] p-1.5 shadow-2xl z-50 animate-in fade-in-0 zoom-in-95 duration-100"
         >
           <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-white/[0.04] mb-1">
-            <span>OMP Commands & Skills</span>
+            <span>Skills & commands</span>
             <span className="font-mono text-[9px] text-zinc-600">Tab or ↵ to select</span>
           </div>
           <div ref={listRef} className="max-h-64 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] flex flex-col gap-0.5">
@@ -206,9 +294,36 @@ function Composer({
             rows={1}
             value={value}
             placeholder={placeholder}
-            onChange={(event) => onValueChange(event.target.value)}
+            onChange={(event) => {
+              onValueChange(event.target.value)
+              setCaret(event.target.selectionStart ?? event.target.value.length)
+            }}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.keyCode === 229) return
+
+              if (mentionOpen) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault()
+                  setMentionIndex((i) => (i + 1) % mentionItems.length)
+                  return
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault()
+                  setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length)
+                  return
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  event.preventDefault()
+                  applyMention(mentionItems[mentionIndex])
+                  return
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  if (mention) setMentionDismissed(`${mention.start}`)
+                  return
+                }
+              }
 
               if (slashOpen && filteredCommands.length > 0) {
                 if (event.key === "ArrowDown") {

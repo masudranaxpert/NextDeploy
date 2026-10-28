@@ -22,6 +22,7 @@ import type {
 } from './types';
 
 interface ServerSession {
+  scope: string;
   path: string;
   id: string;
   title: string;
@@ -84,6 +85,7 @@ export function useCopilot() {
     setSessions(
       list.map((x) => ({
         id: x.path,
+        group: x.scope,
         title: x.title,
         createdAt: x.updatedAt,
         updatedAt: x.updatedAt,
@@ -102,6 +104,7 @@ export function useCopilot() {
         role: m.role,
         kind: m.kind,
         attached: m.attached,
+        images: m.images,
         content: m.content || '',
         thinking: m.thinking || undefined,
         timestamp: m.timestamp || Date.now(),
@@ -760,7 +763,8 @@ export function useCopilot() {
         id: `u_${Date.now()}`,
         role: 'user',
         content: messageText.trim(),
-        attached: attachedFiles.length || images.length ? [...attachedFiles, ...images.map((i) => i.name || 'image')] : undefined,
+        attached: attachedFiles.length ? attachedFiles : undefined,
+        images: images.length ? images.map((i) => ({ mimeType: i.mimeType, data: i.data })) : undefined,
         timestamp: Date.now(),
       };
 
