@@ -16,6 +16,8 @@ import {
   ShrinkIcon,
   ZapIcon,
   MoreHorizontalIcon,
+  Minimize2Icon,
+  Maximize2Icon,
   GitForkIcon,
   ArrowRightLeftIcon,
   DownloadIcon,
@@ -233,6 +235,8 @@ function IconButton({
 }
 
 export interface HextaAICanvasProps {
+  expanded?: boolean
+  onToggleExpand?: () => void
   initialSidebarOpen?: boolean
   isDrawer?: boolean
   onCloseDrawer?: () => void
@@ -242,6 +246,8 @@ export function HextaAICanvas({
   initialSidebarOpen = true,
   isDrawer = false,
   onCloseDrawer,
+  expanded,
+  onToggleExpand,
 }: HextaAICanvasProps) {
   const {
     sessions,
@@ -399,9 +405,9 @@ export function HextaAICanvas({
   }, [createNewChat])
 
   // Current session object
-  const currentSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || {
+  const currentSession = sessions.find((s) => s.id === activeSessionId) || {
     id: "default",
-    title: "NextDeploy Copilot",
+    title: "New conversation",
     createdAt: Date.now(),
     updatedAt: Date.now(),
     messageCount: 0,
@@ -718,7 +724,7 @@ export function HextaAICanvas({
       {/* Main Interactive Thread */}
       <main className="flex min-w-0 flex-1 flex-col select-text">
         {/* Header Bar */}
-        <div className="flex h-12 shrink-0 items-center gap-1.5 px-3 border-b border-border/40">
+        <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-border/40 px-3 py-1.5">
           <IconButton
             label="Show sessions"
             className={cn(sidebar && "md:hidden")}
@@ -732,7 +738,7 @@ export function HextaAICanvas({
           </span>
 
           {/* Working directory omp runs in */}
-          <div className="ml-1 flex shrink-0 items-center gap-1.5 border-l border-border/40 pl-2">
+          <div className="ml-1 flex shrink-0 items-center gap-1.5 border-l border-border/40 pl-2 max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:border-l-0 max-sm:pl-0">
             <span className="hidden text-[11px] whitespace-nowrap text-muted-foreground xl:inline">Run in</span>
             <ShadcnSelect
               title={workDir?.path || "Working directory"}
@@ -740,7 +746,7 @@ export function HextaAICanvas({
               onChange={onWorkDirChange}
               options={workDirOptions}
               disabled={isProcessing}
-              className="w-36 lg:w-44"
+              className="w-full sm:w-36 lg:w-44"
               menuClassName="min-w-64"
             />
           </div>
@@ -803,6 +809,11 @@ export function HextaAICanvas({
             >
               <FolderIcon />
             </IconButton>
+            {isDrawer && onToggleExpand && (
+              <IconButton label={expanded ? "Restore size" : "Expand"} onClick={onToggleExpand} className="max-sm:hidden">
+                {expanded ? <Minimize2Icon /> : <Maximize2Icon />}
+              </IconButton>
+            )}
             {isDrawer && onCloseDrawer && (
               <IconButton label="Close Copilot" onClick={onCloseDrawer}>
                 <XIcon />
@@ -816,7 +827,7 @@ export function HextaAICanvas({
           ref={thread}
           className="flex min-h-0 flex-1 justify-center overflow-x-hidden overflow-y-auto px-4 pt-5 pb-6 [scrollbar-width:thin] md:px-6"
         >
-          <div className="flex h-fit w-full max-w-[620px] flex-col gap-4">
+          <div className={cn("flex w-full max-w-[620px] flex-col gap-4", messages.length ? "h-fit" : "h-full justify-center")}>
             {messages.map((turn: CopilotMessage) => (
               <React.Fragment key={turn.id}>
                 {/* User Message */}
@@ -944,9 +955,12 @@ export function HextaAICanvas({
 
             {/* Empty Thread Prompt */}
             {!messages.length && (
-              <p className="pt-24 text-center text-sm text-muted-foreground">
-                Ask NextDeploy Copilot anything to begin.
-              </p>
+              <div className="flex flex-col items-center gap-1.5 text-center">
+                <p className="text-[15px] text-foreground/90">What should we work on?</p>
+                <p className="text-xs text-muted-foreground">
+                  Ask about your sites and servers, or type <kbd className="rounded-[3px] bg-foreground/10 px-1 font-mono">/</kbd> for skills and commands.
+                </p>
+              </div>
             )}
           </div>
         </div>

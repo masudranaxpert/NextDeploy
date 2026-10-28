@@ -17,7 +17,7 @@ interface ProviderAuthModalProps {
 }
 
 const btn =
-  'inline-flex h-8 items-center justify-center gap-1.5 rounded-sm px-3 text-[12.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-1.5 rounded-[4px] px-4 text-[13px] md:h-9 md:px-3.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50';
 
 export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   isOpen,
@@ -94,21 +94,21 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
         aria-modal="true"
         aria-label="Model providers"
         onClick={(e) => e.stopPropagation()}
-        className="glass-panel flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl bg-background text-foreground sm:max-w-lg sm:rounded-xl"
+        className="glass-panel flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[8px] bg-background text-foreground sm:max-w-lg sm:rounded-[8px]"
       >
         <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3">
           <div className="min-w-0">
             <h2 className="text-[15px] font-medium">Model providers</h2>
             <p className="text-[12px] text-muted-foreground">Sign in once; logins are kept in the panel's data volume.</p>
           </div>
-          <button type="button" aria-label="Close" onClick={onClose} className={cn(btn, 'size-8 shrink-0 px-0 text-muted-foreground hover:bg-accent')}>
+          <button type="button" aria-label="Close" onClick={onClose} className={cn(btn, 'size-10 shrink-0 px-0 md:size-9 text-muted-foreground hover:bg-accent')}>
             <XIcon className="size-4" />
           </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [scrollbar-width:thin]">
           {oauthPrompt && (oauthPrompt.url || oauthPrompt.title) && (
-            <form onSubmit={submitCode} className="glass-control mb-4 flex flex-col gap-2 rounded-md p-3">
+            <form onSubmit={submitCode} className="glass-control mb-4 flex flex-col gap-2 rounded-[6px] p-3">
               <p className="text-[13px]">{oauthPrompt.title || 'Finish signing in'}</p>
               {oauthPrompt.instructions && <p className="text-[12px] text-muted-foreground">{oauthPrompt.instructions}</p>}
               {oauthPrompt.url && (
@@ -127,7 +127,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder={oauthPrompt.placeholder || 'Paste the code or redirect URL'}
-                    className="h-8 min-w-0 flex-1 rounded-sm bg-background/60 px-2.5 text-[13px] outline-none placeholder:text-muted-foreground"
+                    className="h-10 min-w-0 flex-1 rounded-[4px] bg-background/60 px-2.5 text-[13px] md:h-9 outline-none placeholder:text-muted-foreground"
                   />
                   <button type="submit" disabled={!code.trim() || busy === 'code'} className={cn(btn, 'glass-chosen')}>
                     {busy === 'code' ? <Loader2Icon className="size-3.5 animate-spin" /> : 'Submit'}
@@ -142,7 +142,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
               <h3 className="mb-1.5 text-[11.5px] text-muted-foreground">Connected · {connected.length}</h3>
               <ul className="flex flex-col gap-1">
                 {connected.map((p) => (
-                  <li key={p.id} className="glass-control flex items-center gap-2.5 rounded-md px-3 py-2">
+                  <li key={p.id} className="glass-control flex min-h-12 items-center gap-2.5 rounded-[6px] px-3 py-2">
                     <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px]">{p.name}</p>
@@ -170,7 +170,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
 
           <section>
             <h3 className="mb-1.5 text-[11.5px] text-muted-foreground">Add a provider</h3>
-            <label className="mb-2 flex h-8 items-center gap-2 rounded-sm bg-accent/50 px-2.5 text-[13px] text-muted-foreground focus-within:bg-accent">
+            <label className="mb-2 flex h-10 items-center gap-2 rounded-[4px] bg-accent/50 md:h-9 px-2.5 text-[13px] text-muted-foreground focus-within:bg-accent">
               <SearchIcon className="size-3.5 shrink-0" />
               <input
                 value={query}
@@ -189,9 +189,9 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                 {available.map((p) => {
                   const open = keyFor === p.id;
                   return (
-                    <li key={p.id} className="rounded-md">
-                      <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 hover:bg-accent/40">
-                        <p className="min-w-0 flex-1 truncate text-[13px]">{p.name}</p>
+                    <li key={p.id} className="rounded-[6px]">
+                      <div className="flex flex-wrap items-center gap-2 rounded-[6px] px-3 py-1.5 hover:bg-accent/40">
+                        <p className="min-w-0 basis-full truncate text-[13px] sm:flex-1 sm:basis-0">{p.name}</p>
                         <button
                           type="button"
                           disabled={busy === p.id}
@@ -199,7 +199,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                             setBusy(p.id);
                             onStartOAuth(p.id);
                           }}
-                          className={cn(btn, 'glass-chosen')}
+                          className={cn(btn, 'glass-chosen max-sm:flex-1')}
                         >
                           {busy === p.id ? <Loader2Icon className="size-3.5 animate-spin" /> : 'Sign in'}
                         </button>
@@ -210,7 +210,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                             setKeyFor(open ? null : p.id);
                             setKeyValue('');
                           }}
-                          className={cn(btn, 'text-muted-foreground hover:bg-accent hover:text-foreground')}
+                          className={cn(btn, 'text-muted-foreground hover:bg-accent hover:text-foreground max-sm:flex-1 max-sm:border max-sm:border-border/60')}
                         >
                           <KeyRoundIcon className="size-3.5" /> API key
                         </button>
@@ -227,13 +227,13 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                               placeholder="Paste API key"
                               autoComplete="off"
                               spellCheck={false}
-                              className="h-8 w-full rounded-sm bg-background/60 pr-8 pl-2.5 font-mono text-[12.5px] outline-none placeholder:font-sans placeholder:text-muted-foreground"
+                              className="h-10 w-full rounded-[4px] bg-background/60 pr-9 pl-2.5 md:h-9 font-mono text-[12.5px] outline-none placeholder:font-sans placeholder:text-muted-foreground"
                             />
                             <button
                               type="button"
                               aria-label={showKey ? 'Hide key' : 'Show key'}
                               onClick={() => setShowKey((v) => !v)}
-                              className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              className="absolute top-1/2 right-2.5 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
                             >
                               {showKey ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
                             </button>

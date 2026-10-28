@@ -1845,12 +1845,12 @@ export default function App() {
           type="button"
           onClick={() => setCopilotDrawerOpen(true)}
           aria-label="Open NextDeploy AI"
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 px-3.5 py-2.5 text-xs font-semibold text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
+          className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 flex size-12 items-center justify-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 text-xs font-semibold sm:right-5 sm:bottom-5 sm:size-auto sm:px-3.5 sm:py-2.5 text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
         >
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/20 text-orange-400 group-hover:scale-110 transition-transform">
             <Bot className="h-3.5 w-3.5" />
           </div>
-          <span>ND AI</span>
+          <span className="max-sm:hidden">ND AI</span>
           <kbd className="hidden sm:inline-block rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
             ⌘J
           </kbd>
