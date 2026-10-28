@@ -24,7 +24,6 @@ import { AskCard } from "@/components/ui/ask-card"
 import { Button } from "@/components/ui/button"
 import { Composer, ComposerFooter, ComposerFooterEnd, ComposerPick } from "@/components/ui/composer"
 import { ContextMeter } from "./ContextMeter"
-import { Kbd } from "@/components/ui/kbd"
 import { Panel, PanelRow } from "@/components/ui/panel"
 import { Tag } from "@/components/ui/tag"
 import { StepGroup, type Step } from "@/components/ui/tool-steps"
@@ -379,13 +378,9 @@ export function HextaAICanvas({
     }
   }, [panels])
 
-  // Keyboard shortcut Cmd+K for search, Cmd+N for new chat
+  // Keyboard shortcut Cmd+N for new chat
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault()
-        setFinding("")
-      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
         createNewChat()
@@ -605,10 +600,6 @@ export function HextaAICanvas({
             {finding === null ? (
               <PanelRow onClick={() => setFinding("")}>
                 <SearchIcon /> Search
-                <span className="ml-auto flex gap-1">
-                  <Kbd>⌘</Kbd>
-                  <Kbd>K</Kbd>
-                </span>
               </PanelRow>
             ) : (
               <label className="flex h-7 items-center gap-2 rounded-sm bg-accent px-2 text-[12.5px] [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground">

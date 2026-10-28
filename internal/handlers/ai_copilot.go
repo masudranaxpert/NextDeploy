@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -455,6 +456,102 @@ func (p *Panel) CopilotSaveProviders(c *fiber.Ctx) error {
 // Provider credentials/hosts the UI may store; anything else is rejected so the
 // endpoint cannot be used to overwrite arbitrary panel settings.
 var providerSettingPattern = regexp.MustCompile(`^([a-z0-9][a-z0-9-]{0,40}_api_key|custom_base_url|ollama_host)$`)
+var copilotSecretNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+type CopilotSecretItem struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Masked string `json:"masked"`
+	Length int    `json:"length"`
+}
+
+// GET /api/v1/copilot/secrets
+func (p *Panel) CopilotGetSecrets(c *fiber.Ctx) error {
+	ctx := c.Context()
+	all, err := p.DB.GetAllSettings(ctx)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	secrets := make([]CopilotSecretItem, 0)
+	for k, v := range all {
+		if !strings.HasPrefix(k, "ai_secret_") {
+			continue
+		}
+		name := strings.TrimPrefix(k, "ai_secret_")
+		if !copilotSecretNamePattern.MatchString(name) {
+			continue
+		}
+		masked := "••••••••"
+		if len(v) > 8 {
+			masked = v[:2] + "••••••••" + v[len(v)-2:]
+		}
+		secrets = append(secrets, CopilotSecretItem{
+			Name:   name,
+			Value:  v,
+			Masked: masked,
+			Length: len(v),
+		})
+	}
+	sort.Slice(secrets, func(i, j int) bool {
+		return secrets[i].Name < secrets[j].Name
+	})
+
+	return c.JSON(fiber.Map{"secrets": secrets})
+}
+
+// POST /api/v1/copilot/secrets
+func (p *Panel) CopilotSaveSecret(c *fiber.Ctx) error {
+	var req struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if !copilotSecretNamePattern.MatchString(name) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Secret name must start with a letter/underscore and contain only letters, numbers, or underscores (max 128 characters)",
+		})
+	}
+
+	val := strings.TrimSpace(req.Value)
+	if val == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Secret value cannot be empty"})
+	}
+
+	ctx := c.Context()
+	if err := p.DB.SetSetting(ctx, "ai_secret_"+name, val); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if p.Copilot != nil {
+		_ = p.Copilot.Restart(ctx)
+	}
+
+	return c.JSON(fiber.Map{"ok": true, "name": name})
+}
+
+// DELETE /api/v1/copilot/secrets/:name
+func (p *Panel) CopilotDeleteSecret(c *fiber.Ctx) error {
+	name := strings.TrimSpace(c.Params("name"))
+	if !copilotSecretNamePattern.MatchString(name) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid secret name"})
+	}
+
+	ctx := c.Context()
+	if err := p.DB.DeleteSetting(ctx, "ai_secret_"+name); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if p.Copilot != nil {
+		_ = p.Copilot.Restart(ctx)
+	}
+
+	return c.JSON(fiber.Map{"ok": true, "name": name})
+}
 
 func copilotUnavailable(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Copilot not configured"})

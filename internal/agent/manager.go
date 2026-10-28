@@ -167,6 +167,7 @@ func NewManager(database *db.Store, phpMgr *phphosting.Manager, root string) *Ma
 const bootstrapEnv = "ANTHROPIC_API_KEY=nextdeploy-no-credentials"
 
 var appIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var secretEnvPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 // ValidAppID reports whether id is a safe single path segment for a workspace.
 func ValidAppID(id string) bool {
@@ -1017,6 +1018,11 @@ func ProviderEnv(settings map[string]string) []string {
 			env = append(env, "OPENAI_BASE_URL="+v)
 		case name == "ollama_host":
 			env = append(env, "OLLAMA_HOST="+v)
+		case strings.HasPrefix(name, "secret_"):
+			secKey := strings.TrimPrefix(name, "secret_")
+			if secretEnvPattern.MatchString(secKey) {
+				env = append(env, secKey+"="+v)
+			}
 		case strings.HasSuffix(name, "_api_key"):
 			id := strings.TrimSuffix(name, "_api_key")
 			if appIDPattern.MatchString(id) {
@@ -1130,14 +1136,14 @@ func (m *Manager) reapIdle() {
 	}
 }
 
-// writeOverlay writes the per-launch omp config overlay carrying the approval mode.
+// writeOverlay writes the per-launch omp config overlay carrying the approval mode and secret masking.
 func (m *Manager) writeOverlay() (string, error) {
 	dir := os.TempDir()
 	if m.dataDir != "" {
 		dir = m.AgentDir()
 	}
 	path := filepath.Join(dir, "nextdeploy-overlay.yml")
-	body := "tools:\n  approvalMode: " + string(m.autonomyMode) + "\n"
+	body := "tools:\n  approvalMode: " + string(m.autonomyMode) + "\nsecrets:\n  enabled: true\n"
 	return path, os.WriteFile(path, []byte(body), 0o600)
 }
 

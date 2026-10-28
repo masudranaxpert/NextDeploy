@@ -46,6 +46,13 @@ export interface OAuthPrompt {
   secret?: boolean;
 }
 
+export interface CopilotSecret {
+  name: string;
+  value: string;
+  masked: string;
+  length: number;
+}
+
 export interface AgentTodo {
   id: string;
   text: string;

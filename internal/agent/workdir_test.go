@@ -40,6 +40,8 @@ func TestProviderEnv(t *testing.T) {
 		"ai_github-copilot_api_key": "k2",
 		"ai_ollama_host":            "http://x:11434",
 		"ai_custom_base_url":        "http://y/v1",
+		"ai_secret_DB_PASSWORD":     "supersecret123",
+		"ai_secret_S3_KEY":          "AKIAIOSFODNN7EXAMPLE",
 		"ai_active_model":           "ignored",
 		"ai_empty_api_key":          "",
 		"other":                     "ignored",
@@ -48,12 +50,19 @@ func TestProviderEnv(t *testing.T) {
 	for _, e := range env {
 		got[e] = true
 	}
-	for _, want := range []string{"OPENAI_API_KEY=k1", "GITHUB_COPILOT_API_KEY=k2", "OLLAMA_HOST=http://x:11434", "OPENAI_BASE_URL=http://y/v1"} {
+	for _, want := range []string{
+		"OPENAI_API_KEY=k1",
+		"GITHUB_COPILOT_API_KEY=k2",
+		"OLLAMA_HOST=http://x:11434",
+		"OPENAI_BASE_URL=http://y/v1",
+		"DB_PASSWORD=supersecret123",
+		"S3_KEY=AKIAIOSFODNN7EXAMPLE",
+	} {
 		if !got[want] {
 			t.Errorf("missing %s in %v", want, env)
 		}
 	}
-	if len(env) != 4 {
+	if len(env) != 6 {
 		t.Errorf("unexpected env: %v", env)
 	}
 }

@@ -63,3 +63,9 @@ func (s *Store) GetAllSettings(ctx context.Context) (map[string]string, error) {
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
+	return err
+}
+
