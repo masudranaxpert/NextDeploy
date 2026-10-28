@@ -14,9 +14,7 @@ import {
   Settings2,
   Trash2,
   ShrinkIcon,
-  ZapIcon,
   MoreHorizontalIcon,
-  GitForkIcon,
   ArrowRightLeftIcon,
   DownloadIcon,
 } from "lucide-react"
@@ -254,10 +252,8 @@ export function HextaAICanvas({
     setThinkingLevel,
     workDir,
     setWorkDir,
-    engineSettings,
-    setEngineSetting,
     compactContext,
-    forkChat,
+    reloadSkills,
     handoffChat,
     exportChat,
     notice,
@@ -500,16 +496,16 @@ export function HextaAICanvas({
     else void setWorkDir(v === "temp" ? "temp" : "root")
   }
 
-  // "/" lists omp's skills (as /skill:name, the way omp's own CLI does) plus /compact;
-  // the rest of omp's command catalogue is not useful in a web chat.
+  // "/" lists omp's skills (as /skill:name, the way omp's own CLI does) and one action to
+  // reload them; the rest of omp's command catalogue is not useful in a web chat.
   const flattenedSlashCommands = React.useMemo(
     () =>
       slashCommands
-        .filter((cmd) => cmd.source === "skill" || cmd.name === "compact")
+        .filter((cmd) => cmd.source === "skill")
         .map((cmd) => ({
           name: cmd.name,
           description: cmd.description,
-          hint: cmd.source === "skill" ? cmd.input?.hint : undefined,
+          hint: cmd.input?.hint,
           source: cmd.source,
         })),
     [slashCommands]
@@ -748,15 +744,7 @@ export function HextaAICanvas({
               </PopoverTrigger>
               <PopoverContent align="end" className="w-60 p-1">
                 {[
-                  {
-                    key: "fast",
-                    icon: <ZapIcon className="size-4" />,
-                    label: "Fast mode",
-                    hint: engineSettings.fastMode ? "On" : "Off",
-                    run: () => setEngineSetting("fast_mode", !engineSettings.fastMode),
-                  },
                   { key: "compact", icon: <ShrinkIcon className="size-4" />, label: "Compact context", run: () => compactContext(), busy: true },
-                  { key: "fork", icon: <GitForkIcon className="size-4" />, label: "Fork conversation", run: () => forkChat(), busy: true },
                   { key: "handoff", icon: <ArrowRightLeftIcon className="size-4" />, label: "Hand off to a fresh chat", run: () => handoffChat(), busy: true },
                   { key: "export", icon: <DownloadIcon className="size-4" />, label: "Export as HTML", run: () => exportChat() },
                 ].map((item) => (
@@ -769,7 +757,6 @@ export function HextaAICanvas({
                   >
                     <span className="text-muted-foreground">{item.icon}</span>
                     <span className="flex-1">{item.label}</span>
-                    {item.hint && <span className="text-[11.5px] text-muted-foreground">{item.hint}</span>}
                   </button>
                 ))}
               </PopoverContent>
@@ -848,15 +835,28 @@ export function HextaAICanvas({
                 )}
 
                 {/* Summaries and notes the engine added to the conversation */}
-                {turn.role === "system" && turn.content && (
-                  <details className="glass-control rounded-md px-3 py-2 text-[12.5px] text-muted-foreground">
-                    <summary className="cursor-pointer select-none outline-none hover:text-foreground">
-                      {turn.kind === "compaction" ? "Earlier conversation was compacted" : turn.kind === "branch" ? "Branch summary" : "Note"}
-                    </summary>
-                    <div className="pt-2">
-                      <MarkdownContent content={turn.content} />
+                {turn.role === "system" && (turn.content || turn.kind === "compaction") && (
+                  turn.content ? (
+                    <details className="group/sys text-[12.5px] text-muted-foreground">
+                      <summary className="flex cursor-pointer list-none items-center gap-3 outline-none hover:text-foreground">
+                        <span className="h-px flex-1 bg-border/60" />
+                        <span>
+                          {turn.kind === "compaction" ? "Context compacted" : turn.kind === "branch" ? "Branch summary" : "Note"}
+                          <span className="ml-1.5 text-[11px] opacity-70 group-open/sys:hidden">· show summary</span>
+                        </span>
+                        <span className="h-px flex-1 bg-border/60" />
+                      </summary>
+                      <div className="glass-control mt-2 rounded-md px-3 py-2">
+                        <MarkdownContent content={turn.content} />
+                      </div>
+                    </details>
+                  ) : (
+                    <div className="flex items-center gap-3 text-[12.5px] text-muted-foreground" role="separator">
+                      <span className="h-px flex-1 bg-border/60" />
+                      <span>Context compacted</span>
+                      <span className="h-px flex-1 bg-border/60" />
                     </div>
-                  </details>
+                  )
                 )}
 
                 {/* Assistant Message */}
@@ -1030,6 +1030,8 @@ export function HextaAICanvas({
               running={isProcessing}
               onStop={abort}
               slashCommands={flattenedSlashCommands}
+              slashActions={[{ name: "reload", description: "Reload skills (picks up new or changed skills)", action: true }]}
+              onSlashAction={() => void reloadSkills()}
               mentionFiles={filePaths}
               onMention={(path) => setAttached((all) => (all.includes(path) ? all : [...all, path]))}
               onBackspaceAtStart={() => {

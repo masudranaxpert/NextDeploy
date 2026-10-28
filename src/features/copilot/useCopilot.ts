@@ -76,6 +76,7 @@ export function useCopilot() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const activeMessageIdRef = useRef<string | null>(null);
+  const silentCommandRef = useRef(false); // next slash-command output is a notice, not a chat message
   const thinkingStartRef = useRef<number | null>(null);
 
   const refreshSessions = useCallback(async () => {
@@ -528,6 +529,11 @@ export function useCopilot() {
             // Output of a locally handled slash command (/skills list, /status, ...).
             const text: string = ev.delta || '';
             if (!text) break;
+            if (silentCommandRef.current) {
+              silentCommandRef.current = false;
+              setNotice({ level: 'info', text: text.replace(/^Plugins reloaded\.?$/, 'Skills reloaded.') });
+              break;
+            }
             const msgId = activeMessageIdRef.current;
             if (msgId) {
               setMessages((prev) =>
@@ -550,11 +556,15 @@ export function useCopilot() {
           }
 
           case 'compaction_end': {
-            setNotice(
-              ev.data?.error
-                ? { level: 'error', text: `Compaction failed: ${ev.data.error}` }
-                : { level: 'info', text: 'Conversation compacted.' }
-            );
+            if (ev.data?.error) {
+              setNotice({ level: 'error', text: `Compaction failed: ${ev.data.error}` });
+            } else if (!ev.data?.aborted) {
+              setNotice(null);
+              setMessages((prev) => [
+                ...prev,
+                { id: `compact_${Date.now()}`, role: 'system', kind: 'compaction', content: '', timestamp: Date.now() },
+              ]);
+            }
             break;
           }
 
@@ -853,10 +863,36 @@ export function useCopilot() {
     [refreshEngine]
   );
 
+  const reloadSkills = useCallback(async () => {
+    silentCommandRef.current = true;
+    const res = await requestJson('/api/v1/copilot/prompt', {
+      method: 'POST',
+      body: JSON.stringify({ message: '/reload-plugins' }),
+    });
+    if (!res.ok) {
+      silentCommandRef.current = false;
+      setNotice({ level: 'error', text: res.error || 'Could not reload skills' });
+    }
+    window.setTimeout(() => (silentCommandRef.current = false), 5000);
+  }, []);
+
   const compactContext = useCallback(async () => {
     setNotice({ level: 'info', text: 'Compacting conversation…' });
-    const res = await requestJson('/api/v1/copilot/compact', { method: 'POST', body: '{}' });
-    if (!res.ok) setNotice({ level: 'error', text: res.error || 'Compaction failed' });
+    const res = await requestJson<{ skipped?: boolean; summary?: string }>('/api/v1/copilot/compact', {
+      method: 'POST',
+      body: '{}',
+    });
+    if (!res.ok) {
+      setNotice({ level: 'error', text: res.error || 'Compaction failed' });
+    } else if (res.data?.skipped) {
+      setNotice({ level: 'info', text: 'Nothing to compact yet.' });
+    } else {
+      setNotice(null);
+      setMessages((prev) => [
+        ...prev,
+        { id: `compact_${Date.now()}`, role: 'system', kind: 'compaction', content: res.data?.summary || '', timestamp: Date.now() },
+      ]);
+    }
     return !!res.ok;
   }, []);
 
@@ -974,6 +1010,7 @@ export function useCopilot() {
     engineSettings,
     setEngineSetting,
     compactContext,
+    reloadSkills,
     forkChat,
     handoffChat,
     exportChat,

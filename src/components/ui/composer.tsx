@@ -9,6 +9,8 @@ export interface SlashCommandItem {
   description?: string
   hint?: string
   source?: string
+  /** An action the host performs when chosen, rather than text inserted into the prompt. */
+  action?: boolean
   subcommands?: Array<{
     name: string
     description?: string
@@ -32,6 +34,8 @@ function Composer({
   sendLabel = "Send",
   stopLabel = "Stop",
   slashCommands = [],
+  slashActions = [],
+  onSlashAction,
   mentionFiles = [],
   onMention,
   className,
@@ -52,6 +56,8 @@ function Composer({
   sendLabel?: string
   stopLabel?: string
   slashCommands?: SlashCommandItem[]
+  slashActions?: SlashCommandItem[]
+  onSlashAction?: (cmd: SlashCommandItem) => void
   /** Paths offered after typing @ (relative to the agent's working directory). */
   mentionFiles?: string[]
   onMention?: (path: string) => void
@@ -117,9 +123,10 @@ function Composer({
   const slashQuery = isSlashActive ? value.slice(1).trim().toLowerCase() : null
   const filteredCommands = React.useMemo(() => {
     if (slashQuery === null) return []
-    const group = (c: SlashCommandItem) => (c.source === "skill" ? 1 : 0)
+    const group = (c: SlashCommandItem) => (c.action ? 0 : 1)
     // "/security plan" style subcommands only appear once the parent and a space are typed.
-    const base = /\S\s/.test(value.slice(1)) ? slashCommands : slashCommands.filter((c) => !c.name.includes(" "))
+    const all = [...slashActions, ...slashCommands]
+    const base = /\S\s/.test(value.slice(1)) ? all : all.filter((c) => !c.name.includes(" "))
     const list =
       slashQuery === ""
         ? base
@@ -131,7 +138,7 @@ function Composer({
     )
     // Commands first, then skills; order inside a group is omp's own.
     return [...list].sort((a, b) => group(a) - group(b))
-  }, [slashQuery, slashCommands])
+  }, [slashQuery, slashCommands, slashActions])
 
   React.useEffect(() => {
     if (slashQuery !== null && filteredCommands.length > 0) {
@@ -180,6 +187,12 @@ function Composer({
   }
 
   const applySlashCommand = (cmd: SlashCommandItem) => {
+    if (cmd.action) {
+      onValueChange("")
+      setSlashOpen(false)
+      onSlashAction?.(cmd)
+      return
+    }
     onValueChange(`/${cmd.name} `)
     setSlashOpen(false)
     textarea.current?.focus()
@@ -244,22 +257,22 @@ function Composer({
           <div ref={listRef} className="max-h-64 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] flex flex-col gap-0.5">
             {filteredCommands.map((cmd, i) => (
               <React.Fragment key={cmd.name}>
-              {(i === 0 || (filteredCommands[i - 1].source === "skill") !== (cmd.source === "skill")) && (
-                <p className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
-                  {cmd.source === "skill" ? "Skills" : "Commands"}
+              {(i === 0 || !!filteredCommands[i - 1].action !== !!cmd.action) && (
+                <p className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                  {cmd.action ? "Actions" : "Skills"}
                 </p>
               )}
               <button
                 type="button"
                 onClick={() => applySlashCommand(cmd)}
                 className={cn(
-                  "flex w-full items-start justify-between gap-2 rounded-md px-2.5 py-2 min-h-11 text-left text-xs transition-colors outline-none",
+                  "flex w-full cursor-pointer items-start justify-between gap-2 rounded-md px-2.5 py-1.5 min-h-9 text-left text-xs transition-colors outline-none",
                   i === slashIndex ? "bg-orange-500/20 text-orange-200 font-medium" : "text-zinc-300 hover:bg-white/[0.04]"
                 )}
               >
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex min-w-0 flex-1 flex-col">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="truncate font-mono font-semibold text-orange-400">/{cmd.name}</span>
+                    <span className="truncate font-mono text-[12.5px] font-semibold text-orange-400">{cmd.action ? cmd.name : `/${cmd.name}`}</span>
                     {cmd.hint && cmd.hint !== "arguments" && (
                       <span className="font-mono text-[10px] text-zinc-400 bg-white/[0.04] border border-white/[0.08] px-1.5 py-0.5 rounded shrink-0 max-w-[40%] truncate">
                         {cmd.hint}
@@ -267,7 +280,7 @@ function Composer({
                     )}
                   </div>
                   {cmd.description && (
-                    <span className="line-clamp-2 text-[11px] leading-snug text-zinc-400">{cmd.description}</span>
+                    <span className="line-clamp-1 text-[11px] leading-snug text-zinc-400">{cmd.description}</span>
                   )}
                 </div>
                 {cmd.source && (

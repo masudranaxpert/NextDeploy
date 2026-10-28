@@ -82,14 +82,13 @@ export function ContextMeter({
             ))}
           </dl>
         )}
-        <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">Older turns are compacted automatically as the window fills.</p>
         <button
           type="button"
           disabled={disabled}
           onClick={onCompact}
-          className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-[4px] border border-border/60 text-[13px] transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50"
+          className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-[4px] border border-border/60 text-[13px] transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50"
         >
-          <ShrinkIcon className="size-3.5" /> Compact now
+          <ShrinkIcon className="size-3.5" /> Compact
         </button>
       </PopoverContent>
     </Popover>

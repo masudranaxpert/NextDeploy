@@ -85,8 +85,8 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
             <h2 className="text-[15px] font-medium">Model providers</h2>
             <p className="text-[12px] text-muted-foreground">Sign in once; logins are kept in the panel's data volume.</p>
           </div>
-          <button type="button" aria-label="Close" onClick={onClose} className={cn(btn, 'size-10 shrink-0 px-0 md:size-9 text-muted-foreground hover:bg-accent')}>
-            <XIcon className="size-4" />
+          <button type="button" aria-label="Close" onClick={onClose} className={cn(btn, 'size-11 shrink-0 px-0 text-muted-foreground hover:bg-accent md:size-10')}>
+            <XIcon className="size-5" />
           </button>
         </div>
 

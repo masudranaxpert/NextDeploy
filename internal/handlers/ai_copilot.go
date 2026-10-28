@@ -514,6 +514,9 @@ func (p *Panel) CopilotCompact(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	res, err := p.Copilot.Compact(ctx, req.Instructions)
+	if err != nil && (strings.Contains(err.Error(), "Already compacted") || strings.Contains(err.Error(), "Nothing to compact")) {
+		return c.JSON(fiber.Map{"ok": true, "skipped": true})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": err.Error()})
 	}

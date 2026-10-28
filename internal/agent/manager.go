@@ -115,8 +115,12 @@ type Manager struct {
 	// needsLogin is true when omp only started thanks to the placeholder key.
 	needsLogin bool
 
-	// titleSeed is the first prompt of an unnamed conversation (see nameSession).
-	titleSeed string
+	// Conversation titling (see nameSession): the latest prompt, per-session
+	// retry state, and the id of the internal /rename turn being awaited.
+	titleSeed  string
+	titleState map[string]*titleInfo
+	renameID   string
+	renameDone chan struct{}
 
 	// Working directory the omp subprocess runs in (see workdir.go).
 	cwdKind  string // "root" | "site" | "temp"
@@ -134,6 +138,7 @@ func NewManager(database *db.Store, phpMgr *phphosting.Manager, root string) *Ma
 		confirmations: make(map[string]chan bool),
 		pendingInputs: make(map[string]chan string),
 		pendingAsks:   make(map[string]chan []omprpc.AskAnswer),
+		titleState:    make(map[string]*titleInfo),
 		subscribers:   make(map[chan AgentEvent]struct{}),
 		ompPath:       findOMPBinary(),
 		cwdKind:       "root",
@@ -442,6 +447,9 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 			if !v.AgentInvoked || v.Status != omprpc.PromptStatusCompleted {
 				m.activePrompt.Store(false)
 			}
+			if v.ID != nil && m.finishRename(*v.ID) {
+				break // our own internal /rename, nothing for the UI to show
+			}
 			if v.Error != nil {
 				m.broadcast(AgentEvent{Type: "error", Delta: v.Error.Message})
 			}
@@ -465,7 +473,9 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 			m.broadcast(AgentEvent{Type: "session_info"})
 
 		case omprpc.CommandOutputEvent:
-			m.broadcast(AgentEvent{Type: "command_output", Delta: v.Text})
+			if !m.renameActive() {
+				m.broadcast(AgentEvent{Type: "command_output", Delta: v.Text})
+			}
 
 		case omprpc.ModelChangedEvent, omprpc.ConfigUpdateEvent, omprpc.TodoReminderEvent, omprpc.TodoAutoClearEvent:
 			go m.pushState(client)
@@ -763,9 +773,7 @@ func (m *Manager) SendPrompt(ctx context.Context, message string, images []omprp
 
 	if !strings.HasPrefix(strings.TrimSpace(message), "/") {
 		m.mu.Lock()
-		if m.titleSeed == "" {
-			m.titleSeed = message
-		}
+		m.titleSeed = message
 		m.mu.Unlock()
 	}
 	cmd := omprpc.PromptCommand{Message: message, Images: images}
@@ -1160,55 +1168,93 @@ func (m *Manager) ApplyAutonomyMode(ctx context.Context, mode AutonomyMode) erro
 	return nil
 }
 
-// nameSession titles an unnamed conversation. omp only generates titles in its
-// TUI, so ask the model for one through omp's own side-question channel (btw,
-// which does not touch the conversation) and store it with set_session_name.
-// If that fails the first prompt is used.
+type titleInfo struct {
+	tries    int
+	fallback string // the plain first-prompt title we set when omp generated none
+}
+
+func (m *Manager) renameActive() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.renameID != ""
+}
+
+// finishRename reports whether id is the internal /rename turn and, if so, wakes its waiter.
+func (m *Manager) finishRename(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.renameID == "" || id != m.renameID {
+		return false
+	}
+	m.renameID = ""
+	if m.renameDone != nil {
+		close(m.renameDone)
+		m.renameDone = nil
+	}
+	return true
+}
+
+// nameSession titles a conversation the way omp's own CLI does: by running its
+// /rename command, which generates a title with the model when none is given
+// (omp does not do this on its own over RPC). omp declines to title a trivial
+// first turn ("hi"); then the first prompt is used for now and /rename is tried
+// again after the next turns (up to 3 times).
 func (m *Manager) nameSession(client *omprpc.Client) {
 	m.mu.Lock()
 	seed := m.titleSeed
-	m.titleSeed = ""
 	m.mu.Unlock()
 	if seed == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	st, err := client.GetState(ctx)
-	if err != nil || (st.SessionName != nil && *st.SessionName != "") {
+	if err != nil {
 		return
 	}
+	m.mu.Lock()
+	ti := m.titleState[st.SessionID]
+	if ti == nil {
+		ti = &titleInfo{}
+		m.titleState[st.SessionID] = ti
+	}
+	m.mu.Unlock()
+	name := ""
+	if st.SessionName != nil {
+		name = *st.SessionName
+	}
+	if (name != "" && name != ti.fallback) || ti.tries >= 3 {
+		return // already has a real title (or we gave up)
+	}
+	ti.tries++
+
+	id := fmt.Sprintf("nd_rename_%d", time.Now().UnixNano())
+	done := make(chan struct{})
+	m.mu.Lock()
+	m.renameID, m.renameDone = id, done
+	m.mu.Unlock()
+	if _, err := client.Prompt(omprpc.WithRequestID(ctx, id), omprpc.PromptCommand{Message: "/rename"}); err == nil {
+		select {
+		case <-done:
+		case <-time.After(20 * time.Second):
+		}
+	}
+	m.mu.Lock()
+	m.renameID, m.renameDone = "", nil
+	m.mu.Unlock()
 
 	title := ""
-	rec, err := client.Btw(ctx, omprpc.BtwCommand{
-		Question: "Reply with ONLY a short title (at most 6 words, no quotes, no punctuation at the end) naming what this conversation is about, in the language the user writes in.",
-	})
-	for i := 0; err == nil && i < 50; i++ {
-		if rec.Status == omprpc.BtwStatusRunning {
-			time.Sleep(600 * time.Millisecond)
-			var recs []omprpc.BtwHistoryRecord
-			if recs, err = client.GetBtwHistory(ctx); err != nil {
-				break
-			}
-			for _, r := range recs {
-				if r.ID == rec.ID {
-					rec = r
-				}
-			}
-			continue
-		}
-		if rec.Status == omprpc.BtwStatusComplete {
-			title = cleanTitle(rec.Answer)
-		}
-		break
+	if st, err := client.GetState(ctx); err == nil && st.SessionName != nil && *st.SessionName != "" && *st.SessionName != ti.fallback {
+		title = *st.SessionName
 	}
-	if title == "" {
+	if title == "" && name == "" {
 		title = cleanTitle(seed)
+		ti.fallback = title
+		if title == "" || client.SetSessionName(ctx, omprpc.SetSessionNameCommand{Name: title}) != nil {
+			return
+		}
 	}
-	if title == "" {
-		return
-	}
-	if err := client.SetSessionName(ctx, omprpc.SetSessionNameCommand{Name: title}); err == nil {
+	if title != "" {
 		m.broadcast(AgentEvent{Type: "session_info", Delta: title})
 	}
 }

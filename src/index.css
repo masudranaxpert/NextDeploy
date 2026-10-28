@@ -13,6 +13,23 @@
 }
 
 @layer base {
+  /* Tailwind's preflight resets buttons to the default arrow; clickable things should show it's clickable. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='option'],
+  [role='menuitem'],
+  summary,
+  select:not(:disabled),
+  input[type='checkbox']:not(:disabled),
+  input[type='file']::file-selector-button,
+  a[href] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
   :root {
     --font-display: 'Plus Jakarta Sans', 'Bangla Fallback', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-sans: 'Plus Jakarta Sans', 'Bangla Fallback', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
