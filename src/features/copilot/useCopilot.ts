@@ -475,6 +475,7 @@ export function useCopilot() {
               id: ev.token,
               title: ev.delta,
               placeholder: ev.placeholder,
+              secret: !!ev.data?.secret,
             }));
             break;
           }

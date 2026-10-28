@@ -194,7 +194,7 @@ function Composer({
         </div>
       )}
 
-      {above && <div className="flex flex-wrap gap-1.5 px-1 pt-0.5 pb-2">{above}</div>}
+      {above && <div className="flex max-w-full flex-wrap gap-1.5 px-1 pt-0.5 pb-2">{above}</div>}
 
       <div className="flex flex-wrap items-end gap-1">
         {leading}
@@ -249,7 +249,7 @@ function Composer({
               }
             }}
             className={cn(
-              "scrollbar-thin max-h-50 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-6 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted-foreground"
+              "scrollbar-thin max-h-50 min-w-0 flex-1 resize-none bg-transparent py-1 text-left text-[15px] leading-6 md:text-sm text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted-foreground"
             )}
           />
           <Button

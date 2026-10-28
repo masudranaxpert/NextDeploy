@@ -43,6 +43,7 @@ export interface OAuthPrompt {
   instructions?: string;
   title?: string;
   placeholder?: string;
+  secret?: boolean;
 }
 
 export interface AgentTodo {

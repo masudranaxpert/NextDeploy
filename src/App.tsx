@@ -91,7 +91,7 @@ if (typeof window !== 'undefined') {
   else if (path.startsWith('/containers')) void import('./features/docker/ContainersView');
   else if (path.startsWith('/images')) void import('./features/docker/ImagesView');
   else if (path.startsWith('/volumes')) void import('./features/docker/VolumesView');
-  else if (path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
+  else if (path.startsWith('/nextdeploy-ai') || path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
   else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
 }
 
@@ -141,7 +141,7 @@ export default function App() {
 
     const validNavs: NavigationSection[] = [
       'overview',
-      'copilot',
+      'nextdeploy-ai',
       'monitor',
       'apps',
       'containers',
@@ -166,6 +166,7 @@ export default function App() {
     ];
 
     if (path === 'caddy') return { nav: 'proxy', appId: null };
+    if (path === 'copilot') return { nav: 'nextdeploy-ai', appId: null }; // old URL
     if (validNavs.includes(path as NavigationSection)) {
       return { nav: path as NavigationSection, appId: null };
     }
@@ -1092,7 +1093,7 @@ export default function App() {
       items: [
         { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
         {
-          id: 'copilot',
+          id: 'nextdeploy-ai',
           label: 'NextDeploy AI',
           icon: <Bot className="h-3.5 w-3.5" />,
           badge: { text: 'ND AI', tone: 'violet' },
@@ -1475,7 +1476,7 @@ export default function App() {
           {/* Main Viewport */}
           <main
             className={
-              activeNav === 'copilot'
+              activeNav === 'nextdeploy-ai'
                 ? "relative w-full flex-1 p-0 h-[calc(100vh-3.5rem)] max-w-none overflow-hidden"
                 : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7"
             }
@@ -1558,7 +1559,7 @@ export default function App() {
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
-            ) : activeNav === 'copilot' ? (
+            ) : activeNav === 'nextdeploy-ai' ? (
               <CopilotView />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
@@ -1840,7 +1841,7 @@ export default function App() {
       />
 
       {/* Floating Copilot Drawer & Trigger */}
-      {activeNav !== 'copilot' && !copilotDrawerOpen && (
+      {activeNav !== 'nextdeploy-ai' && !copilotDrawerOpen && (
         <button
           type="button"
           onClick={() => setCopilotDrawerOpen(true)}

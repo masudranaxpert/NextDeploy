@@ -143,3 +143,18 @@ func TestParseAutonomyMode(t *testing.T) {
 		t.Error("accepted an unknown mode")
 	}
 }
+
+func TestCleanTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"\"Server health check\"\n\nextra": "Server health check",
+		"  **Deploy fix.**  ":              "Deploy fix",
+		"":                                 "",
+	} {
+		if got := cleanTitle(in); got != want {
+			t.Errorf("cleanTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := cleanTitle(strings.Repeat("x", 100)); len([]rune(got)) != 61 {
+		t.Errorf("long title not shortened: %d", len([]rune(got)))
+	}
+}

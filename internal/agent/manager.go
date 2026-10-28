@@ -298,6 +298,9 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 		if overlay, err := m.writeOverlay(); err == nil {
 			args = append(args, "--config", overlay)
 		}
+		if path, err := m.writeIdentity(); err == nil {
+			args = append(args, "--append-system-prompt", path)
+		}
 		cmd := exec.Command(m.ompPath, append(args, extra...)...)
 		cmd.Dir = cwd
 		cmd.Stderr = os.Stderr
@@ -618,6 +621,7 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 			Token:       ui.ID,
 			Delta:       ui.Title,
 			Placeholder: placeholder,
+			Data:        map[string]any{"secret": ui.Secret != nil && *ui.Secret},
 			Timestamp:   time.Now().UnixMilli(),
 		})
 		m.awaitInput(client, ui.ID, ch, ui.Timeout)
@@ -1156,8 +1160,10 @@ func (m *Manager) ApplyAutonomyMode(ctx context.Context, mode AutonomyMode) erro
 	return nil
 }
 
-// nameSession gives an unnamed conversation a title through omp's own
-// set_session_name. omp only generates titles in its TUI, never over RPC.
+// nameSession titles an unnamed conversation. omp only generates titles in its
+// TUI, so ask the model for one through omp's own side-question channel (btw,
+// which does not touch the conversation) and store it with set_session_name.
+// If that fails the first prompt is used.
 func (m *Manager) nameSession(client *omprpc.Client) {
 	m.mu.Lock()
 	seed := m.titleSeed
@@ -1166,15 +1172,38 @@ func (m *Manager) nameSession(client *omprpc.Client) {
 	if seed == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	st, err := client.GetState(ctx)
 	if err != nil || (st.SessionName != nil && *st.SessionName != "") {
 		return
 	}
-	title := strings.TrimSpace(strings.Join(strings.Fields(seed), " "))
-	if r := []rune(title); len(r) > 60 {
-		title = string(r[:60]) + "…"
+
+	title := ""
+	rec, err := client.Btw(ctx, omprpc.BtwCommand{
+		Question: "Reply with ONLY a short title (at most 6 words, no quotes, no punctuation at the end) naming what this conversation is about, in the language the user writes in.",
+	})
+	for i := 0; err == nil && i < 50; i++ {
+		if rec.Status == omprpc.BtwStatusRunning {
+			time.Sleep(600 * time.Millisecond)
+			var recs []omprpc.BtwHistoryRecord
+			if recs, err = client.GetBtwHistory(ctx); err != nil {
+				break
+			}
+			for _, r := range recs {
+				if r.ID == rec.ID {
+					rec = r
+				}
+			}
+			continue
+		}
+		if rec.Status == omprpc.BtwStatusComplete {
+			title = cleanTitle(rec.Answer)
+		}
+		break
+	}
+	if title == "" {
+		title = cleanTitle(seed)
 	}
 	if title == "" {
 		return
@@ -1182,4 +1211,36 @@ func (m *Manager) nameSession(client *omprpc.Client) {
 	if err := client.SetSessionName(ctx, omprpc.SetSessionNameCommand{Name: title}); err == nil {
 		m.broadcast(AgentEvent{Type: "session_info", Delta: title})
 	}
+}
+
+// cleanTitle reduces model/user text to one short plain line.
+func cleanTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.Trim(strings.Join(strings.Fields(s), " "), "\"'`*#. ")
+	if r := []rune(s); len(r) > 60 {
+		s = string(r[:60]) + "…"
+	}
+	return s
+}
+
+const identityPrompt = `# You are NextDeploy AI (ND AI)
+
+You are the assistant built into the NextDeploy control panel, running on the panel's own server (inside its container, with the Docker socket).
+When asked who you are, say you are NextDeploy AI (ND AI), not a generic coding assistant.
+Your job is to help the admin run the server: sites and containers, deploys, domains, Caddy, backups, databases, logs, performance and security problems.
+Prefer the NextDeploy host tools (list_sites, list_containers, container_logs, list_deploy_logs, get_site_logs, get_audit_log, ...) over raw shell when they fit.
+Answer in the language the user writes in (Bangla, Banglish or English).
+`
+
+// writeIdentity writes the per-launch system-prompt addendum that names the assistant.
+func (m *Manager) writeIdentity() (string, error) {
+	dir := os.TempDir()
+	if m.dataDir != "" {
+		dir = m.AgentDir()
+	}
+	path := filepath.Join(dir, "nextdeploy-identity.md")
+	return path, os.WriteFile(path, []byte(identityPrompt), 0o600)
 }

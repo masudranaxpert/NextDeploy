@@ -1,6 +1,6 @@
 export type NavigationSection =
   | 'overview'
-  | 'copilot'
+  | 'nextdeploy-ai'
   | 'monitor'
   | 'apps'
   | 'containers'

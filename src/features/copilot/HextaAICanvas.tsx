@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { AskCard } from "@/components/ui/ask-card"
 import { Button } from "@/components/ui/button"
 import { Composer, ComposerFooter, ComposerFooterEnd, ComposerPick } from "@/components/ui/composer"
-import { ContextRing } from "@/components/ui/context-ring"
+import { ContextMeter } from "./ContextMeter"
 import { Kbd } from "@/components/ui/kbd"
 import { Panel, PanelRow } from "@/components/ui/panel"
 import { Tag } from "@/components/ui/tag"
@@ -608,7 +608,7 @@ export function HextaAICanvas({
             <span className="glass-chosen flex size-5 items-center justify-center rounded-[6px] text-[10px] font-semibold text-primary">
               ND
             </span>
-            <span className="text-sm font-medium truncate">Copilot Sessions</span>
+            <span className="text-sm font-medium truncate">ND Sessions</span>
             <IconButton
               label="Hide sessions"
               className="ml-auto"
@@ -815,7 +815,7 @@ export function HextaAICanvas({
               </IconButton>
             )}
             {isDrawer && onCloseDrawer && (
-              <IconButton label="Close Copilot" onClick={onCloseDrawer}>
+              <IconButton label="Close NextDeploy AI" onClick={onCloseDrawer}>
                 <XIcon />
               </IconButton>
             )}
@@ -1040,7 +1040,7 @@ export function HextaAICanvas({
                 setAttached((all) => all.slice(0, -1))
                 return true
               }}
-              placeholder="Ask Copilot, run commands, or type / for skills…"
+              placeholder="Ask NextDeploy AI, or type / for skills and commands…"
               canSubmit={value.trim().length > 0 || images.length > 0}
               leading={
                 <>
@@ -1067,7 +1067,7 @@ export function HextaAICanvas({
                   />
                 </>
               }
-              tags={
+              above={
                 attached.length || images.length ? (
                   <>
                     {attached.map((path) => (
@@ -1077,7 +1077,7 @@ export function HextaAICanvas({
                         icon={<FileTextIcon />}
                         onRemove={() => setAttached((all) => all.filter((each) => each !== path))}
                       >
-                        {path.split("/").pop()}
+                        <span className="block max-w-[10rem] truncate">{path.split("/").pop()}</span>
                       </Tag>
                     ))}
                     {images.map((img, i) => (
@@ -1087,7 +1087,7 @@ export function HextaAICanvas({
                         icon={<img alt="" src={`data:${img.mimeType};base64,${img.data}`} className="size-3.5 rounded-[3px] object-cover" />}
                         onRemove={() => setImages((all) => all.filter((_, j) => j !== i))}
                       >
-                        {img.name}
+                        <span className="block max-w-[10rem] truncate">{img.name}</span>
                       </Tag>
                     ))}
                   </>
@@ -1128,14 +1128,12 @@ export function HextaAICanvas({
                 )}
 
                 {contextUsage && contextUsage.contextWindow > 0 && (
-                  <ContextRing
+                  <ContextMeter
                     used={contextUsage.tokens}
                     window={contextUsage.contextWindow}
-                    note={
-                      stats
-                        ? `${stats.toolCalls} tool calls · in ${stats.tokens.input.toLocaleString()} · out ${stats.tokens.output.toLocaleString()}${stats.tokens.cacheRead ? ` · cached ${stats.tokens.cacheRead.toLocaleString()}` : ""}${stats.cost ? ` · $${stats.cost.toFixed(4)}` : ""}. Older turns are compacted as the window fills.`
-                        : undefined
-                    }
+                    stats={stats}
+                    onCompact={() => compactContext()}
+                    disabled={isProcessing}
                   />
                 )}
               </ComposerFooterEnd>
@@ -1259,7 +1257,6 @@ export function HextaAICanvas({
           oauthPrompt={oauthPrompt}
           onStartOAuth={startOAuthLogin}
           onSubmitOAuthInput={submitOAuthInput}
-          onSaveKeys={saveProviders}
           onRemoveProvider={removeProvider}
         />
       )}

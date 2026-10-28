@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, Loader2Icon, SearchIcon, XIcon } from 'lucide-react';
+import { ExternalLinkIcon, Loader2Icon, SearchIcon, XIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { LoginProvider, OAuthPrompt, ProvidersConfig } from './types';
@@ -12,7 +12,6 @@ interface ProviderAuthModalProps {
   oauthPrompt: OAuthPrompt | null;
   onStartOAuth: (providerId: string) => void;
   onSubmitOAuthInput: (id: string, value: string) => Promise<boolean>;
-  onSaveKeys: (keys: Record<string, string>) => Promise<boolean>;
   onRemoveProvider: (providerId: string) => Promise<void>;
 }
 
@@ -27,13 +26,9 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   oauthPrompt,
   onStartOAuth,
   onSubmitOAuthInput,
-  onSaveKeys,
   onRemoveProvider,
 }) => {
   const [query, setQuery] = useState('');
-  const [keyFor, setKeyFor] = useState<string | null>(null);
-  const [keyValue, setKeyValue] = useState('');
-  const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [code, setCode] = useState('');
 
@@ -63,17 +58,6 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   }, [loginProviders, providers, query]);
 
   if (!isOpen) return null;
-
-  const saveKey = async (id: string) => {
-    if (!keyValue.trim()) return;
-    setBusy(id);
-    const ok = await onSaveKeys({ [`${id}_api_key`]: keyValue.trim() });
-    setBusy(null);
-    if (ok) {
-      setKeyFor(null);
-      setKeyValue('');
-    }
-  };
 
   const submitCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +108,9 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
               {oauthPrompt.title && (
                 <div className="flex gap-2">
                   <input
+                    type={oauthPrompt.secret ? 'password' : 'text'}
+                    autoComplete="off"
+                    spellCheck={false}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder={oauthPrompt.placeholder || 'Paste the code or redirect URL'}
@@ -186,66 +173,22 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
               <p className="py-6 text-center text-[12.5px] text-muted-foreground">No providers match.</p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {available.map((p) => {
-                  const open = keyFor === p.id;
-                  return (
-                    <li key={p.id} className="rounded-[6px]">
-                      <div className="flex flex-wrap items-center gap-2 rounded-[6px] px-3 py-1.5 hover:bg-accent/40">
-                        <p className="min-w-0 basis-full truncate text-[13px] sm:flex-1 sm:basis-0">{p.name}</p>
-                        <button
-                          type="button"
-                          disabled={busy === p.id}
-                          onClick={() => {
-                            setBusy(p.id);
-                            onStartOAuth(p.id);
-                          }}
-                          className={cn(btn, 'glass-chosen max-sm:flex-1')}
-                        >
-                          {busy === p.id ? <Loader2Icon className="size-3.5 animate-spin" /> : 'Sign in'}
-                        </button>
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => {
-                            setKeyFor(open ? null : p.id);
-                            setKeyValue('');
-                          }}
-                          className={cn(btn, 'text-muted-foreground hover:bg-accent hover:text-foreground max-sm:flex-1 max-sm:border max-sm:border-border/60')}
-                        >
-                          <KeyRoundIcon className="size-3.5" /> API key
-                        </button>
-                      </div>
-                      {open && (
-                        <div className="flex gap-2 px-3 pb-2">
-                          <div className="relative min-w-0 flex-1">
-                            <input
-                              autoFocus
-                              type={showKey ? 'text' : 'password'}
-                              value={keyValue}
-                              onChange={(e) => setKeyValue(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && saveKey(p.id)}
-                              placeholder="Paste API key"
-                              autoComplete="off"
-                              spellCheck={false}
-                              className="h-10 w-full rounded-[4px] bg-background/60 pr-9 pl-2.5 md:h-9 font-mono text-[12.5px] outline-none placeholder:font-sans placeholder:text-muted-foreground"
-                            />
-                            <button
-                              type="button"
-                              aria-label={showKey ? 'Hide key' : 'Show key'}
-                              onClick={() => setShowKey((v) => !v)}
-                              className="absolute top-1/2 right-2.5 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                            >
-                              {showKey ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
-                            </button>
-                          </div>
-                          <button type="button" disabled={!keyValue.trim() || busy === p.id} onClick={() => saveKey(p.id)} className={cn(btn, 'glass-chosen')}>
-                            {busy === p.id ? <Loader2Icon className="size-3.5 animate-spin" /> : <CheckIcon className="size-3.5" />} Save
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
+                {available.map((p) => (
+                  <li key={p.id} className="flex min-h-12 items-center gap-2 rounded-[6px] px-3 py-1.5 hover:bg-accent/40">
+                    <p className="min-w-0 flex-1 truncate text-[13px]">{p.name}</p>
+                    <button
+                      type="button"
+                      disabled={busy === p.id}
+                      onClick={() => {
+                        setBusy(p.id);
+                        onStartOAuth(p.id);
+                      }}
+                      className={cn(btn, 'glass-chosen shrink-0')}
+                    >
+                      {busy === p.id ? <Loader2Icon className="size-3.5 animate-spin" /> : 'Connect'}
+                    </button>
+                  </li>
+                ))}
               </ul>
             )}
           </section>
