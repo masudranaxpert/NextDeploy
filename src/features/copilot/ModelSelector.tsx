@@ -58,33 +58,61 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   return (
     <div className="relative inline-flex items-center gap-1.5" ref={containerRef}>
-      {/* Model Button Trigger */}
-      <button
-        type="button"
-        onClick={() => {
-          if (!isOpen && onOpen) {
-            onOpen();
-          }
-          setIsOpen(!isOpen);
-        }}
-        aria-haspopup="true"
-        aria-expanded={isOpen}
-        data-slot="dropdown-menu-trigger"
-        className="group/button inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-zinc-300 hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white transition-all shadow-xs"
-      >
-        <Sparkles className="size-3 text-orange-400 shrink-0" />
-        <span className="max-w-[130px] truncate sm:max-w-[170px]">{displayName}</span>
+      {/* Model & Thinking Trigger Pill */}
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] p-0.5 pl-2.5 text-xs font-medium text-zinc-300 shadow-xs hover:border-white/[0.14] transition-all">
+        <button
+          type="button"
+          onClick={() => {
+            if (!isOpen && onOpen) {
+              onOpen();
+            }
+            setIsOpen(!isOpen);
+          }}
+          className="inline-flex items-center gap-1.5 py-0.5 text-xs text-zinc-300 hover:text-white transition-colors"
+        >
+          <Sparkles className="size-3 text-orange-400 shrink-0" />
+          <span className="max-w-[130px] truncate sm:max-w-[170px]">{displayName}</span>
+        </button>
+
         {activeModel?.reasoning && (
-          <span className="rounded bg-orange-500/20 px-1 py-0.2 text-[9px] font-mono text-orange-400 uppercase">
-            {thinkingLevel}
-          </span>
+          <button
+            type="button"
+            title="Click to cycle reasoning effort: Off -> Low -> Medium -> High"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSelectThinking) {
+                const order: ThinkingLevel[] = ['off', 'low', 'medium', 'high'];
+                const nextIdx = (order.indexOf(thinkingLevel) + 1) % order.length;
+                onSelectThinking(order[nextIdx]);
+              }
+            }}
+            className={`rounded-full px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${
+              thinkingLevel === 'off'
+                ? 'bg-zinc-800 text-zinc-400 border border-zinc-700/60 hover:text-zinc-200'
+                : 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
+            }`}
+          >
+            {thinkingLevel === 'off' ? 'OFF' : thinkingLevel}
+          </button>
         )}
-        <ChevronDown
-          className={`size-3 text-zinc-400 transition-transform duration-150 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (!isOpen && onOpen) {
+              onOpen();
+            }
+            setIsOpen(!isOpen);
+          }}
+          className="pr-2 py-0.5 text-zinc-400 hover:text-white transition-colors"
+        >
+          <ChevronDown
+            className={`size-3 text-zinc-400 transition-transform duration-150 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+      </div>
 
       {/* Dropdown Popover */}
       {isOpen && (
@@ -100,7 +128,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                   <BrainCircuit className="size-3 text-orange-400" />
                   <span className="uppercase">Reasoning Effort</span>
                 </div>
-                <span className="text-[10px] text-orange-400 font-mono capitalize">{thinkingLevel}</span>
+                <span
+                  className={`text-[10px] font-mono capitalize ${
+                    thinkingLevel === 'off' ? 'text-zinc-500' : 'text-orange-400'
+                  }`}
+                >
+                  {thinkingLevel}
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 {THINKING_LEVELS.map((tl) => (
@@ -110,7 +144,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                     onClick={() => onSelectThinking(tl.id)}
                     className={`flex-1 rounded-md py-1 text-[10px] text-center transition-colors ${
                       thinkingLevel === tl.id
-                        ? 'bg-orange-500/25 text-orange-300 font-semibold border border-orange-500/40'
+                        ? tl.id === 'off'
+                          ? 'bg-zinc-700/60 text-zinc-200 font-semibold border border-zinc-500'
+                          : 'bg-orange-500/25 text-orange-300 font-semibold border border-orange-500/40'
                         : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
                     }`}
                   >

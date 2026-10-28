@@ -189,6 +189,11 @@ func (p *Panel) CopilotGetModels(c *fiber.Ctx) error {
 
 	models, activeModel, err := p.Copilot.GetModels(ctx)
 	thinkingLevel := "low"
+	if p.DB != nil {
+		if saved := p.DB.GetSetting(ctx, "ai_thinking_level"); saved != "" {
+			thinkingLevel = saved
+		}
+	}
 	var contextUsage any = nil
 	if state, errState := p.Copilot.GetState(ctx); errState == nil {
 		if state.Model != nil && state.Model.ID != "" {
@@ -234,9 +239,11 @@ func (p *Panel) CopilotSetModel(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := p.Copilot.SetModel(ctx, req.Provider, req.ModelID); err != nil {
-		_ = p.DB.SetSetting(ctx, "ai_active_provider", req.Provider)
-		_ = p.DB.SetSetting(ctx, "ai_active_model", req.ModelID)
+	if err := p.Copilot.SetModel(ctx, req.Provider, req.ModelID); err == nil {
+		if p.DB != nil {
+			_ = p.DB.SetSetting(ctx, "ai_active_provider", req.Provider)
+			_ = p.DB.SetSetting(ctx, "ai_active_model", req.ModelID)
+		}
 	}
 	return c.JSON(fiber.Map{"ok": true, "modelId": req.ModelID})
 }
@@ -351,6 +358,9 @@ func (p *Panel) CopilotSetThinking(c *fiber.Ctx) error {
 
 	if err := p.Copilot.SetThinkingLevel(ctx, req.Level); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	if p.DB != nil {
+		_ = p.DB.SetSetting(ctx, "ai_thinking_level", req.Level)
 	}
 	return c.JSON(fiber.Map{"ok": true, "level": req.Level})
 }

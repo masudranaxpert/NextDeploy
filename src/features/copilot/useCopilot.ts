@@ -224,22 +224,30 @@ export function useCopilot() {
   }, []);
 
   // Select Model
-  const selectModel = useCallback(async (provider: string, modelId: string) => {
-    setActiveModelId(modelId);
-    await requestJson('/api/v1/copilot/models', {
-      method: 'POST',
-      body: JSON.stringify({ provider, modelId }),
-    });
-  }, []);
+  const selectModel = useCallback(
+    async (provider: string, modelId: string) => {
+      setActiveModelId(modelId);
+      await requestJson('/api/v1/copilot/models', {
+        method: 'POST',
+        body: JSON.stringify({ provider, modelId }),
+      });
+      await refreshEngine();
+    },
+    [refreshEngine]
+  );
 
   // Set Thinking Level
-  const setThinkingLevel = useCallback(async (level: ThinkingLevel) => {
-    setThinkingLevelState(level);
-    await requestJson('/api/v1/copilot/thinking', {
-      method: 'POST',
-      body: JSON.stringify({ level }),
-    });
-  }, []);
+  const setThinkingLevel = useCallback(
+    async (level: ThinkingLevel) => {
+      setThinkingLevelState(level);
+      await requestJson('/api/v1/copilot/thinking', {
+        method: 'POST',
+        body: JSON.stringify({ level }),
+      });
+      await refreshEngine();
+    },
+    [refreshEngine]
+  );
 
   // Start OAuth Login for provider
   const startOAuthLogin = useCallback(async (providerId: string) => {

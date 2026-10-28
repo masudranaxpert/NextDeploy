@@ -215,6 +215,12 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 				ModelID:  activeModel,
 			})
 		}
+		thinkingLevel := m.DB.GetSetting(ctx, "ai_thinking_level")
+		if thinkingLevel != "" {
+			_ = client.SetThinkingLevel(ctx, omprpc.SetThinkingLevelCommand{
+				Level: omprpc.ThinkingLevel(thinkingLevel),
+			})
+		}
 	}
 
 	m.client = client
