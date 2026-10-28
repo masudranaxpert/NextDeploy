@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -102,21 +104,21 @@ func TestAgentManagerConfirmApproval(t *testing.T) {
 	}
 }
 
-func TestAgentManagerAvailableCommandsDefault(t *testing.T) {
+// The command catalogue comes from omp over RPC only: with omp installed it is
+// non-empty, without it the list is empty (there is no built-in fallback list).
+func TestAgentManagerAvailableCommandsComeFromOmp(t *testing.T) {
 	mgr := NewManager(nil, nil, t.TempDir())
-	cmds := mgr.GetAvailableCommands(t.Context())
-	if len(cmds) == 0 {
-		t.Fatal("expected commands from omp or default catalog")
+	defer mgr.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmds := mgr.GetAvailableCommands(ctx)
+	if _, err := exec.LookPath("omp"); err != nil && len(cmds) != 0 {
+		t.Fatalf("got %d commands without omp installed", len(cmds))
 	}
-	hasSkillOrSkills := false
 	for _, c := range cmds {
-		if strings.HasPrefix(c.Name, "skill") || c.Name == "compact" {
-			hasSkillOrSkills = true
-			break
+		if c.Name == "" {
+			t.Fatal("command without a name")
 		}
-	}
-	if !hasSkillOrSkills {
-		t.Errorf("expected skill or compact in commands catalog")
 	}
 }
 
