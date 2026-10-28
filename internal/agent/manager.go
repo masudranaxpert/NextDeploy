@@ -65,6 +65,9 @@ type Manager struct {
 	// Pending inputs for OAuth and extension UI
 	pendingInputs map[string]chan string
 
+	// OMP available slash commands
+	availableCommands []omprpc.AvailableSlashCommand
+
 	// SSE subscriber channels
 	subMu       sync.RWMutex
 	subscribers map[chan AgentEvent]struct{}
@@ -166,22 +169,35 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 	cmd.Stderr = os.Stderr
 
 	env := os.Environ()
+	hasAnyKey := false
 	if m.DB != nil {
-		if k := m.DB.GetSetting(ctx, "ai_openai_api_key"); k != "" {
-			env = append(env, "OPENAI_API_KEY="+k)
+		keys := []struct {
+			setting string
+			envVar  string
+		}{
+			{"ai_openai_api_key", "OPENAI_API_KEY"},
+			{"ai_anthropic_api_key", "ANTHROPIC_API_KEY"},
+			{"ai_deepseek_api_key", "DEEPSEEK_API_KEY"},
+			{"ai_gemini_api_key", "GEMINI_API_KEY"},
+			{"ai_openrouter_api_key", "OPENROUTER_API_KEY"},
+			{"ai_groq_api_key", "GROQ_API_KEY"},
+			{"ai_xai_api_key", "XAI_API_KEY"},
+			{"ai_zai_api_key", "ZAI_API_KEY"},
+			{"ai_zhipu_api_key", "ZHIPU_API_KEY"},
+			{"ai_custom_api_key", "CUSTOM_API_KEY"},
+			{"ai_custom_base_url", "OPENAI_BASE_URL"},
+			{"ai_ollama_host", "OLLAMA_HOST"},
 		}
-		if k := m.DB.GetSetting(ctx, "ai_anthropic_api_key"); k != "" {
-			env = append(env, "ANTHROPIC_API_KEY="+k)
+		for _, item := range keys {
+			if k := m.DB.GetSetting(ctx, item.setting); k != "" {
+				env = append(env, item.envVar+"="+k)
+				hasAnyKey = true
+			}
 		}
-		if k := m.DB.GetSetting(ctx, "ai_deepseek_api_key"); k != "" {
-			env = append(env, "DEEPSEEK_API_KEY="+k)
-		}
-		if k := m.DB.GetSetting(ctx, "ai_gemini_api_key"); k != "" {
-			env = append(env, "GEMINI_API_KEY="+k)
-		}
-		if k := m.DB.GetSetting(ctx, "ai_ollama_host"); k != "" {
-			env = append(env, "OLLAMA_HOST="+k)
-		}
+	}
+	// Bootstrap key so omp doesn't exit when no provider is authenticated yet
+	if !hasAnyKey && os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("OPENAI_API_KEY") == "" {
+		env = append(env, "ANTHROPIC_API_KEY=none")
 	}
 	cmd.Env = env
 
@@ -225,6 +241,14 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 				ToolArgs: string(rawArgs),
 			})
 
+		case omprpc.ToolExecutionUpdateEvent:
+			rawPartial, _ := json.Marshal(v.PartialResult)
+			m.broadcast(AgentEvent{
+				Type:     "tool_update",
+				ToolName: v.ToolName,
+				Result:   string(rawPartial),
+			})
+
 		case omprpc.ToolExecutionEndEvent:
 			rawResult, _ := json.Marshal(v.Result)
 			m.broadcast(AgentEvent{
@@ -232,6 +256,14 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 				ToolName: v.ToolName,
 				Result:   string(rawResult),
 				IsError:  v.IsError != nil && *v.IsError,
+			})
+
+		case omprpc.AvailableCommandsUpdateEvent:
+			m.mu.Lock()
+			m.availableCommands = v.Commands
+			m.mu.Unlock()
+			m.broadcast(AgentEvent{
+				Type: "commands_update",
 			})
 
 		case omprpc.ExtensionUiRequest:
@@ -516,6 +548,13 @@ func (m *Manager) SetThinkingLevel(ctx context.Context, level string) error {
 	return client.SetThinkingLevel(ctx, omprpc.SetThinkingLevelCommand{
 		Level: omprpc.ThinkingLevel(level),
 	})
+}
+
+// GetAvailableCommands returns the list of slash commands registered with omp.
+func (m *Manager) GetAvailableCommands() []omprpc.AvailableSlashCommand {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.availableCommands
 }
 
 // Close gracefully stops the omp subprocess.

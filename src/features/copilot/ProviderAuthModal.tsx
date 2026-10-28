@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Key,
@@ -10,6 +10,7 @@ import {
   EyeOff,
   LogIn,
   ShieldCheck,
+  Search,
 } from 'lucide-react';
 import type { ProvidersConfig, LoginProvider, OAuthPrompt } from './types';
 
@@ -24,48 +25,6 @@ interface ProviderAuthModalProps {
   onSaveKeys: (keys: Record<string, string>) => Promise<boolean>;
 }
 
-interface ProviderMeta {
-  key: string;
-  name: string;
-  docsUrl: string;
-  placeholder: string;
-  isHost?: boolean;
-}
-
-const API_KEY_METAS: ProviderMeta[] = [
-  {
-    key: 'anthropic',
-    name: 'Anthropic Claude',
-    docsUrl: 'https://console.anthropic.com/settings/keys',
-    placeholder: 'sk-ant-api03-...',
-  },
-  {
-    key: 'openai',
-    name: 'OpenAI',
-    docsUrl: 'https://platform.openai.com/api-keys',
-    placeholder: 'sk-proj-...',
-  },
-  {
-    key: 'deepseek',
-    name: 'DeepSeek',
-    docsUrl: 'https://platform.deepseek.com/api_keys',
-    placeholder: 'sk-...',
-  },
-  {
-    key: 'gemini',
-    name: 'Google Gemini',
-    docsUrl: 'https://aistudio.google.com/app/apikey',
-    placeholder: 'AIzaSy...',
-  },
-  {
-    key: 'ollama',
-    name: 'Ollama (Local Models)',
-    docsUrl: 'https://ollama.com',
-    placeholder: 'http://localhost:11434',
-    isHost: true,
-  },
-];
-
 export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   isOpen,
   onClose,
@@ -77,12 +36,22 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   onSaveKeys,
 }) => {
   const [activeTab, setActiveTab] = useState<'oauth' | 'keys'>('oauth');
+  const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [authCode, setAuthCode] = useState('');
   const [isSubmittingCode, setIsSubmittingCode] = useState(false);
+
+  // Filter login providers dynamically by search query
+  const filteredLoginProviders = useMemo(() => {
+    if (!searchQuery.trim()) return loginProviders;
+    const q = searchQuery.toLowerCase();
+    return loginProviders.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+    );
+  }, [loginProviders, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -150,31 +119,45 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
         </div>
 
         {/* Tabs: OAuth vs API Keys */}
-        <div className="flex border-b border-white/[0.08] mt-3">
-          <button
-            type="button"
-            onClick={() => setActiveTab('oauth')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'oauth'
-                ? 'border-orange-500 text-orange-400 font-semibold'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <LogIn className="size-3.5" />
-            <span>OAuth Logins ({loginProviders.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('keys')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'keys'
-                ? 'border-orange-500 text-orange-400 font-semibold'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Key className="size-3.5" />
-            <span>API Keys (BYOK)</span>
-          </button>
+        <div className="flex items-center justify-between border-b border-white/[0.08] mt-3">
+          <div className="flex">
+            <button
+              type="button"
+              onClick={() => setActiveTab('oauth')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
+                activeTab === 'oauth'
+                  ? 'border-orange-500 text-orange-400 font-semibold'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <LogIn className="size-3.5" />
+              <span>OAuth Logins ({loginProviders.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('keys')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
+                activeTab === 'keys'
+                  ? 'border-orange-500 text-orange-400 font-semibold'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Key className="size-3.5" />
+              <span>API Keys (BYOK)</span>
+            </button>
+          </div>
+
+          {/* Search bar */}
+          <div className="relative mb-1">
+            <Search className="size-3 text-zinc-500 absolute left-2 top-2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search providers..."
+              className="w-36 rounded-md border border-white/[0.08] bg-black/40 pl-6 pr-2 py-1 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-orange-500/50"
+            />
+          </div>
         </div>
 
         {/* OAuth Flow Active Banner */}
@@ -224,12 +207,14 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
         {/* Body content based on tab */}
         {activeTab === 'oauth' ? (
           <div className="mt-4 max-h-[50vh] overflow-y-auto space-y-2 pr-1 divide-y divide-white/[0.04]">
-            {loginProviders.length === 0 ? (
+            {filteredLoginProviders.length === 0 ? (
               <div className="p-6 text-center text-xs text-zinc-500">
-                Fetching OAuth providers from engine...
+                {loginProviders.length === 0
+                  ? 'Connecting to OMP engine...'
+                  : 'No matching providers found.'}
               </div>
             ) : (
-              loginProviders.map((lp) => (
+              filteredLoginProviders.map((lp) => (
                 <div
                   key={lp.id}
                   className="flex items-center justify-between py-2.5 px-2 hover:bg-white/[0.02] rounded-lg transition-colors"
@@ -265,75 +250,78 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSaveKeys} className="mt-4 space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-            {API_KEY_METAS.map((prov) => {
-              const status = providers ? (providers as any)[prov.key] : null;
-              const isConfigured = status?.configured;
-              const currentValue = formData[prov.key] !== undefined ? formData[prov.key] : '';
-              const isHost = prov.isHost;
-              const isPassword = !isHost && !showKeys[prov.key];
+            {filteredLoginProviders.length === 0 ? (
+              <div className="p-6 text-center text-xs text-zinc-500">
+                {loginProviders.length === 0
+                  ? 'Connecting to OMP engine...'
+                  : 'No matching providers found.'}
+              </div>
+            ) : (
+              filteredLoginProviders.map((prov) => {
+                const settingKey = `${prov.id}_api_key`;
+                const status = providers ? (providers as any)[prov.id] : null;
+                const isConfigured = status?.configured || prov.authenticated;
+                const currentValue = formData[settingKey] !== undefined ? formData[settingKey] : '';
+                const isHost = prov.id.includes('ollama');
+                const isPassword = !isHost && !showKeys[settingKey];
 
-              return (
-                <div
-                  key={prov.key}
-                  className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors focus-within:border-orange-500/40"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      {isHost ? (
-                        <Server className="size-3.5 text-zinc-400" />
-                      ) : (
-                        <Key className="size-3.5 text-zinc-400" />
-                      )}
-                      <span className="text-xs font-medium text-zinc-200">{prov.name}</span>
-                      {isConfigured && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
-                          <CheckCircle className="size-2.5" />
-                          Configured
-                        </span>
+                return (
+                  <div
+                    key={prov.id}
+                    className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors focus-within:border-orange-500/40"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        {isHost ? (
+                          <Server className="size-3.5 text-zinc-400" />
+                        ) : (
+                          <Key className="size-3.5 text-zinc-400" />
+                        )}
+                        <span className="text-xs font-medium text-zinc-200">{prov.name}</span>
+                        {isConfigured && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle className="size-2.5" />
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-zinc-500 font-mono">{prov.id}</span>
+                    </div>
+
+                    <div className="relative flex items-center">
+                      <input
+                        type={isPassword ? 'password' : 'text'}
+                        value={currentValue}
+                        placeholder={
+                          isConfigured
+                            ? isHost
+                              ? status?.host || 'http://localhost:11434'
+                              : status?.maskedKey || '••••••••••••••••'
+                            : isHost
+                            ? 'http://localhost:11434'
+                            : 'Enter API Key...'
+                        }
+                        onChange={(e) => handleChange(settingKey, e.target.value)}
+                        className="w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/60"
+                      />
+                      {!isHost && (
+                        <button
+                          type="button"
+                          onClick={() => toggleShow(settingKey)}
+                          className="absolute right-2.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          {showKeys[settingKey] ? (
+                            <EyeOff className="size-3.5" />
+                          ) : (
+                            <Eye className="size-3.5" />
+                          )}
+                        </button>
                       )}
                     </div>
-                    <a
-                      href={prov.docsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      <span>Get Key</span>
-                      <ExternalLink className="size-2.5" />
-                    </a>
                   </div>
-
-                  <div className="relative flex items-center">
-                    <input
-                      type={isPassword ? 'password' : 'text'}
-                      value={currentValue}
-                      placeholder={
-                        isConfigured
-                          ? isHost
-                            ? status.host || prov.placeholder
-                            : status.maskedKey || '••••••••••••••••'
-                          : prov.placeholder
-                      }
-                      onChange={(e) => handleChange(prov.key, e.target.value)}
-                      className="w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-orange-500/60"
-                    />
-                    {!isHost && (
-                      <button
-                        type="button"
-                        onClick={() => toggleShow(prov.key)}
-                        className="absolute right-2.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-                      >
-                        {showKeys[prov.key] ? (
-                          <EyeOff className="size-3.5" />
-                        ) : (
-                          <Eye className="size-3.5" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/[0.08]">
               <button

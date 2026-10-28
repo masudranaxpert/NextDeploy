@@ -198,16 +198,7 @@ func (p *Panel) CopilotGetModels(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"active":        p.DB.GetSetting(ctx, "ai_active_model"),
 			"thinkingLevel": thinkingLevel,
-			"models": []fiber.Map{
-				{"id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet", "provider": "anthropic", "reasoning": true},
-				{"id": "claude-3-5-sonnet", "name": "Claude 3.5 Sonnet", "provider": "anthropic"},
-				{"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
-				{"id": "o3-mini", "name": "o3-mini", "provider": "openai", "reasoning": true},
-				{"id": "deepseek-chat", "name": "DeepSeek V3", "provider": "deepseek"},
-				{"id": "deepseek-reasoner", "name": "DeepSeek R1", "provider": "deepseek", "reasoning": true},
-				{"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "provider": "gemini", "reasoning": true},
-				{"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "provider": "gemini"},
-			},
+			"models":        []fiber.Map{},
 		})
 	}
 	return c.JSON(fiber.Map{
@@ -354,34 +345,27 @@ func (p *Panel) CopilotSetThinking(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "level": req.Level})
 }
 
+// GET /api/v1/copilot/commands
+func (p *Panel) CopilotGetCommands(c *fiber.Ctx) error {
+	if p.Copilot == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Copilot not configured"})
+	}
+	return c.JSON(fiber.Map{
+		"commands": p.Copilot.GetAvailableCommands(),
+	})
+}
+
 // POST /api/v1/copilot/providers
 func (p *Panel) CopilotSaveProviders(c *fiber.Ctx) error {
-	var req struct {
-		OpenAIKey    string `json:"openaiKey"`
-		AnthropicKey string `json:"anthropicKey"`
-		DeepSeekKey  string `json:"deepseekKey"`
-		GeminiKey    string `json:"geminiKey"`
-		OllamaHost   string `json:"ollamaHost"`
-	}
+	var req map[string]string
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payload"})
 	}
 
 	ctx := c.Context()
-	if req.OpenAIKey != "" {
-		_ = p.DB.SetSetting(ctx, "ai_openai_api_key", req.OpenAIKey)
-	}
-	if req.AnthropicKey != "" {
-		_ = p.DB.SetSetting(ctx, "ai_anthropic_api_key", req.AnthropicKey)
-	}
-	if req.DeepSeekKey != "" {
-		_ = p.DB.SetSetting(ctx, "ai_deepseek_api_key", req.DeepSeekKey)
-	}
-	if req.GeminiKey != "" {
-		_ = p.DB.SetSetting(ctx, "ai_gemini_api_key", req.GeminiKey)
-	}
-	if req.OllamaHost != "" {
-		_ = p.DB.SetSetting(ctx, "ai_ollama_host", req.OllamaHost)
+	for key, val := range req {
+		dbKey := "ai_" + key
+		_ = p.DB.SetSetting(ctx, dbKey, val)
 	}
 
 	if p.Copilot != nil {

@@ -294,6 +294,7 @@ func main() {
 	app.Post("/api/v1/copilot/login", p.APIAuthMiddleware, p.CopilotStartLogin)
 	app.Post("/api/v1/copilot/input", p.APIAuthMiddleware, p.CopilotSubmitInput)
 	app.Post("/api/v1/copilot/thinking", p.APIAuthMiddleware, p.CopilotSetThinking)
+	app.Get("/api/v1/copilot/commands", p.APIAuthMiddleware, p.CopilotGetCommands)
 
 	// CLI System & Health API
 	app.Get("/api/v1/system/top", p.APIAuthMiddleware, p.APISystemTop)
