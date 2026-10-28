@@ -10,7 +10,6 @@ import {
   Loader2Icon,
   PlusIcon,
   SearchIcon,
-  ShieldCheckIcon,
   Trash2Icon,
   XIcon,
 } from 'lucide-react';
@@ -376,15 +375,6 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
           {/* TAB 2: SECRETS & ENVIRONMENT */}
           {activeTab === 'secrets' && (
             <div className="flex flex-col gap-4">
-              {/* Informative Security Callout */}
-              <div className="glass-control flex items-start gap-2.5 rounded-[6px] p-3 text-[12px] text-muted-foreground">
-                <ShieldCheckIcon className="size-4 shrink-0 text-emerald-400 mt-0.5" />
-                <div className="flex-1 leading-relaxed">
-                  Environment variables injected into NextDeploy AI subprocesses. Values are automatically redacted from
-                  model prompts and chat transcripts by OMP secret protection.
-                </div>
-              </div>
-
               {/* Add New Secret Form */}
               <form onSubmit={handleAddSecret} className="glass-control flex flex-col gap-2.5 rounded-[6px] p-3">
                 <h3 className="text-[12px] font-medium text-foreground">Add Secret or Variable</h3>
