@@ -82,6 +82,19 @@ export interface ChatSession {
   messageCount: number;
 }
 
+export interface SlashCommand {
+  name: string;
+  description?: string;
+  source?: string;
+  input?: { hint?: string };
+}
+
+export interface ContextUsage {
+  tokens: number;
+  contextWindow: number;
+  percent: number;
+}
+
 export interface CopilotStatus {
   running: boolean;
   active: boolean;

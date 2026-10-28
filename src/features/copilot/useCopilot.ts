@@ -55,10 +55,16 @@ export function useCopilot() {
     ];
   });
 
-  // Models, Thinking & Providers
+  // Models, Thinking, Context & Providers
   const [models, setModels] = useState<AIModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>('');
   const [thinkingLevel, setThinkingLevelState] = useState<ThinkingLevel>('low');
+  const [contextUsage, setContextUsage] = useState<{
+    tokens: number;
+    contextWindow: number;
+    percent: number;
+  } | null>(null);
+  const [slashCommands, setSlashCommands] = useState<Array<{ name: string; description?: string; input?: { hint?: string } }>>([]);
   const [providers, setProviders] = useState<ProvidersConfig | null>(null);
   const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
   const [oauthPrompt, setOauthPrompt] = useState<OAuthPrompt | null>(null);
@@ -183,16 +189,29 @@ export function useCopilot() {
     const modelsRes = await requestJson<{
       active: string;
       thinkingLevel?: ThinkingLevel;
+      contextUsage?: { tokens: number; contextWindow: number; percent: number };
       models: AIModel[];
     }>('/api/v1/copilot/models');
-    if (modelsRes.ok && modelsRes.data?.models?.length) {
-      setModels(modelsRes.data.models);
+    if (modelsRes.ok && modelsRes.data) {
+      if (modelsRes.data.models) {
+        setModels(modelsRes.data.models);
+      }
       if (modelsRes.data.active) {
         setActiveModelId(modelsRes.data.active);
       }
       if (modelsRes.data.thinkingLevel) {
         setThinkingLevelState(modelsRes.data.thinkingLevel);
       }
+      if (modelsRes.data.contextUsage) {
+        setContextUsage(modelsRes.data.contextUsage);
+      }
+    }
+
+    const cmdRes = await requestJson<{
+      commands: Array<{ name: string; description?: string; input?: { hint?: string } }>;
+    }>('/api/v1/copilot/commands');
+    if (cmdRes.ok && cmdRes.data?.commands) {
+      setSlashCommands(cmdRes.data.commands);
     }
 
     const provRes = await requestJson<ProvidersConfig>('/api/v1/copilot/providers');
@@ -563,5 +582,7 @@ export function useCopilot() {
     abort,
     clearCurrentChat,
     refreshEngine,
+    contextUsage,
+    slashCommands,
   };
 }

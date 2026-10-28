@@ -12,11 +12,11 @@ interface ModelSelectorProps {
 }
 
 const THINKING_LEVELS: { id: ThinkingLevel; label: string }[] = [
-  { id: 'off', label: 'Thinking Off' },
-  { id: 'low', label: 'Thinking Low (~2k)' },
-  { id: 'medium', label: 'Thinking Medium (~8k)' },
-  { id: 'high', label: 'Thinking High (~16k)' },
-  { id: 'max', label: 'Thinking Max (Full)' },
+  { id: 'off', label: 'Off' },
+  { id: 'low', label: 'Low (~2k)' },
+  { id: 'medium', label: 'Medium (~8k)' },
+  { id: 'high', label: 'High (~16k)' },
+  { id: 'max', label: 'Max (Full)' },
 ];
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({
@@ -67,6 +67,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       >
         <Sparkles className="size-3 text-orange-400 shrink-0" />
         <span className="max-w-[130px] truncate sm:max-w-[170px]">{displayName}</span>
+        {activeModel?.reasoning && (
+          <span className="rounded bg-orange-500/20 px-1 py-0.2 text-[9px] font-mono text-orange-400 uppercase">
+            {thinkingLevel}
+          </span>
+        )}
         <ChevronDown
           className={`size-3 text-zinc-400 transition-transform duration-150 ${
             isOpen ? 'rotate-180' : ''
@@ -78,24 +83,27 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       {isOpen && (
         <div
           data-slot="dropdown-menu"
-          className="absolute bottom-full left-0 mb-2 w-72 origin-bottom-left rounded-xl border border-white/[0.1] bg-[#0e1012] p-1.5 text-zinc-200 shadow-xl backdrop-blur-md z-50 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-full left-0 mb-2 w-80 origin-bottom-left rounded-xl border border-white/[0.1] bg-[#0e1012] p-1.5 text-zinc-200 shadow-xl backdrop-blur-md z-50 animate-in fade-in zoom-in-95 duration-100"
         >
-          {/* Thinking Level Section */}
+          {/* Active Model Reasoning Effort Bar (Inline with model) */}
           {onSelectThinking && (
-            <div className="border-b border-white/[0.06] pb-2 mb-1 px-1">
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-                <BrainCircuit className="size-3 text-orange-400" />
-                <span>Reasoning Effort</span>
+            <div className="border-b border-white/[0.06] pb-2 mb-1.5 px-1.5">
+              <div className="flex items-center justify-between text-[10px] font-semibold tracking-wider text-zinc-400 mb-1.5">
+                <div className="flex items-center gap-1">
+                  <BrainCircuit className="size-3 text-orange-400" />
+                  <span className="uppercase">Reasoning Effort</span>
+                </div>
+                <span className="text-[10px] text-orange-400 font-mono capitalize">{thinkingLevel}</span>
               </div>
-              <div className="grid grid-cols-2 gap-1">
+              <div className="flex items-center gap-1">
                 {THINKING_LEVELS.map((tl) => (
                   <button
                     key={tl.id}
                     type="button"
                     onClick={() => onSelectThinking(tl.id)}
-                    className={`rounded-lg px-2 py-1 text-[11px] text-left transition-colors ${
+                    className={`flex-1 rounded-md py-1 text-[10px] text-center transition-colors ${
                       thinkingLevel === tl.id
-                        ? 'bg-orange-500/20 text-orange-300 font-medium'
+                        ? 'bg-orange-500/25 text-orange-300 font-semibold border border-orange-500/40'
                         : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
                     }`}
                   >

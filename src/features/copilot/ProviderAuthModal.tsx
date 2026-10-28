@@ -39,6 +39,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [connectingProviderId, setConnectingProviderId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [authCode, setAuthCode] = useState('');
@@ -57,6 +58,11 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
 
   const handleChange = (key: string, value: string) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleOAuthConnect = (providerId: string) => {
+    setConnectingProviderId(providerId);
+    onStartOAuth(providerId);
   };
 
   const toggleShow = (key: string) => {
@@ -236,11 +242,21 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => onStartOAuth(lp.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-xs font-medium text-zinc-300 hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"
+                        onClick={() => handleOAuthConnect(lp.id)}
+                        disabled={connectingProviderId === lp.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-xs font-medium text-zinc-300 hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-300 disabled:opacity-50 transition-colors"
                       >
-                        <span>Connect</span>
-                        <ExternalLink className="size-2.5" />
+                        {connectingProviderId === lp.id ? (
+                          <>
+                            <Loader2 className="size-3 animate-spin text-orange-400" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Connect</span>
+                            <ExternalLink className="size-2.5" />
+                          </>
+                        )}
                       </button>
                     )}
                   </div>

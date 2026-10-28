@@ -54,6 +54,8 @@ export const HextaAICanvas: React.FC<HextaAICanvasProps> = ({
     confirmApproval,
     abort,
     clearCurrentChat,
+    contextUsage,
+    slashCommands,
   } = useCopilot();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(initialSidebarOpen);
@@ -288,6 +290,8 @@ export const HextaAICanvas: React.FC<HextaAICanvasProps> = ({
             models={models}
             activeModel={activeModel}
             thinkingLevel={thinkingLevel}
+            contextUsage={contextUsage}
+            slashCommands={slashCommands}
             onSelectModel={selectModel}
             onSelectThinking={setThinkingLevel}
             onOpenSettings={() => setIsSettingsOpen(true)}

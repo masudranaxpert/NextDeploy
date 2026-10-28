@@ -39,6 +39,10 @@ func (p *Panel) CopilotStream(c *fiber.Ctx) error {
 		ch, cancel := p.Copilot.Subscribe()
 		defer cancel()
 
+		// Initial connected frame so browser immediately acknowledges SSE open
+		_, _ = fmt.Fprintf(w, ": connected\n\n")
+		_ = w.Flush()
+
 		// Heartbeat ticker to keep SSE connection alive
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -185,6 +189,7 @@ func (p *Panel) CopilotGetModels(c *fiber.Ctx) error {
 
 	models, activeModel, err := p.Copilot.GetModels(ctx)
 	thinkingLevel := "low"
+	var contextUsage any = nil
 	if state, errState := p.Copilot.GetState(ctx); errState == nil {
 		if state.Model != nil && state.Model.ID != "" {
 			activeModel = state.Model.ID
@@ -192,18 +197,23 @@ func (p *Panel) CopilotGetModels(c *fiber.Ctx) error {
 		if state.ThinkingLevel != nil {
 			thinkingLevel = string(*state.ThinkingLevel)
 		}
+		if state.ContextUsage != nil {
+			contextUsage = state.ContextUsage
+		}
 	}
 
 	if err != nil || len(models) == 0 {
 		return c.JSON(fiber.Map{
 			"active":        p.DB.GetSetting(ctx, "ai_active_model"),
 			"thinkingLevel": thinkingLevel,
+			"contextUsage":  contextUsage,
 			"models":        []fiber.Map{},
 		})
 	}
 	return c.JSON(fiber.Map{
 		"active":        activeModel,
 		"thinkingLevel": thinkingLevel,
+		"contextUsage":  contextUsage,
 		"models":        models,
 	})
 }
