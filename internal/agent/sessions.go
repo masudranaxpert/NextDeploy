@@ -97,6 +97,10 @@ func (m *Manager) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
+		// Conversations are <root>/<cwd>/<file>.jsonl; deeper files are subagent transcripts.
+		if rel, rerr := filepath.Rel(m.sessionsRoot(), path); rerr != nil || strings.Count(rel, string(os.PathSeparator)) != 1 {
+			return nil
+		}
 		title, id, scwd, ok := readSessionHeader(path)
 		if !ok {
 			return nil

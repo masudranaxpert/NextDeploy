@@ -115,6 +115,9 @@ type Manager struct {
 	// needsLogin is true when omp only started thanks to the placeholder key.
 	needsLogin bool
 
+	// titleSeed is the first prompt of an unnamed conversation (see nameSession).
+	titleSeed string
+
 	// Working directory the omp subprocess runs in (see workdir.go).
 	cwdKind  string // "root" | "site" | "temp"
 	cwdAppID string
@@ -270,7 +273,7 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	env := os.Environ()
+	env := append(os.Environ(), "PI_RPC_EMIT_TITLE=1") // omp suppresses its generated conversation title in RPC mode otherwise
 	if dir := m.AgentDir(); m.dataDir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("agent: create omp state dir: %w", err)
@@ -448,6 +451,7 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 			if v.IsTerminal == nil || *v.IsTerminal {
 				m.activePrompt.Store(false)
 				m.broadcast(AgentEvent{Type: "agent_end"})
+				go m.nameSession(client)
 				go m.pushState(client)
 			}
 
@@ -669,6 +673,9 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 			m.mu.Unlock()
 		}(ui.ID)
 
+	case omprpc.SetTitleUiRequest:
+		m.broadcast(AgentEvent{Type: "session_info", Delta: ui.Title})
+
 	case omprpc.NotifyUiRequest:
 		level := "info"
 		if ui.NotifyType != nil {
@@ -750,6 +757,13 @@ func (m *Manager) SendPrompt(ctx context.Context, message string, images []omprp
 		return err
 	}
 
+	if !strings.HasPrefix(strings.TrimSpace(message), "/") {
+		m.mu.Lock()
+		if m.titleSeed == "" {
+			m.titleSeed = message
+		}
+		m.mu.Unlock()
+	}
 	cmd := omprpc.PromptCommand{Message: message, Images: images}
 	if m.activePrompt.Swap(true) {
 		cmd.StreamingBehavior = omprpc.Ptr(omprpc.StreamingBehaviorSteer)
@@ -1140,4 +1154,32 @@ func (m *Manager) ApplyAutonomyMode(ctx context.Context, mode AutonomyMode) erro
 	}
 	m.broadcast(AgentEvent{Type: "workdir"}) // clients reload their view of the engine
 	return nil
+}
+
+// nameSession gives an unnamed conversation a title through omp's own
+// set_session_name. omp only generates titles in its TUI, never over RPC.
+func (m *Manager) nameSession(client *omprpc.Client) {
+	m.mu.Lock()
+	seed := m.titleSeed
+	m.titleSeed = ""
+	m.mu.Unlock()
+	if seed == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	st, err := client.GetState(ctx)
+	if err != nil || (st.SessionName != nil && *st.SessionName != "") {
+		return
+	}
+	title := strings.TrimSpace(strings.Join(strings.Fields(seed), " "))
+	if r := []rune(title); len(r) > 60 {
+		title = string(r[:60]) + "…"
+	}
+	if title == "" {
+		return
+	}
+	if err := client.SetSessionName(ctx, omprpc.SetSessionNameCommand{Name: title}); err == nil {
+		m.broadcast(AgentEvent{Type: "session_info", Delta: title})
+	}
 }

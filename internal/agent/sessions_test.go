@@ -108,3 +108,29 @@ func TestMapHistoryOtherMessageKinds(t *testing.T) {
 		t.Errorf("system kinds: %+v %+v", got[2], got[3])
 	}
 }
+
+func TestSubagentTranscriptsAreNotListed(t *testing.T) {
+	data := t.TempDir()
+	root := t.TempDir()
+	m := NewManager(nil, nil, root)
+	m.SetDataDir(data)
+	dir := filepath.Join(data, "omp", "agent", "sessions", "x")
+	sub := filepath.Join(dir, "2026_abc") // artifacts directory of a conversation
+	_ = os.MkdirAll(sub, 0o755)
+	hdr := `{"type":"title","title":"T"}` + "\n" + `{"type":"session","id":"i","cwd":"` + root + `"}` + "\n" + `{"type":"message","id":"1"}` + "\n"
+	_ = os.WriteFile(filepath.Join(dir, "2026_abc.jsonl"), []byte(hdr), 0o644)
+	_ = os.WriteFile(filepath.Join(sub, "0-Sub.jsonl"), []byte(hdr), 0o644)
+	// ListSessions needs the engine for the current session; walk part is what matters here.
+	n := 0
+	_ = filepath.WalkDir(m.sessionsRoot(), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".jsonl") {
+			if rel, _ := filepath.Rel(m.sessionsRoot(), p); strings.Count(rel, string(os.PathSeparator)) == 1 {
+				n++
+			}
+		}
+		return nil
+	})
+	if n != 1 {
+		t.Fatalf("want 1 conversation file, got %d", n)
+	}
+}

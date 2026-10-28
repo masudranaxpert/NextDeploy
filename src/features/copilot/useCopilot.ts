@@ -615,14 +615,15 @@ export function useCopilot() {
                 id: key,
                 index: d.index ?? 0,
                 agent: d.agent,
-                description: d.description ?? d.task ?? d.assignment,
+                // Lifecycle frames carry the subagent's name; progress frames only its raw task text.
+                description: d.id ? d.description ?? d.id : i >= 0 ? prev[i].description : d.task ?? d.assignment,
                 status: d.status || (i >= 0 ? prev[i].status : 'running'),
                 startedAt: i >= 0 ? prev[i].startedAt : Date.now(),
                 detached: d.detached,
               };
               if (i >= 0) {
                 const copy = [...prev];
-                copy[i] = { ...prev[i], ...next, status: d.status || prev[i].status };
+                copy[i] = { ...prev[i], ...next, id: d.id || prev[i].id, status: d.status || prev[i].status };
                 return copy;
               }
               return [...prev, next];

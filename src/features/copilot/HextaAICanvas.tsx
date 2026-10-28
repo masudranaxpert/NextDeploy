@@ -293,7 +293,7 @@ export function HextaAICanvas({
     saveProviders,
   } = useCopilot()
 
-  const [sidebar, setSidebar] = React.useState(initialSidebarOpen)
+  const [sidebar, setSidebar] = React.useState(() => initialSidebarOpen && wide("(min-width: 48rem)"))
   const [finding, setFinding] = React.useState<string | null>(null)
   const [value, setValue] = React.useState("")
   const [attached, setAttached] = React.useState<string[]>([])
@@ -324,7 +324,7 @@ export function HextaAICanvas({
       setUploading(false)
     }
   }
-  const [panels, setPanels] = React.useState({ files: !isDrawer, tasks: !isDrawer })
+  const [panels, setPanels] = React.useState(() => ({ files: !isDrawer && wide("(min-width: 80rem)"), tasks: !isDrawer && wide("(min-width: 80rem)") }))
   const [drawer, setDrawer] = React.useState<"sessions" | "panels" | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false)
 
@@ -727,20 +727,20 @@ export function HextaAICanvas({
             <PanelLeftIcon />
           </IconButton>
 
-          <span className="min-w-0 truncate px-1 text-sm font-medium">
+          <span className="min-w-[4.5rem] max-w-[16rem] flex-1 truncate px-1 text-sm font-medium" title={currentSession.title}>
             {currentSession.title}
           </span>
 
           {/* Working directory omp runs in */}
-          <div className="ml-2 flex items-center gap-1.5 border-l border-border/40 pl-2">
-            <span className="hidden text-[11px] text-muted-foreground sm:inline">Run in</span>
+          <div className="ml-1 flex shrink-0 items-center gap-1.5 border-l border-border/40 pl-2">
+            <span className="hidden text-[11px] whitespace-nowrap text-muted-foreground xl:inline">Run in</span>
             <ShadcnSelect
               title={workDir?.path || "Working directory"}
               value={workDirValue}
               onChange={onWorkDirChange}
               options={workDirOptions}
               disabled={isProcessing}
-              className="w-44"
+              className="w-36 lg:w-44"
               menuClassName="min-w-64"
             />
           </div>
