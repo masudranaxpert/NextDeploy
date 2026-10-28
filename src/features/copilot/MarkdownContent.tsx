@@ -76,7 +76,7 @@ const components: Components = {
     return <CodeBlock code={code} lang={lang} />;
   },
   code: ({ className, children }) => (
-    <code className={cn('rounded border border-orange-500/25 bg-orange-500/[0.08] px-1.5 py-0.5 font-mono text-[0.9em] text-orange-300 break-words', className)}>
+    <code className={cn('rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[0.9em] text-orange-300 break-words', className)}>
       {children}
     </code>
   ),
