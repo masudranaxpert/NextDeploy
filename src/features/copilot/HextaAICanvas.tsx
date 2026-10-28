@@ -83,7 +83,7 @@ const DEFAULT_TREE: Node[] = [
 
 const MODES = [
   { value: "safe", label: "Ask first", hint: "Stops where the choice is yours" },
-  { value: "autonomous", label: "On its own", hint: "Decides and carries on" },
+  { value: "autonomous", label: "Autonomous", hint: "Decides and carries on" },
 ]
 
 const EFFORTS = [
@@ -348,10 +348,12 @@ export function HextaAICanvas({
 
   // Files state
   const [tree, setTree] = React.useState<Node[]>(DEFAULT_TREE)
-  const [open, setOpen] = React.useState(() => new Set(["src", "src/features", "research"]))
+  const [open, setOpen] = React.useState(() => new Set(["src", "src/features", "research", "htdocs"]))
   const [chosen, setChosen] = React.useState("src/features/copilot/HextaAICanvas.tsx")
   const [looking, setLooking] = React.useState("")
   const [turning, setTurning] = React.useState(false)
+  const [availableApps, setAvailableApps] = React.useState<Array<{ id: string; name: string; php?: boolean }>>([])
+  const [selectedAppId, setSelectedAppId] = React.useState<string>("")
   const picker = React.useRef<HTMLInputElement>(null)
 
   // Ended tasks folding
@@ -361,18 +363,22 @@ export function HextaAICanvas({
   const grown = React.useRef(false)
 
   // Fetch real workspace files from active app
-  const loadWorkspaceFiles = React.useCallback(async () => {
+  const loadWorkspaceFiles = React.useCallback(async (targetAppId?: string) => {
     try {
       setTurning(true)
       const bootRes = await appsAndDockerApi.bootstrap()
       const apps = (bootRes.data as any)?.apps || []
-      const appId = apps[0]?.id
-      if (appId) {
-        const listRes = await appsAndDockerApi.filesList(appId, "", true)
+      setAvailableApps(apps)
+
+      const activeId = targetAppId !== undefined && targetAppId !== "" ? targetAppId : (selectedAppId || apps[0]?.id)
+      if (activeId && activeId !== "global") {
+        const listRes = await appsAndDockerApi.filesList(activeId, "", true)
         if (listRes.ok && Array.isArray(listRes.data) && listRes.data.length > 0) {
           const generatedTree = buildTreeFromFlatList(listRes.data)
           if (generatedTree.length > 0) {
             setTree(generatedTree)
+            const firstDir = generatedTree.find((n) => n.children)?.name
+            if (firstDir) setOpen((prev) => new Set([...prev, firstDir]))
           }
         }
       }
@@ -381,11 +387,11 @@ export function HextaAICanvas({
     } finally {
       window.setTimeout(() => setTurning(false), 500)
     }
-  }, [])
+  }, [selectedAppId])
 
   React.useEffect(() => {
-    loadWorkspaceFiles()
-  }, [loadWorkspaceFiles])
+    loadWorkspaceFiles(selectedAppId)
+  }, [selectedAppId])
 
   // Scroll to bottom as thread grows
   React.useEffect(() => {
@@ -469,7 +475,12 @@ export function HextaAICanvas({
   // Send message
   const handleSend = (text: string) => {
     if (!text.trim()) return
-    sendPrompt(text, attached)
+    const activeApp = availableApps.find((a) => a.id === selectedAppId)
+    const promptToSend =
+      selectedAppId && selectedAppId !== "global"
+        ? `[Target Workspace: /data/workspaces/${selectedAppId}/htdocs (App: ${activeApp?.name || selectedAppId})]\n${text}`
+        : text
+    sendPrompt(promptToSend, attached)
     setValue("")
     setAttached([])
   }
@@ -631,7 +642,7 @@ export function HextaAICanvas({
             <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-foreground">
               A
             </span>
-            <span className="text-xs truncate font-medium">Administrator</span>
+            <span className="text-xs truncate font-medium">admin</span>
             <IconButton
               label="Provider Settings"
               className="ml-auto size-6"
@@ -658,6 +669,26 @@ export function HextaAICanvas({
           <span className="min-w-0 truncate px-1 text-sm font-medium">
             {currentSession.title}
           </span>
+
+          {/* Project / Site Scope Selector */}
+          {availableApps.length > 0 && (
+            <div className="flex items-center gap-1.5 ml-2 border-l border-border/40 pl-2">
+              <span className="text-[11px] text-muted-foreground hidden sm:inline">Scope:</span>
+              <select
+                aria-label="Target Project Scope"
+                value={selectedAppId}
+                onChange={(e) => setSelectedAppId(e.target.value)}
+                className="h-6 rounded-md bg-accent/60 px-2 py-0.5 text-xs font-medium text-foreground outline-none border border-border/50 hover:bg-accent transition-colors cursor-pointer"
+              >
+                <option value="global">All Workspaces (/data/workspaces)</option>
+                {availableApps.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name || a.id} {a.php ? "(PHP)" : "(App)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <span className="ml-auto flex items-center gap-1">
             <IconButton
@@ -863,8 +894,8 @@ export function HextaAICanvas({
                 />
 
                 <ContextRing
-                  used={contextUsage?.tokens ?? 86300}
-                  window={contextUsage?.contextWindow ?? 200000}
+                  used={contextUsage?.tokens ?? 0}
+                  window={contextUsage?.contextWindow ?? 1000000}
                 />
               </ComposerFooterEnd>
             </ComposerFooter>
@@ -981,15 +1012,21 @@ export function HextaAICanvas({
                 <p className="px-3 pb-1 text-[11.5px] text-muted-foreground/80">
                   Running{runningTasks.length ? "" : " · none"}
                 </p>
-                <ul className="flex flex-col gap-1.5 px-1.5">
-                  {runningTasks.map((task, idx) => (
-                    <TaskBoard
-                      key={`${task.title}-${idx}`}
-                      task={task}
-                      onStop={abort}
-                    />
-                  ))}
-                </ul>
+                {runningTasks.length === 0 ? (
+                  <div className="px-3 py-3 text-center text-[11.5px] text-muted-foreground/60 border border-dashed border-border/40 rounded-md mx-1.5 mb-1.5">
+                    No active background tasks or subagents
+                  </div>
+                ) : (
+                  <ul className="flex flex-col gap-1.5 px-1.5">
+                    {runningTasks.map((task, idx) => (
+                      <TaskBoard
+                        key={`${task.title}-${idx}`}
+                        task={task}
+                        onStop={abort}
+                      />
+                    ))}
+                  </ul>
+                )}
 
                 <button
                   type="button"
