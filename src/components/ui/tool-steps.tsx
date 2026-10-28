@@ -12,6 +12,8 @@ export type Step = {
   id: string
   /** What the call did, in one line. */
   label: string
+  /** The command, path or query behind the label, shown muted after it. */
+  hint?: string
   status: "running" | "done" | "error"
   /** What it was asked to do in full: a command, a query, a path. */
   detail?: string
@@ -68,7 +70,10 @@ function StepRow({ step, labels }: { step: Step; labels?: Partial<StepLabels> })
         onClick={() => setOpen((value) => !value)}
         className={cn(lineClass, step.status === "running" && "animate-pulse")}
       >
-        <span className="truncate text-[12.5px]">{step.label}</span>
+        <span className={cn("truncate text-[12.5px]", step.hint && "max-w-[70%] shrink-0")}>{step.label}</span>
+        {step.hint && (
+          <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground/60">{step.hint}</span>
+        )}
         {step.patch && <DiffStats {...patchStats(step.patch)} />}
         {canOpen && <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />}
       </button>

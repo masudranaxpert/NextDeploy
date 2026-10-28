@@ -69,6 +69,7 @@ export function toolToStep(tc: ToolExecution): Step {
   let detail: string | undefined;
   let detailLabel = 'Input';
   let patch: string | undefined;
+  let hint: string | undefined;
 
   switch (xd ? 'xd' : name) {
     case 'xd':
@@ -80,6 +81,17 @@ export function toolToStep(tc: ToolExecution): Step {
       break;
     case 'write':
       label = `${running ? 'Creating' : 'Created'} ${base(args.path)}`;
+      if (typeof args.content === 'string' && args.content) {
+        detail = args.content.length > 4000 ? args.content.slice(0, 4000) + '\n…' : args.content;
+        detailLabel = 'Content';
+      }
+      break;
+    case 'execute_bash':
+      // NextDeploy host tool: run a command inside a site. Show the command itself, not just the intent.
+      label = intent || `Ran a command in ${args.app_id ?? 'site'}`;
+      hint = trim(String(args.command ?? ''), 90);
+      detail = String(args.command ?? '');
+      detailLabel = args.app_id ? `Command in ${args.app_id}` : 'Command';
       break;
     case 'edit':
     case 'ast_edit':
@@ -115,7 +127,11 @@ export function toolToStep(tc: ToolExecution): Step {
       break;
     default:
       label = intent || name.replace(/_/g, ' ');
+      // Host tools: say what they acted on (site / container / domain).
+      hint = [args.app_id, args.container, args.domain].find((v) => typeof v === 'string') as string | undefined;
   }
+  if (!hint && (name === 'read' || name === 'write' || name === 'edit' || name === 'ast_edit') && typeof args.path === 'string') hint = trim(args.path, 70);
+  if (!hint && name === 'grep' && typeof args.path === 'string') hint = trim(args.path, 60);
 
   if (!detail && Object.keys(args).length) {
     const { i: _i, ...rest } = args;
@@ -125,6 +141,7 @@ export function toolToStep(tc: ToolExecution): Step {
   return {
     id: tc.id,
     label,
+    hint,
     status: failed ? 'error' : running ? 'running' : 'done',
     detail,
     detailLabel,
