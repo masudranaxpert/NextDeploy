@@ -16,8 +16,6 @@ import {
   ShrinkIcon,
   ZapIcon,
   MoreHorizontalIcon,
-  Minimize2Icon,
-  Maximize2Icon,
   GitForkIcon,
   ArrowRightLeftIcon,
   DownloadIcon,
@@ -235,19 +233,11 @@ function IconButton({
 }
 
 export interface HextaAICanvasProps {
-  expanded?: boolean
-  onToggleExpand?: () => void
   initialSidebarOpen?: boolean
-  isDrawer?: boolean
-  onCloseDrawer?: () => void
 }
 
 export function HextaAICanvas({
   initialSidebarOpen = true,
-  isDrawer = false,
-  onCloseDrawer,
-  expanded,
-  onToggleExpand,
 }: HextaAICanvasProps) {
   const {
     sessions,
@@ -330,7 +320,7 @@ export function HextaAICanvas({
       setUploading(false)
     }
   }
-  const [panels, setPanels] = React.useState(() => ({ files: !isDrawer && wide("(min-width: 80rem)"), tasks: !isDrawer && wide("(min-width: 80rem)") }))
+  const [panels, setPanels] = React.useState(() => ({ files: wide("(min-width: 80rem)"), tasks: wide("(min-width: 80rem)") }))
   const [drawer, setDrawer] = React.useState<"sessions" | "panels" | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false)
 
@@ -805,16 +795,6 @@ export function HextaAICanvas({
             >
               <FolderIcon />
             </IconButton>
-            {isDrawer && onToggleExpand && (
-              <IconButton label={expanded ? "Restore size" : "Expand"} onClick={onToggleExpand} className="max-sm:hidden">
-                {expanded ? <Minimize2Icon /> : <Maximize2Icon />}
-              </IconButton>
-            )}
-            {isDrawer && onCloseDrawer && (
-              <IconButton label="Close NextDeploy AI" onClick={onCloseDrawer}>
-                <XIcon />
-              </IconButton>
-            )}
           </span>
         </div>
 

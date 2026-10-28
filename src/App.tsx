@@ -78,7 +78,6 @@ const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView')
 const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.ProjectsListView })));
 const ShieldProxiesView = lazyRetry(() => import('./features/shield/ShieldProxiesView').then((m) => ({ default: m.ShieldProxiesView })));
 const CopilotView = lazyRetry(() => import('./features/copilot/CopilotView').then((m) => ({ default: m.CopilotView })));
-import { CopilotDrawer } from './features/copilot/CopilotDrawer';
 
 // Start downloading the code of the page in the address bar right away (while the data request
 // runs), instead of waiting for the data first and the code second.
@@ -311,7 +310,6 @@ export default function App() {
   // Modals
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [newAppModalOpen, setNewAppModalOpen] = useState(false);
-  const [copilotDrawerOpen, setCopilotDrawerOpen] = useState(false);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -320,7 +318,7 @@ export default function App() {
         setCmdPaletteOpen((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
         e.preventDefault();
-        setCopilotDrawerOpen((prev) => !prev);
+        navigateTo('nextdeploy-ai');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1840,11 +1838,11 @@ export default function App() {
         onCreateApp={handleCreateApp}
       />
 
-      {/* Floating Copilot Drawer & Trigger */}
-      {activeNav !== 'nextdeploy-ai' && !copilotDrawerOpen && (
+      {/* Floating shortcut to the NextDeploy AI page */}
+      {activeNav !== 'nextdeploy-ai' && (
         <button
           type="button"
-          onClick={() => setCopilotDrawerOpen(true)}
+          onClick={() => navigateTo('nextdeploy-ai')}
           aria-label="Open NextDeploy AI"
           className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 flex size-12 items-center justify-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 text-xs font-semibold sm:right-5 sm:bottom-5 sm:size-auto sm:px-3.5 sm:py-2.5 text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
         >
@@ -1858,10 +1856,6 @@ export default function App() {
         </button>
       )}
 
-      <CopilotDrawer
-        isOpen={copilotDrawerOpen}
-        onClose={() => setCopilotDrawerOpen(false)}
-      />
     </div>
     </OwnerContext.Provider>
   );
