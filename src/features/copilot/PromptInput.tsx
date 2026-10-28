@@ -15,6 +15,7 @@ interface PromptInputProps {
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinking?: (level: ThinkingLevel) => void;
   onOpenSettings: () => void;
+  onRefreshEngine?: () => void;
   disabled?: boolean;
 }
 
@@ -30,6 +31,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onSelectModel,
   onSelectThinking,
   onOpenSettings,
+  onRefreshEngine,
   disabled = false,
 }) => {
   const [input, setInput] = useState('');
@@ -168,6 +170,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
               onSelect={onSelectModel}
               onSelectThinking={onSelectThinking}
               onOpenSettings={onOpenSettings}
+              onOpen={onRefreshEngine}
             />
           </div>
 

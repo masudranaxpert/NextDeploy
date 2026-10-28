@@ -9,6 +9,7 @@ interface ModelSelectorProps {
   onSelect: (provider: string, modelId: string) => void;
   onSelectThinking?: (level: ThinkingLevel) => void;
   onOpenSettings: () => void;
+  onOpen?: () => void;
 }
 
 const THINKING_LEVELS: { id: ThinkingLevel; label: string }[] = [
@@ -26,6 +27,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   onSelect,
   onSelectThinking,
   onOpenSettings,
+  onOpen,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +61,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       {/* Model Button Trigger */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen && onOpen) {
+            onOpen();
+          }
+          setIsOpen(!isOpen);
+        }}
         aria-haspopup="true"
         aria-expanded={isOpen}
         data-slot="dropdown-menu-trigger"
@@ -120,6 +127,18 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               <div className="p-4 text-center text-xs text-zinc-500">
                 <p>No authenticated models found.</p>
                 <p className="mt-1 text-[11px] text-zinc-600">Connect a provider in Settings.</p>
+                {onOpen && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpen();
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-1 rounded-md bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-orange-400 hover:bg-white/[0.1] hover:text-orange-300 transition-colors"
+                  >
+                    Refresh Models
+                  </button>
+                )}
               </div>
             ) : (
               Object.entries(grouped).map(([providerKey, provModels]) => (

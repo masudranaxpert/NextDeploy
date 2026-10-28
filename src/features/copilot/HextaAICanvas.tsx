@@ -56,6 +56,7 @@ export const HextaAICanvas: React.FC<HextaAICanvasProps> = ({
     clearCurrentChat,
     contextUsage,
     slashCommands,
+    refreshEngine,
   } = useCopilot();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(initialSidebarOpen);
@@ -295,6 +296,7 @@ export const HextaAICanvas: React.FC<HextaAICanvasProps> = ({
             onSelectModel={selectModel}
             onSelectThinking={setThinkingLevel}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onRefreshEngine={refreshEngine}
           />
         </div>
       </div>
@@ -302,7 +304,10 @@ export const HextaAICanvas: React.FC<HextaAICanvasProps> = ({
       {/* Provider Auth Settings Modal */}
       <ProviderAuthModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          refreshEngine();
+        }}
         providers={providers}
         loginProviders={loginProviders}
         oauthPrompt={oauthPrompt}

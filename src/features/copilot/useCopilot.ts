@@ -432,6 +432,12 @@ export function useCopilot() {
             break;
           }
 
+          case 'ready':
+          case 'commands_update': {
+            refreshEngine();
+            break;
+          }
+
           case 'agent_end': {
             const msgId = activeMessageIdRef.current;
             if (msgId) {
