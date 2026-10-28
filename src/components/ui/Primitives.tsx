@@ -89,13 +89,13 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${widthClass} overflow-hidden rounded-xl border border-white/[0.09] bg-[#0e0e11] text-zinc-100 shadow-[0_24px_80px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.06)]`}
+        className={`relative w-full ${widthClass} overflow-hidden rounded-lg border border-white/[0.08] bg-[#0e0e11] text-zinc-100 shadow-[0_20px_60px_rgba(0,0,0,0.8)]`}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5 sm:py-3.5">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2.5 min-w-0">
             {icon && (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/90 text-orange-400 shadow-inner">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-zinc-300 border border-white/[0.06]">
                 {icon}
               </div>
             )}
@@ -113,7 +113,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>

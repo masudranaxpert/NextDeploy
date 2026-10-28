@@ -17,7 +17,6 @@ import {
   Box,
   Clock,
   Activity,
-  Sparkles,
   Folder,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -412,7 +411,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           <button
             type="button"
             onClick={() => void loadDestinations(false)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <RotateCw className={`h-3.5 w-3.5 text-zinc-400 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -420,7 +419,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           <button
             type="button"
             onClick={() => openConnectModal('gdrive')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer whitespace-nowrap"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer whitespace-nowrap"
           >
             <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
             Connect Google Drive
@@ -428,7 +427,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           <button
             type="button"
             onClick={() => openConnectModal('r2')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer whitespace-nowrap"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-100 px-3.5 text-xs font-medium text-zinc-950 hover:bg-white transition-colors cursor-pointer whitespace-nowrap"
           >
             <Plus className="h-3.5 w-3.5" />
             Connect Cloudflare R2
@@ -437,7 +436,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       </div>
 
       {/* Provider Filter Tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
+      <div className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
         {(
           [
             { id: 'all', label: `All (${destinations.length})` },
@@ -455,7 +454,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             key={tab.id}
             type="button"
             onClick={() => setProviderFilter(tab.id)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
               providerFilter === tab.id
                 ? 'bg-zinc-800 text-zinc-100'
                 : 'text-zinc-400 hover:text-zinc-200'
@@ -468,16 +467,16 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
       {/* Connected Storage Destination Cards */}
       {filteredDestinations.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-8 text-center space-y-3">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-900">
-            <Cloud className="h-5 w-5 text-zinc-400" />
+        <div className="rounded-lg border border-white/[0.07] bg-[#111115]/90 p-8 text-center space-y-3">
+          <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-md border border-white/[0.08] bg-zinc-900">
+            <Cloud className="h-4 w-4 text-zinc-400" />
           </div>
-          <h3 className="text-sm font-semibold text-zinc-100">No backup destinations configured</h3>
+          <h3 className="text-sm font-medium text-zinc-200">No backup destinations configured</h3>
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
             <button
               type="button"
               onClick={() => openConnectModal('gdrive')}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer"
             >
               <HardDrive className="h-3.5 w-3.5" />
               Connect Google Drive
@@ -485,7 +484,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             <button
               type="button"
               onClick={() => openConnectModal('r2')}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-100 px-3 text-xs font-medium text-zinc-950 hover:bg-white cursor-pointer"
             >
               <Cloud className="h-3.5 w-3.5" />
               Connect Cloudflare R2
@@ -493,7 +492,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
           {filteredDestinations.map((d) => {
             const isGDrive = d.provider === 'Google Drive' || d.providerCode === 'gdrive';
             const hasQuota = d.quotaGB > 0;
@@ -505,13 +504,13 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             return (
               <div
                 key={d.id}
-                className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 flex flex-col justify-between gap-4"
+                className="rounded-lg border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 flex flex-col justify-between gap-4"
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
                           isGDrive
                             ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
                             : 'border-orange-500/25 bg-orange-500/10 text-orange-400'
@@ -655,9 +654,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                           {d.usedGB} GB / {d.quotaGB} GB ({pct}%)
                         </span>
                       </div>
-                      <div className="h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+                      <div className="h-1.5 w-full rounded bg-zinc-900 overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${
+                          className={`h-full rounded ${
                             isGDrive ? 'bg-emerald-500' : 'bg-orange-500'
                           }`}
                           style={{ width: `${Math.max(3, pct)}%` }}
@@ -682,7 +681,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         type="button"
                         disabled={testingDestId === d.id}
                         onClick={() => void handleTestDestination(d.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <Activity className={`h-3 w-3 ${testingDestId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'}`} />
                         <span>{testingDestId === d.id ? 'Testing...' : 'Test Connection'}</span>
@@ -691,7 +690,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         <button
                           type="button"
                           onClick={() => openConnectModal('gdrive', d.name, d.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
                         >
                           <RotateCw className="h-3 w-3 text-emerald-400" />
                           <span>Reconnect</span>
@@ -700,7 +699,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => void handleDeleteDestination(d)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                        className="inline-flex items-center gap-1 rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer"
                         title="Delete destination"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -716,7 +715,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
       {/* Project Backups Directory Table with Pagination (> 10 projects) */}
       {onSelectApp && (
-        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
+        <div className="rounded-lg border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/[0.07] bg-[#09090b]/50 px-4 py-3">
             <div className="flex items-center gap-2">
               <Box className="h-4 w-4 text-orange-400" />
@@ -731,8 +730,8 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
           {scheduledApps.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/60 text-zinc-500">
-                <Clock className="h-5 w-5" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/[0.08] bg-zinc-900/60 text-zinc-500">
+                <Clock className="h-4 w-4" />
               </div>
               <p className="mt-3 text-sm font-medium text-zinc-300">No scheduled project backups</p>
               <p className="mt-1 max-w-sm text-xs text-zinc-500">
@@ -880,36 +879,36 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         }
         maxWidth="lg"
       >
-        <form onSubmit={handleConnectDestination} className="space-y-4">
+        <form onSubmit={handleConnectDestination} className="space-y-3.5">
           {/* Provider Selection Tabs */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => setDestProvider('gdrive')}
-              className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+              className={`flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors cursor-pointer ${
                 destProvider === 'gdrive'
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-zinc-100 shadow-[0_0_15px_-3px_rgba(16,185,129,0.15)]'
-                  : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                  ? 'border-white/20 bg-zinc-800/80 text-zinc-100'
+                  : 'border-white/[0.06] bg-[#09090b]/60 text-zinc-400 hover:border-white/10 hover:text-zinc-200'
               }`}
             >
-              <HardDrive className="h-4 w-4 text-emerald-400 shrink-0" />
-              <div>
-                <div className="text-xs font-semibold">Google Drive</div>
+              <HardDrive className={`h-4 w-4 shrink-0 ${destProvider === 'gdrive' ? 'text-emerald-400' : 'text-zinc-500'}`} />
+              <div className="min-w-0">
+                <div className="text-xs font-medium">Google Drive</div>
                 <div className="text-[10px] text-zinc-500">Google Cloud / Rclone OAuth</div>
               </div>
             </button>
             <button
               type="button"
               onClick={() => setDestProvider('r2')}
-              className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+              className={`flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors cursor-pointer ${
                 destProvider === 'r2'
-                  ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100 shadow-[0_0_15px_-3px_rgba(249,115,22,0.15)]'
-                  : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                  ? 'border-white/20 bg-zinc-800/80 text-zinc-100'
+                  : 'border-white/[0.06] bg-[#09090b]/60 text-zinc-400 hover:border-white/10 hover:text-zinc-200'
               }`}
             >
-              <Cloud className="h-4 w-4 text-orange-400 shrink-0" />
-              <div>
-                <div className="text-xs font-semibold">Cloudflare R2</div>
+              <Cloud className={`h-4 w-4 shrink-0 ${destProvider === 'r2' ? 'text-orange-400' : 'text-zinc-500'}`} />
+              <div className="min-w-0">
+                <div className="text-xs font-medium">Cloudflare R2</div>
                 <div className="text-[10px] text-zinc-500">S3-compatible object storage</div>
               </div>
             </button>
@@ -917,7 +916,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
           {/* Destination Name */}
           <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+            <label className="block text-[11px] font-medium text-zinc-400 mb-1">
               Destination Label
             </label>
             <input
@@ -930,96 +929,95 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                   ? 'e.g. Google Drive Primary'
                   : 'e.g. Cloudflare R2 Primary'
               }
-              className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+              className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
           </div>
 
           {destProvider === 'gdrive' ? (
             <div className="space-y-3">
-              {/* Google Drive Sub-Tabs: Quick Connect vs Custom App */}
-              <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
+              {/* Google Drive Sub-Tabs: Quick Setup vs Custom App */}
+              <div className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
                 <button
                   type="button"
                   onClick={() => setGdriveMode('quick')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                     gdriveMode === 'quick'
-                      ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30'
+                      ? 'bg-zinc-800 text-zinc-100'
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  <Sparkles className="h-3 w-3 text-emerald-400" />
-                  Quick Connect (Recommended)
+                  Quick Setup
                 </button>
                 <button
                   type="button"
                   onClick={() => setGdriveMode('custom')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                     gdriveMode === 'custom'
-                      ? 'bg-zinc-800 text-zinc-100 font-semibold border border-white/[0.08]'
+                      ? 'bg-zinc-800 text-zinc-100'
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   <KeyRound className="h-3 w-3 text-zinc-400" />
-                  Custom Google Cloud App
+                  Custom Credentials
                 </button>
               </div>
 
               {gdriveMode === 'quick' ? (
-                <div className="space-y-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-4 text-xs">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[11px] font-bold text-emerald-300">
+                <div className="space-y-3 rounded-md border border-white/[0.06] bg-zinc-900/30 p-3.5 text-xs">
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-zinc-800 font-mono text-[11px] font-semibold text-zinc-300 border border-white/[0.06]">
                       1
                     </span>
                     <div className="flex-1 space-y-1">
-                      <div className="font-medium text-zinc-200">Authorize Google Account</div>
+                      <div className="font-medium text-zinc-200">Google Authorization</div>
                       <p className="text-[11px] leading-relaxed text-zinc-400">
-                        Click below to sign in with your Google account. Google will ask for permission to store backups in your Google Drive.
+                        Sign in to grant NextDeploy permission to manage backup archives in your Google Drive.
                       </p>
                       <button
                         type="button"
                         disabled={isFetchingAuthUrl}
                         onClick={() => void handleOpenGoogleAuth()}
-                        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer disabled:opacity-50"
+                        className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
                       >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        <span>{isFetchingAuthUrl ? 'Opening...' : 'Open Google Authorization Page'}</span>
+                        <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
+                        <span>{isFetchingAuthUrl ? 'Opening...' : 'Open Google Sign-in'}</span>
                       </button>
                     </div>
                   </div>
 
                   <div className="border-t border-white/[0.06]" />
 
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[11px] font-bold text-emerald-300">
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-zinc-800 font-mono text-[11px] font-semibold text-zinc-300 border border-white/[0.06]">
                       2
                     </span>
                     <div className="flex-1 space-y-1.5">
                       <div className="font-medium text-zinc-200">Paste Redirect URL or Code</div>
                       <p className="text-[11px] leading-relaxed text-zinc-400">
-                        After granting permission, your browser will redirect to an address starting with{' '}
+                        Copy the redirect address from your browser address bar (starting with{' '}
                         <code className="rounded bg-black/40 px-1 py-0.5 font-mono text-zinc-300">
-                          http://127.0.0.1:53682/?state=...&code=...
+                          http://127.0.0.1:53682
                         </code>
-                        . Even if the page says <em>&quot;This site can’t be reached&quot;</em>, simply copy the entire address from your browser&apos;s address bar and paste it below.
+                        ) and paste it below. Even if your browser displays a connection error page, the token is in the address.
                       </p>
                       <input
                         type="text"
                         value={gdriveQuickCode}
                         onChange={(e) => handlePastedCodeOrUrl(e.target.value)}
-                        placeholder="Paste full URL or code: http://127.0.0.1:53682/?state=...&code=4/0Ab..."
-                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+                        placeholder="http://127.0.0.1:53682/?state=...&code=..."
+                        className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
                       />
                       {gdriveQuickCode && (
                         <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
                           <CheckCircle2 className="h-3 w-3" />
-                          <span>Code extracted and ready for token exchange</span>
+                          <span>Authorization code detected</span>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3 rounded-xl border border-white/[0.08] bg-[#09090b]/60 p-3.5">
+                <div className="space-y-3 rounded-md border border-white/[0.06] bg-zinc-900/30 p-3.5 text-xs">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label className="block text-[11px] font-medium text-zinc-400 mb-1">
@@ -1031,7 +1029,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         value={gdriveClientId}
                         onChange={(e) => setGdriveClientId(e.target.value)}
                         placeholder="123456789-abc.apps.googleusercontent.com"
-                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                        className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                       />
                     </div>
                     <div>
@@ -1044,12 +1042,12 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         value={gdriveClientSecret}
                         onChange={(e) => setGdriveClientSecret(e.target.value)}
                         placeholder="GOCSPX-..."
-                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                        className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                       />
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
+                  <div className="rounded-md border border-white/[0.06] bg-[#09090b] p-2.5">
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
                       <span>Authorized Redirect URI</span>
                       <button
@@ -1064,7 +1062,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         Copy URI
                       </button>
                     </div>
-                    <div className="font-mono text-[11px] text-zinc-200 select-all break-all">
+                    <div className="font-mono text-[11px] text-zinc-300 select-all break-all">
                       {gdriveRedirectUrl}
                     </div>
                   </div>
@@ -1072,7 +1070,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               )}
             </div>
           ) : (
-            <div className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/[0.03] p-3.5">
+            <div className="space-y-3 rounded-md border border-white/[0.06] bg-zinc-900/30 p-3.5 text-xs">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1">
@@ -1084,7 +1082,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     value={r2AccountId}
                     onChange={(e) => setR2AccountId(e.target.value)}
                     placeholder="e.g. 91a8c4f0d82e4b199a01"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -1097,7 +1095,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     value={r2Bucket}
                     onChange={(e) => setR2Bucket(e.target.value)}
                     placeholder="e.g. nextdeploy-backups"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -1112,7 +1110,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     value={r2AccessKeyId}
                     onChange={(e) => setR2AccessKeyId(e.target.value)}
                     placeholder="R2 S3 Access Key ID"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -1125,7 +1123,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     value={r2SecretAccessKey}
                     onChange={(e) => setR2SecretAccessKey(e.target.value)}
                     placeholder="••••••••••••••••••••••••"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -1136,14 +1134,14 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             <button
               type="button"
               onClick={() => setDestModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+              className="rounded-md border border-white/10 bg-transparent px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.05] transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || (destProvider === 'gdrive' && gdriveMode === 'quick' && !gdriveQuickCode.trim())}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-3.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-white transition-colors disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -1154,12 +1152,12 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                 gdriveMode === 'quick' ? (
                   <>
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Complete Google Drive Setup</span>
+                    <span>Save Google Drive</span>
                   </>
                 ) : (
                   <>
                     <ExternalLink className="h-3.5 w-3.5" />
-                    <span>Authorize with Google</span>
+                    <span>Authorize & Save</span>
                   </>
                 )
               ) : (
