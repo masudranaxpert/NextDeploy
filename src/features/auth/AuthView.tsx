@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Eye, EyeOff, Loader2, Lock, ShieldCheck, User } from 'lucide-react';
-import { toast } from 'sonner';
+import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, Lock, ShieldCheck, User } from 'lucide-react';
+import { Toaster, toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 
 interface AuthViewProps {
@@ -125,6 +125,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isSetup = mode === 'setup';
   const score = passwordScore(password);
@@ -132,12 +133,15 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
 
     try {
       if (isSetup) {
         if (password !== confirm) {
-          toast.error('Passwords do not match');
+          const msg = 'Passwords do not match';
+          setError(msg);
+          toast.error(msg);
           setLoading(false);
           return;
         }
@@ -146,7 +150,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
           toast.success('Admin account created successfully');
           onSuccess();
         } else {
-          toast.error(res.error || 'Failed to complete setup');
+          const msg = res.error || 'Failed to complete setup';
+          setError(msg);
+          toast.error(msg);
         }
       } else {
         const res = await backendApi.login(username.trim(), password);
@@ -154,11 +160,15 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
           toast.success('Logged in successfully');
           onSuccess();
         } else {
-          toast.error(res.error || 'Invalid credentials');
+          const msg = res.error || 'Invalid username or password';
+          setError(msg);
+          toast.error(msg);
         }
       }
     } catch {
-      toast.error('Network request failed');
+      const msg = 'Network request failed. Please check connection.';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -166,6 +176,16 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
 
   return (
     <div className="grid min-h-screen bg-[#09090b] text-zinc-100 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        richColors
+        closeButton
+        duration={4500}
+        visibleToasts={4}
+        mobileOffset={{ bottom: 16, left: 16, right: 16 }}
+        toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
+      />
       <section className="flex flex-col px-4 pb-6 pt-8 min-[900px]:px-12 min-[900px]:py-8">
         <div className="flex items-center gap-2.5 font-display text-[17px] font-bold tracking-tight">
           <NextDeployMark className="h-[30px] w-[30px]" />
@@ -188,6 +208,16 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
               {isSetup ? 'This account will have full access to the panel.' : 'Sign in to manage your servers and deployments.'}
             </p>
 
+            {error && (
+              <div
+                role="alert"
+                className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+                <span className="leading-relaxed font-medium">{error}</span>
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <label htmlFor="nd-username" className="mb-[7px] block text-[13px] font-medium text-zinc-300">
@@ -202,7 +232,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
                     autoFocus
                     autoComplete="username"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      if (error) setError(null);
+                    }}
                     placeholder="admin"
                     className={`${inputClass} pr-3`}
                   />
@@ -214,7 +247,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
                 label="Password"
                 icon={<Lock className="h-4 w-4" />}
                 value={password}
-                onChange={setPassword}
+                onChange={(val) => {
+                  setPassword(val);
+                  if (error) setError(null);
+                }}
                 placeholder={isSetup ? 'At least 12 characters' : 'Enter your password'}
                 autoComplete={isSetup ? 'new-password' : 'current-password'}
               >
@@ -245,7 +281,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
                   label="Confirm password"
                   icon={<ShieldCheck className="h-4 w-4" />}
                   value={confirm}
-                  onChange={setConfirm}
+                  onChange={(val) => {
+                    setConfirm(val);
+                    if (error) setError(null);
+                  }}
                   placeholder="Repeat password"
                   autoComplete="new-password"
                 >

@@ -1205,17 +1205,29 @@ export default function App() {
 
   if (authMode) {
     return (
-      <AuthView
-        mode={authMode}
-        onSuccess={() => {
-          // no page reload: the sign-in screen stays until the data for the new session has
-          // arrived, then the dashboard replaces it (no spinner in between)
-          setSelectedAppId(null);
-          setActiveNav('overview');
-          window.history.replaceState(null, '', '/overview');
-          void loadBootstrap();
-        }}
-      />
+      <>
+        <Toaster
+          position="bottom-right"
+          theme="dark"
+          richColors
+          closeButton
+          duration={4500}
+          visibleToasts={4}
+          mobileOffset={{ bottom: 16, left: 16, right: 16 }}
+          toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
+        />
+        <AuthView
+          mode={authMode}
+          onSuccess={() => {
+            // no page reload: the sign-in screen stays until the data for the new session has
+            // arrived, then the dashboard replaces it (no spinner in between)
+            setSelectedAppId(null);
+            setActiveNav('overview');
+            window.history.replaceState(null, '', '/overview');
+            void loadBootstrap();
+          }}
+        />
+      </>
     );
   }
 

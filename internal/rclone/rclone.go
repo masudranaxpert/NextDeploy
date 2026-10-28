@@ -248,6 +248,12 @@ func verifyRcloneTransferred(stderrStr, stdoutStr string) error {
 	return nil
 }
 
+const (
+	RcloneDefaultGDriveClientID     = "202264815644.apps.googleusercontent.com"
+	RcloneDefaultGDriveClientSecret = "X4Z3ca8xfWDb1Voo-F9a7ZxJ"
+	RcloneDefaultGDriveRedirectURI  = "http://127.0.0.1:53682/"
+)
+
 type GoogleDriveTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -255,16 +261,46 @@ type GoogleDriveTokenResponse struct {
 	TokenType    string `json:"token_type"`
 }
 
-func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
+// ExtractGoogleAuthCode pulls the code parameter out of a pasted redirect URL or returns raw code.
+func ExtractGoogleAuthCode(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+	if strings.Contains(input, "code=") {
+		if u, err := url.Parse(input); err == nil {
+			if c := u.Query().Get("code"); c != "" {
+				return c
+			}
+		}
+		re := regexp.MustCompile(`[?&]code=([^&]+)`)
+		if m := re.FindStringSubmatch(input); len(m) > 1 {
+			if decoded, err := url.QueryUnescape(m[1]); err == nil {
+				return decoded
+			}
+			return m[1]
+		}
+	}
+	return input
+}
+
+func GetGoogleDriveAuthURLWithScope(clientID, redirectURL, scope string) string {
+	if scope == "" {
+		scope = "https://www.googleapis.com/auth/drive"
+	}
 	params := url.Values{}
 	params.Set("client_id", clientID)
 	params.Set("redirect_uri", redirectURL)
 	params.Set("response_type", "code")
-	params.Set("scope", "https://www.googleapis.com/auth/drive.file")
+	params.Set("scope", scope)
 	params.Set("access_type", "offline")
 	params.Set("prompt", "consent")
 
 	return "https://accounts.google.com/o/oauth2/v2/auth?" + params.Encode()
+}
+
+func GetGoogleDriveAuthURL(clientID, redirectURL string) string {
+	return GetGoogleDriveAuthURLWithScope(clientID, redirectURL, "https://www.googleapis.com/auth/drive")
 }
 
 func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, redirectURL string) (string, error) {
@@ -807,4 +843,45 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 	}
 
 	return "", fmt.Errorf("file not found")
+}
+
+// TestGoogleDrive verifies token validity and returns storage quota and user info.
+// Refreshes the token if expired and credentials are present.
+func TestGoogleDrive(ctx context.Context, clientID, clientSecret, token string) (*GoogleDriveAboutInfo, string, error) {
+	if clientID == "" {
+		clientID = RcloneDefaultGDriveClientID
+		clientSecret = RcloneDefaultGDriveClientSecret
+	}
+	if IsTokenExpired(token) && clientID != "" && clientSecret != "" {
+		if newToken, err := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); err == nil {
+			token = newToken
+		}
+	}
+	about, err := GetGoogleDriveAboutInfo(ctx, token)
+	if err != nil && clientID != "" && clientSecret != "" {
+		if newToken, rerr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); rerr == nil {
+			token = newToken
+			about, err = GetGoogleDriveAboutInfo(ctx, token)
+		}
+	}
+	if err != nil {
+		return nil, token, fmt.Errorf("Google Drive connection check failed: %w", err)
+	}
+	return about, token, nil
+}
+
+// TestCloudflareR2 verifies that the Cloudflare R2 bucket is accessible using rclone.
+func TestCloudflareR2(ctx context.Context, accountID, accessKeyID, secretAccessKey, bucket string) error {
+	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
+	cmd := exec.CommandContext(ctx, rclonePath(), "lsd", fmt.Sprintf("r2:%s", bucket), "--timeout", "10s")
+	cmd.Env = append(os.Environ(), rcloneEnvR2(accountID, accessKeyID, secretAccessKey, endpoint)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := strings.TrimSpace(filterSensitiveData(string(out)))
+		if outStr == "" {
+			outStr = err.Error()
+		}
+		return fmt.Errorf("R2 connection test failed: %s", outStr)
+	}
+	return nil
 }

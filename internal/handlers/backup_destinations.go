@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"panel/internal/db"
+	"strconv"
 	"strings"
 
 	"panel/internal/rclone"
@@ -116,11 +117,47 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 	switch provider {
 	case "gdrive":
 		rawToken := strings.TrimSpace(c.FormValue("token"))
+		rawCode := strings.TrimSpace(c.FormValue("code"))
 		clientID := strings.TrimSpace(c.FormValue("client_id"))
 		clientSecret := strings.TrimSpace(c.FormValue("client_secret"))
 		folderID := strings.TrimSpace(c.FormValue("folder_id"))
 
-		if rawToken != "" {
+		if rawCode != "" {
+			cleanCode := rclone.ExtractGoogleAuthCode(rawCode)
+			redirectURI := strings.TrimSpace(c.FormValue("redirect_uri"))
+			authMode := "rclone_quick"
+			if clientID == "" || clientSecret == "" {
+				clientID = rclone.RcloneDefaultGDriveClientID
+				clientSecret = rclone.RcloneDefaultGDriveClientSecret
+				redirectURI = rclone.RcloneDefaultGDriveRedirectURI
+			} else {
+				authMode = "custom_oauth"
+				if redirectURI == "" {
+					redirectURI = strings.TrimRight(p.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
+				}
+			}
+			token, terr := rclone.ExchangeGoogleDriveCode(c.UserContext(), clientID, clientSecret, cleanCode, redirectURI)
+			if terr != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Google Drive token exchange failed: " + terr.Error()})
+			}
+			if folderID == "" {
+				if fid, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy"); ferr == nil && fid != "" {
+					folderID = fid
+				}
+			}
+			cfgMap := map[string]string{
+				"client_id":     clientID,
+				"client_secret": clientSecret,
+				"token":         token,
+				"folder_id":     folderID,
+				"auth_mode":     authMode,
+			}
+			configBytes, merr := json.Marshal(cfgMap)
+			if merr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": merr.Error()})
+			}
+			config = string(configBytes)
+		} else if rawToken != "" {
 			cleanToken, terr := rclone.ExtractRcloneTokenJSON(rawToken)
 			if terr != nil {
 				return c.Status(400).JSON(fiber.Map{"error": terr.Error()})
@@ -147,7 +184,7 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 			config = string(configBytes)
 		} else {
 			if clientID == "" || clientSecret == "" {
-				return c.Status(400).JSON(fiber.Map{"error": "Provide an Rclone Drive token JSON (from rclone authorize \"drive\") or Google OAuth Client ID and Secret"})
+				return c.Status(400).JSON(fiber.Map{"error": "Provide an authorization code, Rclone Drive token JSON, or Google OAuth Client ID and Secret"})
 			}
 			configBytes, merr := json.Marshal(map[string]string{
 				"client_id":     clientID,
@@ -183,6 +220,19 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "unsupported provider"})
 	}
 
+	// Reconnect/Update if destination id was specified
+	if editID := strings.TrimSpace(c.FormValue("id")); editID != "" {
+		if idNum, parseErr := strconv.ParseInt(editID, 10, 64); parseErr == nil && idNum > 0 {
+			if existing, gerr := p.DB.GetBackupDestination(c.UserContext(), idNum); gerr == nil && existing.ID > 0 {
+				if u.Role == db.RoleAdmin || (existing.UserID != nil && *existing.UserID == u.ID) {
+					if uerr := p.DB.UpdateBackupDestinationConfig(c.UserContext(), idNum, config); uerr == nil {
+						return c.JSON(fiber.Map{"id": idNum, "message": "destination updated"})
+					}
+				}
+			}
+		}
+	}
+
 	id, err := p.DB.CreateBackupDestination(c.UserContext(), userID, name, provider, string(config))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -215,6 +265,188 @@ func (p *Panel) BackupDestinationDelete(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "destination deleted"})
+}
+
+// BackupDestinationTest tests active connectivity without modifying destination metadata.
+func (p *Panel) BackupDestinationTest(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	dest, err := p.DB.GetBackupDestination(c.UserContext(), int64(id))
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "destination not found"})
+	}
+	if u.Role != db.RoleAdmin && (dest.UserID == nil || *dest.UserID != u.ID) {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	var configMap map[string]string
+	if err := json.Unmarshal([]byte(dest.Config), &configMap); err != nil {
+		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "invalid destination configuration"})
+	}
+
+	switch dest.Provider {
+	case "gdrive":
+		token := configMap["token"]
+		if token == "" {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Google Drive destination has no token configured"})
+		}
+		clientID := configMap["client_id"]
+		clientSecret := configMap["client_secret"]
+		about, newToken, testErr := rclone.TestGoogleDrive(c.UserContext(), clientID, clientSecret, token)
+		if testErr != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": testErr.Error()})
+		}
+		if newToken != token && newToken != "" {
+			configMap["token"] = newToken
+			_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dest.ID, string(mustMarshal(configMap)))
+		}
+		return c.JSON(fiber.Map{
+			"ok":            true,
+			"message":       fmt.Sprintf("Connected as %s (%s)", about.User.DisplayName, about.User.EmailAddress),
+			"email":         about.User.EmailAddress,
+			"display_name":  about.User.DisplayName,
+			"storage_used":  about.StorageQuota.Usage,
+			"storage_limit": about.StorageQuota.Limit,
+			"folder_id":     configMap["folder_id"],
+		})
+
+	case "r2":
+		accountID := configMap["account_id"]
+		accessKeyID := configMap["access_key_id"]
+		secretAccessKey := configMap["secret_access_key"]
+		bucket := configMap["bucket"]
+		if accountID == "" || accessKeyID == "" || secretAccessKey == "" || bucket == "" {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "incomplete R2 configuration"})
+		}
+		if testErr := rclone.TestCloudflareR2(c.UserContext(), accountID, accessKeyID, secretAccessKey, bucket); testErr != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": testErr.Error()})
+		}
+		return c.JSON(fiber.Map{
+			"ok":      true,
+			"message": fmt.Sprintf("Successfully connected to Cloudflare R2 bucket %q", bucket),
+			"bucket":  bucket,
+		})
+
+	default:
+		return c.Status(400).JSON(fiber.Map{"ok": false, "error": "unsupported destination provider"})
+	}
+}
+
+// BackupGDriveQuickAuthURL generates an OAuth URL using Rclone's default client credentials
+func (p *Panel) BackupGDriveQuickAuthURL(c *fiber.Ctx) error {
+	authURL := rclone.GetGoogleDriveAuthURLWithScope(
+		rclone.RcloneDefaultGDriveClientID,
+		rclone.RcloneDefaultGDriveRedirectURI,
+		"https://www.googleapis.com/auth/drive",
+	)
+	return c.JSON(fiber.Map{
+		"ok":           true,
+		"auth_url":     authURL,
+		"redirect_uri": rclone.RcloneDefaultGDriveRedirectURI,
+		"client_id":    rclone.RcloneDefaultGDriveClientID,
+	})
+}
+
+// BackupGDriveExchangeCode exchanges an authorization code or redirected URL for tokens and creates/updates the destination
+func (p *Panel) BackupGDriveExchangeCode(c *fiber.Ctx) error {
+	u, ok := CurrentUser(c)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	val := u.ID
+	userID := &val
+
+	rawCode := strings.TrimSpace(c.FormValue("code"))
+	name := strings.TrimSpace(c.FormValue("name"))
+	folderID := strings.TrimSpace(c.FormValue("folder_id"))
+
+	if rawCode == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Authorization code or redirected URL is required"})
+	}
+	cleanCode := rclone.ExtractGoogleAuthCode(rawCode)
+	if cleanCode == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Failed to parse authorization code from the provided input"})
+	}
+
+	clientID := strings.TrimSpace(c.FormValue("client_id"))
+	clientSecret := strings.TrimSpace(c.FormValue("client_secret"))
+	redirectURI := strings.TrimSpace(c.FormValue("redirect_uri"))
+
+	authMode := "rclone_quick"
+	if clientID == "" || clientSecret == "" {
+		clientID = rclone.RcloneDefaultGDriveClientID
+		clientSecret = rclone.RcloneDefaultGDriveClientSecret
+		redirectURI = rclone.RcloneDefaultGDriveRedirectURI
+	} else {
+		authMode = "custom_oauth"
+		if redirectURI == "" {
+			redirectURI = strings.TrimRight(p.PanelBaseURL(c), "/") + "/backup/gdrive/callback"
+		}
+	}
+
+	token, err := rclone.ExchangeGoogleDriveCode(c.UserContext(), clientID, clientSecret, cleanCode, redirectURI)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Google Drive token exchange failed: " + err.Error()})
+	}
+
+	if folderID == "" {
+		if fid, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy"); ferr == nil && fid != "" {
+			folderID = fid
+		}
+	}
+
+	cfgMap := map[string]string{
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+		"token":         token,
+		"folder_id":     folderID,
+		"auth_mode":     authMode,
+	}
+	configBytes, merr := json.Marshal(cfgMap)
+	if merr != nil {
+		return c.Status(500).JSON(fiber.Map{"error": merr.Error()})
+	}
+
+	if name == "" {
+		name = "Google Drive"
+	}
+
+	// Update existing if ID passed (reconnect flow)
+	if editID := strings.TrimSpace(c.FormValue("id")); editID != "" {
+		if idNum, parseErr := strconv.ParseInt(editID, 10, 64); parseErr == nil && idNum > 0 {
+			if existing, gerr := p.DB.GetBackupDestination(c.UserContext(), idNum); gerr == nil && existing.ID > 0 {
+				if u.Role == db.RoleAdmin || (existing.UserID != nil && *existing.UserID == u.ID) {
+					if uerr := p.DB.UpdateBackupDestinationConfig(c.UserContext(), idNum, string(configBytes)); uerr == nil {
+						return c.JSON(fiber.Map{
+							"ok":        true,
+							"id":        idNum,
+							"message":   "Google Drive reconnected successfully",
+							"folder_id": folderID,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	id, err := p.DB.CreateBackupDestination(c.UserContext(), userID, name, "gdrive", string(configBytes))
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"ok":        true,
+		"id":        id,
+		"message":   "Google Drive connected successfully",
+		"folder_id": folderID,
+	})
 }
 
 func (p *Panel) BackupGDriveOAuthURL(c *fiber.Ctx) error {

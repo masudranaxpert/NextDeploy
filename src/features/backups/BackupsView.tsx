@@ -16,6 +16,9 @@ import {
   Terminal,
   Box,
   Clock,
+  Activity,
+  Sparkles,
+  Folder,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -69,11 +72,18 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const [destinations, setDestinations] = useState<BackupDestination[]>(initialDestinations);
   const [providerFilter, setProviderFilter] = useState<'all' | 'gdrive' | 'r2'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [testingDestId, setTestingDestId] = useState<string | null>(null);
 
   // Connect / Reconnect Destination Modal (Rclone: Google Drive + Cloudflare R2)
   const [destModalOpen, setDestModalOpen] = useState(false);
   const [destProvider, setDestProvider] = useState<'r2' | 'gdrive'>('gdrive');
   const [destName, setDestName] = useState('');
+  const [editDestId, setEditDestId] = useState<string | null>(null);
+
+  // Google Drive mode: quick (Rclone default) vs custom (User provided client credentials)
+  const [gdriveMode, setGdriveMode] = useState<'quick' | 'custom'>('quick');
+  const [gdriveQuickCode, setGdriveQuickCode] = useState('');
+  const [isFetchingAuthUrl, setIsFetchingAuthUrl] = useState(false);
 
   // Cloudflare R2 fields (matches internal/handlers/panel_backup_destinations.go)
   const [r2AccountId, setR2AccountId] = useState('');
@@ -81,11 +91,11 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const [r2AccessKeyId, setR2AccessKeyId] = useState('');
   const [r2SecretAccessKey, setR2SecretAccessKey] = useState('');
 
-  // Google Drive OAuth 2.0 Client ID & Secret
+  // Google Drive OAuth 2.0 Client ID & Secret (Custom mode)
   const [gdriveClientId, setGdriveClientId] = useState('');
   const [gdriveClientSecret, setGdriveClientSecret] = useState('');
   const [gdriveRedirectUrl, setGdriveRedirectUrl] = useState(
-`${window.location.origin}/backup/gdrive/callback`
+    `${window.location.origin}/backup/gdrive/callback`
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -167,9 +177,16 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     void loadDestinations(true);
   }, []);
 
-  const openConnectModal = (provider: 'gdrive' | 'r2', presetName = '') => {
+  const openConnectModal = (
+    provider: 'gdrive' | 'r2',
+    presetName = '',
+    destId: string | null = null
+  ) => {
     setDestProvider(provider);
     setDestName(presetName);
+    setEditDestId(destId);
+    setGdriveQuickCode('');
+    setGdriveMode('quick');
     if (provider === 'r2') {
       setR2AccountId('');
       setR2Bucket('');
@@ -182,6 +199,89 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     setDestModalOpen(true);
   };
 
+  const handleTestDestination = async (destId: string) => {
+    setTestingDestId(destId);
+    try {
+      const res = await backendApi.backupDestinationTest(destId);
+      if (res.ok && res.data?.ok) {
+        toast.success(res.data.message || 'Connection verified successfully');
+        setDestinations((prev) =>
+          prev.map((d) => {
+            if (d.id === destId) {
+              const updatedUsedGB = res.data?.storage_used != null
+                ? Number((Number(res.data.storage_used) / (1024 * 1024 * 1024)).toFixed(2))
+                : d.usedGB;
+              const updatedQuotaGB = res.data?.storage_limit != null && Number(res.data.storage_limit) > 0
+                ? Number((Number(res.data.storage_limit) / (1024 * 1024 * 1024)).toFixed(0))
+                : d.quotaGB;
+              return {
+                ...d,
+                status: 'connected',
+                infoError: undefined,
+                email: res.data?.email || d.email,
+                displayName: res.data?.display_name || d.displayName,
+                folderId: res.data?.folder_id || d.folderId,
+                usedGB: updatedUsedGB,
+                quotaGB: updatedQuotaGB,
+              };
+            }
+            return d;
+          })
+        );
+      } else {
+        const errMsg = res.data?.error || res.error || 'Connection test failed';
+        toast.error(errMsg);
+        setDestinations((prev) =>
+          prev.map((d) => (d.id === destId ? { ...d, infoError: errMsg, status: 'error' } : d))
+        );
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Connection test encountered an error');
+    } finally {
+      setTestingDestId(null);
+    }
+  };
+
+  const handleOpenGoogleAuth = async () => {
+    setIsFetchingAuthUrl(true);
+    try {
+      const res = await backendApi.backupGDriveQuickAuthUrl();
+      if (res.ok && res.data?.auth_url) {
+        window.open(res.data.auth_url, '_blank', 'noopener,noreferrer');
+        toast.info('Google authorization page opened in a new tab.');
+      } else {
+        toast.error(res.error || 'Failed to generate authorization URL');
+      }
+    } catch {
+      toast.error('Failed to open authorization URL');
+    } finally {
+      setIsFetchingAuthUrl(false);
+    }
+  };
+
+  const handlePastedCodeOrUrl = (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed.includes('code=')) {
+      try {
+        const u = new URL(trimmed.startsWith('http') ? trimmed : `http://${trimmed}`);
+        const code = u.searchParams.get('code');
+        if (code) {
+          setGdriveQuickCode(decodeURIComponent(code));
+          toast.success('Extracted authorization code from URL!');
+          return;
+        }
+      } catch {
+        const m = trimmed.match(/[?&]code=([^&]+)/);
+        if (m && m[1]) {
+          setGdriveQuickCode(decodeURIComponent(m[1]));
+          toast.success('Extracted authorization code from URL!');
+          return;
+        }
+      }
+    }
+    setGdriveQuickCode(trimmed);
+  };
+
   const handleConnectDestination = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -189,7 +289,31 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     if (destProvider === 'gdrive') {
       const cleanName = destName.trim() || 'Google Drive';
 
-      // Google OAuth 2.0 flow (/backup/gdrive/auth-url -> /backup/gdrive/callback)
+      if (gdriveMode === 'quick') {
+        if (!gdriveQuickCode.trim()) {
+          toast.error('Please click Authorize and paste the redirected URL or code.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const res = await backendApi.backupGDriveExchangeCode({
+          code: gdriveQuickCode.trim(),
+          name: cleanName,
+          id: editDestId || undefined,
+        });
+        setIsSubmitting(false);
+
+        if (res.ok) {
+          toast.success(res.data?.message || `Connected Google Drive "${cleanName}"`);
+          setDestModalOpen(false);
+          await loadDestinations(false);
+        } else {
+          toast.error(res.error || 'Google Drive authorization failed. Please check the code.');
+        }
+        return;
+      }
+
+      // Custom Google Cloud OAuth flow
       const authRes = await backendApi.backupGDriveAuthUrl(
         gdriveClientId.trim(),
         gdriveClientSecret.trim(),
@@ -206,6 +330,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       const res = await backendApi.backupDestinationCreate({
         provider: 'gdrive',
         name: cleanName,
+        id: editDestId || undefined,
         client_id: gdriveClientId.trim(),
         client_secret: gdriveClientSecret.trim(),
         auth_mode: 'custom_oauth',
@@ -217,28 +342,13 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         return;
       }
 
-      const created: BackupDestination = {
-        id: `dest-gdrive-${Date.now()}`,
-        provider: 'Google Drive',
-        providerCode: 'gdrive',
-        name: cleanName,
-        bucket: 'gdrive:/nextdeploy',
-        endpoint: 'https://www.googleapis.com/drive/v3',
-        region: 'Google OAuth 2.0',
-        folderId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs',
-        email: 'masud132213@gmail.com',
-        displayName: 'Masud Rana',
-        createdAt: 'Just now',
-        status: 'connected',
-        scheduleCron: '0 3 * * *',
-        retentionDays: 30,
-        usedGB: 4.2,
-        quotaGB: 200,
-        lastBackupAt: 'Just now',
-      };
-      setDestinations((prev) => [...prev, created]);
-      setDestModalOpen(false);
-      toast.success(`Connected Google Drive "${cleanName}"`);
+      if (res.ok) {
+        toast.success(`Connected Google Drive "${cleanName}"`);
+        setDestModalOpen(false);
+        await loadDestinations(false);
+      } else {
+        toast.error(res.error || 'Failed to connect Google Drive destination');
+      }
       return;
     }
 
@@ -246,6 +356,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     const res = await backendApi.backupDestinationCreate({
       provider: 'r2',
       name: cleanR2Name,
+      id: editDestId || undefined,
       account_id: r2AccountId.trim(),
       access_key_id: r2AccessKeyId.trim(),
       secret_access_key: r2SecretAccessKey.trim(),
@@ -258,26 +369,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       return;
     }
 
-    const created: BackupDestination = {
-      id: String(res.data?.id ?? `dest-r2-${Date.now()}`),
-      provider: 'Cloudflare R2',
-      providerCode: 'r2',
-      name: cleanR2Name,
-      bucket: `r2://${r2Bucket.trim()}`,
-      endpoint: `https://${r2AccountId.trim()}.r2.cloudflarestorage.com`,
-      region: 'auto',
-      accountId: r2AccountId.trim(),
-      createdAt: 'Just now',
-      status: 'connected',
-      scheduleCron: '0 3 * * *',
-      retentionDays: 30,
-      usedGB: 0,
-      quotaGB: 0,
-      lastBackupAt: 'Just now',
-    };
-    setDestinations((prev) => [...prev, created]);
-    setDestModalOpen(false);
     toast.success(`Connected Cloudflare R2 bucket "${r2Bucket.trim()}"`);
+    setDestModalOpen(false);
+    await loadDestinations(false);
   };
 
   const handleDeleteDestination = async (dest: BackupDestination) => {
@@ -451,15 +545,26 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
                     <ActionMenu
                       items={[
+                        {
+                          label: 'Test Connection',
+                          icon: <Activity className="h-3.5 w-3.5 text-orange-400" />,
+                          onClick: () => void handleTestDestination(d.id),
+                        },
                         ...(isGDrive
                           ? [
                               {
                                 label: 'Reconnect Google Drive',
-                                icon: <KeyRound className="h-3.5 w-3.5" />,
-                                onClick: () => openConnectModal('gdrive', d.name),
+                                icon: <KeyRound className="h-3.5 w-3.5 text-emerald-400" />,
+                                onClick: () => openConnectModal('gdrive', d.name, d.id),
                               },
                             ]
-                          : []),
+                          : [
+                              {
+                                label: 'Edit Cloudflare R2',
+                                icon: <KeyRound className="h-3.5 w-3.5 text-orange-400" />,
+                                onClick: () => openConnectModal('r2', d.name, d.id),
+                              },
+                            ]),
                         {
                           label: 'Copy Destination Name',
                           icon: <Copy className="h-3.5 w-3.5" />,
@@ -487,15 +592,15 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                             Account
                           </span>
                           <span className="font-mono text-[11px] text-zinc-200 truncate block mt-0.5">
-                            {d.email || 'Authorized'}
+                            {d.email || (d.displayName ? d.displayName : 'Authorized')}
                           </span>
                         </div>
                         <div>
                           <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
-                            Drive Folder ID
+                            Drive Folder
                           </span>
-                          <span className="font-mono text-[11px] text-emerald-400 truncate block mt-0.5">
-                            {d.folderId || 'root (/nextdeploy)'}
+                          <span className="font-mono text-[11px] text-emerald-400 truncate block mt-0.5" title={d.folderId || 'nextdeploy'}>
+                            {d.folderId ? `nextdeploy (${d.folderId.slice(0, 8)}...)` : 'nextdeploy (root)'}
                           </span>
                         </div>
                       </>
@@ -530,7 +635,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       {isGDrive && (
                         <button
                           type="button"
-                          onClick={() => openConnectModal('gdrive', d.name)}
+                          onClick={() => openConnectModal('gdrive', d.name, d.id)}
                           className="shrink-0 rounded-md bg-amber-500/20 px-2 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/30 cursor-pointer"
                         >
                           Reconnect
@@ -572,24 +677,33 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     <span className="font-mono text-zinc-500">
                       ID: <strong className="text-zinc-400">{d.id}</strong>
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={testingDestId === d.id}
+                        onClick={() => void handleTestDestination(d.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <Activity className={`h-3 w-3 ${testingDestId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'}`} />
+                        <span>{testingDestId === d.id ? 'Testing...' : 'Test Connection'}</span>
+                      </button>
                       {isGDrive && (
                         <button
                           type="button"
-                          onClick={() => openConnectModal('gdrive', d.name)}
-                          className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                          onClick={() => openConnectModal('gdrive', d.name, d.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
                         >
                           <RotateCw className="h-3 w-3 text-emerald-400" />
-                          Reconnect
+                          <span>Reconnect</span>
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => void handleDeleteDestination(d)}
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                        className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                        title="Delete destination"
                       >
                         <Trash2 className="h-3 w-3" />
-                        Delete
                       </button>
                     </div>
                   </div>
@@ -744,33 +858,44 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         </div>
       )}
 
-      {/* Connect Destination Modal (Google Drive OAuth 2.0 / Cloudflare R2) */}
+      {/* Connect / Reconnect Destination Modal (Google Drive OAuth / Cloudflare R2) */}
       <ShadcnDialog
         open={destModalOpen}
         onClose={() => setDestModalOpen(false)}
         title={
           destProvider === 'gdrive'
-            ? 'Connect Google Drive'
-            : 'Connect Cloudflare R2'
+            ? editDestId
+              ? 'Reconnect Google Drive'
+              : 'Connect Google Drive'
+            : editDestId
+              ? 'Edit Cloudflare R2'
+              : 'Connect Cloudflare R2'
         }
-        icon={<Cloud className="h-4 w-4 text-orange-400" />}
+        icon={
+          destProvider === 'gdrive' ? (
+            <HardDrive className="h-4 w-4 text-emerald-400" />
+          ) : (
+            <Cloud className="h-4 w-4 text-orange-400" />
+          )
+        }
         maxWidth="lg"
       >
         <form onSubmit={handleConnectDestination} className="space-y-4">
+          {/* Provider Selection Tabs */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => setDestProvider('gdrive')}
               className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
                 destProvider === 'gdrive'
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-zinc-100'
+                  ? 'border-emerald-500/50 bg-emerald-500/10 text-zinc-100 shadow-[0_0_15px_-3px_rgba(16,185,129,0.15)]'
                   : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <HardDrive className="h-4 w-4 text-emerald-400 shrink-0" />
               <div>
                 <div className="text-xs font-semibold">Google Drive</div>
-                <div className="text-[10px] text-zinc-500">Google Cloud OAuth 2.0</div>
+                <div className="text-[10px] text-zinc-500">Google Cloud / Rclone OAuth</div>
               </div>
             </button>
             <button
@@ -778,7 +903,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               onClick={() => setDestProvider('r2')}
               className={`flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all cursor-pointer ${
                 destProvider === 'r2'
-                  ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
+                  ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100 shadow-[0_0_15px_-3px_rgba(249,115,22,0.15)]'
                   : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -790,9 +915,10 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             </button>
           </div>
 
+          {/* Destination Name */}
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-              Destination Name
+              Destination Label
             </label>
             <input
               type="text"
@@ -809,55 +935,141 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           </div>
 
           {destProvider === 'gdrive' ? (
-            <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-3.5">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                    Google OAuth Client ID
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={gdriveClientId}
-                    onChange={(e) => setGdriveClientId(e.target.value)}
-                    placeholder="123456789-abc.apps.googleusercontent.com"
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                    Google OAuth Client Secret
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={gdriveClientSecret}
-                    onChange={(e) => setGdriveClientSecret(e.target.value)}
-                    placeholder="GOCSPX-..."
-                    className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
+            <div className="space-y-3">
+              {/* Google Drive Sub-Tabs: Quick Connect vs Custom App */}
+              <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setGdriveMode('quick')}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                    gdriveMode === 'quick'
+                      ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Sparkles className="h-3 w-3 text-emerald-400" />
+                  Quick Connect (Recommended)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGdriveMode('custom')}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                    gdriveMode === 'custom'
+                      ? 'bg-zinc-800 text-zinc-100 font-semibold border border-white/[0.08]'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <KeyRound className="h-3 w-3 text-zinc-400" />
+                  Custom Google Cloud App
+                </button>
               </div>
 
-              <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
-                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
-                  <span>Authorized Redirect URI</span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = await copyToClipboard(gdriveRedirectUrl);
-                      if (ok) toast.success('Copied Google OAuth redirect URI');
-                    }}
-                    className="inline-flex items-center gap-1 text-emerald-400 hover:underline cursor-pointer"
-                  >
-                    <Copy className="h-3 w-3" />
-                    Copy URI
-                  </button>
+              {gdriveMode === 'quick' ? (
+                <div className="space-y-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-4 text-xs">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[11px] font-bold text-emerald-300">
+                      1
+                    </span>
+                    <div className="flex-1 space-y-1">
+                      <div className="font-medium text-zinc-200">Authorize Google Account</div>
+                      <p className="text-[11px] leading-relaxed text-zinc-400">
+                        Click below to sign in with your Google account. Google will ask for permission to store backups in your Google Drive.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isFetchingAuthUrl}
+                        onClick={() => void handleOpenGoogleAuth()}
+                        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        <span>{isFetchingAuthUrl ? 'Opening...' : 'Open Google Authorization Page'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/[0.06]" />
+
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 font-mono text-[11px] font-bold text-emerald-300">
+                      2
+                    </span>
+                    <div className="flex-1 space-y-1.5">
+                      <div className="font-medium text-zinc-200">Paste Redirect URL or Code</div>
+                      <p className="text-[11px] leading-relaxed text-zinc-400">
+                        After granting permission, your browser will redirect to an address starting with{' '}
+                        <code className="rounded bg-black/40 px-1 py-0.5 font-mono text-zinc-300">
+                          http://127.0.0.1:53682/?state=...&code=...
+                        </code>
+                        . Even if the page says <em>&quot;This site can’t be reached&quot;</em>, simply copy the entire address from your browser&apos;s address bar and paste it below.
+                      </p>
+                      <input
+                        type="text"
+                        value={gdriveQuickCode}
+                        onChange={(e) => handlePastedCodeOrUrl(e.target.value)}
+                        placeholder="Paste full URL or code: http://127.0.0.1:53682/?state=...&code=4/0Ab..."
+                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+                      />
+                      {gdriveQuickCode && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Code extracted and ready for token exchange</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="font-mono text-[11px] text-zinc-200 select-all break-all">
-                  {gdriveRedirectUrl}
+              ) : (
+                <div className="space-y-3 rounded-xl border border-white/[0.08] bg-[#09090b]/60 p-3.5">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                        Google OAuth Client ID
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={gdriveClientId}
+                        onChange={(e) => setGdriveClientId(e.target.value)}
+                        placeholder="123456789-abc.apps.googleusercontent.com"
+                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                        Google OAuth Client Secret
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={gdriveClientSecret}
+                        onChange={(e) => setGdriveClientSecret(e.target.value)}
+                        placeholder="GOCSPX-..."
+                        className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                      <span>Authorized Redirect URI</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await copyToClipboard(gdriveRedirectUrl);
+                          if (ok) toast.success('Copied Google OAuth redirect URI');
+                        }}
+                        className="inline-flex items-center gap-1 text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy URI
+                      </button>
+                    </div>
+                    <div className="font-mono text-[11px] text-zinc-200 select-all break-all">
+                      {gdriveRedirectUrl}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             <div className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/[0.03] p-3.5">
@@ -930,18 +1142,30 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (destProvider === 'gdrive' && gdriveMode === 'quick' && !gdriveQuickCode.trim())}
               className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-50 cursor-pointer"
             >
-              {destProvider === 'gdrive' ? (
+              {isSubmitting ? (
                 <>
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Authorize Google Drive
+                  <RotateCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Connecting...</span>
                 </>
+              ) : destProvider === 'gdrive' ? (
+                gdriveMode === 'quick' ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Complete Google Drive Setup</span>
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span>Authorize with Google</span>
+                  </>
+                )
               ) : (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Connect Destination
+                  <span>Save Destination</span>
                 </>
               )}
             </button>

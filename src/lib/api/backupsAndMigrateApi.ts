@@ -41,20 +41,64 @@ export const backupsAndMigrateApi = {
       redirect_url: res.data?.redirect_url || res.data?.redirect_uri,
     };
   },
+  backupGDriveQuickAuthUrl: () =>
+    requestJson<{
+      ok: boolean;
+      auth_url: string;
+      redirect_uri: string;
+      client_id: string;
+    }>('/backup/gdrive/quick-auth-url'),
+  backupGDriveExchangeCode: (payload: {
+    code: string;
+    name?: string;
+    folder_id?: string;
+    id?: string | number;
+    client_id?: string;
+    client_secret?: string;
+    redirect_uri?: string;
+  }) =>
+    requestJson<{
+      ok: boolean;
+      id: number;
+      message: string;
+      folder_id?: string;
+    }>('/backup/gdrive/exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody(payload),
+    }),
+  backupDestinationTest: (destId: string | number) =>
+    requestJson<{
+      ok: boolean;
+      message?: string;
+      error?: string;
+      email?: string;
+      display_name?: string;
+      storage_used?: number;
+      storage_limit?: number;
+      folder_id?: string;
+      bucket?: string;
+    }>(`/backup/destinations/${destId}/test`, {
+      method: 'POST',
+    }),
   backupDestinationCreate: (
     payload:
       | {
           provider: 'gdrive';
           name: string;
+          id?: string | number;
+          code?: string;
           token?: string;
           folder_id?: string;
           client_id?: string;
           client_secret?: string;
-          auth_mode?: 'rclone_token' | 'custom_oauth';
+          redirect_uri?: string;
+          auth_mode?: string;
         }
       | {
           provider: 'r2';
           name: string;
+          id?: string | number;
           account_id: string;
           access_key_id: string;
           secret_access_key: string;

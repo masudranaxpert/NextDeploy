@@ -266,6 +266,9 @@ func main() {
 
 	// CLI Backups API
 	app.Get("/api/v1/backups/destinations", p.APIAuthMiddleware, p.BackupDestinationsList)
+	app.Post("/api/v1/backups/destinations", p.APIAuthMiddleware, p.BackupDestinationCreate)
+	app.Post("/api/v1/backups/destinations/:id/test", p.APIAuthMiddleware, p.BackupDestinationTest)
+	app.Delete("/api/v1/backups/destinations/:id", p.APIAuthMiddleware, p.BackupDestinationDelete)
 	app.Get("/api/v1/backups/history", p.APIAuthMiddleware, p.APIBackupHistory)
 	app.Post("/api/v1/backups/manual", p.APIAuthMiddleware, p.APIBackupManual)
 	app.Get("/api/v1/backups/history/:id/log", p.APIAuthMiddleware, p.APIBackupHistoryLog)
@@ -609,7 +612,10 @@ func main() {
 	app.Get("/backup/destinations", p.BackupDestinationsList)
 	app.Post("/backup/destinations", p.BackupDestinationCreate)
 	app.Post("/backup/destinations/:id/delete", p.BackupDestinationDelete)
+	app.Post("/backup/destinations/:id/test", p.BackupDestinationTest)
 	app.Get("/backup/gdrive/auth-url", p.BackupGDriveOAuthURL)
+	app.Get("/backup/gdrive/quick-auth-url", p.BackupGDriveQuickAuthURL)
+	app.Post("/backup/gdrive/exchange", p.BackupGDriveExchangeCode)
 	app.Get("/backup/gdrive/callback", p.BackupGDriveCallback)
 
 	// App backup operations
