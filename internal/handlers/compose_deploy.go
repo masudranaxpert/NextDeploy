@@ -247,10 +247,7 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 	}
 	p.InvalidateAfterAppDeployChange(id)
 	_ = os.RemoveAll(dir)
-	// the source dir of a git app is a subfolder: the project's own folder (meta, override file) goes too
-	if id != "" && !strings.ContainsAny(id, `/\.`) {
-		_ = os.RemoveAll(p.Store.Path(id))
-	}
+	p.CleanupWorkspaceDir(id)
 	return nil
 }
 

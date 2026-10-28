@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +88,75 @@ func VolumeExists(ctx context.Context, volumeName string) (bool, string) {
 		return false, strings.TrimSpace(out.String())
 	}
 	return true, ""
+}
+
+type volumeDfItem struct {
+	Name string `json:"Name"`
+	Size string `json:"Size"`
+}
+
+// VolumeSizes returns maps of volume name -> size in MB, and volume name -> human formatted size string.
+func VolumeSizes(ctx context.Context) (map[string]float64, map[string]string) {
+	sizesMB := make(map[string]float64)
+	sizesHuman := make(map[string]string)
+
+	cmd := exec.CommandContext(ctx, "docker", "system", "df", "-v", "--format", "{{json .Volumes}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return sizesMB, sizesHuman
+	}
+
+	var items []volumeDfItem
+	if err := json.Unmarshal(out, &items); err != nil {
+		return sizesMB, sizesHuman
+	}
+
+	for _, item := range items {
+		if item.Name == "" {
+			continue
+		}
+		raw := strings.TrimSpace(item.Size)
+		sizesHuman[item.Name] = raw
+		sizesMB[item.Name] = ParseDockerSizeToMB(raw)
+	}
+	return sizesMB, sizesHuman
+}
+
+// ParseDockerSizeToMB converts Docker sizes like "793.4MB", "70.03kB", "1.5GB", "0B" to float64 MB.
+func ParseDockerSizeToMB(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0B" || s == "N/A" {
+		return 0
+	}
+	var numStr, unit string
+	for i, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			numStr = s[:i]
+			unit = strings.TrimSpace(strings.ToUpper(s[i:]))
+			break
+		}
+	}
+	if numStr == "" {
+		return 0
+	}
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+	switch unit {
+	case "B":
+		return val / (1024 * 1024)
+	case "KB", "KIB":
+		return val / 1024
+	case "MB", "MIB":
+		return val
+	case "GB", "GIB":
+		return val * 1024
+	case "TB", "TIB":
+		return val * 1024 * 1024
+	default:
+		return val
+	}
 }
 
 func listByComposeProjectLabel(ctx context.Context, composeProject string) ([]string, string) {

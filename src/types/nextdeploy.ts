@@ -239,8 +239,9 @@ export interface DockerVolumeItem {
   mountPoint: string;
   driver: string;
   sizeMB: number;
+  sizeHuman?: string;
   createdAt: string;
-  filesCount: number;
+  filesCount?: number;
   sampleFiles: { path: string; size: string; modified: string }[];
   owner?: { id: number; name: string; role: string; system?: boolean };
 }

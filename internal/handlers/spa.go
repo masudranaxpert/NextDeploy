@@ -97,6 +97,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		allContainers []dockerapi.ContainerRow
 		dockerErr     string
 		allImages     []dockerapi.ImageRow
+		volSizes      map[string]float64
+		volHumanSizes map[string]string
 		usedStorage   int64
 		quotaMemUsed  int64
 		quotaCPUUsed  float64
@@ -120,6 +122,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	run("sys", func() { sys = sysinfo.Collect(ctx) })
 	run("volumes", func() {
 		allVolNames = bootVolumes.get(bootTTL, func() []string { v, _ := volumex.List(ctx); return v })
+		volSizes, volHumanSizes = volumex.VolumeSizes(ctx)
 	})
 	run("projects", func() { allProjects = p.AllPanelComposeProjects(ctx) })
 	run("matcher", func() { matcher = volumex.SharedMatcher(ctx) })
@@ -473,6 +476,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"containers":          containerList,
 		"images":              images,
 		"volumes":             visibleVolNames,
+		"volume_sizes":        volSizes,
+		"volume_human_sizes":  volHumanSizes,
 		"resource_owners":     resOwners,
 		"git_providers":       enrichedGitProviders,
 		"webhook_deliveries":  webhookDeliveries,

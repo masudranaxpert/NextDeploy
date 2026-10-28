@@ -596,11 +596,10 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
             <table className="w-full min-w-[640px] table-fixed text-left text-xs">
               <thead>
                 <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                  <th className="w-[38%] px-4 py-2.5 font-medium">Volume</th>
-                  <th className="w-[22%] px-4 py-2.5 font-medium">Project</th>
-                  <th className="w-[14%] px-4 py-2.5 font-medium">Driver</th>
-                  <th className="w-[10%] px-4 py-2.5 font-medium text-right">Files</th>
-                  <th className="w-[12%] px-4 py-2.5 font-medium text-right">Size</th>
+                  <th className="w-[42%] px-4 py-2.5 font-medium">Volume</th>
+                  <th className="w-[26%] px-4 py-2.5 font-medium">Project</th>
+                  <th className="w-[18%] px-4 py-2.5 font-medium">Driver</th>
+                  <th className="w-[14%] px-4 py-2.5 font-medium text-right">Size</th>
                   <th className="w-12 px-3 py-2.5 font-medium text-right"></th>
                 </tr>
               </thead>
@@ -632,13 +631,12 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
                     <td className="px-4 py-3">
                       <StatusBadge status="active" label={v.driver || 'local'} />
                     </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
-                      {v.filesCount}
-                    </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {v.sizeMB >= 1024
+                      {v.sizeHuman ? v.sizeHuman : v.sizeMB >= 1024
                         ? `${(v.sizeMB / 1024).toFixed(2)} GB`
-                        : `${v.sizeMB.toFixed(1)} MB`}
+                        : v.sizeMB > 0
+                          ? `${v.sizeMB.toFixed(1)} MB`
+                          : '0 B'}
                     </td>
                     <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu items={getVolumeActions(v)} />
@@ -685,10 +683,11 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
               <div className="flex items-center justify-between border-t border-white/[0.05] pt-2.5 text-[11px] font-mono tabular-nums text-zinc-400">
                 <StatusBadge status="active" label={v.driver || 'local'} />
                 <span>
-                  {v.filesCount} files ·{' '}
-                  {v.sizeMB >= 1024
+                  {v.sizeHuman ? v.sizeHuman : v.sizeMB >= 1024
                     ? `${(v.sizeMB / 1024).toFixed(2)} GB`
-                    : `${v.sizeMB.toFixed(1)} MB`}
+                    : v.sizeMB > 0
+                      ? `${v.sizeMB.toFixed(1)} MB`
+                      : '0 B'}
                 </span>
               </div>
             </div>

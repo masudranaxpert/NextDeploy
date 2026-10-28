@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -355,6 +356,44 @@ func (p *Panel) AppSourcePath(ctx context.Context, appID string) string {
 
 func (p *Panel) appSourcePath(ctx context.Context, appID string) string {
 	return p.AppSourcePath(ctx, appID)
+}
+
+// CleanupWorkspaceDir cleans up the workspace on disk for an app, ensuring full deletion even
+// if subdirectories/files were written with restrictive permissions by PHP/WordPress plugins.
+func (p *Panel) CleanupWorkspaceDir(appID string) {
+	if appID == "" || strings.ContainsAny(appID, `/\.`) {
+		return
+	}
+	seen := make(map[string]bool)
+	candidates := []string{
+		p.Store.Path(appID),
+	}
+	if p.WorkspacesRoot != "" {
+		candidates = append(candidates, filepath.Join(p.WorkspacesRoot, appID))
+	}
+	if p.PHP != nil && p.PHP.WorkspacesRoot != "" {
+		candidates = append(candidates, filepath.Join(p.PHP.WorkspacesRoot, appID))
+	}
+	for _, target := range candidates {
+		target = filepath.Clean(target)
+		if target == "" || target == "/" || target == "/data" || target == "/data/workspaces" || seen[target] {
+			continue
+		}
+		seen[target] = true
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			continue
+		}
+		// Fix permissions recursively in case inner dirs were marked read-only by WP/PHP
+		_ = filepath.WalkDir(target, func(path string, d os.DirEntry, err error) error {
+			if err == nil {
+				_ = os.Chmod(path, 0777)
+			}
+			return nil
+		})
+		if err := os.RemoveAll(target); err != nil {
+			_ = exec.Command("rm", "-rf", target).Run()
+		}
+	}
 }
 
 // IsGitApp returns true when the app uses git integration (source_type git or a stored git config row).

@@ -563,6 +563,6 @@ func (p *Panel) deletePHPSiteResources(ctx context.Context, id string) error {
 		return err
 	}
 	p.InvalidateAfterAppDeployChange(id)
-	_ = os.RemoveAll(p.Store.Path(id))
+	p.CleanupWorkspaceDir(id)
 	return nil
 }

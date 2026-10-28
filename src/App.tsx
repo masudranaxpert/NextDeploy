@@ -656,13 +656,16 @@ export default function App() {
 
     // 5. Live Volumes
     if (Array.isArray(data.volumes)) {
+      const volSizes: Record<string, number> = data.volume_sizes || {};
+      const volHumanSizes: Record<string, string> = data.volume_human_sizes || {};
       setVolumes(
         data.volumes.map((v: string) => ({
           name: v,
           appSlug: v.split('_')[0] || 'system',
           mountPoint: `/var/lib/docker/volumes/${v}/_data`,
           driver: 'local',
-          sizeMB: 0,
+          sizeMB: typeof volSizes[v] === 'number' ? volSizes[v] : 0,
+          sizeHuman: volHumanSizes[v] || '',
           createdAt: 'Active',
           filesCount: 0,
           sampleFiles: [],

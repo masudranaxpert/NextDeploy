@@ -217,18 +217,23 @@ func (p *Panel) APIVolumesList(c *fiber.Ctx) error {
 	}
 
 	allVolNames, _ := volumex.List(ctx)
+	volSizes, volHumanSizes := volumex.VolumeSizes(ctx)
 	visible := p.visibleVolumes(ctx, u, allVolNames)
 
 	type volItem struct {
-		Name  string `json:"name"`
-		InUse bool   `json:"in_use"`
+		Name      string  `json:"name"`
+		InUse     bool    `json:"in_use"`
+		SizeMB    float64 `json:"size_mb"`
+		SizeHuman string  `json:"size_human"`
 	}
 
 	out := make([]volItem, 0, len(visible))
 	for _, v := range visible {
 		out = append(out, volItem{
-			Name:  v,
-			InUse: true,
+			Name:      v,
+			InUse:     true,
+			SizeMB:    volSizes[v],
+			SizeHuman: volHumanSizes[v],
 		})
 	}
 	return c.JSON(out)
