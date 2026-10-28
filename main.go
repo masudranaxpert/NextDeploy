@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"panel/internal/agent"
 	"panel/internal/db"
 	"panel/internal/handlers"
 	"panel/internal/mcp"
@@ -86,6 +87,7 @@ func main() {
 	}
 	p.PHP = phphosting.NewManager(database, root)
 	p.PHP.CgroupParent = p.UserCgroupParent
+	p.Copilot = agent.NewManager(database, p.PHP, root)
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
 	go p.InitBandwidthQoS()
@@ -277,6 +279,14 @@ func main() {
 	app.Delete("/api/v1/proxy/routes/:id", p.APIAuthMiddleware, p.CaddyRouteDelete)
 	app.Post("/api/v1/proxy/reload", p.APIAuthMiddleware, p.APIProxyReload)
 	app.Get("/api/v1/proxy/logs", p.APIAuthMiddleware, p.CaddyLogs)
+
+	// AI Copilot (omp RPC headless harness)
+	app.Get("/api/v1/copilot/status", p.APIAuthMiddleware, p.CopilotStatus)
+	app.Get("/api/v1/copilot/stream", p.APIAuthMiddleware, p.CopilotStream)
+	app.Post("/api/v1/copilot/prompt", p.APIAuthMiddleware, p.CopilotPrompt)
+	app.Post("/api/v1/copilot/confirm", p.APIAuthMiddleware, p.CopilotConfirm)
+	app.Post("/api/v1/copilot/abort", p.APIAuthMiddleware, p.CopilotAbort)
+	app.Post("/api/v1/copilot/mode", p.APIAuthMiddleware, p.CopilotSetMode)
 
 	// CLI System & Health API
 	app.Get("/api/v1/system/top", p.APIAuthMiddleware, p.APISystemTop)

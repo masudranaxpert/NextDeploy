@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
   Box,
   ChevronRight,
+  Bot,
   FileCode2,
   FileText,
   FolderGit2,
@@ -76,6 +77,8 @@ const PhpSitesView = lazyRetry(() => import('./features/php/PhpSitesView').then(
 const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView').then((m) => ({ default: m.PhpInstanceView })));
 const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.ProjectsListView })));
 const ShieldProxiesView = lazyRetry(() => import('./features/shield/ShieldProxiesView').then((m) => ({ default: m.ShieldProxiesView })));
+const CopilotView = lazyRetry(() => import('./features/copilot/CopilotView').then((m) => ({ default: m.CopilotView })));
+import { CopilotDrawer } from './features/copilot/CopilotDrawer';
 
 // Start downloading the code of the page in the address bar right away (while the data request
 // runs), instead of waiting for the data first and the code second.
@@ -88,6 +91,7 @@ if (typeof window !== 'undefined') {
   else if (path.startsWith('/containers')) void import('./features/docker/ContainersView');
   else if (path.startsWith('/images')) void import('./features/docker/ImagesView');
   else if (path.startsWith('/volumes')) void import('./features/docker/VolumesView');
+  else if (path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
   else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
 }
 
@@ -137,6 +141,7 @@ export default function App() {
 
     const validNavs: NavigationSection[] = [
       'overview',
+      'copilot',
       'monitor',
       'apps',
       'containers',
@@ -305,12 +310,16 @@ export default function App() {
   // Modals
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [newAppModalOpen, setNewAppModalOpen] = useState(false);
+  const [copilotDrawerOpen, setCopilotDrawerOpen] = useState(false);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCmdPaletteOpen((prev) => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setCopilotDrawerOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1083,6 +1092,12 @@ export default function App() {
       items: [
         { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
         {
+          id: 'copilot',
+          label: 'AI Copilot',
+          icon: <Bot className="h-3.5 w-3.5" />,
+          badge: { text: 'AI', tone: 'violet' },
+        },
+        {
           id: 'apps',
           label: 'Projects',
           icon: <Layers className="h-3.5 w-3.5" />,
@@ -1537,6 +1552,8 @@ export default function App() {
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
+            ) : activeNav === 'copilot' ? (
+              <CopilotView />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
                 apps={apps.filter((a) => !a.php)}
@@ -1814,6 +1831,29 @@ export default function App() {
         open={newAppModalOpen}
         onClose={() => setNewAppModalOpen(false)}
         onCreateApp={handleCreateApp}
+      />
+
+      {/* Floating Copilot Drawer & Trigger */}
+      {activeNav !== 'copilot' && !copilotDrawerOpen && (
+        <button
+          type="button"
+          onClick={() => setCopilotDrawerOpen(true)}
+          aria-label="Open AI Copilot"
+          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 px-3.5 py-2.5 text-xs font-semibold text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
+        >
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/20 text-orange-400 group-hover:scale-110 transition-transform">
+            <Bot className="h-3.5 w-3.5" />
+          </div>
+          <span>Copilot</span>
+          <kbd className="hidden sm:inline-block rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
+            ⌘J
+          </kbd>
+        </button>
+      )}
+
+      <CopilotDrawer
+        isOpen={copilotDrawerOpen}
+        onClose={() => setCopilotDrawerOpen(false)}
       />
     </div>
     </OwnerContext.Provider>

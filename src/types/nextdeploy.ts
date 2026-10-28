@@ -1,5 +1,6 @@
 export type NavigationSection =
   | 'overview'
+  | 'copilot'
   | 'monitor'
   | 'apps'
   | 'containers'

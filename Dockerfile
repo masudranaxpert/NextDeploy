@@ -16,7 +16,16 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 
 # Runtime container
 FROM docker:27-cli
-RUN apk add --no-cache rclone ca-certificates util-linux bash
+ARG TARGETARCH
+RUN apk add --no-cache rclone ca-certificates util-linux bash curl && \
+    ARCH="${TARGETARCH:-amd64}" && \
+    case "$ARCH" in \
+      arm64) OMP_ARCH="arm64" ;; \
+      *) OMP_ARCH="x64" ;; \
+    esac && \
+    curl -fsSL -o /usr/local/bin/omp "https://github.com/can1357/oh-my-pi/releases/download/v18.13.2/omp-linux-musl-${OMP_ARCH}" && \
+    chmod +x /usr/local/bin/omp && \
+    apk del curl
 COPY --from=build /panel /usr/local/bin/panel
 
 ENV DATA_DIR=/data

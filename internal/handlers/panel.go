@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"panel/internal/agent"
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerx"
@@ -65,6 +66,9 @@ type Panel struct {
 
 	// PHP hosting module (PHP sites, databases, cron). Nil until initialised in main.
 	PHP *phphosting.Manager
+
+	// AI Copilot module (omp RPC harness).
+	Copilot *agent.Manager
 }
 
 func (p *Panel) MarkSetupComplete() {
