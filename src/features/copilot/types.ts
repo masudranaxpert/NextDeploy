@@ -1,16 +1,54 @@
 export type AutonomyMode = 'safe' | 'autonomous';
 
-export interface CopilotStatus {
-  running: boolean;
-  active: boolean;
-  autonomy_mode: AutonomyMode;
-  pending_confirmations: number;
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: string;
+  reasoning?: boolean;
+}
+
+export interface LoginProvider {
+  id: string;
+  name: string;
+  authenticated: boolean;
+  available?: boolean;
+}
+
+export interface ProviderStatus {
+  configured: boolean;
+  maskedKey?: string;
+  host?: string;
+}
+
+export interface ProvidersConfig {
+  loginProviders?: LoginProvider[];
+  openai: ProviderStatus;
+  anthropic: ProviderStatus;
+  deepseek: ProviderStatus;
+  gemini: ProviderStatus;
+  ollama: ProviderStatus;
 }
 
 export interface ApprovalRequest {
   id: string;
   title: string;
   message: string;
+}
+
+export interface OAuthPrompt {
+  id: string;
+  url?: string;
+  instructions?: string;
+  title?: string;
+  placeholder?: string;
+}
+
+export interface AgentTodo {
+  id: string;
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
 export interface ToolExecution {
@@ -30,26 +68,23 @@ export interface CopilotMessage {
   thinking?: string;
   thinkingDurationSec?: number;
   toolCalls?: ToolExecution[];
+  todos?: AgentTodo[];
   approval?: ApprovalRequest;
   timestamp: number;
   isStreaming?: boolean;
 }
 
-export interface AgentStreamEvent {
-  type:
-    | 'ready'
-    | 'text_delta'
-    | 'thinking_delta'
-    | 'tool_start'
-    | 'tool_end'
-    | 'approval_required'
-    | 'agent_end'
-    | 'error';
-  messageId?: string;
-  delta?: string;
-  toolName?: string;
-  toolArgs?: Record<string, unknown>;
-  toolResult?: string;
-  approval?: ApprovalRequest;
-  error?: string;
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+}
+
+export interface CopilotStatus {
+  running: boolean;
+  active: boolean;
+  autonomyMode: AutonomyMode;
+  binaryPath?: string;
 }

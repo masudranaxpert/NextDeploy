@@ -287,6 +287,13 @@ func main() {
 	app.Post("/api/v1/copilot/confirm", p.APIAuthMiddleware, p.CopilotConfirm)
 	app.Post("/api/v1/copilot/abort", p.APIAuthMiddleware, p.CopilotAbort)
 	app.Post("/api/v1/copilot/mode", p.APIAuthMiddleware, p.CopilotSetMode)
+	app.Get("/api/v1/copilot/models", p.APIAuthMiddleware, p.CopilotGetModels)
+	app.Post("/api/v1/copilot/models", p.APIAuthMiddleware, p.CopilotSetModel)
+	app.Get("/api/v1/copilot/providers", p.APIAuthMiddleware, p.CopilotGetProviders)
+	app.Post("/api/v1/copilot/providers", p.APIAuthMiddleware, p.CopilotSaveProviders)
+	app.Post("/api/v1/copilot/login", p.APIAuthMiddleware, p.CopilotStartLogin)
+	app.Post("/api/v1/copilot/input", p.APIAuthMiddleware, p.CopilotSubmitInput)
+	app.Post("/api/v1/copilot/thinking", p.APIAuthMiddleware, p.CopilotSetThinking)
 
 	// CLI System & Health API
 	app.Get("/api/v1/system/top", p.APIAuthMiddleware, p.APISystemTop)

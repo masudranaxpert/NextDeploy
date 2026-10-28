@@ -1,51 +1,283 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { requestJson } from '../../lib/api/http';
-import {
+import type {
   CopilotMessage,
   CopilotStatus,
-  AutonomyMode,
-  AgentStreamEvent,
   ToolExecution,
+  AIModel,
+  ProvidersConfig,
+  LoginProvider,
+  OAuthPrompt,
+  ThinkingLevel,
+  ChatSession,
 } from './types';
 
+const SESSIONS_STORAGE_KEY = 'nd_ai_sessions';
+const ACTIVE_SESSION_KEY = 'nd_ai_active_session';
+const MESSAGES_PREFIX = 'nd_ai_messages_';
+
 export function useCopilot() {
-  const [messages, setMessages] = useState<CopilotMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        'Hello! I am your NextDeploy AI assistant powered by oh-my-pi (`omp`). I can manage PHP sites, tune FPM/OPcache settings, analyze slow queries, add custom domains, inspect Docker containers, and optimize server resources. How can I help you today?',
-      timestamp: Date.now(),
-    },
-  ]);
+  // Sessions
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    try {
+      const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const initSession: ChatSession = {
+      id: 'default',
+      title: 'Current Conversation',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount: 1,
+    };
+    return [initSession];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    return localStorage.getItem(ACTIVE_SESSION_KEY) || 'default';
+  });
+
+  // Messages for active session
+  const [messages, setMessages] = useState<CopilotMessage[]>(() => {
+    try {
+      const savedId = localStorage.getItem(ACTIVE_SESSION_KEY) || 'default';
+      const savedMsgs = localStorage.getItem(MESSAGES_PREFIX + savedId);
+      if (savedMsgs) return JSON.parse(savedMsgs);
+    } catch {}
+    return [
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content:
+          'Hello! I am your NextDeploy AI assistant. I can help manage PHP sites, optimize OPcache/FPM, diagnose database bottlenecks, configure domains, inspect Docker containers, and monitor server resources.',
+        timestamp: Date.now(),
+      },
+    ];
+  });
+
+  // Models, Thinking & Providers
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [activeModelId, setActiveModelId] = useState<string>('');
+  const [thinkingLevel, setThinkingLevelState] = useState<ThinkingLevel>('low');
+  const [providers, setProviders] = useState<ProvidersConfig | null>(null);
+  const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
+  const [oauthPrompt, setOauthPrompt] = useState<OAuthPrompt | null>(null);
+
+  const activeModel = models.find((m) => m.id === activeModelId) || models[0] || null;
+
+  // Status
   const [status, setStatus] = useState<CopilotStatus>({
     running: false,
     active: false,
-    autonomy_mode: 'safe',
-    pending_confirmations: 0,
+    autonomyMode: 'safe',
   });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
   const activeMessageIdRef = useRef<string | null>(null);
   const thinkingStartRef = useRef<number | null>(null);
 
-  // Fetch initial status
-  const fetchStatus = useCallback(async () => {
-    const res = await requestJson<CopilotStatus>('/api/v1/copilot/status');
-    if (res.ok && res.data) {
-      setStatus(res.data);
+  // Persist sessions
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+    } catch {}
+  }, [sessions]);
+
+  // Persist active session ID
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+    } catch {}
+  }, [activeSessionId]);
+
+  // Persist messages for current session
+  useEffect(() => {
+    try {
+      localStorage.setItem(MESSAGES_PREFIX + activeSessionId, JSON.stringify(messages));
+    } catch {}
+  }, [messages, activeSessionId]);
+
+  // Switch session
+  const switchSession = useCallback((sessionId: string) => {
+    setActiveSessionId(sessionId);
+    try {
+      const saved = localStorage.getItem(MESSAGES_PREFIX + sessionId);
+      if (saved) {
+        setMessages(JSON.parse(saved));
+        return;
+      }
+    } catch {}
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Conversation loaded. How can I help you?',
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
+
+  // Create new chat
+  const createNewChat = useCallback(() => {
+    const newId = `session_${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: 'New Conversation',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount: 1,
+    };
+    setSessions((prev) => [newSession, ...prev]);
+    setActiveSessionId(newId);
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'New chat started. What would you like to work on?',
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
+
+  // Delete session
+  const deleteSession = useCallback((sessionId: string) => {
+    try {
+      localStorage.removeItem(MESSAGES_PREFIX + sessionId);
+    } catch {}
+    setSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== sessionId);
+      if (filtered.length === 0) {
+        const fallback: ChatSession = {
+          id: 'default',
+          title: 'Current Conversation',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messageCount: 1,
+        };
+        setActiveSessionId('default');
+        setMessages([
+          {
+            id: 'welcome',
+            role: 'assistant',
+            content: 'Hello! How can I assist you?',
+            timestamp: Date.now(),
+          },
+        ]);
+        return [fallback];
+      }
+      return filtered;
+    });
+  }, []);
+
+  // Fetch status, models, and providers
+  const refreshEngine = useCallback(async () => {
+    const statusRes = await requestJson<CopilotStatus>('/api/v1/copilot/status');
+    if (statusRes.ok && statusRes.data) {
+      setStatus(statusRes.data);
+      setConnectionError(null);
+    } else {
+      setConnectionError(statusRes.error || 'Engine offline');
+    }
+
+    const modelsRes = await requestJson<{
+      active: string;
+      thinkingLevel?: ThinkingLevel;
+      models: AIModel[];
+    }>('/api/v1/copilot/models');
+    if (modelsRes.ok && modelsRes.data?.models?.length) {
+      setModels(modelsRes.data.models);
+      if (modelsRes.data.active) {
+        setActiveModelId(modelsRes.data.active);
+      }
+      if (modelsRes.data.thinkingLevel) {
+        setThinkingLevelState(modelsRes.data.thinkingLevel);
+      }
+    }
+
+    const provRes = await requestJson<ProvidersConfig>('/api/v1/copilot/providers');
+    if (provRes.ok && provRes.data) {
+      setProviders(provRes.data);
+      if (provRes.data.loginProviders) {
+        setLoginProviders(provRes.data.loginProviders);
+      }
     }
   }, []);
 
-  // Connect to SSE event stream
+  // Select Model
+  const selectModel = useCallback(async (provider: string, modelId: string) => {
+    setActiveModelId(modelId);
+    await requestJson('/api/v1/copilot/models', {
+      method: 'POST',
+      body: JSON.stringify({ provider, modelId }),
+    });
+  }, []);
+
+  // Set Thinking Level
+  const setThinkingLevel = useCallback(async (level: ThinkingLevel) => {
+    setThinkingLevelState(level);
+    await requestJson('/api/v1/copilot/thinking', {
+      method: 'POST',
+      body: JSON.stringify({ level }),
+    });
+  }, []);
+
+  // Start OAuth Login for provider
+  const startOAuthLogin = useCallback(async (providerId: string) => {
+    await requestJson('/api/v1/copilot/login', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    });
+  }, []);
+
+  // Submit OAuth prompt/code
+  const submitOAuthInput = useCallback(
+    async (id: string, value: string) => {
+      const res = await requestJson('/api/v1/copilot/input', {
+        method: 'POST',
+        body: JSON.stringify({ id, value }),
+      });
+      if (res.ok) {
+        setOauthPrompt(null);
+        await refreshEngine();
+      }
+      return !!res.ok;
+    },
+    [refreshEngine]
+  );
+
+  // Save Providers (BYOK custom keys)
+  const saveProviders = useCallback(
+    async (keys: Record<string, string>) => {
+      const payload = {
+        openaiKey: keys.openai || keys.openaiKey || '',
+        anthropicKey: keys.anthropic || keys.anthropicKey || '',
+        deepseekKey: keys.deepseek || keys.deepseekKey || '',
+        geminiKey: keys.gemini || keys.geminiKey || '',
+        ollamaHost: keys.ollama || keys.ollamaHost || '',
+      };
+      const res = await requestJson('/api/v1/copilot/providers', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        await refreshEngine();
+      }
+      return !!res.ok;
+    },
+    [refreshEngine]
+  );
+
+  // SSE event streaming
   useEffect(() => {
-    fetchStatus();
+    refreshEngine();
 
     const eventSource = new EventSource('/api/v1/copilot/stream');
 
     eventSource.onmessage = (event) => {
       try {
         if (!event.data || event.data.trim() === ': heartbeat') return;
-        const ev: AgentStreamEvent = JSON.parse(event.data);
+        const ev = JSON.parse(event.data);
 
         switch (ev.type) {
           case 'text_delta': {
@@ -108,35 +340,33 @@ export function useCopilot() {
             };
 
             setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === msgId
-                  ? {
-                      ...msg,
-                      toolCalls: [...(msg.toolCalls || []), newTool],
-                    }
-                  : msg
-              )
+              prev.map((msg) => {
+                if (msg.id !== msgId) return msg;
+                const calls = [...(msg.toolCalls || []), newTool];
+                return { ...msg, toolCalls: calls };
+              })
             );
             break;
           }
 
           case 'tool_end': {
             const msgId = activeMessageIdRef.current;
-            if (!msgId) break;
+            if (!msgId || !ev.toolName) break;
 
             setMessages((prev) =>
               prev.map((msg) => {
-                if (msg.id !== msgId || !msg.toolCalls) return msg;
-                const calls = [...msg.toolCalls];
-                const lastIdx = calls.length - 1;
-                if (lastIdx >= 0) {
-                  calls[lastIdx] = {
-                    ...calls[lastIdx],
-                    status: 'completed',
-                    result: ev.toolResult,
-                    endedAt: Date.now(),
-                  };
-                }
+                if (msg.id !== msgId) return msg;
+                const calls = (msg.toolCalls || []).map((t) => {
+                  if (t.name === ev.toolName && t.status === 'running') {
+                    return {
+                      ...t,
+                      status: ev.isError ? ('failed' as const) : ('completed' as const),
+                      result: ev.result,
+                      endedAt: Date.now(),
+                    };
+                  }
+                  return t;
+                });
                 return { ...msg, toolCalls: calls };
               })
             );
@@ -160,42 +390,54 @@ export function useCopilot() {
             break;
           }
 
+          case 'oauth_open_url': {
+            setOauthPrompt({
+              id: ev.token,
+              url: ev.url,
+              instructions: ev.instructions,
+            });
+            break;
+          }
+
+          case 'oauth_input_required': {
+            setOauthPrompt((prev) => ({
+              ...(prev || { id: ev.token }),
+              id: ev.token,
+              title: ev.delta,
+              placeholder: ev.placeholder,
+            }));
+            break;
+          }
+
           case 'agent_end': {
             const msgId = activeMessageIdRef.current;
             if (msgId) {
               setMessages((prev) =>
                 prev.map((msg) =>
-                  msg.id === msgId
-                    ? {
-                        ...msg,
-                        isStreaming: false,
-                      }
-                    : msg
+                  msg.id === msgId ? { ...msg, isStreaming: false } : msg
                 )
               );
             }
             setIsProcessing(false);
             activeMessageIdRef.current = null;
             thinkingStartRef.current = null;
-            fetchStatus();
+            refreshEngine();
             break;
           }
         }
-      } catch {
-        // Ignored unparsable frame
-      }
+      } catch {}
     };
 
     eventSource.onerror = () => {
-      // Auto-reconnect managed by browser EventSource
+      // Auto-retrying
     };
 
     return () => {
       eventSource.close();
     };
-  }, [fetchStatus]);
+  }, [refreshEngine]);
 
-  // Send user message
+  // Send prompt
   const sendPrompt = useCallback(
     async (messageText: string) => {
       if (!messageText.trim() || isProcessing) return;
@@ -220,88 +462,106 @@ export function useCopilot() {
       thinkingStartRef.current = null;
       setIsProcessing(true);
 
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setMessages((prev) => {
+        const next = [...prev, userMsg, assistantMsg];
+        setSessions((sList) =>
+          sList.map((s) => {
+            if (s.id === activeSessionId) {
+              return {
+                ...s,
+                title:
+                  s.title === 'New Conversation' || s.title === 'Current Conversation'
+                    ? messageText.slice(0, 36) + (messageText.length > 36 ? '...' : '')
+                    : s.title,
+                messageCount: next.length,
+                updatedAt: Date.now(),
+              };
+            }
+            return s;
+          })
+        );
+        return next;
+      });
 
       const res = await requestJson('/api/v1/copilot/prompt', {
         method: 'POST',
-        body: JSON.stringify({ message: messageText.trim() }),
+        body: JSON.stringify({ message: messageText }),
       });
 
       if (!res.ok) {
+        setIsProcessing(false);
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantId
               ? {
                   ...msg,
-                  content: `Error starting agent: ${res.error || 'Server error'}`,
+                  content: `Error: ${res.error || 'Failed to dispatch prompt to engine'}`,
                   isStreaming: false,
                 }
               : msg
           )
         );
-        setIsProcessing(false);
-        activeMessageIdRef.current = null;
       }
     },
-    [isProcessing]
+    [isProcessing, activeSessionId]
   );
 
-  // Confirm or reject an action
-  const confirmApproval = useCallback(
-    async (id: string, confirmed: boolean) => {
-      const res = await requestJson<{ resolved: boolean }>('/api/v1/copilot/confirm', {
-        method: 'POST',
-        body: JSON.stringify({ id, confirmed }),
-      });
+  // Confirm safe mode approval
+  const confirmApproval = useCallback(async (id: string, confirmed: boolean) => {
+    await requestJson('/api/v1/copilot/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ id, confirmed }),
+    });
 
-      // Clear approval from message
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.approval?.id === id ? { ...msg, approval: undefined } : msg
-        )
-      );
+    setMessages((prev) =>
+      prev.map((msg) => (msg.approval?.id === id ? { ...msg, approval: undefined } : msg))
+    );
+  }, []);
 
-      return res.ok;
-    },
-    []
-  );
-
-  // Abort execution
+  // Abort active execution
   const abort = useCallback(async () => {
     await requestJson('/api/v1/copilot/abort', { method: 'POST' });
     setIsProcessing(false);
-    if (activeMessageIdRef.current) {
-      const msgId = activeMessageIdRef.current;
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === msgId ? { ...msg, isStreaming: false } : msg
-        )
-      );
-      activeMessageIdRef.current = null;
-    }
+    activeMessageIdRef.current = null;
   }, []);
 
-  // Switch autonomy mode
-  const setAutonomyMode = useCallback(
-    async (mode: AutonomyMode) => {
-      const res = await requestJson<{ mode: AutonomyMode }>('/api/v1/copilot/mode', {
-        method: 'POST',
-        body: JSON.stringify({ mode }),
-      });
-      if (res.ok && res.data) {
-        setStatus((prev) => ({ ...prev, autonomy_mode: res.data!.mode }));
-      }
-    },
-    []
-  );
+  // Clear current chat
+  const clearCurrentChat = useCallback(() => {
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Chat cleared. How can I assist you?',
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
 
   return {
+    sessions,
+    activeSessionId,
+    switchSession,
+    createNewChat,
+    deleteSession,
     messages,
+    models,
+    activeModel,
+    selectModel,
+    thinkingLevel,
+    setThinkingLevel,
+    providers,
+    loginProviders,
+    oauthPrompt,
+    startOAuthLogin,
+    submitOAuthInput,
+    saveProviders,
     status,
     isProcessing,
+    connectionError,
     sendPrompt,
     confirmApproval,
     abort,
-    setAutonomyMode,
+    clearCurrentChat,
+    refreshEngine,
   };
 }

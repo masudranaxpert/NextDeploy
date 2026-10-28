@@ -1,76 +1,45 @@
 import React, { useState } from 'react';
-import { Bot, X, Maximize2, Minimize2, Sparkles } from 'lucide-react';
-import { CopilotThread } from './CopilotThread';
+import { Maximize2, Minimize2, X } from 'lucide-react';
+import { HextaAICanvas } from './HextaAICanvas';
 
 interface CopilotDrawerProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({
-  isOpen,
-  onClose,
-}) => {
+export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ isOpen, onClose }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (!isOpen) return null;
 
   return (
-    <aside
-      data-slot="copilot-drawer"
-      className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-[#0c0c0e] border-l border-white/[0.08] shadow-2xl transition-all duration-300 ease-in-out ${
-        isExpanded
-          ? 'w-full md:w-[720px] lg:w-[840px]'
-          : 'w-full sm:w-[480px]'
-      }`}
-    >
-      {/* Drawer Header */}
-      <div className="flex h-14 items-center justify-between border-b border-white/[0.07] px-4 bg-zinc-950/70 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-xs text-zinc-100">
-                NextDeploy AI
-              </span>
-              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
-                omp-rpc
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 text-zinc-400">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-xs transition-opacity animate-in fade-in duration-200">
+      <aside
+        data-slot="copilot-drawer"
+        className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-[#090a0b] border-l border-white/[0.08] shadow-2xl transition-all duration-200 ease-out ${
+          isExpanded ? 'w-full md:w-[860px]' : 'w-full sm:w-[540px] md:w-[580px]'
+        }`}
+      >
+        {/* Top Control Bar for Drawer Sizing */}
+        <div className="absolute top-2.5 right-12 z-20 flex items-center gap-1">
           <button
             type="button"
             onClick={() => setIsExpanded((prev) => !prev)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
+            className="flex size-7 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors"
             title={isExpanded ? 'Restore size' : 'Expand drawer'}
           >
-            {isExpanded ? (
-              <Minimize2 className="h-4 w-4" />
-            ) : (
-              <Maximize2 className="h-4 w-4" />
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06] hover:text-white transition-colors cursor-pointer"
-            title="Close drawer"
-          >
-            <X className="h-4 w-4" />
+            {isExpanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
         </div>
-      </div>
 
-      {/* Drawer Thread Body */}
-      <div className="flex-1 min-h-0">
-        <CopilotThread onClose={onClose} />
-      </div>
-    </aside>
+        <div className="flex-1 min-h-0">
+          <HextaAICanvas
+            initialSidebarOpen={false}
+            isDrawer={true}
+            onCloseDrawer={onClose}
+          />
+        </div>
+      </aside>
+    </div>
   );
 };

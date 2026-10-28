@@ -25,15 +25,19 @@ const (
 
 // AgentEvent is sent over SSE to connected frontend clients.
 type AgentEvent struct {
-	Type      string `json:"type"`                // ready, text_delta, thinking_delta, tool_start, tool_end, approval_required, agent_end, error
-	MessageID string `json:"messageId,omitempty"` // correlation ID
-	Delta     string `json:"delta,omitempty"`     // streaming text or thinking chunk
-	ToolName  string `json:"toolName,omitempty"`  // active tool
-	ToolArgs  string `json:"toolArgs,omitempty"`  // arguments JSON string
-	Result    string `json:"result,omitempty"`    // tool execution output
-	IsError   bool   `json:"isError,omitempty"`   // whether tool execution failed
-	Approval  *ApprovalRequest `json:"approval,omitempty"` // pending confirmation details
-	Timestamp int64  `json:"timestamp"`
+	Type         string           `json:"type"`                // ready, text_delta, thinking_delta, tool_start, tool_end, approval_required, agent_end, oauth_open_url, oauth_input_required, error
+	MessageID    string           `json:"messageId,omitempty"` // correlation ID
+	Delta        string           `json:"delta,omitempty"`     // streaming text or thinking chunk
+	ToolName     string           `json:"toolName,omitempty"`  // active tool
+	ToolArgs     string           `json:"toolArgs,omitempty"`  // arguments JSON string
+	Result       string           `json:"result,omitempty"`    // tool execution output
+	IsError      bool             `json:"isError,omitempty"`   // whether tool execution failed
+	Approval     *ApprovalRequest `json:"approval,omitempty"`  // pending confirmation details
+	URL          string           `json:"url,omitempty"`       // OAuth URL to open in browser
+	Instructions string           `json:"instructions,omitempty"`
+	Token        string           `json:"token,omitempty"`
+	Placeholder  string           `json:"placeholder,omitempty"`
+	Timestamp    int64            `json:"timestamp"`
 }
 
 // ApprovalRequest represents a pending confirmation for safe mode.
@@ -58,6 +62,9 @@ type Manager struct {
 	// Pending confirmations for safe mode
 	confirmations map[string]chan bool
 
+	// Pending inputs for OAuth and extension UI
+	pendingInputs map[string]chan string
+
 	// SSE subscriber channels
 	subMu       sync.RWMutex
 	subscribers map[chan AgentEvent]struct{}
@@ -73,6 +80,7 @@ func NewManager(database *db.Store, phpMgr *phphosting.Manager, root string) *Ma
 		Root:          root,
 		autonomyMode:  AutonomySafe,
 		confirmations: make(map[string]chan bool),
+		pendingInputs: make(map[string]chan string),
 		subscribers:   make(map[chan AgentEvent]struct{}),
 		ompPath:       findOMPBinary(),
 	}
@@ -157,9 +165,40 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 	cmd.Dir = m.Root
 	cmd.Stderr = os.Stderr
 
+	env := os.Environ()
+	if m.DB != nil {
+		if k := m.DB.GetSetting(ctx, "ai_openai_api_key"); k != "" {
+			env = append(env, "OPENAI_API_KEY="+k)
+		}
+		if k := m.DB.GetSetting(ctx, "ai_anthropic_api_key"); k != "" {
+			env = append(env, "ANTHROPIC_API_KEY="+k)
+		}
+		if k := m.DB.GetSetting(ctx, "ai_deepseek_api_key"); k != "" {
+			env = append(env, "DEEPSEEK_API_KEY="+k)
+		}
+		if k := m.DB.GetSetting(ctx, "ai_gemini_api_key"); k != "" {
+			env = append(env, "GEMINI_API_KEY="+k)
+		}
+		if k := m.DB.GetSetting(ctx, "ai_ollama_host"); k != "" {
+			env = append(env, "OLLAMA_HOST="+k)
+		}
+	}
+	cmd.Env = env
+
 	client, err := omprpc.Start(ctx, cmd, omprpc.WithHostTools(tools...))
 	if err != nil {
 		return nil, fmt.Errorf("agent: failed to start omp rpc: %w", err)
+	}
+
+	if m.DB != nil {
+		activeProvider := m.DB.GetSetting(ctx, "ai_active_provider")
+		activeModel := m.DB.GetSetting(ctx, "ai_active_model")
+		if activeModel != "" {
+			_, _ = client.SetModel(ctx, omprpc.SetModelCommand{
+				Provider: activeProvider,
+				ModelID:  activeModel,
+			})
+		}
 	}
 
 	m.client = client
@@ -244,6 +283,7 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 				Title:   ui.Title,
 				Message: ui.Message,
 			},
+			Timestamp: time.Now().UnixMilli(),
 		})
 
 		go func(id string, c chan bool) {
@@ -257,6 +297,66 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 			delete(m.confirmations, id)
 			m.mu.Unlock()
 		}(ui.ID, ch)
+
+	case omprpc.OpenUrlUiRequest:
+		instructions := ""
+		if ui.Instructions != nil {
+			instructions = *ui.Instructions
+		}
+		m.broadcast(AgentEvent{
+			Type:         "oauth_open_url",
+			URL:          ui.URL,
+			Instructions: instructions,
+			Token:        ui.ID,
+			Timestamp:    time.Now().UnixMilli(),
+		})
+
+	case omprpc.InputUiRequest:
+		ch := make(chan string, 1)
+		m.mu.Lock()
+		m.pendingInputs[ui.ID] = ch
+		m.mu.Unlock()
+
+		placeholder := ""
+		if ui.Placeholder != nil {
+			placeholder = *ui.Placeholder
+		}
+
+		m.broadcast(AgentEvent{
+			Type:        "oauth_input_required",
+			Token:       ui.ID,
+			Delta:       ui.Title,
+			Placeholder: placeholder,
+			Timestamp:   time.Now().UnixMilli(),
+		})
+
+		go func(id string, c chan string) {
+			select {
+			case val := <-c:
+				_ = client.Send(omprpc.ValueUiResponse{ID: id, Value: val})
+			case <-time.After(10 * time.Minute):
+				_ = client.Send(omprpc.CancelUiResponse{ID: id})
+			}
+			m.mu.Lock()
+			delete(m.pendingInputs, id)
+			m.mu.Unlock()
+		}(ui.ID, ch)
+	}
+}
+
+// SubmitInput resolves a pending extension UI input request (such as an OAuth redirect code).
+func (m *Manager) SubmitInput(id string, value string) bool {
+	m.mu.Lock()
+	ch, exists := m.pendingInputs[id]
+	m.mu.Unlock()
+	if !exists {
+		return false
+	}
+	select {
+	case ch <- value:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -326,6 +426,96 @@ func (m *Manager) GetStatus() map[string]any {
 		"active":       m.activePrompt.Load(),
 		"binaryPath":   m.ompPath,
 	}
+}
+
+// GetModels queries available models from omp and returns them along with the active model.
+func (m *Manager) GetModels(ctx context.Context) ([]omprpc.ModelInfo, string, error) {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	models, err := client.GetAvailableModels(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	activeModel := ""
+	if m.DB != nil {
+		activeModel = m.DB.GetSetting(ctx, "ai_active_model")
+	}
+	return models, activeModel, nil
+}
+
+// SetModel selects the active AI model in omp and saves it in settings.
+func (m *Manager) SetModel(ctx context.Context, provider, modelID string) error {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.SetModel(ctx, omprpc.SetModelCommand{
+		Provider: provider,
+		ModelID:  modelID,
+	})
+	if err != nil {
+		return err
+	}
+
+	if m.DB != nil {
+		_ = m.DB.SetSetting(ctx, "ai_active_provider", provider)
+		_ = m.DB.SetSetting(ctx, "ai_active_model", modelID)
+	}
+	return nil
+}
+
+// Restart stops the active client so the next operation spawns with updated environment.
+func (m *Manager) Restart(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != nil {
+		_ = m.client.Close()
+		m.client = nil
+	}
+	return nil
+}
+
+// GetLoginProviders queries omp for available OAuth login providers and their status.
+func (m *Manager) GetLoginProviders(ctx context.Context) ([]omprpc.LoginProvider, error) {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.GetLoginProviders(ctx)
+}
+
+// Login triggers an OAuth login flow for the given provider via omp.
+func (m *Manager) Login(ctx context.Context, providerID string) (string, error) {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return "", err
+	}
+	return client.Login(ctx, omprpc.LoginCommand{ProviderID: providerID})
+}
+
+// GetState returns a snapshot of omp session state (current model, thinkingLevel, etc.).
+func (m *Manager) GetState(ctx context.Context) (omprpc.SessionState, error) {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return omprpc.SessionState{}, err
+	}
+	return client.GetState(ctx)
+}
+
+// SetThinkingLevel updates the thinking level in omp.
+func (m *Manager) SetThinkingLevel(ctx context.Context, level string) error {
+	client, err := m.EnsureStarted(ctx)
+	if err != nil {
+		return err
+	}
+	return client.SetThinkingLevel(ctx, omprpc.SetThinkingLevelCommand{
+		Level: omprpc.ThinkingLevel(level),
+	})
 }
 
 // Close gracefully stops the omp subprocess.
