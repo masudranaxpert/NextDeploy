@@ -14,7 +14,7 @@ export const CopilotView: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-semibold text-zinc-100">
-                NextDeploy AI Copilot
+                NextDeploy AI
               </h1>
               <span className="rounded bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] text-orange-400 ring-1 ring-orange-500/20">
                 oh-my-pi RPC Core

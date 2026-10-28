@@ -33,7 +33,7 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="font-semibold text-xs text-zinc-100">
-                NextDeploy Copilot
+                NextDeploy AI
               </span>
               <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
                 omp-rpc

@@ -1093,9 +1093,9 @@ export default function App() {
         { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
         {
           id: 'copilot',
-          label: 'AI Copilot',
+          label: 'NextDeploy AI',
           icon: <Bot className="h-3.5 w-3.5" />,
-          badge: { text: 'AI', tone: 'violet' },
+          badge: { text: 'ND AI', tone: 'violet' },
         },
         {
           id: 'apps',
@@ -1838,13 +1838,13 @@ export default function App() {
         <button
           type="button"
           onClick={() => setCopilotDrawerOpen(true)}
-          aria-label="Open AI Copilot"
+          aria-label="Open NextDeploy AI"
           className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 px-3.5 py-2.5 text-xs font-semibold text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
         >
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/20 text-orange-400 group-hover:scale-110 transition-transform">
             <Bot className="h-3.5 w-3.5" />
           </div>
-          <span>Copilot</span>
+          <span>ND AI</span>
           <kbd className="hidden sm:inline-block rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
             ⌘J
           </kbd>

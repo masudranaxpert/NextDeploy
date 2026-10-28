@@ -110,7 +110,7 @@ export const CopilotComposer: React.FC<CopilotComposerProps> = ({
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="Ask NextDeploy AI Copilot to tune PHP, add domains, or inspect logs..."
+          placeholder="Ask NextDeploy AI to tune PHP, add domains, or inspect logs..."
           rows={1}
           className="flex-1 max-h-40 resize-none bg-transparent text-xs text-zinc-100 placeholder:text-zinc-500 outline-none leading-relaxed py-1"
         />

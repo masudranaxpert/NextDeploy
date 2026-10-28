@@ -6,10 +6,12 @@ services:
         container_name: caddy
         environment:
             - CADDY_ADMIN=0.0.0.0:2019
-            - CADDY_INGRESS_NETWORKS=NextDeploy
-            - CADDY_DOCKER_POLLING_INTERVAL=5s
             - CADDY_DOCKER_EVENT_THROTTLE_INTERVAL=50ms
+            - CADDY_DOCKER_POLLING_INTERVAL=5s
+            - CADDY_INGRESS_NETWORKS=NextDeploy
         image: lucaslorentz/caddy-docker-proxy:ci-alpine
+        labels:
+            caddy.auto_https: disable_redirects
         networks:
             - nextdeploy
         ports:
@@ -29,8 +31,8 @@ services:
         environment:
             DATA_DIR: /data
             LISTEN_ADDR: :8080
-            WORKSPACES_ROOT: /data/workspaces
             PANEL_PERF_LOG: "true"
+            WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
         networks:
             - nextdeploy

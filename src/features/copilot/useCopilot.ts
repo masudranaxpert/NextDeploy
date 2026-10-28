@@ -14,7 +14,7 @@ export function useCopilot() {
       id: 'welcome',
       role: 'assistant',
       content:
-        'Hello! I am your NextDeploy AI Copilot powered by oh-my-pi (`omp`). I can manage PHP sites, tune FPM/OPcache settings, analyze slow queries, add custom domains, inspect Docker containers, and optimize server resources. How can I help you today?',
+        'Hello! I am your NextDeploy AI assistant powered by oh-my-pi (`omp`). I can manage PHP sites, tune FPM/OPcache settings, analyze slow queries, add custom domains, inspect Docker containers, and optimize server resources. How can I help you today?',
       timestamp: Date.now(),
     },
   ]);
