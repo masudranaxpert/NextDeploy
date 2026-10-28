@@ -325,7 +325,8 @@ func DockerPruneWithOptions(ctx context.Context, opts PruneOptions) Result {
 		ok = ok && r.OK
 	}
 	if opts.Images {
-		r := run(ctx, ".", "docker", "image", "prune", "-a", "-f")
+		// Only prune dangling untagged images, never purge tagged runtime images like nextdeploy-php
+		r := run(ctx, ".", "docker", "image", "prune", "-f")
 		if strings.TrimSpace(r.Output) != "" {
 			parts = append(parts, "[images]\n"+r.Output)
 		}
