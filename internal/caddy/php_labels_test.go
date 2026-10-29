@@ -56,6 +56,9 @@ func TestWordPressStaticCacheLabels(t *testing.T) {
 	if !strings.Contains(l["caddy.@wp_cache.0_not.header_regexp"], "wordpress_logged_in") {
 		t.Fatalf("missing logged in cookie bypass: %q", l["caddy.@wp_cache.0_not.header_regexp"])
 	}
+	if l["caddy.php_fastcgi.read_timeout"] != "120s" || l["caddy.file_server.precompressed"] != "gzip zstd" {
+		t.Fatalf("expected fastcgi timeouts and precompressed labels, got fastcgi timeout %q, precompressed %q", l["caddy.php_fastcgi.read_timeout"], l["caddy.file_server.precompressed"])
+	}
 	// Static site without socket must not have cache rules
 	staticLabels := PHPSiteLabels([]db.AppDomain{{Domain: "static.test", EnableHTTPS: true}}, "/data/workspaces/app/htdocs", "", SiteSecurity{})
 	if _, ok := staticLabels["caddy.rewrite"]; ok {

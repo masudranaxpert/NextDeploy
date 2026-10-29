@@ -71,10 +71,14 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 		labels[prefix+".rewrite"] = "@wp_cache {http.matchers.file.relative}"
 
 		labels[prefix+".php_fastcgi"] = "unix/" + socket
+		labels[prefix+".php_fastcgi.dial_timeout"] = "5s"
+		labels[prefix+".php_fastcgi.read_timeout"] = "120s"
+		labels[prefix+".php_fastcgi.write_timeout"] = "120s"
 		if d.ShieldNodeID != nil || d.EnableHTTPS {
 			labels[prefix+".php_fastcgi.env"] = "HTTPS on"
 		}
 	}
+	labels[prefix+".file_server.precompressed"] = "gzip zstd"
 	labels[prefix+".file_server"] = `{{""}}`
 }
 
