@@ -51,21 +51,18 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 				continue
 			}
 
-			// Proactively refresh token if it is expired and custom client credentials are present
-			if rclone.IsTokenExpired(token) && strings.TrimSpace(configMap["client_id"]) != "" && strings.TrimSpace(configMap["client_secret"]) != "" {
-				if newToken, refreshErr := rclone.RefreshGoogleDriveToken(
-					c.UserContext(),
-					configMap["client_id"],
-					configMap["client_secret"],
-					token,
-				); refreshErr == nil {
-					token = newToken
-					configMap["token"] = newToken
-					_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
-				}
+			clientID := strings.TrimSpace(configMap["client_id"])
+			clientSecret := strings.TrimSpace(configMap["client_secret"])
+			if clientID == "" {
+				clientID = rclone.RcloneDefaultGDriveClientID
+				clientSecret = rclone.RcloneDefaultGDriveClientSecret
 			}
 
-			aboutInfo, aboutErr := rclone.GetGoogleDriveAboutInfo(c.UserContext(), token)
+			aboutInfo, newToken, aboutErr := rclone.GetGoogleDriveAboutInfo(c.UserContext(), clientID, clientSecret, token)
+			if newToken != token && newToken != "" {
+				configMap["token"] = newToken
+				_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
+			}
 			if aboutErr != nil {
 				// Attach error hint so UI can show reconnect prompt
 				dests[i].Config = string(mustMarshal(map[string]interface{}{

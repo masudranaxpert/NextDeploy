@@ -704,19 +704,43 @@ func IsTokenExpired(tokenJSON string) bool {
 	return time.Until(expiry) < 60*time.Second
 }
 
-func GetGoogleDriveAboutInfo(ctx context.Context, token string) (*GoogleDriveAboutInfo, error) {
+func GetGoogleDriveAboutInfo(ctx context.Context, clientID, clientSecret, token string) (*GoogleDriveAboutInfo, string, error) {
+	if clientID == "" {
+		clientID = RcloneDefaultGDriveClientID
+		clientSecret = RcloneDefaultGDriveClientSecret
+	}
+
 	var tokenData map[string]interface{}
 	if err := json.Unmarshal([]byte(token), &tokenData); err != nil {
-		return nil, err
+		return nil, token, err
 	}
 
-	accessToken, ok := tokenData["access_token"].(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid token format")
+	accessToken, _ := tokenData["access_token"].(string)
+
+	refreshToken := func() (string, string) {
+		if clientID != "" && clientSecret != "" {
+			if newToken, refreshErr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); refreshErr == nil {
+				var newTokenData map[string]interface{}
+				if json.Unmarshal([]byte(newToken), &newTokenData) == nil {
+					if newAt, ok := newTokenData["access_token"].(string); ok && newAt != "" {
+						return newAt, newToken
+					}
+				}
+			}
+		}
+		return "", token
 	}
 
-	doRequest := func(at string) (*GoogleDriveAboutInfo, int, []byte, error) {
-		req, err := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/drive/v3/about?fields=user,storageQuota", nil)
+	// If token has expired according to stored timestamp, refresh proactively
+	if IsTokenExpired(token) {
+		if newAt, updatedToken := refreshToken(); newAt != "" {
+			accessToken = newAt
+			token = updatedToken
+		}
+	}
+
+	doRequest := func(at string, fields string) (*GoogleDriveAboutInfo, int, []byte, error) {
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/drive/v3/about?fields="+fields, nil)
 		if err != nil {
 			return nil, 0, nil, err
 		}
@@ -738,96 +762,78 @@ func GetGoogleDriveAboutInfo(ctx context.Context, token string) (*GoogleDriveAbo
 		return &info, resp.StatusCode, body, nil
 	}
 
-	info, status, body, err := doRequest(accessToken)
+	info, status, body, err := doRequest(accessToken, "user,storageQuota")
 	if err != nil {
-		return nil, err
-	}
-	if info != nil {
-		return info, nil
+		return nil, token, err
 	}
 
-	// Helper to refresh access token if client credentials exist
-	refreshAccessToken := func() string {
-		clientID, _ := tokenData["client_id"].(string)
-		clientSecret, _ := tokenData["client_secret"].(string)
-		if clientID == "" {
-			clientID = RcloneDefaultGDriveClientID
-			clientSecret = RcloneDefaultGDriveClientSecret
-		}
-		if clientID != "" && clientSecret != "" {
-			if newToken, refreshErr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); refreshErr == nil {
-				var newTokenData map[string]interface{}
-				if json.Unmarshal([]byte(newToken), &newTokenData) == nil {
-					if newAt, ok := newTokenData["access_token"].(string); ok && newAt != "" {
-						return newAt
-					}
-				}
-			}
-		}
-		return ""
-	}
-
-	// 1. If 401 Unauthorized (expired token), refresh and retry about
+	// 1. If 401 Unauthorized (expired token), refresh and retry
 	if status == 401 {
-		if newAt := refreshAccessToken(); newAt != "" {
+		if newAt, updatedToken := refreshToken(); newAt != "" {
 			accessToken = newAt
-			info2, status2, body2, err2 := doRequest(newAt)
+			token = updatedToken
+			info2, status2, body2, err2 := doRequest(newAt, "user,storageQuota")
 			if err2 == nil && info2 != nil {
-				return info2, nil
+				return info2, token, nil
 			}
 			status = status2
 			body = body2
 		}
 	}
 
-	// 2. If 403 Rate Limit (Quota exceeded on shared client) or other Drive API restriction,
-	// verify token validity via oauth2 tokeninfo to confirm the connection works.
+	if info != nil {
+		return info, token, nil
+	}
+
+	// 2. If 403 Rate Limit (quota exceeded on shared client) or other restriction,
+	// try lighter query with fields=user(displayName,emailAddress) which has lower quota cost.
 	bodyStr := string(body)
 	isRateLimit := status == 403 && (strings.Contains(bodyStr, "RATE_LIMIT_EXCEEDED") ||
 		strings.Contains(bodyStr, "rateLimitExceeded") ||
 		strings.Contains(bodyStr, "Quota exceeded"))
 
-	checkTokenValidity := func(at string) (*GoogleDriveAboutInfo, bool) {
-		req, err := http.NewRequestWithContext(ctx, "GET", "https://oauth2.googleapis.com/tokeninfo?access_token="+url.QueryEscape(at), nil)
-		if err != nil {
-			return nil, false
+	if isRateLimit || status == 403 {
+		userInfo, _, _, userErr := doRequest(accessToken, "user(displayName,emailAddress)")
+		if userErr == nil && userInfo != nil && userInfo.User.EmailAddress != "" {
+			userInfo.StorageQuota.Limit = "0"
+			userInfo.StorageQuota.Usage = "0"
+			return userInfo, token, nil
 		}
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, false
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == 200 {
-			var tInfo struct {
-				Email string `json:"email"`
-				Scope string `json:"scope"`
-			}
-			_ = json.Unmarshal(b, &tInfo)
-			email := tInfo.Email
-			if email == "" {
-				email = "Google Drive (Authorized)"
-			}
-			res := &GoogleDriveAboutInfo{}
-			res.User.DisplayName = email
-			res.User.EmailAddress = email
-			res.StorageQuota.Limit = "0"
-			res.StorageQuota.Usage = "0"
-			return res, true
-		}
-		return nil, false
-	}
 
-	if isRateLimit {
-		if fallbackInfo, valid := checkTokenValidity(accessToken); valid {
-			return fallbackInfo, nil
-		}
-		// If current accessToken was expired, try refreshing
-		if newAt := refreshAccessToken(); newAt != "" {
-			if fallbackInfo, valid := checkTokenValidity(newAt); valid {
-				return fallbackInfo, nil
+		// Fallback: oauth2 tokeninfo endpoint
+		checkTokenValidity := func(at string) (*GoogleDriveAboutInfo, bool) {
+			req, err := http.NewRequestWithContext(ctx, "GET", "https://oauth2.googleapis.com/tokeninfo?access_token="+url.QueryEscape(at), nil)
+			if err != nil {
+				return nil, false
 			}
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return nil, false
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode == 200 {
+				var tInfo struct {
+					Email string `json:"email"`
+				}
+				_ = json.Unmarshal(b, &tInfo)
+				email := tInfo.Email
+				if email == "" {
+					email = "Authorized"
+				}
+				res := &GoogleDriveAboutInfo{}
+				res.User.DisplayName = email
+				res.User.EmailAddress = email
+				res.StorageQuota.Limit = "0"
+				res.StorageQuota.Usage = "0"
+				return res, true
+			}
+			return nil, false
+		}
+
+		if fallbackInfo, valid := checkTokenValidity(accessToken); valid {
+			return fallbackInfo, token, nil
 		}
 	}
 
@@ -840,12 +846,12 @@ func GetGoogleDriveAboutInfo(ctx context.Context, token string) (*GoogleDriveAbo
 	}
 	if json.Unmarshal(body, &gErr) == nil && gErr.Error.Message != "" {
 		if strings.Contains(gErr.Error.Message, "Quota exceeded") || strings.Contains(gErr.Error.Message, "rateLimitExceeded") {
-			return nil, fmt.Errorf("Google Drive rate limit exceeded on shared Rclone client. Please retry shortly or use Custom Credentials")
+			return nil, token, fmt.Errorf("Google Drive rate limit exceeded on shared Rclone client. Please retry shortly or use Custom Credentials")
 		}
-		return nil, fmt.Errorf("Google Drive API error (%d): %s", status, gErr.Error.Message)
+		return nil, token, fmt.Errorf("Google Drive API error (%d): %s", status, gErr.Error.Message)
 	}
 
-	return nil, fmt.Errorf("failed to connect to Google Drive (HTTP %d)", status)
+	return nil, token, fmt.Errorf("failed to connect to Google Drive (HTTP %d)", status)
 }
 
 func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string) (string, error) {
@@ -931,22 +937,11 @@ func TestGoogleDrive(ctx context.Context, clientID, clientSecret, token string) 
 		clientID = RcloneDefaultGDriveClientID
 		clientSecret = RcloneDefaultGDriveClientSecret
 	}
-	if IsTokenExpired(token) && clientID != "" && clientSecret != "" {
-		if newToken, err := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); err == nil {
-			token = newToken
-		}
-	}
-	about, err := GetGoogleDriveAboutInfo(ctx, token)
-	if err != nil && clientID != "" && clientSecret != "" {
-		if newToken, rerr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); rerr == nil {
-			token = newToken
-			about, err = GetGoogleDriveAboutInfo(ctx, token)
-		}
-	}
+	about, newToken, err := GetGoogleDriveAboutInfo(ctx, clientID, clientSecret, token)
 	if err != nil {
 		return nil, token, fmt.Errorf("Google Drive connection check failed: %w", err)
 	}
-	return about, token, nil
+	return about, newToken, nil
 }
 
 // TestCloudflareR2 verifies that the Cloudflare R2 bucket is accessible using rclone.

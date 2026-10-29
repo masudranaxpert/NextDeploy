@@ -520,7 +520,11 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         <div className="mt-0.5 font-mono text-[11px] text-zinc-400 truncate">
                           {isGDrive
                             ? d.email
-                              ? `${d.displayName ? `${d.displayName} · ` : ''}${d.email}`
+                              ? d.displayName && d.displayName !== d.email && d.displayName !== 'Google Drive (Authorized)' && d.displayName !== 'Authorized'
+                                ? `${d.displayName} · ${d.email}`
+                                : d.email
+                              : d.displayName && d.displayName !== 'Google Drive (Authorized)' && d.displayName !== 'Authorized'
+                              ? d.displayName
                               : 'Google Drive OAuth 2.0'
                             : `Bucket: ${cleanBucketName}`}
                         </div>
@@ -650,7 +654,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     </div>
                   ) : (
                     <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                      <span>Cloudflare R2 S3</span>
+                      <span>{isGDrive ? 'Google Drive Storage' : 'Cloudflare R2 S3'}</span>
                       <span className="font-mono text-zinc-300 tabular-nums">
                         {d.usedGB > 0 ? `${d.usedGB} GB stored` : 'Active'}
                       </span>
