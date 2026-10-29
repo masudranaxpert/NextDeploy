@@ -289,10 +289,11 @@ export const backupsAndMigrateApi = {
     };
   },
   backupDriveLink: async (appId: string, historyId: string | number) => {
-    const res = await requestJson<{ url: string; warning?: string; error?: string }>(
+    const res = await requestJson<{ ok?: boolean; url?: string; link?: string; warning?: string; error?: string }>(
       `/apps/${encodeURIComponent(appId)}/backup/history/${historyId}/drivelink`
     );
-    return { ok: res.ok, url: res.data?.url, warning: res.data?.warning, error: res.error };
+    const resolvedUrl = res.data?.url || res.data?.link;
+    return { ok: res.ok && Boolean(resolvedUrl), url: resolvedUrl, warning: res.data?.warning, error: res.error };
   },
 
   // Server Migration (.nd-migrate Bundle Export & Estimate)

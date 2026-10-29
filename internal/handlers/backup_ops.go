@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -1034,9 +1035,20 @@ func (p *Panel) AppBackupDriveLink(c *fiber.Ctx) error {
 	}
 
 	link, err := rclone.SearchGoogleDriveFile(c.UserContext(), configMap["token"], configMap["folder_id"], history.RemotePath)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	if err != nil || link == "" {
+		filename := filepath.Base(history.RemotePath)
+		if filename != "" && filename != "." {
+			link = "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename)
+		} else if configMap["folder_id"] != "" && configMap["folder_id"] != "root" {
+			link = "https://drive.google.com/drive/folders/" + configMap["folder_id"]
+		} else {
+			link = "https://drive.google.com/drive/my-drive"
+		}
 	}
 
-	return c.JSON(fiber.Map{"link": link})
+	return c.JSON(fiber.Map{
+		"ok":   true,
+		"url":  link,
+		"link": link,
+	})
 }

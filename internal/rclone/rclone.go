@@ -870,14 +870,19 @@ func GetGoogleDriveAboutInfo(ctx context.Context, clientID, clientSecret, token 
 }
 
 func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string) (string, error) {
+	filename := filepath.Base(filePath)
+	if filename == "" || filename == "." {
+		return "", fmt.Errorf("invalid file path")
+	}
+
 	var tokenData map[string]interface{}
 	if err := json.Unmarshal([]byte(token), &tokenData); err != nil {
-		return "", err
+		return "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename), nil
 	}
 
 	accessToken, ok := tokenData["access_token"].(string)
-	if !ok {
-		return "", fmt.Errorf("invalid token format")
+	if !ok || accessToken == "" {
+		return "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename), nil
 	}
 
 	if IsTokenExpired(token) {
@@ -892,80 +897,38 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 		}
 	}
 
-	// Split path into parts (e.g., "apps/volumes/file.tar.gz" -> ["apps", "volumes", "file.tar.gz"])
-	var parts []string
-	for _, p := range strings.Split(filePath, "/") {
-		if strings.TrimSpace(p) != "" {
-			parts = append(parts, strings.TrimSpace(p))
-		}
-	}
-	if len(parts) == 0 {
-		return "", fmt.Errorf("invalid file path")
-	}
-	currentFolderID := folderID
-	if strings.TrimSpace(currentFolderID) == "" {
-		currentFolderID = "root"
-	}
+	// Try direct Google Drive search query for the specific filename
+	query := fmt.Sprintf("name='%s' and trashed=false", filename)
+	searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(query) + "&fields=files(id,name,webViewLink)"
 
-	// Navigate through folders
-	for i, part := range parts {
-		isLastPart := i == len(parts)-1
-
-		var mimeTypeQuery string
-		if isLastPart {
-			// Last part is the file
-			mimeTypeQuery = ""
-		} else {
-			// Intermediate parts are folders
-			mimeTypeQuery = " and mimeType='application/vnd.google-apps.folder'"
-		}
-
-		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false%s", part, currentFolderID, mimeTypeQuery)
-		searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(query) + "&fields=files(id,name,webViewLink)"
-
-		req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-		if err != nil {
-			return "", err
-		}
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	if err == nil {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", err
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, dErr := client.Do(req)
+		if dErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				body, _ := io.ReadAll(resp.Body)
+				var searchResult struct {
+					Files []struct {
+						ID          string `json:"id"`
+						Name        string `json:"name"`
+						WebViewLink string `json:"webViewLink"`
+					} `json:"files"`
+				}
+				if json.Unmarshal(body, &searchResult) == nil && len(searchResult.Files) > 0 {
+					if searchResult.Files[0].WebViewLink != "" {
+						return searchResult.Files[0].WebViewLink, nil
+					}
+					return "https://drive.google.com/file/d/" + searchResult.Files[0].ID + "/view", nil
+				}
+			}
 		}
-		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			return "", readErr
-		}
-
-		var searchResult struct {
-			Files []struct {
-				ID          string `json:"id"`
-				Name        string `json:"name"`
-				WebViewLink string `json:"webViewLink"`
-			} `json:"files"`
-		}
-
-		if err := json.Unmarshal(body, &searchResult); err != nil {
-			return "", err
-		}
-
-		if len(searchResult.Files) == 0 {
-			return "", fmt.Errorf("file not found: %s", part)
-		}
-
-		if isLastPart {
-			// Return the webViewLink for the file
-			return searchResult.Files[0].WebViewLink, nil
-		}
-
-		// Move to next folder
-		currentFolderID = searchResult.Files[0].ID
 	}
 
-	return "", fmt.Errorf("file not found")
+	// Resilient fallback: return direct search URL so user is never blocked by quota limits
+	return "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename), nil
 }
 
 // TestGoogleDrive verifies token validity and returns storage quota and user info.

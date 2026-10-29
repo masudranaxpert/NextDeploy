@@ -15,6 +15,15 @@ import {
   AlertTriangle,
   Sliders,
   Play,
+  Copy,
+  Download,
+  Terminal,
+  Check,
+  Search,
+  WrapText,
+  Database,
+  Cloud,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -111,6 +120,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     errorMessage?: string;
     log: string;
   } | null>(null);
+  const [logViewMode, setLogViewMode] = useState<'formatted' | 'raw'>('formatted');
+  const [logFilterQuery, setLogFilterQuery] = useState('');
+  const [logWrapLines, setLogWrapLines] = useState(true);
+  const [copiedLineId, setCopiedLineId] = useState<number | null>(null);
+  const [copiedFullLog, setCopiedFullLog] = useState(false);
 
   // Point-in-Time Restore Confirmation & Live Status Polling (/apps/:id/backup/restore/:historyid & /restore-status)
   const [restoreTarget, setRestoreTarget] = useState<BackupArchiveRecord | null>(null);
@@ -1250,32 +1264,359 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
       {/* Rclone Log Viewer Modal (/apps/:id/backup/history/:historyid/log) */}
       <ShadcnDialog
         open={Boolean(logModalData)}
-        onClose={() => setLogModalData(null)}
+        onClose={() => {
+          setLogModalData(null);
+          setLogFilterQuery('');
+        }}
         title={`Backup Log · ${logModalData?.title || ''}`}
-        icon={<FileText className="h-4 w-4 text-orange-400" />}
-        maxWidth="lg"
+        icon={<Terminal className="h-4 w-4 text-orange-400" />}
+        maxWidth="2xl"
       >
-        {logModalData && (
-          <div className="space-y-3">
-            {logModalData.errorMessage && (
-              <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 font-mono text-xs text-rose-300">
-                Error: {logModalData.errorMessage}
+        {logModalData && (() => {
+          const rawLog = logModalData.log || '';
+          const lines = rawLog.split('\n');
+
+          // Extract overview metrics
+          let dbName = '';
+          let archiveName = '';
+          let remoteTarget = '';
+          let finalSpeed = '';
+          let finalTime = '';
+          let isSuccess = logModalData.status === 'completed';
+
+          const parsedLines = lines.map((line, idx) => {
+            const trimmed = line.trim();
+            let timestamp = '';
+            let content = line;
+            let tag: { label: string; cls: string } | null = null;
+            let textCls = 'text-zinc-300';
+
+            const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?)\s*(.*)$/);
+            const rcloneMatch = trimmed.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})\s*(.*)$/);
+
+            if (isoMatch) {
+              timestamp = isoMatch[1];
+              content = isoMatch[2];
+            } else if (rcloneMatch) {
+              timestamp = rcloneMatch[1];
+              content = rcloneMatch[2];
+            }
+
+            if (/started/i.test(content)) {
+              tag = { label: 'START', cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' };
+              textCls = 'text-emerald-300 font-medium';
+            } else if (content.startsWith('app workspace')) {
+              tag = { label: 'WORKSPACE', cls: 'bg-purple-500/15 text-purple-300 border border-purple-500/30' };
+              textCls = 'text-purple-200';
+            } else if (content.startsWith('dump database')) {
+              dbName = content.replace(/^dump database\s*/i, '');
+              tag = { label: 'DB DUMP', cls: 'bg-amber-500/15 text-amber-300 border border-amber-500/30' };
+              textCls = 'text-amber-200';
+            } else if (content.startsWith('tar ')) {
+              archiveName = content.replace(/^tar\s*/i, '');
+              tag = { label: 'ARCHIVE', cls: 'bg-orange-500/15 text-orange-300 border border-orange-500/30' };
+              textCls = 'text-orange-200';
+            } else if (content.includes('[upload]')) {
+              remoteTarget = content.replace(/^\[upload\]\s*->?\s*/i, '');
+              tag = { label: 'UPLOAD', cls: 'bg-sky-500/15 text-sky-300 border border-sky-500/30' };
+              textCls = 'text-sky-300 font-medium';
+            } else if (/Copied\s*\(new\)/i.test(content) || /100%/i.test(content)) {
+              isSuccess = true;
+              tag = { label: 'SUCCESS', cls: 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 font-bold' };
+              textCls = 'text-emerald-300 font-medium';
+            } else if (/error|failed|fatal/i.test(content)) {
+              tag = { label: 'ERROR', cls: 'bg-rose-500/25 text-rose-300 border border-rose-500/40 font-bold' };
+              textCls = 'text-rose-300 font-medium';
+            } else if (content.includes('INFO :')) {
+              tag = { label: 'INFO', cls: 'bg-blue-500/15 text-blue-300 border border-blue-500/30' };
+              textCls = 'text-zinc-300';
+            } else if (content.startsWith('Transferred:')) {
+              tag = { label: 'PROGRESS', cls: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' };
+              textCls = 'text-cyan-200';
+              const speedMatch = content.match(/([\d.]+\s*(?:MiB|KiB|GiB|MB|KB|GB)\/s)/);
+              if (speedMatch) finalSpeed = speedMatch[1];
+            } else if (content.startsWith('Elapsed time:')) {
+              finalTime = content.replace(/^Elapsed time:\s*/i, '');
+              tag = { label: 'TIMER', cls: 'bg-zinc-800 text-zinc-400 border border-zinc-700' };
+              textCls = 'text-zinc-400';
+            }
+
+            return {
+              id: idx + 1,
+              raw: line,
+              timestamp,
+              content,
+              tag,
+              textCls,
+            };
+          });
+
+          const filteredLines = logFilterQuery.trim()
+            ? parsedLines.filter(
+                (l) =>
+                  l.raw.toLowerCase().includes(logFilterQuery.toLowerCase()) ||
+                  (l.tag && l.tag.label.toLowerCase().includes(logFilterQuery.toLowerCase()))
+              )
+            : parsedLines;
+
+          const handleCopyFull = async () => {
+            try {
+              await navigator.clipboard.writeText(rawLog);
+              setCopiedFullLog(true);
+              toast.success('Full backup log copied to clipboard');
+              setTimeout(() => setCopiedFullLog(false), 2000);
+            } catch {
+              toast.error('Failed to copy log');
+            }
+          };
+
+          const handleDownloadLog = () => {
+            const blob = new Blob([rawLog], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${logModalData.title || 'backup'}.log`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast.success('Log downloaded');
+          };
+
+          const handleCopyLine = async (lineText: string, id: number) => {
+            try {
+              await navigator.clipboard.writeText(lineText);
+              setCopiedLineId(id);
+              setTimeout(() => setCopiedLineId(null), 1500);
+            } catch {
+              // ignore
+            }
+          };
+
+          return (
+            <div className="space-y-3.5">
+              {/* Status & Execution Tiles */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Status</div>
+                  <div className="mt-1 flex items-center gap-1.5 font-medium">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        isSuccess ? 'bg-emerald-400' : 'bg-rose-500'
+                      }`}
+                    />
+                    <span className={isSuccess ? 'text-emerald-400' : 'text-rose-400'}>
+                      {isSuccess ? 'Completed' : 'Failed'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Database</div>
+                  <div className="mt-1 font-mono text-[11px] text-amber-300 truncate" title={dbName || 'None'}>
+                    {dbName || 'None'}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Transfer Rate</div>
+                  <div className="mt-1 font-mono text-[11px] text-cyan-300">
+                    {finalSpeed || (isSuccess ? 'Verified' : 'N/A')}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                  <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Duration</div>
+                  <div className="mt-1 font-mono text-[11px] text-zinc-300">
+                    {finalTime || 'Recorded'}
+                  </div>
+                </div>
               </div>
-            )}
-            <pre className="max-h-80 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#070709] p-3.5 font-mono text-xs text-zinc-300 whitespace-pre-wrap">
-              {logModalData.log}
-            </pre>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setLogModalData(null)}
-                className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-              >
-                Close
-              </button>
+
+              {/* Error Callout if error exists */}
+              {logModalData.errorMessage && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+                  <div className="font-mono text-[11px] leading-relaxed break-all">
+                    {logModalData.errorMessage}
+                  </div>
+                </div>
+              )}
+
+              {/* Toolbar: View Mode Tabs + Filter + Actions */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5 pt-0.5">
+                <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-[#09090b] p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setLogViewMode('formatted')}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      logViewMode === 'formatted'
+                        ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span>Formatted Log</span>
+                    <span className="rounded bg-zinc-700/60 px-1 py-0.2 font-mono text-[10px] text-zinc-300">
+                      {lines.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogViewMode('raw')}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      logViewMode === 'raw'
+                        ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Terminal className="h-3 w-3 text-orange-400" />
+                    <span>Raw Terminal (Admin)</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-2 h-3 w-3 text-zinc-500" />
+                    <input
+                      type="text"
+                      value={logFilterQuery}
+                      onChange={(e) => setLogFilterQuery(e.target.value)}
+                      placeholder="Filter log..."
+                      className="h-7 w-32 sm:w-44 rounded-md border border-white/[0.08] bg-[#09090b] pl-7 pr-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogWrapLines((w) => !w)}
+                    title={logWrapLines ? 'Disable line wrap' : 'Enable line wrap'}
+                    className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-mono transition-colors cursor-pointer ${
+                      logWrapLines
+                        ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
+                        : 'border-white/[0.08] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <WrapText className="h-3 w-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyFull}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] bg-[#09090b] px-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                  >
+                    {copiedFullLog ? (
+                      <Check className="h-3 w-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3 w-3 text-zinc-400" />
+                    )}
+                    <span>{copiedFullLog ? 'Copied' : 'Copy'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadLog}
+                    title="Download log file"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] bg-[#09090b] px-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <Download className="h-3 w-3 text-zinc-400" />
+                    <span>Save</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Log View Body */}
+              {logViewMode === 'formatted' ? (
+                <div className="overflow-hidden rounded-lg border border-white/[0.08] bg-[#07070a]">
+                  <div className="max-h-96 overflow-y-auto divide-y divide-white/[0.03] font-mono text-xs">
+                    {filteredLines.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-zinc-500">
+                        No log lines matching &quot;{logFilterQuery}&quot;
+                      </div>
+                    ) : (
+                      filteredLines.map((l) => (
+                        <div
+                          key={l.id}
+                          className="group flex items-start gap-2.5 px-3 py-1.5 hover:bg-white/[0.03] transition-colors"
+                        >
+                          <span className="w-6 shrink-0 select-none text-[11px] text-zinc-600 text-right">
+                            {l.id}
+                          </span>
+
+                          {l.timestamp && (
+                            <span className="shrink-0 select-none text-[11px] text-zinc-500">
+                              {l.timestamp}
+                            </span>
+                          )}
+
+                          {l.tag && (
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.2 text-[10px] font-semibold leading-none ${l.tag.cls}`}
+                            >
+                              {l.tag.label}
+                            </span>
+                          )}
+
+                          <span
+                            className={`flex-1 font-mono text-xs leading-relaxed ${l.textCls} ${
+                              logWrapLines ? 'break-all whitespace-pre-wrap' : 'whitespace-pre overflow-x-auto'
+                            }`}
+                          >
+                            {l.content}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLine(l.raw, l.id)}
+                            title="Copy line"
+                            className="shrink-0 opacity-0 group-hover:opacity-100 rounded p-0.5 text-zinc-500 hover:text-zinc-200 transition-opacity cursor-pointer"
+                          >
+                            {copiedLineId === l.id ? (
+                              <Check className="h-3 w-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-white/[0.08] bg-[#070709]">
+                  <div className="flex items-center justify-between border-b border-white/[0.05] bg-[#0d0d12] px-3 py-1.5 text-[11px] font-mono text-zinc-400">
+                    <span>STDOUT / STDERR STREAM</span>
+                    <span className="text-zinc-500">{lines.length} lines · {new Blob([rawLog]).size} bytes</span>
+                  </div>
+                  <pre
+                    className={`max-h-96 overflow-y-auto p-3.5 font-mono text-xs text-zinc-300 leading-relaxed ${
+                      logWrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
+                    }`}
+                  >
+                    {logFilterQuery.trim()
+                      ? lines
+                          .filter((l) => l.toLowerCase().includes(logFilterQuery.toLowerCase()))
+                          .join('\n')
+                      : rawLog}
+                  </pre>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="font-mono text-[11px] text-zinc-500">
+                  Target: <strong className="text-zinc-400">{remoteTarget || 'Google Drive'}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLogModalData(null)}
+                  className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </ShadcnDialog>
 
       {/* Restore Backup Modal with Live Polling (/apps/:id/backup/restore/:historyid & /restore-status) */}
