@@ -231,10 +231,12 @@ function IconButton({
 
 export interface HextaAICanvasProps {
   initialSidebarOpen?: boolean
+  currentUser?: { id: number; username: string; role: string } | null
 }
 
 export function HextaAICanvas({
   initialSidebarOpen = true,
+  currentUser,
 }: HextaAICanvasProps) {
   const {
     sessions,
@@ -573,7 +575,7 @@ export function HextaAICanvas({
       {(sidebar || drawer === "sessions") && (
         <aside
           className={cn(
-            "w-[216px] shrink-0 flex-col border-r bg-sidebar z-30",
+            "w-[216px] shrink-0 flex-col border-r border-border/40 bg-sidebar z-30",
             sidebar ? "md:flex" : "md:hidden",
             drawer === "sessions"
               ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[272px] max-md:max-w-[85vw] max-md:bg-(--popover)"
@@ -581,7 +583,7 @@ export function HextaAICanvas({
           )}
         >
           {/* Header */}
-          <div className="flex h-12 items-center gap-[5px] pr-2 pl-[11px]">
+          <div className="flex h-12 shrink-0 items-center gap-[5px] border-b border-border/40 pr-2 pl-[11px]">
             <span className="glass-chosen flex size-5 items-center justify-center rounded-[6px] text-[10px] font-semibold text-primary">
               ND
             </span>
@@ -677,19 +679,25 @@ export function HextaAICanvas({
             })}
           </div>
 
-          {/* Footer User Info */}
-          <div className="flex items-center gap-2 border-t py-3 pr-3.5 pl-[11px]">
-            <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-foreground">
-              A
-            </span>
-            <span className="text-xs truncate font-medium">admin</span>
-            <IconButton
-              label="Provider Settings"
-              className="ml-auto size-6"
+          {/* Footer User Info & Settings */}
+          <div className="flex items-center justify-between border-t border-border/40 p-2">
+            <button
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
+              className="group/settings flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-all hover:bg-white/[0.05] hover:text-zinc-200 cursor-pointer"
+              title="AI Provider Settings"
             >
-              <Settings2 className="size-3.5" />
-            </IconButton>
+              <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-orange-500/15 font-mono text-[10px] font-bold text-orange-400 uppercase ring-1 ring-orange-500/30">
+                {(currentUser?.username || 'admin').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex flex-col min-w-0 text-left leading-tight">
+                <span className="truncate text-xs font-medium text-zinc-200">
+                  {currentUser?.username || 'admin'}
+                </span>
+                <span className="text-[10px] text-zinc-500 truncate">AI Settings</span>
+              </div>
+              <Settings2 className="ml-auto size-3.5 shrink-0 text-zinc-500 transition-colors group-hover/settings:text-zinc-200" />
+            </button>
           </div>
         </aside>
       )}

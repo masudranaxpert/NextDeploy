@@ -1629,7 +1629,7 @@ export default function App() {
                 onSelectNav={(nav) => navigateTo(nav)}
               />
             ) : isAdminUser && activeNav === 'nextdeploy-ai' ? (
-              <CopilotView />
+              <CopilotView currentUser={currentUser} />
             ) : activeNav === 'apps' ? (
               <ProjectsListView
                 apps={apps.filter((a) => !a.php)}
