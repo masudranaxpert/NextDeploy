@@ -799,13 +799,25 @@ export function useCopilot() {
         fullPrompt = `${attachedFiles.map((f) => `@${f}`).join(' ')}\n\n${fullPrompt}`;
       }
 
-      const res = await requestJson('/api/v1/copilot/prompt', {
+      let res = await requestJson('/api/v1/copilot/prompt', {
         method: 'POST',
         body: JSON.stringify({
           message: fullPrompt,
           images: images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
         }),
       });
+
+      // Transient network retry (e.g. mobile/Cloudflare socket renegotiation)
+      if (!res.ok && res.error === 'Cannot reach the server') {
+        await new Promise((r) => setTimeout(r, 600));
+        res = await requestJson('/api/v1/copilot/prompt', {
+          method: 'POST',
+          body: JSON.stringify({
+            message: fullPrompt,
+            images: images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+          }),
+        });
+      }
 
       if (!res.ok) {
         setIsProcessing(false);
