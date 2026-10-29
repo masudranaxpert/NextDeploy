@@ -339,6 +339,43 @@ export const backupsAndMigrateApi = {
     requestJson(`/migrate/exports/${exportId}/delete?ajax=1`, {
       method: 'POST',
     }),
+  migrateImportUpload: async (file: File, resetPanel = false) => {
+    try {
+      const fd = new FormData();
+      fd.append('bundle', file);
+      fd.append('reset_panel', resetPanel ? '1' : '0');
+      const res = await fetch('/migrate/import-upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-NextDeploy-Client': 'spa',
+        },
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
+      if (!res.ok) {
+        return { ok: false, error: data.error || `HTTP ${res.status}` };
+      }
+      return { ok: true, data };
+    } catch {
+      return { ok: false, error: 'Cannot reach the server' };
+    }
+  },
+  migrateImportRemote: (bundleUrl: string, resetPanel = false) =>
+    requestJson<{ ok: boolean; message?: string; error?: string }>('/migrate/import-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: toFormBody({ bundle_url: bundleUrl, reset_panel: resetPanel ? '1' : '0' }),
+    }),
+  migrateImportStatus: () =>
+    requestJson<{
+      running: boolean;
+      status: string;
+      error?: string;
+      started_at?: string;
+      logs: string[];
+    }>('/migrate/import/status'),
 
   // Volumes Browse, Download & Multipart Archive Restore
   volumeBrowse: (name: string, path = '') =>

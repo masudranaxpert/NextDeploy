@@ -134,6 +134,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   const [limitMaxMemoryMb, setLimitMaxMemoryMb] = useState('8192');
   const [limitMaxStorageMb, setLimitMaxStorageMb] = useState('51200');
   const [limitMaxDatabases, setLimitMaxDatabases] = useState('5');
+  const [limitBandwidthMbps, setLimitBandwidthMbps] = useState('0');
   const [limitAllowDomainFileServer, setLimitAllowDomainFileServer] = useState(true);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>([]);
   const [limitDefaultShieldId, setLimitDefaultShieldId] = useState<number | null>(null);
@@ -282,6 +283,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     setLimitMaxMemoryMb(String(user.maxMemoryMB ?? (user.memQuotaGB ? user.memQuotaGB * 1024 : 0)));
     setLimitMaxStorageMb(String(user.maxStorageMB ?? (user.diskQuotaGB ? user.diskQuotaGB * 1024 : 0)));
     setLimitMaxDatabases(String(user.maxDatabases ?? 5));
+    setLimitBandwidthMbps(String(user.bandwidthLimitMbps ?? 0));
     setLimitAllowDomainFileServer(user.allowDomainFileServer ?? true);
     setLimitDefaultShieldId(user.default_shield_id ?? null);
   };
@@ -348,6 +350,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     const maxMemoryMb = Math.max(0, parseInt(limitMaxMemoryMb, 10) || 0);
     const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
     const maxDatabases = Math.max(0, parseInt(limitMaxDatabases, 10) || 0);
+    const bandwidthLimitMbps = Math.max(0, parseInt(limitBandwidthMbps, 10) || 0);
 
     if (host) {
       const over =
@@ -386,6 +389,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
         max_memory_mb: maxMemoryMb,
         max_storage_mb: maxStorageMb,
         max_databases: maxDatabases,
+        bandwidth_limit_mbps: bandwidthLimitMbps,
         allow_domain_file_server: limitAllowDomainFileServer,
         default_shield_id: limitDefaultShieldId,
       });
@@ -412,6 +416,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               maxStorageMB: maxStorageMb,
               diskQuotaGB: Math.round((maxStorageMb / 1024) * 10) / 10,
               maxDatabases,
+              bandwidthLimitMbps,
               allowDomainFileServer: limitAllowDomainFileServer,
               default_shield_id: limitDefaultShieldId,
             }
@@ -744,6 +749,12 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                             <div className="text-zinc-500" title={u.storageBreakdown ? `files ${fmtBytes(u.storageBreakdown.files)} · databases ${fmtBytes(u.storageBreakdown.databases)} · volumes ${fmtBytes(u.storageBreakdown.volumes)}` : undefined}>
                               Disk <UsageFigure used={(u.storageUsedBytes ?? 0) / (1024 * 1024)} max={diskMb} fmt={fmtMb} />
                             </div>
+                            <div className="text-[10px] text-zinc-500">
+                              Net:{' '}
+                              <span className={u.bandwidthLimitMbps && u.bandwidthLimitMbps > 0 ? 'text-amber-300 font-medium' : 'text-zinc-400'}>
+                                {u.bandwidthLimitMbps && u.bandwidthLimitMbps > 0 ? `${u.bandwidthLimitMbps} Mbps (QoS)` : 'Unlimited'}
+                              </span>
+                            </div>
                           </div>
                         )}
                       </td>
@@ -1014,6 +1025,14 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                   onChange={setLimitMaxStorageMb}
                   max={host?.diskMB}
                   hint={`${Number(limitMaxStorageMb) > 0 ? `≈ ${(Number(limitMaxStorageMb) / 1024).toFixed(1)} GB disk` : 'Unlimited'}${host?.diskMB ? ` · server has ${(host.diskMB / 1024).toFixed(0)} GB` : ''}`}
+                />
+                <LimitField
+                  label="Network Speed Limit"
+                  unit="Mbps"
+                  step="5"
+                  value={limitBandwidthMbps}
+                  onChange={setLimitBandwidthMbps}
+                  hint={Number(limitBandwidthMbps) > 0 ? `${limitBandwidthMbps} Mbps traffic cap (tc/QoS)` : 'Unlimited (0 = no cap)'}
                 />
               </div>
 

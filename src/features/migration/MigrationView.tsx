@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   Clock,
   Layers,
+  Upload,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, MigrationExportBundle } from '../../types/nextdeploy';
@@ -47,6 +50,18 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
   onDeleteBundle,
 }) => {
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importTab, setImportTab] = useState<'upload' | 'url'>('upload');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importRemoteUrl, setImportRemoteUrl] = useState('');
+  const [importResetPanel, setImportResetPanel] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importStatus, setImportStatus] = useState<{
+    running: boolean;
+    status: string;
+    error?: string;
+    logs: string[];
+  } | null>(null);
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [docsTab, setDocsTab] = useState<'overview' | 'contents' | 'cli-flags' | 'security'>(
     'overview'
@@ -70,6 +85,63 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
       setSelectedBundleForCmd(bundles[0]);
     }
   }, [bundles, selectedBundleForCmd]);
+
+  useEffect(() => {
+    let t: any;
+    if (importModalOpen || importBusy) {
+      const check = async () => {
+        try {
+          const res = await backendApi.migrateImportStatus();
+          if (res.ok && res.data) {
+            setImportStatus(res.data);
+            if (!res.data.running && importBusy) {
+              setImportBusy(false);
+              if (res.data.status === 'completed') {
+                toast.success('Migration bundle imported and restored successfully!');
+              } else if (res.data.error) {
+                toast.error(`Import failed: ${res.data.error}`);
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      };
+      void check();
+      t = setInterval(check, 2500);
+    }
+    return () => clearInterval(t);
+  }, [importModalOpen, importBusy]);
+
+  const handleStartImport = async () => {
+    if (importTab === 'upload') {
+      if (!importFile) {
+        toast.error('Select an .nd-migrate bundle file to upload');
+        return;
+      }
+      setImportBusy(true);
+      const res = await backendApi.migrateImportUpload(importFile, importResetPanel);
+      if (!res.ok) {
+        setImportBusy(false);
+        toast.error(res.error || 'Could not start import');
+        return;
+      }
+      toast.success('Bundle uploaded. Import job is running...');
+    } else {
+      if (!importRemoteUrl.trim()) {
+        toast.error('Enter a valid remote bundle download URL');
+        return;
+      }
+      setImportBusy(true);
+      const res = await backendApi.migrateImportRemote(importRemoteUrl.trim(), importResetPanel);
+      if (!res.ok) {
+        setImportBusy(false);
+        toast.error(res.error || 'Could not start import');
+        return;
+      }
+      toast.success('Downloading remote bundle and importing...');
+    }
+  };
 
   // Compute local fallback + query Go backend /migrate/estimate?apps=...
   const computedEstimate = useMemo(() => {
@@ -168,6 +240,14 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
           >
             <BookOpen className="h-3.5 w-3.5 text-orange-400" />
             Migration Docs & Guide
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 cursor-pointer"
+          >
+            <Upload className="h-3.5 w-3.5 text-emerald-400" />
+            Import Migration Bundle
           </button>
           <button
             type="button"
@@ -744,6 +824,156 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
               Got It
+            </button>
+          </div>
+        </div>
+      </ShadcnDialog>
+
+      {/* MODAL 3: Import Migration Bundle */}
+      <ShadcnDialog
+        open={importModalOpen}
+        onClose={() => {
+          if (!importBusy) setImportModalOpen(false);
+        }}
+        title="Import Migration Bundle (.nd-migrate)"
+        icon={<Upload className="h-4 w-4 text-emerald-400" />}
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <div className="flex border-b border-white/[0.08] text-xs">
+            <button
+              type="button"
+              onClick={() => setImportTab('upload')}
+              className={`border-b-2 px-3.5 py-2 font-medium transition cursor-pointer ${
+                importTab === 'upload'
+                  ? 'border-emerald-500 text-emerald-400 font-semibold'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Upload Bundle File
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportTab('url')}
+              className={`border-b-2 px-3.5 py-2 font-medium transition cursor-pointer ${
+                importTab === 'url'
+                  ? 'border-emerald-500 text-emerald-400 font-semibold'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Remote URL Download
+            </button>
+          </div>
+
+          {importTab === 'upload' ? (
+            <div className="space-y-3">
+              <label className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/[0.12] bg-[#09090b] p-6 hover:border-emerald-500/50 hover:bg-emerald-500/[0.02] transition cursor-pointer">
+                <Upload className="h-8 w-8 text-zinc-500 mb-2" />
+                <span className="text-xs font-medium text-zinc-200">
+                  {importFile ? importFile.name : 'Choose or drop .nd-migrate bundle file'}
+                </span>
+                <span className="text-[11px] text-zinc-500 mt-1">
+                  {importFile ? `${(importFile.size / (1024 * 1024)).toFixed(2)} MB` : 'Up to multi-gigabyte server backups'}
+                </span>
+                <input
+                  type="file"
+                  accept=".nd-migrate,.tar,.gz"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setImportFile(f);
+                  }}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-zinc-300">
+                Remote Panel Bundle URL
+              </label>
+              <input
+                type="url"
+                placeholder="https://source-panel.example.com/migrate/download/<token>"
+                value={importRemoteUrl}
+                onChange={(e) => setImportRemoteUrl(e.target.value)}
+                className="w-full rounded-lg border border-white/[0.08] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <p className="text-[11px] text-zinc-500">
+                Direct single-use download link generated from the source panel&apos;s migration export.
+              </p>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs space-y-2">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={importResetPanel}
+                onChange={(e) => setImportResetPanel(e.target.checked)}
+                className="mt-0.5 rounded border-zinc-700 bg-zinc-900 text-emerald-500"
+              />
+              <div>
+                <span className="font-medium text-zinc-200">Full Server Replacement Mode</span>
+                <p className="text-[11px] text-zinc-500">
+                  When enabled, wipes existing panel users &amp; workspaces before restoring. Leave unchecked to merge incoming projects alongside existing workloads.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Live Progress Box if running or completed */}
+          {importStatus && (importStatus.running || importStatus.logs.length > 0) && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-zinc-300 flex items-center gap-1.5">
+                  {importStatus.running ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                      Importing in progress…
+                    </>
+                  ) : importStatus.status === 'completed' ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                      Migration Completed
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
+                      Import {importStatus.status}
+                    </>
+                  )}
+                </span>
+                <span className="font-mono text-[10px] text-zinc-500">
+                  {importStatus.status}
+                </span>
+              </div>
+              <div className="h-40 rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5 font-mono text-[10.5px] text-zinc-300 overflow-y-auto space-y-1">
+                {importStatus.logs.map((line, idx) => (
+                  <div key={idx} className="leading-relaxed">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.07] pt-3">
+            <button
+              type="button"
+              disabled={importBusy}
+              onClick={() => setImportModalOpen(false)}
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              disabled={importBusy}
+              onClick={() => void handleStartImport()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition cursor-pointer disabled:opacity-50"
+            >
+              {importBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {importBusy ? 'Importing…' : 'Start Migration Import'}
             </button>
           </div>
         </div>

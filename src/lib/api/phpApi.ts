@@ -73,6 +73,18 @@ export interface PhpInstanceData {
   mysql_task: { running: boolean; error?: string };
   pma: { enabled: boolean; exists: boolean; running: boolean; image: string };
   pma_task: { running: boolean; error?: string };
+  redis?: {
+    enabled: boolean;
+    exists: boolean;
+    running: boolean;
+    image: string;
+    host: string;
+    port: number;
+    version?: string;
+    used_memory_human?: string;
+    connected_clients?: number;
+    uptime_seconds?: number;
+  };
   versions: PhpVersionRow[];
   containers: PhpContainerRow[];
   min_cron_interval_minutes: number;
@@ -192,6 +204,8 @@ export const phpApi = {
   phpSecuritySave: (appId: string, body: Partial<PhpSecurity> & { basic_auth_password?: string; remove_password?: boolean }) =>
     requestJson<{ ok: boolean; security: PhpSecurity }>(site(appId, '/security'), json(body)),
   phpPma: (action: 'enable' | 'disable' | 'restart') => requestJson('/api/php/instance/pma', json({ action })),
+  phpRedis: (action: 'enable' | 'disable' | 'restart') =>
+    requestJson<{ ok: boolean; redis?: PhpInstanceData['redis'] }>('/api/php/instance/redis', json({ action })),
   phpPmaOpenAll: () => requestJson<{ ok: boolean; url: string }>('/api/php/instance/pma/open', json({})),
   phpPmaOpen: (appId: string) => requestJson<{ ok: boolean; url: string }>(site(appId, "/pma/open"), json({})),
   phpVersion: (version: string, action: 'install' | 'remove') =>

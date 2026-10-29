@@ -177,6 +177,7 @@ func (p *Panel) PHPInstance(c *fiber.Ctx) error {
 		"mysql_task":                phpAdminTasks.get("mysql"),
 		"pma":                       p.PHP.PMAStatus(ctx),
 		"pma_task":                  phpAdminTasks.get("pma"),
+		"redis":                     p.PHP.RedisStatus(ctx),
 		"versions":                  versions,
 		"containers":                p.PHP.ListContainers(ctx),
 		"min_cron_interval_minutes": p.PHP.MinCronIntervalMinutes(ctx),
@@ -370,4 +371,35 @@ func (p *Panel) phpBootstrap(ctx context.Context) fiber.Map {
 		"installed_versions": p.PHP.InstalledVersions(ctx),
 		"default_version":    phphosting.DefaultPHPVersion,
 	}
+}
+
+// POST /api/php/instance/redis {"action":"enable|disable|restart"}
+func (p *Panel) PHPRedisAction(c *fiber.Ctx) error {
+	var body struct {
+		Action string `json:"action"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return phpJSONErr(c, 400, "invalid body")
+	}
+	ctx := c.UserContext()
+	switch strings.ToLower(strings.TrimSpace(body.Action)) {
+	case "enable", "start":
+		if err := p.PHP.StartRedis(ctx); err != nil {
+			return phpJSONErr(c, 500, err.Error())
+		}
+		p.RecordAuditLog(c, "php_redis", "php", "redis", "Redis started")
+	case "disable", "stop":
+		if err := p.PHP.StopRedis(ctx); err != nil {
+			return phpJSONErr(c, 500, err.Error())
+		}
+		p.RecordAuditLog(c, "php_redis", "php", "redis", "Redis stopped")
+	case "restart":
+		if err := p.PHP.RestartRedis(ctx); err != nil {
+			return phpJSONErr(c, 500, err.Error())
+		}
+		p.RecordAuditLog(c, "php_redis", "php", "redis", "Redis restarted")
+	default:
+		return phpJSONErr(c, 400, "unsupported action")
+	}
+	return c.JSON(fiber.Map{"ok": true, "redis": p.PHP.RedisStatus(ctx)})
 }

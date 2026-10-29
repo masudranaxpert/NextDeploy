@@ -252,6 +252,7 @@ func main() {
 	app.Post("/api/v1/php/sites/:id/cron/:jid/run", p.APIAuthMiddleware, p.PHPCronRun)
 	app.Get("/api/v1/php/instance", p.APIAuthMiddleware, p.PHPInstance)
 	app.Post("/api/v1/php/instance/mysql", p.APIAuthMiddleware, p.PHPMySQLAction)
+	app.Post("/api/v1/php/instance/redis", p.APIAuthMiddleware, p.PHPRedisAction)
 
 	// CLI Volumes API
 	app.Get("/api/v1/volumes", p.APIAuthMiddleware, p.APIVolumesList)
@@ -400,6 +401,9 @@ func main() {
 	app.Get("/migrate/exports/:id/status", p.MigrateExportStatus)
 	app.Post("/migrate/exports/:id/delete", p.MigrateExportDelete)
 	app.Get("/migrate/estimate", p.MigrateEstimate)
+	app.Post("/migrate/import-upload", p.RequireAdminMiddleware, p.MigrateImportUpload)
+	app.Get("/migrate/import/status", p.RequireAdminMiddleware, p.MigrateImportStatus)
+	app.Post("/api/v1/migrate/import", p.APIAuthMiddleware, p.MigrateImportUpload)
 	app.Get("/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Get("/api/v1/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)
@@ -519,6 +523,7 @@ func main() {
 	app.Get("/api/php/instance", p.RequireAdminMiddleware, p.PHPInstance)
 	app.Post("/api/php/instance/module", p.RequireAdminMiddleware, p.PHPSetModule)
 	app.Post("/api/php/instance/mysql", p.RequireAdminMiddleware, p.PHPMySQLAction)
+	app.Post("/api/php/instance/redis", p.RequireAdminMiddleware, p.PHPRedisAction)
 	app.Post("/api/php/instance/versions", p.RequireAdminMiddleware, p.PHPVersionAction)
 	app.Get("/api/php/instance/versions/:version/build", p.RequireAdminMiddleware, p.PHPBuildStatus)
 	app.Post("/api/php/instance/containers/restart", p.RequireAdminMiddleware, p.PHPRestartContainer)

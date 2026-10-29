@@ -15,7 +15,7 @@ export const MariaDbTuningDocsModal: React.FC<MariaDbTuningDocsModalProps> = ({
   onClose,
   mysql,
 }) => {
-  const [lang, setLang] = useState<'bn' | 'en'>('bn');
+  const [lang, setLang] = useState<'bn' | 'en'>('en');
 
   const hostMB = mysql.host_memory_mb || 0;
   const memMB = mysql.memory_mb || 512;

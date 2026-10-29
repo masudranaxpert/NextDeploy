@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -355,6 +357,179 @@ func (p *Panel) MigrateImportDeps(adminID int64) migrate.ImportDeps {
 		},
 		DeployAfterImport: true,
 	}
+}
+
+type migrateImportTracker struct {
+	mu        sync.Mutex
+	Running   bool      `json:"running"`
+	Status    string    `json:"status"` // "idle", "starting", "running", "completed", "failed"
+	Error     string    `json:"error,omitempty"`
+	StartedAt time.Time `json:"started_at,omitempty"`
+	Logs      []string  `json:"logs"`
+}
+
+var globalMigrateImport = &migrateImportTracker{Logs: []string{}}
+
+func (t *migrateImportTracker) addLog(msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.Logs = append(t.Logs, fmt.Sprintf("[%s] %s", time.Now().UTC().Format("15:04:05"), msg))
+	if len(t.Logs) > 200 {
+		t.Logs = t.Logs[len(t.Logs)-200:]
+	}
+}
+
+// POST /migrate/import-upload
+func (p *Panel) MigrateImportUpload(c *fiber.Ctx) error {
+	globalMigrateImport.mu.Lock()
+	if globalMigrateImport.Running {
+		globalMigrateImport.mu.Unlock()
+		return c.Status(409).JSON(fiber.Map{"ok": false, "error": "An import is already running."})
+	}
+	globalMigrateImport.Running = true
+	globalMigrateImport.Status = "starting"
+	globalMigrateImport.Error = ""
+	globalMigrateImport.StartedAt = time.Now().UTC()
+	globalMigrateImport.Logs = []string{fmt.Sprintf("[%s] Starting migration import job", time.Now().UTC().Format("15:04:05"))}
+	globalMigrateImport.mu.Unlock()
+
+	resetPanel := c.FormValue("reset_panel") == "true" || c.FormValue("reset_panel") == "1"
+
+	fileHeader, err := c.FormFile("bundle")
+	stagingDir := migrate.StagingRoot()
+	_ = os.MkdirAll(stagingDir, 0700)
+	stagingBundlePath := filepath.Join(stagingDir, fmt.Sprintf("web-import-%d%s", time.Now().UnixNano(), migrate.BundleExtension))
+
+	if err == nil && fileHeader != nil {
+		if ferr := c.SaveFile(fileHeader, stagingBundlePath); ferr != nil {
+			globalMigrateImport.mu.Lock()
+			globalMigrateImport.Running = false
+			globalMigrateImport.Status = "failed"
+			globalMigrateImport.Error = "Failed to save uploaded bundle: " + ferr.Error()
+			globalMigrateImport.mu.Unlock()
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": ferr.Error()})
+		}
+	} else {
+		bundleURL := strings.TrimSpace(c.FormValue("bundle_url"))
+		if bundleURL == "" {
+			var body struct {
+				BundleURL  string `json:"bundle_url"`
+				ResetPanel bool   `json:"reset_panel"`
+			}
+			if bErr := c.BodyParser(&body); bErr == nil && body.BundleURL != "" {
+				bundleURL = strings.TrimSpace(body.BundleURL)
+				resetPanel = body.ResetPanel
+			}
+		}
+
+		if bundleURL == "" {
+			globalMigrateImport.mu.Lock()
+			globalMigrateImport.Running = false
+			globalMigrateImport.Status = "failed"
+			globalMigrateImport.Error = "Provide an uploaded .nd-migrate file or a remote bundle URL"
+			globalMigrateImport.mu.Unlock()
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Provide an uploaded .nd-migrate file or a remote bundle URL"})
+		}
+
+		go func(url string, dest string, reset bool) {
+			globalMigrateImport.addLog("Downloading bundle from " + url)
+			resp, derr := http.Get(url)
+			if derr != nil {
+				globalMigrateImport.mu.Lock()
+				globalMigrateImport.Running = false
+				globalMigrateImport.Status = "failed"
+				globalMigrateImport.Error = "Failed to download remote bundle: " + derr.Error()
+				globalMigrateImport.mu.Unlock()
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				globalMigrateImport.mu.Lock()
+				globalMigrateImport.Running = false
+				globalMigrateImport.Status = "failed"
+				globalMigrateImport.Error = fmt.Sprintf("Failed to download remote bundle: HTTP %d", resp.StatusCode)
+				globalMigrateImport.mu.Unlock()
+				return
+			}
+			outF, cerr := os.Create(dest)
+			if cerr != nil {
+				globalMigrateImport.mu.Lock()
+				globalMigrateImport.Running = false
+				globalMigrateImport.Status = "failed"
+				globalMigrateImport.Error = "Failed to create local staging file: " + cerr.Error()
+				globalMigrateImport.mu.Unlock()
+				return
+			}
+			defer outF.Close()
+			if _, cperr := io.Copy(outF, resp.Body); cperr != nil {
+				globalMigrateImport.mu.Lock()
+				globalMigrateImport.Running = false
+				globalMigrateImport.Status = "failed"
+				globalMigrateImport.Error = "Failed to write bundle file: " + cperr.Error()
+				globalMigrateImport.mu.Unlock()
+				return
+			}
+			p.runWebMigrateImport(dest, reset)
+		}(bundleURL, stagingBundlePath, resetPanel)
+
+		return c.JSON(fiber.Map{"ok": true, "message": "Downloading and importing remote bundle..."})
+	}
+
+	go p.runWebMigrateImport(stagingBundlePath, resetPanel)
+	return c.JSON(fiber.Map{"ok": true, "message": "Import job started successfully"})
+}
+
+// GET /migrate/import/status
+func (p *Panel) MigrateImportStatus(c *fiber.Ctx) error {
+	globalMigrateImport.mu.Lock()
+	defer globalMigrateImport.mu.Unlock()
+	return c.JSON(fiber.Map{
+		"running":    globalMigrateImport.Running,
+		"status":     globalMigrateImport.Status,
+		"error":      globalMigrateImport.Error,
+		"started_at": globalMigrateImport.StartedAt,
+		"logs":       globalMigrateImport.Logs,
+	})
+}
+
+func (p *Panel) runWebMigrateImport(bundlePath string, resetPanel bool) {
+	defer os.Remove(bundlePath)
+	globalMigrateImport.addLog("Beginning bundle verification & extraction...")
+
+	var adminID int64 = 1
+	if users, err := p.DB.ListUsers(context.Background()); err == nil {
+		for _, u := range users {
+			if u.Role == db.RoleAdmin {
+				adminID = u.ID
+				break
+			}
+		}
+	}
+
+	deps := p.MigrateImportDeps(adminID)
+	deps.ResetBeforeImport = resetPanel
+	deps.OnProgress = func(msg string) {
+		globalMigrateImport.addLog(msg)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+
+	if err := migrate.RunImport(ctx, bundlePath, true, deps); err != nil {
+		globalMigrateImport.mu.Lock()
+		globalMigrateImport.Running = false
+		globalMigrateImport.Status = "failed"
+		globalMigrateImport.Error = err.Error()
+		globalMigrateImport.mu.Unlock()
+		globalMigrateImport.addLog("Import failed: " + err.Error())
+		return
+	}
+
+	globalMigrateImport.mu.Lock()
+	globalMigrateImport.Running = false
+	globalMigrateImport.Status = "completed"
+	globalMigrateImport.mu.Unlock()
+	globalMigrateImport.addLog("Migration bundle imported and all apps restored successfully!")
 }
 
 func (p *Panel) migrateSweepLoop() {

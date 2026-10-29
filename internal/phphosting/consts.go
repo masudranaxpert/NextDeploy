@@ -14,6 +14,9 @@ const (
 	MySQLContainer = "nd-mysql"
 	MySQLVolume    = "nd-mysql-data"
 	DefaultMySQL   = "mariadb:11.4"
+	RedisContainer = "nd-redis"
+	RedisVolume    = "nd-redis-data"
+	DefaultRedis   = "redis:7-alpine"
 	DefaultDBNet   = "nd-db"
 	DefaultIngress = "NextDeploy"
 

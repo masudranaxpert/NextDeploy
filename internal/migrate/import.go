@@ -19,6 +19,7 @@ type ImportDeps struct {
 	DB                *db.Store
 	Store             *workspace.Store
 	AdminOwnerID      int64
+	ResetBeforeImport bool
 	WorkspaceRoot     func(appID string) string
 	ComposePaths      func(app db.App) []string
 	ProjectName       func(app db.App) string
@@ -65,9 +66,11 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 	if !snapshotHasUsers(snap) {
 		return fmt.Errorf("bundle has no user accounts; re-export from the source panel with the latest NextDeploy version")
 	}
-	log.log("resetting panel (users, apps, workspaces)")
-	if err := ResetPanelForImport(ctx, deps.DB, deps.Store.Root); err != nil {
-		return fmt.Errorf("reset panel: %w", err)
+	if deps.ResetBeforeImport {
+		log.log("resetting panel (users, apps, workspaces)")
+		if err := ResetPanelForImport(ctx, deps.DB, deps.Store.Root); err != nil {
+			return fmt.Errorf("reset panel: %w", err)
+		}
 	}
 	log.log("restoring users")
 	for _, us := range snap.Users {

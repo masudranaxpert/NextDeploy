@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BookOpen, Check, Clock, Database, Download, ExternalLink, Gauge, Power, RotateCw, Server, Shield, Trash2, User } from 'lucide-react';
+import { BookOpen, Check, Clock, Database, Download, ExternalLink, Gauge, Power, RotateCw, Server, Shield, Trash2, User, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 import type { PhpInstanceData } from '../../lib/api/phpApi';
@@ -364,6 +364,111 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
           )}
         </div>
         {!m.ready && <p className="mt-3 text-[11px] text-zinc-500">Start the database server first.</p>}
+      </Card>
+
+      {/* Redis In-Memory Cache Card */}
+      <Card
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Zap className="h-4 w-4 text-rose-500" />
+            Redis In-Memory Cache
+          </span>
+        }
+        actions={
+          <Pill tone={data.redis?.running ? 'green' : 'zinc'}>
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${
+                data.redis?.running ? 'bg-emerald-400' : 'bg-zinc-500'
+              }`}
+            />
+            {data.redis?.running ? 'running' : data.redis?.exists ? 'stopped' : 'not setup'}
+          </Pill>
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <Field label="Host / Container">
+              <ValueBox>{data.redis?.host || 'nd-redis'}</ValueBox>
+            </Field>
+            <Field label="Port">
+              <ValueBox>{String(data.redis?.port || 6379)}</ValueBox>
+            </Field>
+            <Field label="Image">
+              <ValueBox>{data.redis?.image || 'redis:7-alpine'}</ValueBox>
+            </Field>
+          </div>
+
+          {data.redis?.running && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+                <div className="text-[11px] text-zinc-400">Used Memory</div>
+                <div className="mt-1 font-mono text-xs font-semibold text-emerald-400">
+                  {data.redis.used_memory_human || '0B'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+                <div className="text-[11px] text-zinc-400">Connected Clients</div>
+                <div className="mt-1 font-mono text-xs font-semibold text-zinc-100">
+                  {data.redis.connected_clients ?? 0}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+                <div className="text-[11px] text-zinc-400">Version</div>
+                <div className="mt-1 font-mono text-xs font-semibold text-zinc-300">
+                  {data.redis.version || '7.x'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/[0.05] bg-[#09090b] p-2.5">
+                <div className="text-[11px] text-zinc-400">Uptime</div>
+                <div className="mt-1 font-mono text-xs font-semibold text-zinc-300">
+                  {data.redis.uptime_seconds ? `${Math.floor(data.redis.uptime_seconds / 60)}m` : '0m'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PHP / WordPress Connection Snippet */}
+          <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-xs">
+            <div className="text-zinc-300 font-medium">PHP &amp; WordPress Connection</div>
+            <p className="mt-0.5 text-[11px] text-zinc-500">
+              Every PHP-FPM container is linked on the internal network. Connect with host{' '}
+              <code className="text-orange-300 font-mono">nd-redis</code> and port{' '}
+              <code className="text-orange-300 font-mono">6379</code>. Compatible with WordPress Redis Object Cache plugin.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {!data.redis?.running ? (
+              <PrimaryButton
+                busy={busy === 'redis-on'}
+                onClick={() => act('redis-on', () => backendApi.phpRedis('enable'), 'Starting Redis cache…')}
+              >
+                <Power className="h-3.5 w-3.5" /> {data.redis?.exists ? 'Start Redis' : 'Enable Redis Server'}
+              </PrimaryButton>
+            ) : (
+              <>
+                <GhostButton
+                  busy={busy === 'redis-re'}
+                  onClick={() => act('redis-re', () => backendApi.phpRedis('restart'), 'Restarting Redis cache…')}
+                >
+                  <RotateCw className="h-3.5 w-3.5 text-zinc-400" /> Restart
+                </GhostButton>
+                <GhostButton
+                  tone="danger"
+                  busy={busy === 'redis-off'}
+                  onClick={() => {
+                    if (window.confirm('Stop Redis? Sites utilizing Redis cache or sessions will fail back to disk/database.')) {
+                      void act('redis-off', () => backendApi.phpRedis('disable'), 'Redis stopped');
+                    }
+                  }}
+                >
+                  Stop Redis
+                </GhostButton>
+              </>
+            )}
+          </div>
+        </div>
       </Card>
 
       <Card title={<span className="inline-flex items-center gap-2"><PhpIcon className="h-4 w-4" />PHP versions</span>}>

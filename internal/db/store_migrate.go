@@ -333,7 +333,7 @@ func (s *Store) InsertUserMigrate(ctx context.Context, u User) error {
 		created = time.Now().UTC().Format(time.RFC3339)
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users(id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,status,allow_domain_file_server) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT OR REPLACE INTO users(id,username,password_hash,role,created_at,max_apps,max_memory_mb,max_cpus,max_storage_mb,status,allow_domain_file_server) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		u.ID, u.Username, u.PasswordHash, u.Role, created, u.MaxApps, u.MaxMemoryMB, u.MaxCPUs, u.MaxStorageMB, u.Status, allow)
 	return err
 }
@@ -357,7 +357,7 @@ func (s *Store) InsertGitProviderMigrate(ctx context.Context, p GitProvider) err
 		uid = *p.UserID
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO git_providers(id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT OR REPLACE INTO git_providers(id,user_id,name,provider,token,refresh_token,expires_at,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, uid, p.Name, p.Provider, p.Token, p.RefreshToken, p.ExpiresAt, p.Notes, ca, ua)
 	return err
 }

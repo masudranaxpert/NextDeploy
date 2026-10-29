@@ -519,11 +519,11 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                         </div>
                         <div className="mt-0.5 font-mono text-[11px] text-zinc-400 truncate">
                           {isGDrive
-                            ? d.email
-                              ? d.displayName && d.displayName !== d.email && d.displayName !== 'Google Drive (Authorized)' && d.displayName !== 'Authorized'
+                            ? d.email && d.email.includes('@')
+                              ? d.displayName && d.displayName.trim() !== '' && d.displayName !== d.email && !d.displayName.includes('(Authorized)') && d.displayName !== 'Authorized'
                                 ? `${d.displayName} · ${d.email}`
                                 : d.email
-                              : d.displayName && d.displayName !== 'Google Drive (Authorized)' && d.displayName !== 'Authorized'
+                              : d.displayName && d.displayName.trim() !== '' && !d.displayName.includes('(Authorized)') && d.displayName !== 'Authorized'
                               ? d.displayName
                               : 'Google Drive OAuth 2.0'
                             : `Bucket: ${cleanBucketName}`}
@@ -580,7 +580,11 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                             Account
                           </span>
                           <span className="font-mono text-[11px] text-zinc-200 truncate block mt-0.5">
-                            {d.email || (d.displayName ? d.displayName : 'Authorized')}
+                            {d.email && d.email.includes('@')
+                              ? d.email
+                              : d.displayName && !d.displayName.includes('(Authorized)') && d.displayName !== 'Authorized'
+                              ? d.displayName
+                              : 'Authorized Account'}
                           </span>
                         </div>
                         <div>
