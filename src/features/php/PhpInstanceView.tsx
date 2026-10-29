@@ -438,7 +438,7 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
             {!data.redis?.running ? (
               <PrimaryButton
                 busy={busy === 'redis-on'}

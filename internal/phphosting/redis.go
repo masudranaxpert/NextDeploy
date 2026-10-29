@@ -103,7 +103,7 @@ func (m *Manager) StartRedis(ctx context.Context) error {
 		"-v", RedisVolume + ":/data",
 		"-p", "127.0.0.1:6379:6379",
 		image,
-		"redis-server", "--appendonly", "yes",
+		"redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru",
 	}
 
 	res := docker(ctx, args...)
@@ -117,7 +117,7 @@ func (m *Manager) StartRedis(ctx context.Context) error {
 			"--label", "nd.php=redis",
 			"-v", RedisVolume + ":/data",
 			image,
-			"redis-server", "--appendonly", "yes",
+			"redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru",
 		}
 		res = docker(ctx, fallbackArgs...)
 		if !res.OK {
