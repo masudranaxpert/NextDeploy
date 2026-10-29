@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"panel/internal/perflog"
 	"strconv"
@@ -375,7 +376,20 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	registries, _ := p.DB.ListPrivateRegistries(ctx, ownerPtr)
 	backupDests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
 	for i := range backupDests {
-		backupDests[i].Config = "{}" // access keys / OAuth tokens stay server-side
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(backupDests[i].Config), &cfg) == nil {
+			backupDests[i].Config = string(mustMarshal(map[string]interface{}{
+				"email":         cfg["email"],
+				"display_name":  cfg["display_name"],
+				"storage_limit": cfg["storage_limit"],
+				"storage_used":  cfg["storage_used"],
+				"folder_id":     cfg["folder_id"],
+				"account_id":    cfg["account_id"],
+				"bucket":        cfg["bucket"],
+			}))
+		} else {
+			backupDests[i].Config = "{}"
+		}
 	}
 	apiTokens, _ := p.DB.ListAPITokensForUser(ctx, u.ID)
 

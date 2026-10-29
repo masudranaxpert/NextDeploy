@@ -64,6 +64,19 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 				_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
 			}
 			if aboutErr != nil {
+				// Fall back to saved identity if available
+				savedEmail := configMap["email"]
+				if savedEmail != "" {
+					dests[i].Config = string(mustMarshal(map[string]interface{}{
+						"folder_id":     configMap["folder_id"],
+						"auth_mode":     configMap["auth_mode"],
+						"email":         savedEmail,
+						"display_name":  configMap["display_name"],
+						"storage_limit": configMap["storage_limit"],
+						"storage_used":  configMap["storage_used"],
+					}))
+					continue
+				}
 				// Attach error hint so UI can show reconnect prompt
 				dests[i].Config = string(mustMarshal(map[string]interface{}{
 					"folder_id":  configMap["folder_id"],
@@ -72,13 +85,42 @@ func (p *Panel) BackupDestinationsList(c *fiber.Ctx) error {
 				}))
 				continue
 			}
+
+			email := aboutInfo.User.EmailAddress
+			displayName := aboutInfo.User.DisplayName
+			storageLimit := aboutInfo.StorageQuota.Limit
+			storageUsed := aboutInfo.StorageQuota.Usage
+
+			if email != "" && email != "Authorized" {
+				configMap["email"] = email
+				configMap["display_name"] = displayName
+				if storageLimit != "0" && storageLimit != "" {
+					configMap["storage_limit"] = storageLimit
+					configMap["storage_used"] = storageUsed
+				}
+				_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dests[i].ID, string(mustMarshal(configMap)))
+			} else {
+				if email == "" || email == "Authorized" {
+					email = configMap["email"]
+				}
+				if displayName == "" || displayName == "Authorized" {
+					displayName = configMap["display_name"]
+				}
+				if storageLimit == "0" || storageLimit == "" {
+					storageLimit = configMap["storage_limit"]
+				}
+				if storageUsed == "0" || storageUsed == "" {
+					storageUsed = configMap["storage_used"]
+				}
+			}
+
 			dests[i].Config = string(mustMarshal(map[string]interface{}{
 				"folder_id":     configMap["folder_id"],
 				"auth_mode":     configMap["auth_mode"],
-				"email":         aboutInfo.User.EmailAddress,
-				"display_name":  aboutInfo.User.DisplayName,
-				"storage_limit": aboutInfo.StorageQuota.Limit,
-				"storage_used":  aboutInfo.StorageQuota.Usage,
+				"email":         email,
+				"display_name":  displayName,
+				"storage_limit": storageLimit,
+				"storage_used":  storageUsed,
 			}))
 
 		default:
@@ -300,7 +342,15 @@ func (p *Panel) BackupDestinationTest(c *fiber.Ctx) error {
 		if testErr != nil {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "error": testErr.Error()})
 		}
-		if newToken != token && newToken != "" {
+		if about.User.EmailAddress != "" && about.User.EmailAddress != "Authorized" {
+			configMap["email"] = about.User.EmailAddress
+			configMap["display_name"] = about.User.DisplayName
+			if about.StorageQuota.Limit != "0" && about.StorageQuota.Limit != "" {
+				configMap["storage_limit"] = about.StorageQuota.Limit
+				configMap["storage_used"] = about.StorageQuota.Usage
+			}
+			_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dest.ID, string(mustMarshal(configMap)))
+		} else if newToken != token && newToken != "" {
 			configMap["token"] = newToken
 			_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dest.ID, string(mustMarshal(configMap)))
 		}

@@ -867,22 +867,33 @@ export default function App() {
     // 8. Live Backup Destinations & Migration Exports
     if (Array.isArray(data.backup_destinations)) {
       setBackupDestinations(
-        data.backup_destinations.map((bd: any) => ({
-          id: String(bd.ID ?? bd.id),
-          owner: data.resource_owners?.destinations?.[String(bd.ID ?? bd.id)],
-          name: bd.Name ?? bd.name,
-          provider: (bd.Provider ?? bd.provider) === 'gdrive' ? ('Google Drive' as const) : ('Cloudflare R2' as const),
-          providerCode: (bd.Provider || bd.provider || 'r2') as 'r2' | 'gdrive',
-          bucket: bd.bucket || '',
-          endpoint: '',
-          region: 'auto',
-          status: 'connected' as const,
-          scheduleCron: '0 2 * * *',
-          retentionDays: 7,
-          usedGB: 0,
-          quotaGB: 100,
-          lastBackupAt: 'Never',
-        }))
+        data.backup_destinations.map((bd: any) => {
+          let cfg: any = {};
+          try {
+            cfg = JSON.parse(bd.Config || bd.config || '{}');
+          } catch {}
+          const isGDrive = (bd.Provider ?? bd.provider) === 'gdrive';
+          const usedBytes = Number(cfg.storage_used ?? bd.storage_used ?? 0);
+          const limitBytes = Number(cfg.storage_limit ?? bd.storage_limit ?? 0);
+          return {
+            id: String(bd.ID ?? bd.id),
+            owner: data.resource_owners?.destinations?.[String(bd.ID ?? bd.id)],
+            name: bd.Name ?? bd.name,
+            provider: isGDrive ? ('Google Drive' as const) : ('Cloudflare R2' as const),
+            providerCode: (bd.Provider || bd.provider || 'r2') as 'r2' | 'gdrive',
+            bucket: cfg.bucket || bd.bucket || (isGDrive ? 'gdrive:/nextdeploy' : 'r2://backups'),
+            endpoint: '',
+            region: 'auto',
+            email: cfg.email || bd.email || '',
+            displayName: cfg.display_name || bd.display_name || '',
+            status: 'connected' as const,
+            scheduleCron: '0 2 * * *',
+            retentionDays: 7,
+            usedGB: Number((usedBytes / (1024 * 1024 * 1024)).toFixed(2)),
+            quotaGB: limitBytes > 0 ? Number((limitBytes / (1024 * 1024 * 1024)).toFixed(0)) : 0,
+            lastBackupAt: 'Active',
+          };
+        })
       );
     }
     if (Array.isArray(data.migrate_exports)) {
