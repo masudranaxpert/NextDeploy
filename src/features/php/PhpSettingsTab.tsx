@@ -398,6 +398,10 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         siteName={app.name || detail.site.primary_domain || 'WordPress'}
         plugins={detail.wp_cache_plugins}
         onRefresh={() => void reload()}
+        onPurge={async () => {
+          await phpApi.phpPurgeCache(app.id);
+          await reload();
+        }}
       />
     </div>
   );

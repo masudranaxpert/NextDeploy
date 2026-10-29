@@ -574,6 +574,24 @@ func (p *Panel) PHPSiteProvision(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "provision": st})
 }
 
+// PHPPurgeCache deletes all cached static files inside htdocs/wp-content/cache.
+func (p *Panel) PHPPurgeCache(c *fiber.Ctx) error {
+	app, _, err := p.phpSiteFor(c)
+	if err != nil {
+		return err
+	}
+	cacheDir := filepath.Join(p.WorkspacesRoot, app.ID, "htdocs", "wp-content", "cache")
+	if fi, err := os.Stat(cacheDir); err == nil && fi.IsDir() {
+		entries, err := os.ReadDir(cacheDir)
+		if err == nil {
+			for _, entry := range entries {
+				_ = os.RemoveAll(filepath.Join(cacheDir, entry.Name()))
+			}
+		}
+	}
+	return c.JSON(fiber.Map{"ok": true, "message": "Cache purged successfully"})
+}
+
 // phpOwnershipMiddleware re-owns files after any write through the panel so the FPM pool
 // (which runs as the site's own UID) can read and write them.
 func (p *Panel) PHPOwnershipMiddleware(c *fiber.Ctx) error {

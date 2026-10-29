@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, CheckCircle2, Circle, FileCheck, Layers, RefreshCw, ShieldCheck, Zap } from 'lucide-react';
+import { Check, CheckCircle2, Circle, FileCheck, Layers, RefreshCw, ShieldCheck, Trash2, Zap } from 'lucide-react';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import { WordPressIcon } from '../../components/ui/BrandIcons';
 
@@ -17,6 +17,7 @@ interface WordPressOptimizationModalProps {
   siteName: string;
   plugins?: WordPressCachePluginInfo[];
   onRefresh?: () => void;
+  onPurge?: () => Promise<void>;
 }
 
 type TabKey = 'cache' | 'object-cache' | 'assets';
@@ -46,9 +47,11 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
   siteName,
   plugins = [],
   onRefresh,
+  onPurge,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('cache');
   const [refreshing, setRefreshing] = useState(false);
+  const [purging, setPurging] = useState(false);
 
   // Fallback list if props are not yet loaded
   const fallbackPlugins: WordPressCachePluginInfo[] = [
@@ -69,6 +72,16 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
       await onRefresh();
     } finally {
       setTimeout(() => setRefreshing(false), 500);
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!onPurge || purging) return;
+    setPurging(true);
+    try {
+      await onPurge();
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -143,18 +156,32 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
             </button>
           </div>
 
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              title="Rescan WordPress plugins on disk"
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 py-1 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 text-zinc-400 ${refreshing ? 'animate-spin text-orange-400' : ''}`} />
-              <span>Rescan</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {onPurge && (
+              <button
+                type="button"
+                onClick={handlePurge}
+                disabled={purging || refreshing}
+                title="Purge all generated static cache files from disk"
+                className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-300 transition hover:bg-red-500/20 hover:text-red-200 disabled:opacity-50 cursor-pointer"
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>{purging ? 'Purging...' : 'Purge Cache'}</span>
+              </button>
+            )}
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing || purging}
+                title="Rescan WordPress plugins on disk"
+                className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 py-1 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-zinc-400 ${refreshing ? 'animate-spin text-orange-400' : ''}`} />
+                <span>Rescan</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tab 1: Static Disk Cache */}

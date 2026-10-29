@@ -533,6 +533,7 @@ func main() {
 	app.Get("/apps/:id/php", p.PHPSiteDetail)
 	app.Post("/apps/:id/php/settings", p.PHPSiteSettings)
 	app.Post("/apps/:id/php/restart", p.PHPSiteRestart)
+	app.Post("/apps/:id/php/purge-cache", p.PHPPurgeCache)
 	app.Post("/apps/:id/php/fix-permissions", p.PHPSiteFixPermissions)
 	app.Get("/apps/:id/php/provision", p.PHPSiteProvision)
 	app.Get("/apps/:id/php/logs", p.PHPLogs)

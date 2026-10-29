@@ -264,4 +264,6 @@ export const phpApi = {
     requestJson(site(appId, `/cron/${jobId}/delete`), { method: 'POST' }),
   phpCronRun: (appId: string, jobId: number) =>
     requestJson<{ ok: boolean; status: string; output: string }>(site(appId, `/cron/${jobId}/run`), { method: 'POST' }),
+  phpPurgeCache: (appId: string) =>
+    requestJson<{ ok: boolean; message: string }>(site(appId, '/purge-cache'), { method: 'POST' }),
 };
