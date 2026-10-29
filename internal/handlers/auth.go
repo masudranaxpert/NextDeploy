@@ -62,8 +62,9 @@ func validateRedirectPath(next string) string {
 func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	path := c.Path()
 
-	// Always allow static assets, SPA bundle assets, MCP API endpoints, API v1 routes, and auth routes
-	if strings.HasPrefix(path, "/static/") ||
+	// Always allow static assets, SPA bundle assets, MCP API endpoints, API v1 routes, and auth routes.
+	// Note: /phpmyadmin routes must always run through authentication (even for .png/.svg theme assets).
+	if !strings.HasPrefix(path, "/phpmyadmin") && (strings.HasPrefix(path, "/static/") ||
 		strings.HasPrefix(path, "/assets/") ||
 		strings.HasPrefix(path, "/nextdeploy") ||
 		strings.HasPrefix(path, "/apple-touch") ||
@@ -73,7 +74,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		strings.HasSuffix(path, ".ico") ||
 		path == "/mcp" || strings.HasPrefix(path, "/mcp/") ||
 		strings.HasPrefix(path, "/api/v1/") ||
-		path == "/login" || path == "/setup" {
+		path == "/login" || path == "/setup") {
 		return c.Next()
 	}
 

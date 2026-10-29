@@ -91,6 +91,18 @@ func (p *Panel) PHPPMAAction(c *fiber.Ctx) error {
 // NextDeploy (AuthMiddleware ran) and hold a phpMyAdmin cookie that was issued to that same user.
 func (p *Panel) PMAProxy(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
+	if !ok {
+		// Session cookie fallback if AuthMiddleware was bypassed
+		if sessToken := c.Cookies(sessionCookie); sessToken != "" {
+			if userID, expiresAt, err := p.DB.GetSession(c.UserContext(), sessToken); err == nil && time.Now().Before(expiresAt) {
+				if user, err := p.DB.GetUserByID(c.UserContext(), userID); err == nil && user.Status != db.UserStatusSuspended {
+					u = user
+					ok = true
+					c.Locals(contextUserKey, user)
+				}
+			}
+		}
+	}
 	if !ok || p.PHP == nil {
 		return c.Status(401).SendString("sign in to NextDeploy first")
 	}
