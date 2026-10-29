@@ -344,7 +344,7 @@ func (p *Panel) BackupGDriveQuickAuthURL(c *fiber.Ctx) error {
 	authURL := rclone.GetGoogleDriveAuthURLWithScope(
 		rclone.RcloneDefaultGDriveClientID,
 		rclone.RcloneDefaultGDriveRedirectURI,
-		"https://www.googleapis.com/auth/drive",
+		"https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
 	)
 	return c.JSON(fiber.Map{
 		"ok":           true,

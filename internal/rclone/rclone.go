@@ -746,27 +746,106 @@ func GetGoogleDriveAboutInfo(ctx context.Context, token string) (*GoogleDriveAbo
 		return info, nil
 	}
 
-	// Token expired (401) — try refresh if we have client credentials
-	if status == 401 {
+	// Helper to refresh access token if client credentials exist
+	refreshAccessToken := func() string {
 		clientID, _ := tokenData["client_id"].(string)
 		clientSecret, _ := tokenData["client_secret"].(string)
+		if clientID == "" {
+			clientID = RcloneDefaultGDriveClientID
+			clientSecret = RcloneDefaultGDriveClientSecret
+		}
 		if clientID != "" && clientSecret != "" {
-			newToken, refreshErr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token)
-			if refreshErr == nil {
+			if newToken, refreshErr := RefreshGoogleDriveToken(ctx, clientID, clientSecret, token); refreshErr == nil {
 				var newTokenData map[string]interface{}
 				if json.Unmarshal([]byte(newToken), &newTokenData) == nil {
-					if newAt, ok := newTokenData["access_token"].(string); ok {
-						info2, _, _, err2 := doRequest(newAt)
-						if err2 == nil && info2 != nil {
-							return info2, nil
-						}
+					if newAt, ok := newTokenData["access_token"].(string); ok && newAt != "" {
+						return newAt
 					}
 				}
 			}
 		}
+		return ""
 	}
 
-	return nil, fmt.Errorf("failed to get about info (HTTP %d): %s", status, string(body))
+	// 1. If 401 Unauthorized (expired token), refresh and retry about
+	if status == 401 {
+		if newAt := refreshAccessToken(); newAt != "" {
+			accessToken = newAt
+			info2, status2, body2, err2 := doRequest(newAt)
+			if err2 == nil && info2 != nil {
+				return info2, nil
+			}
+			status = status2
+			body = body2
+		}
+	}
+
+	// 2. If 403 Rate Limit (Quota exceeded on shared client) or other Drive API restriction,
+	// verify token validity via oauth2 tokeninfo to confirm the connection works.
+	bodyStr := string(body)
+	isRateLimit := status == 403 && (strings.Contains(bodyStr, "RATE_LIMIT_EXCEEDED") ||
+		strings.Contains(bodyStr, "rateLimitExceeded") ||
+		strings.Contains(bodyStr, "Quota exceeded"))
+
+	checkTokenValidity := func(at string) (*GoogleDriveAboutInfo, bool) {
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://oauth2.googleapis.com/tokeninfo?access_token="+url.QueryEscape(at), nil)
+		if err != nil {
+			return nil, false
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, false
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == 200 {
+			var tInfo struct {
+				Email string `json:"email"`
+				Scope string `json:"scope"`
+			}
+			_ = json.Unmarshal(b, &tInfo)
+			email := tInfo.Email
+			if email == "" {
+				email = "Google Drive (Authorized)"
+			}
+			res := &GoogleDriveAboutInfo{}
+			res.User.DisplayName = email
+			res.User.EmailAddress = email
+			res.StorageQuota.Limit = "0"
+			res.StorageQuota.Usage = "0"
+			return res, true
+		}
+		return nil, false
+	}
+
+	if isRateLimit {
+		if fallbackInfo, valid := checkTokenValidity(accessToken); valid {
+			return fallbackInfo, nil
+		}
+		// If current accessToken was expired, try refreshing
+		if newAt := refreshAccessToken(); newAt != "" {
+			if fallbackInfo, valid := checkTokenValidity(newAt); valid {
+				return fallbackInfo, nil
+			}
+		}
+	}
+
+	// Format concise error instead of giant JSON dump
+	var gErr struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    int    `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &gErr) == nil && gErr.Error.Message != "" {
+		if strings.Contains(gErr.Error.Message, "Quota exceeded") || strings.Contains(gErr.Error.Message, "rateLimitExceeded") {
+			return nil, fmt.Errorf("Google Drive rate limit exceeded on shared Rclone client. Please retry shortly or use Custom Credentials")
+		}
+		return nil, fmt.Errorf("Google Drive API error (%d): %s", status, gErr.Error.Message)
+	}
+
+	return nil, fmt.Errorf("failed to connect to Google Drive (HTTP %d)", status)
 }
 
 func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string) (string, error) {
