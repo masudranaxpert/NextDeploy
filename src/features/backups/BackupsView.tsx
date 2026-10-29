@@ -102,6 +102,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   // Google Drive mode: quick (Rclone default) vs custom (User provided client credentials)
   const [gdriveMode, setGdriveMode] = useState<'quick' | 'custom'>('quick');
   const [gdriveInput, setGdriveInput] = useState('');
+  const [gdriveFolder, setGdriveFolder] = useState('nextdeploy');
   const extractedCode = extractGoogleCode(gdriveInput);
 
   // Cloudflare R2 fields (matches internal/handlers/panel_backup_destinations.go)
@@ -203,13 +204,15 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const openConnectModal = (
     provider: 'gdrive' | 'r2',
     presetName = '',
-    destId: string | null = null
+    destId: string | null = null,
+    folderId = 'nextdeploy'
   ) => {
     setDestProvider(provider);
     setDestName(presetName);
     setEditDestId(destId);
     setGdriveInput('');
     setGdriveMode('quick');
+    setGdriveFolder(folderId || 'nextdeploy');
     if (provider === 'r2') {
       setR2AccountId('');
       setR2Bucket('');
@@ -283,6 +286,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         const res = await backendApi.backupGDriveExchangeCode({
           code: codeToUse,
           name: cleanName,
+          folder_id: gdriveFolder.trim() || 'nextdeploy',
           id: editDestId || undefined,
         });
         setIsSubmitting(false);
@@ -479,7 +483,10 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
           {filteredDestinations.map((d) => {
-            const isGDrive = d.provider === 'Google Drive' || d.providerCode === 'gdrive';
+            const isGDrive =
+              (d.provider || '').toLowerCase().includes('drive') ||
+              (d.provider || '').toLowerCase() === 'gdrive' ||
+              d.providerCode === 'gdrive';
             const hasQuota = d.quotaGB > 0;
             const pct = hasQuota
               ? Math.min(100, Math.round((d.usedGB / Math.max(1, d.quotaGB)) * 100))
@@ -543,7 +550,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                               {
                                 label: 'Reconnect Google Drive',
                                 icon: <KeyRound className="h-3.5 w-3.5 text-emerald-400" />,
-                                onClick: () => openConnectModal('gdrive', d.name, d.id),
+                                onClick: () => openConnectModal('gdrive', d.name, d.id, d.folderId || 'nextdeploy'),
                               },
                             ]
                           : [
@@ -591,9 +598,31 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                           <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 block">
                             Drive Folder
                           </span>
-                          <span className="font-mono text-[11px] text-emerald-400 truncate block mt-0.5" title={d.folderId || 'nextdeploy'}>
-                            {d.folderId ? `nextdeploy (${d.folderId.slice(0, 8)}...)` : 'nextdeploy (root)'}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono text-[11px] text-emerald-400 truncate block" title={d.folderId || 'nextdeploy'}>
+                              {d.folderId && d.folderId !== 'root' ? (
+                                <>
+                                  <span>nextdeploy</span>
+                                  <span className="text-zinc-500 text-[10px] ml-1">
+                                    ({d.folderId.length > 14 ? `${d.folderId.slice(0, 6)}...${d.folderId.slice(-4)}` : d.folderId})
+                                  </span>
+                                </>
+                              ) : (
+                                'nextdeploy (root)'
+                              )}
+                            </span>
+                            {d.folderId && d.folderId !== 'root' && (
+                              <a
+                                href={`https://drive.google.com/drive/folders/${d.folderId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open folder in Google Drive"
+                                className="inline-flex items-center text-zinc-400 hover:text-emerald-400 transition-colors shrink-0"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </>
                     ) : (
@@ -627,7 +656,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       {isGDrive && (
                         <button
                           type="button"
-                          onClick={() => openConnectModal('gdrive', d.name, d.id)}
+                          onClick={() => openConnectModal('gdrive', d.name, d.id, d.folderId || 'nextdeploy')}
                           className="shrink-0 rounded-md bg-amber-500/20 px-2 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/30 cursor-pointer"
                         >
                           Reconnect
@@ -682,7 +711,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       {isGDrive && (
                         <button
                           type="button"
-                          onClick={() => openConnectModal('gdrive', d.name, d.id)}
+                          onClick={() => openConnectModal('gdrive', d.name, d.id, d.folderId || 'nextdeploy')}
                           className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
                         >
                           <RotateCw className="h-3 w-3 text-emerald-400" />
@@ -927,6 +956,22 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
           {destProvider === 'gdrive' ? (
             <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                  Google Drive Destination Folder (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={gdriveFolder}
+                  onChange={(e) => setGdriveFolder(e.target.value)}
+                  placeholder="nextdeploy (default: auto-creates 'nextdeploy' folder)"
+                  className="w-full rounded border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                />
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  NextDeploy isolates all backup archives inside this Google Drive folder so your personal files are untouched. Leave empty to auto-create &quot;nextdeploy&quot;, or paste a specific Folder ID.
+                </p>
+              </div>
+
               {/* Google Drive Sub-Tabs: Quick Setup vs Custom App */}
               <div className="flex items-center gap-1 rounded border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
                 <button
