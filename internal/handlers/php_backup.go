@@ -13,8 +13,9 @@ import (
 )
 
 // phpDumpDir holds database dumps inside a site workspace so the regular app backup
-// (a tarball of the workspace) carries them. Root-only: the site's PHP user cannot read it.
-const phpDumpDir = ".nextdeploy-db"
+// (a tarball of the workspace) carries them. Visible "database" directory for users.
+const phpDumpDir = "database"
+const legacyPhpDumpDir = ".nextdeploy-db"
 
 // phpBackupPrepare dumps the site's databases into the workspace and returns a context that
 // keeps vendor/ directories in the archive. For non-PHP apps it is a no-op.
@@ -71,7 +72,9 @@ func (p *Panel) phpAfterRestore(ctx context.Context, appID string) string {
 		return ""
 	}
 	dumpDir := filepath.Join(p.PHP.SitePath(appID), phpDumpDir)
+	legacyDir := filepath.Join(p.PHP.SitePath(appID), legacyPhpDumpDir)
 	defer os.RemoveAll(dumpDir)
+	defer os.RemoveAll(legacyDir)
 
 	if err := p.PHP.PrepareSiteDirs(site); err != nil {
 		return err.Error()
@@ -82,6 +85,9 @@ func (p *Panel) phpAfterRestore(ctx context.Context, appID string) string {
 	var skipped []string
 	for _, d := range dbs {
 		dump := filepath.Join(dumpDir, d.DBName+".sql.gz")
+		if _, statErr := os.Stat(dump); statErr != nil {
+			dump = filepath.Join(legacyDir, d.DBName+".sql.gz")
+		}
 		f, err := os.Open(dump)
 		if err != nil {
 			continue
