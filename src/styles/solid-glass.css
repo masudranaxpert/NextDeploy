@@ -84,22 +84,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 /* ---- The panes in daylight ------------------------------------------------ */
 
 :root {
-  --radius: 0.875rem;
-  /* What a control is rounded by: a step down from a pane. */
-  --radius-control: 0.7rem;
+  --radius: 0.375rem;
+  /* What a control is rounded by: a crisp 6px */
+  --radius-control: 0.375rem;
 
   /* The page is opaque, a cool grey deep enough for a pane to stand out on;
      the panes on it are smoked white glass, not paper. */
@@ -329,30 +321,6 @@
   --sidebar-accent-foreground: oklch(0.98 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.48 0 0);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  html {
-    @apply font-sans;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    font-synthesis-weight: none;
-    text-rendering: optimizeLegibility;
-    background-image:
-      radial-gradient(62rem 42rem at 12% -6rem, var(--light-1), transparent 62%),
-      radial-gradient(52rem 38rem at 92% 4rem, var(--light-2), transparent 60%),
-      radial-gradient(64rem 46rem at 55% 110%, var(--light-3), transparent 62%);
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-  }
 }
 
 /* ---- The material ---------------------------------------------------------
