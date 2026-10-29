@@ -94,15 +94,15 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
       icon={<WordPressIcon className="h-5 w-5 text-[#3858E9]" />}
       maxWidth="2xl"
       footer={
-        <div className="flex w-full items-center justify-between">
+        <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
             <span>Dynamic sessions & cart items automatically bypass cache</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-zinc-800 px-3.5 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-zinc-700 cursor-pointer"
+            className="self-end sm:self-auto rounded-lg bg-zinc-800 px-3.5 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-zinc-700 cursor-pointer"
           >
             Close
           </button>
@@ -111,12 +111,12 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
     >
       <div className="space-y-4 text-zinc-300">
         {/* Navigation Tabs Header */}
-        <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-zinc-950/80 p-0.5">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between border-b border-white/[0.06] pb-3">
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-zinc-950/80 p-0.5 overflow-x-auto">
             <button
               type="button"
               onClick={() => setActiveTab('cache')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'cache'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -131,7 +131,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
             <button
               type="button"
               onClick={() => setActiveTab('object-cache')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'object-cache'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -144,7 +144,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
             <button
               type="button"
               onClick={() => setActiveTab('assets')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'assets'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -156,7 +156,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-end gap-1.5">
             {onPurge && (
               <button
                 type="button"
@@ -240,7 +240,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
 
             {/* Supported Plugins Grid with Live Status */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                 <span className="font-medium text-zinc-300">Supported Plugins & Detection Status:</span>
                 <span className="text-[11px] text-zinc-500">Choose any 1 plugin</span>
               </div>
@@ -263,16 +263,16 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
                       }`}
                     >
                       <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-100">
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-100 min-w-0">
                             {isServing ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
                             ) : isInstalledOnly ? (
-                              <Check className="h-4 w-4 text-amber-400" />
+                              <Check className="h-4 w-4 text-amber-400 shrink-0" />
                             ) : (
-                              <Circle className="h-3.5 w-3.5 text-zinc-600" />
+                              <Circle className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
                             )}
-                            <span>{p.name}</span>
+                            <span className="truncate">{p.name}</span>
                           </div>
 
                           {/* Plugin Status Badge */}
