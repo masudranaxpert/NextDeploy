@@ -869,6 +869,67 @@ func GetGoogleDriveAboutInfo(ctx context.Context, clientID, clientSecret, token 
 	return nil, token, fmt.Errorf("failed to connect to Google Drive (HTTP %d)", status)
 }
 
+// GetGoogleDriveFileLink uses rclone lsjson to get the exact Google Drive file ID and direct view URL.
+func GetGoogleDriveFileLink(ctx context.Context, clientID, clientSecret, token, folderID, remotePath string) (string, error) {
+	remotePath = strings.TrimSpace(remotePath)
+	if remotePath == "" {
+		return "", fmt.Errorf("empty remote path")
+	}
+
+	cmd := exec.CommandContext(ctx, rclonePath(), "lsjson", "--stat", fmt.Sprintf("gdrive:%s", remotePath))
+	cmd.Env = append(os.Environ(), rcloneEnvGoogleDrive(clientID, clientSecret, token, folderID)...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Fallback without --stat
+		cmd = exec.CommandContext(ctx, rclonePath(), "lsjson", fmt.Sprintf("gdrive:%s", remotePath))
+		cmd.Env = append(os.Environ(), rcloneEnvGoogleDrive(clientID, clientSecret, token, folderID)...)
+		stdout.Reset()
+		stderr.Reset()
+		if rerr := cmd.Run(); rerr != nil {
+			return "", fmt.Errorf("rclone lsjson error: %w (stderr: %s)", rerr, stderr.String())
+		}
+	}
+
+	raw := bytes.TrimSpace(stdout.Bytes())
+	if len(raw) == 0 {
+		return "", fmt.Errorf("empty output from rclone")
+	}
+
+	type fileItem struct {
+		ID    string `json:"ID"`
+		IsDir bool   `json:"IsDir"`
+	}
+
+	var fileID string
+	var isDir bool
+
+	if raw[0] == '{' {
+		var item fileItem
+		if err := json.Unmarshal(raw, &item); err == nil && item.ID != "" {
+			fileID = item.ID
+			isDir = item.IsDir
+		}
+	} else if raw[0] == '[' {
+		var items []fileItem
+		if err := json.Unmarshal(raw, &items); err == nil && len(items) > 0 && items[0].ID != "" {
+			fileID = items[0].ID
+			isDir = items[0].IsDir
+		}
+	}
+
+	if fileID == "" {
+		return "", fmt.Errorf("failed to extract file ID from rclone output")
+	}
+
+	if isDir {
+		return fmt.Sprintf("https://drive.google.com/drive/folders/%s", fileID), nil
+	}
+	return fmt.Sprintf("https://drive.google.com/file/d/%s/view", fileID), nil
+}
+
 func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string) (string, error) {
 	filename := filepath.Base(filePath)
 	if filename == "" || filename == "." {
@@ -919,16 +980,18 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 				}
 				if json.Unmarshal(body, &searchResult) == nil && len(searchResult.Files) > 0 {
 					if searchResult.Files[0].WebViewLink != "" {
-						return searchResult.Files[0].WebViewLink, nil
-					}
-					return "https://drive.google.com/file/d/" + searchResult.Files[0].ID + "/view", nil
-				}
-			}
-		}
+		return searchResult.Files[0].WebViewLink, nil
 	}
+	return "https://drive.google.com/file/d/" + searchResult.Files[0].ID + "/view", nil
+}
+}
+}
+}
 
-	// Resilient fallback: return direct search URL so user is never blocked by quota limits
-	return "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename), nil
+if folderID != "" && folderID != "root" {
+	return "https://drive.google.com/drive/folders/" + folderID, nil
+}
+return "", fmt.Errorf("file %q not found on Google Drive", filename)
 }
 
 // TestGoogleDrive verifies token validity and returns storage quota and user info.

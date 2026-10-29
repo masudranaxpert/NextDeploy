@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -444,6 +443,12 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 	}
 	if st, statErr := os.Stat(tarPath); statErr == nil {
 		size = st.Size()
+	}
+
+	if dest.Provider == "gdrive" {
+		if directLink, derr := rclone.GetGoogleDriveFileLink(ctx, configMap["client_id"], configMap["client_secret"], configMap["token"], configMap["folder_id"], remotePath); derr == nil && directLink != "" {
+			appendLog("Google Drive Direct Link: " + directLink)
+		}
 	}
 
 	appendLog(time.Now().Format(time.RFC3339) + " completed")
@@ -1034,17 +1039,33 @@ func (p *Panel) AppBackupDriveLink(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "invalid config"})
 	}
 
-	link, err := rclone.SearchGoogleDriveFile(c.UserContext(), configMap["token"], configMap["folder_id"], history.RemotePath)
-	if err != nil || link == "" {
-		filename := filepath.Base(history.RemotePath)
-		if filename != "" && filename != "." {
-			link = "https://drive.google.com/drive/search?q=" + url.QueryEscape(filename)
-		} else if configMap["folder_id"] != "" && configMap["folder_id"] != "root" {
-			link = "https://drive.google.com/drive/folders/" + configMap["folder_id"]
-		} else {
-			link = "https://drive.google.com/drive/my-drive"
+	// Check if cached direct link exists in history log
+	if strings.Contains(history.Log, "Google Drive Direct Link: ") {
+		for _, line := range strings.Split(history.Log, "\n") {
+			if strings.HasPrefix(line, "Google Drive Direct Link: ") {
+				cached := strings.TrimSpace(strings.TrimPrefix(line, "Google Drive Direct Link: "))
+				if cached != "" {
+					return c.JSON(fiber.Map{
+						"ok":   true,
+						"url":  cached,
+						"link": cached,
+					})
+				}
+			}
 		}
 	}
+
+	link, err := rclone.GetGoogleDriveFileLink(c.UserContext(), configMap["client_id"], configMap["client_secret"], configMap["token"], configMap["folder_id"], history.RemotePath)
+	if err != nil || link == "" {
+		link, err = rclone.SearchGoogleDriveFile(c.UserContext(), configMap["token"], configMap["folder_id"], history.RemotePath)
+	}
+	if err != nil || link == "" {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to resolve Google Drive file URL"})
+	}
+
+	// Cache direct link in history log
+	newLog := history.Log + "\nGoogle Drive Direct Link: " + link
+	_ = p.DB.UpdateBackupHistoryStatusWithLog(c.UserContext(), history.ID, history.Status, history.ErrorMessage, newLog)
 
 	return c.JSON(fiber.Map{
 		"ok":   true,

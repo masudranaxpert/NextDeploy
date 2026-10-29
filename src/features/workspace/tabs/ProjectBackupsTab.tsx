@@ -1282,6 +1282,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
           let remoteTarget = '';
           let finalSpeed = '';
           let finalTime = '';
+          let directDriveLink = '';
           let isSuccess = logModalData.status === 'completed';
 
           const parsedLines = lines.map((line, idx) => {
@@ -1339,6 +1340,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
               finalTime = content.replace(/^Elapsed time:\s*/i, '');
               tag = { label: 'TIMER', cls: 'bg-zinc-800 text-zinc-400 border border-zinc-700' };
               textCls = 'text-zinc-400';
+            } else if (content.includes('Google Drive Direct Link:')) {
+              const u = content.replace(/^.*Google Drive Direct Link:\s*/i, '').trim();
+              if (u) directDriveLink = u;
+              tag = { label: 'DRIVE LINK', cls: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold' };
+              textCls = 'text-emerald-400 font-medium underline cursor-pointer';
             }
 
             return {
@@ -1425,12 +1431,28 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
-                  <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Duration</div>
-                  <div className="mt-1 font-mono text-[11px] text-zinc-300">
-                    {finalTime || 'Recorded'}
+                {directDriveLink ? (
+                  <button
+                    type="button"
+                    onClick={() => window.open(directDriveLink, '_blank')}
+                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-left hover:bg-emerald-500/20 transition-colors cursor-pointer group"
+                  >
+                    <div className="text-[10px] uppercase font-semibold text-emerald-400 tracking-wider flex items-center justify-between">
+                      <span>Drive File</span>
+                      <ExternalLink className="h-3 w-3 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-emerald-300 truncate">
+                      Open Direct File ↗
+                    </div>
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-2.5">
+                    <div className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Duration</div>
+                    <div className="mt-1 font-mono text-[11px] text-zinc-300">
+                      {finalTime || 'Recorded'}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Error Callout if error exists */}
@@ -1606,13 +1628,25 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
                 <span className="font-mono text-[11px] text-zinc-500">
                   Target: <strong className="text-zinc-400">{remoteTarget || 'Google Drive'}</strong>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setLogModalData(null)}
-                  className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
-                >
-                  Close
-                </button>
+                <div className="flex items-center gap-2">
+                  {directDriveLink && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(directDriveLink, '_blank')}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Open File in Google Drive</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setLogModalData(null)}
+                    className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           );
