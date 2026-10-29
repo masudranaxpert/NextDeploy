@@ -106,23 +106,65 @@ const ViewSkeleton: React.FC = () => (
 
 function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return raw.map((me: any) => ({
-    id: String(me.id),
-    createdAt: me.created_at || 'Recently',
-    selectedApps: me.apps ? me.apps.split(',') : [],
-    estimatedSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
-    actualSizeMB: Math.round((me.size_bytes || 0) / (1024 * 1024)),
-    workspaceBytes: 0,
-    volumeBytes: me.size_bytes || 0,
-    status: me.consumed_at ? 'consumed' : me.status || 'ready',
-    token: me.token || '',
-    expiresIn: me.expires_at
-      ? `${Math.max(0, Math.round((new Date(me.expires_at).getTime() - Date.now()) / (1000 * 60)))}m`
-      : '3h',
-    downloadUrl: `${origin}/migrate/download/${me.token}`,
-    migrateCmd: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${origin}/migrate/download/${me.token}"`,
-    progressLog: me.log ? me.log.split('\n') : [],
-  })) as MigrationExportBundle[];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((me: any) => {
+    const id = String(me.id ?? me.ID ?? '');
+    const token = me.token ?? me.Token ?? '';
+    const rawApps = me.apps ?? me.AppIDsJSON ?? [];
+    let selectedApps: string[] = [];
+    if (Array.isArray(rawApps)) {
+      selectedApps = rawApps.map(String);
+    } else if (typeof rawApps === 'string') {
+      try {
+        const parsed = JSON.parse(rawApps);
+        selectedApps = Array.isArray(parsed) ? parsed.map(String) : rawApps.split(',');
+      } catch {
+        selectedApps = rawApps.split(',').filter(Boolean);
+      }
+    }
+    const sizeBytes = Number(me.size_bytes ?? me.SizeBytes ?? 0);
+    const status = (me.status ?? me.Status ?? 'ready').toLowerCase();
+    const createdAt = me.created_at ?? me.CreatedAt ?? 'Recently';
+    const expiresAt = me.expires_at ?? me.ExpiresAt;
+    const downloadUrl =
+      me.download_url ||
+      (token ? `${origin}/migrate/download/${token}` : '');
+    const migrateCmd =
+      me.migrate_cmd ||
+      (downloadUrl
+        ? `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/migrate.sh | sudo bash -s -- --url "${downloadUrl}"`
+        : '');
+    const logRaw = me.progress_log ?? me.ProgressLog ?? me.log ?? [];
+    const progressLog = Array.isArray(logRaw)
+      ? logRaw
+      : typeof logRaw === 'string'
+      ? logRaw.split('\n').filter(Boolean)
+      : [];
+
+    let expiresIn = '3h';
+    if (expiresAt) {
+      const diffMs = new Date(expiresAt).getTime() - Date.now();
+      const mins = Math.max(0, Math.round(diffMs / (1000 * 60)));
+      expiresIn = mins > 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+    }
+
+    return {
+      id,
+      createdAt,
+      selectedApps,
+      estimatedSizeMB: Math.round(sizeBytes / (1024 * 1024)),
+      actualSizeMB: Math.round(sizeBytes / (1024 * 1024)),
+      workspaceBytes: 0,
+      volumeBytes: sizeBytes,
+      status: status as any,
+      token,
+      expiresIn,
+      downloadUrl,
+      migrateCmd,
+      progressLog,
+      error: me.error ?? me.Error ?? '',
+    } as MigrationExportBundle;
+  });
 }
 
 export default function App() {

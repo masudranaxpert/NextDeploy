@@ -18,19 +18,20 @@ const (
 )
 
 type MigrateExport struct {
-	ID             int64
-	Status         string
-	TokenHash      string
-	BundlePath     string
-	WorkDir        string
-	AppIDsJSON     string
-	EstimatedBytes int64
-	SizeBytes      int64
-	ProgressLog    string
-	Error          string
-	CreatedAt      time.Time
-	ExpiresAt      time.Time
-	DownloadedAt   *time.Time
+	ID             int64      `json:"id"`
+	Status         string     `json:"status"`
+	Token          string     `json:"token"`
+	TokenHash      string     `json:"token_hash"`
+	BundlePath     string     `json:"bundle_path"`
+	WorkDir        string     `json:"work_dir"`
+	AppIDsJSON     string     `json:"app_ids_json"`
+	EstimatedBytes int64      `json:"estimated_bytes"`
+	SizeBytes      int64      `json:"size_bytes"`
+	ProgressLog    string     `json:"progress_log"`
+	Error          string     `json:"error"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	DownloadedAt   *time.Time `json:"downloaded_at,omitempty"`
 }
 
 func (s *Store) CreateMigrateExport(ctx context.Context, appIDs []string, estimatedBytes int64) (int64, error) {
@@ -54,11 +55,11 @@ func (s *Store) GetMigrateExport(ctx context.Context, id int64) (MigrateExport, 
 	var created, expires string
 	var downloaded sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE id = ?`, id).
-		Scan(&row.ID, &row.Status, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
+		Scan(&row.ID, &row.Status, &row.Token, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
 			&row.EstimatedBytes, &row.SizeBytes, &row.ProgressLog, &row.Error, &created, &expires, &downloaded)
 	if err != nil {
 		return MigrateExport{}, err
@@ -77,11 +78,11 @@ func (s *Store) GetMigrateExportByTokenHash(ctx context.Context, hash string) (M
 	var created, expires string
 	var downloaded sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
-		 FROM migrate_exports WHERE token_hash = ?`, hash).
-		Scan(&row.ID, &row.Status, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
+		 FROM migrate_exports WHERE token_hash = ? OR token = ?`, hash, hash).
+		Scan(&row.ID, &row.Status, &row.Token, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
 			&row.EstimatedBytes, &row.SizeBytes, &row.ProgressLog, &row.Error, &created, &expires, &downloaded)
 	if err != nil {
 		return MigrateExport{}, err
@@ -116,10 +117,10 @@ func (s *Store) AppendMigrateExportLog(ctx context.Context, id int64, line strin
 	return err
 }
 
-func (s *Store) UpdateMigrateExportReady(ctx context.Context, id int64, bundlePath string, sizeBytes int64, tokenHash string, expires time.Time) error {
+func (s *Store) UpdateMigrateExportReady(ctx context.Context, id int64, bundlePath string, sizeBytes int64, token, tokenHash string, expires time.Time) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE migrate_exports SET status = ?, bundle_path = ?, size_bytes = ?, token_hash = ?, expires_at = ? WHERE id = ?`,
-		MigrateExportReady, bundlePath, sizeBytes, tokenHash, expires.UTC().Format(time.RFC3339), id)
+		`UPDATE migrate_exports SET status = ?, bundle_path = ?, size_bytes = ?, token = ?, token_hash = ?, expires_at = ? WHERE id = ?`,
+		MigrateExportReady, bundlePath, sizeBytes, token, tokenHash, expires.UTC().Format(time.RFC3339), id)
 	return err
 }
 
@@ -162,7 +163,7 @@ func (s *Store) DeleteMigrateExport(ctx context.Context, id int64) (MigrateExpor
 
 func (s *Store) ListSupersededMigrateExports(ctx context.Context, keepID int64) ([]MigrateExport, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE id != ? AND status IN (?, ?)`,
@@ -179,11 +180,11 @@ func (s *Store) GetRunningMigrateExport(ctx context.Context) (MigrateExport, err
 	var created, expires string
 	var downloaded sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE status = ? ORDER BY id DESC LIMIT 1`, MigrateExportRunning).
-		Scan(&row.ID, &row.Status, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
+		Scan(&row.ID, &row.Status, &row.Token, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
 			&row.EstimatedBytes, &row.SizeBytes, &row.ProgressLog, &row.Error, &created, &expires, &downloaded)
 	if err != nil {
 		return MigrateExport{}, err
@@ -199,7 +200,7 @@ func (s *Store) GetRunningMigrateExport(ctx context.Context) (MigrateExport, err
 
 func (s *Store) ListRunningMigrateExports(ctx context.Context) ([]MigrateExport, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE status = ?`, MigrateExportRunning)
@@ -213,7 +214,7 @@ func (s *Store) ListRunningMigrateExports(ctx context.Context) ([]MigrateExport,
 func (s *Store) ListActiveMigrateBundleExports() ([]MigrateExport, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	rows, err := s.db.Query(
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE status IN (?, ?) AND expires_at >= ?`,
@@ -230,7 +231,7 @@ func (s *Store) ListRecentMigrateExports(ctx context.Context, limit int) ([]Migr
 		limit = 10
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports ORDER BY id DESC LIMIT ?`, limit)
@@ -244,7 +245,7 @@ func (s *Store) ListRecentMigrateExports(ctx context.Context, limit int) ([]Migr
 func (s *Store) ListExpiredMigrateExports() ([]MigrateExport, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	rows, err := s.db.Query(
-		`SELECT id, status, COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
+		`SELECT id, status, COALESCE(token,''), COALESCE(token_hash,''), COALESCE(bundle_path,''), COALESCE(work_dir,''),
 		        COALESCE(app_ids_json,'[]'), COALESCE(estimated_bytes,0), COALESCE(size_bytes,0),
 		        COALESCE(progress_log,''), COALESCE(error,''), created_at, expires_at, downloaded_at
 		 FROM migrate_exports WHERE status IN (?, ?) AND expires_at < ?`,
@@ -283,7 +284,7 @@ func scanMigrateExports(rows *sql.Rows) ([]MigrateExport, error) {
 		var row MigrateExport
 		var created, expires string
 		var downloaded sql.NullString
-		if err := rows.Scan(&row.ID, &row.Status, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
+		if err := rows.Scan(&row.ID, &row.Status, &row.Token, &row.TokenHash, &row.BundlePath, &row.WorkDir, &row.AppIDsJSON,
 			&row.EstimatedBytes, &row.SizeBytes, &row.ProgressLog, &row.Error, &created, &expires, &downloaded); err != nil {
 			return nil, err
 		}
@@ -296,6 +297,50 @@ func scanMigrateExports(rows *sql.Rows) ([]MigrateExport, error) {
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) InsertPHPSiteMigrate(ctx context.Context, site PHPSite) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if !site.CreatedAt.IsZero() {
+		now = site.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	settings := site.SettingsJSON
+	if strings.TrimSpace(settings) == "" {
+		settings = "{}"
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO php_sites (app_id, owner_id, site_uid, site_type, php_version, root_dir, settings_json, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		site.AppID, site.OwnerID, site.UID, site.SiteType, site.PHPVersion, site.RootDir, settings, now)
+	return err
+}
+
+func (s *Store) InsertPHPDatabaseMigrate(ctx context.Context, d PHPDatabase) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if !d.CreatedAt.IsZero() {
+		now = d.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO php_databases (app_id, db_name, db_user, created_at)
+		 VALUES (?, ?, ?, ?)`,
+		d.AppID, d.DBName, d.DBUser, now)
+	return err
+}
+
+func (s *Store) InsertPHPCronJobMigrate(ctx context.Context, j PHPCronJob) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if !j.CreatedAt.IsZero() {
+		now = j.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	en := 0
+	if j.Enabled {
+		en = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO php_cron_jobs (app_id, schedule, command, enabled, last_run_at, last_status, last_output, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.AppID, j.Schedule, j.Command, en, j.LastRunAt, j.LastStatus, j.LastOutput, now)
+	return err
 }
 
 func (s *Store) ClearPanelForMigrateImport(ctx context.Context) error {

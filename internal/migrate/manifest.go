@@ -22,6 +22,9 @@ type PanelSnapshot struct {
 	GitConfigs    []GitSnapshot          `json:"git_configs,omitempty"`
 	PanelEnvs     map[string]string      `json:"panel_envs,omitempty"`
 	Registries    []RegistrySnapshot     `json:"registries,omitempty"`
+	PHPSites      []PHPSiteSnapshot      `json:"php_sites,omitempty"`
+	PHPDatabases  []PHPDatabaseSnapshot  `json:"php_databases,omitempty"`
+	PHPCronJobs   []PHPCronJobSnapshot   `json:"php_cron_jobs,omitempty"`
 	SourcePanel   string                 `json:"source_panel,omitempty"`
 }
 
@@ -122,6 +125,36 @@ type RegistrySnapshot struct {
 	ServerAddress     string `json:"server_address"`
 	Username          string `json:"username"`
 	PasswordEncrypted string `json:"password_encrypted"`
+}
+
+type PHPSiteSnapshot struct {
+	AppID        string `json:"app_id"`
+	OwnerID      int64  `json:"owner_id"`
+	UID          int    `json:"uid"`
+	SiteType     string `json:"site_type"`
+	PHPVersion   string `json:"php_version"`
+	RootDir      string `json:"root_dir"`
+	SettingsJSON string `json:"settings_json"`
+	CreatedAt    string `json:"created_at"`
+	SecurityJSON string `json:"security_json,omitempty"`
+}
+
+type PHPDatabaseSnapshot struct {
+	AppID     string `json:"app_id"`
+	DBName    string `json:"db_name"`
+	DBUser    string `json:"db_user"`
+	CreatedAt string `json:"created_at"`
+}
+
+type PHPCronJobSnapshot struct {
+	AppID      string `json:"app_id"`
+	Schedule   string `json:"schedule"`
+	Command    string `json:"command"`
+	Enabled    bool   `json:"enabled"`
+	LastRunAt  string `json:"last_run_at,omitempty"`
+	LastStatus string `json:"last_status,omitempty"`
+	LastOutput string `json:"last_output,omitempty"`
+	CreatedAt  string `json:"created_at"`
 }
 
 func newBundleManifest(exportID int64, appIDs []string) BundleManifest {

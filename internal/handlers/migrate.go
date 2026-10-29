@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -23,7 +24,7 @@ import (
 )
 
 func migrateShellCommand(downloadURL string) string {
-	return "curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- \\\n  --url \"" + downloadURL + "\""
+	return "curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/migrate.sh | sudo bash -s -- \\\n  --url \"" + downloadURL + "\""
 }
 
 func (p *Panel) MigrateEstimate(c *fiber.Ctx) error {
@@ -189,6 +190,13 @@ func (p *Panel) runMigrateExport(exportID int64, appIDs []string) {
 			_ = p.DB.AppendMigrateExportLog(context.Background(), id, msg)
 		},
 		QuiescePanel: p.migrateQuiescePanel,
+		PrepareApp: func(ctx context.Context, app db.App, logf func(string)) (func(), error) {
+			if p.PHP != nil && p.DB.IsPHPSite(ctx, app.ID) {
+				_, cleanup, err := p.phpBackupPrepare(ctx, app.ID, logf)
+				return cleanup, err
+			}
+			return func() {}, nil
+		},
 	})
 	if err != nil {
 		_ = p.DB.FailMigrateExport(context.Background(), exportID, err.Error())
@@ -353,6 +361,11 @@ func (p *Panel) MigrateImportDeps(adminID int64) migrate.ImportDeps {
 		},
 		AfterAppImported: func(ctx context.Context, app db.App) error {
 			_ = p.WriteDockerRegistryConfig(ctx, app.ID, app.OwnerID)
+			if p.PHP != nil && p.DB.IsPHPSite(ctx, app.ID) {
+				if msg := p.phpAfterRestore(ctx, app.ID); msg != "" {
+					log.Printf("migrate: phpAfterRestore %s: %s", app.ID, msg)
+				}
+			}
 			return p.SyncAppCaddyOverrideCtx(ctx, app.ID)
 		},
 		DeployAfterImport: true,
@@ -594,6 +607,10 @@ func (p *Panel) migrateQuiescePanel(ctx context.Context, logf func(string)) (fun
 			return nil, err
 		}
 
+		if p.DB.IsPHPSite(ctx, app.ID) {
+			continue
+		}
+
 		v, _ := p.ComposeMu.LoadOrStore(app.ID, &sync.Mutex{})
 		mu := v.(*sync.Mutex)
 		mu.Lock()
@@ -601,6 +618,10 @@ func (p *Panel) migrateQuiescePanel(ctx context.Context, logf func(string)) (fun
 		dir := p.ComposeWorkspaceRoot(ctx, app.ID)
 		paths := p.EffectiveComposePaths(ctx, app, app.ID)
 		if len(paths) == 0 {
+			mu.Unlock()
+			continue
+		}
+		if _, err := os.Stat(paths[0]); err != nil {
 			mu.Unlock()
 			continue
 		}

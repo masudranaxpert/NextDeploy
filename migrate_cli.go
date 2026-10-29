@@ -13,6 +13,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/handlers"
 	"panel/internal/migrate"
+	"panel/internal/phphosting"
 	"panel/internal/workspace"
 )
 
@@ -51,6 +52,7 @@ func runMigrateCLI(args []string) {
 	}
 	store := workspace.NewStore(root)
 	panel := &handlers.Panel{DB: database, Store: store, WorkspacesRoot: root}
+	panel.PHP = phphosting.NewManager(database, root)
 
 	adminID := int64(1)
 	deps := panel.MigrateImportDeps(adminID)

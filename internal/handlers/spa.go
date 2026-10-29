@@ -14,6 +14,7 @@ import (
 	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/migrate"
 	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
@@ -397,7 +398,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	var cliSessions []db.CLISession
 	var auditLogs []db.AuditLog
 	var settings map[string]string
-	var migrateExports []db.MigrateExport
+	var enrichedMigrateExports []fiber.Map
 
 	var userUsage map[string]userUsageRow
 	if isAdmin {
@@ -424,7 +425,41 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		cliSessions, _ = p.DB.ListCLISessions()
 		auditLogs, _ = p.DB.ListAuditLogs(ctx, 100, 0)
 		settings, _ = p.DB.GetAllSettings(ctx)
-		migrateExports, _ = p.DB.ListRecentMigrateExports(ctx, 8)
+		rawExports, _ := p.DB.ListRecentMigrateExports(ctx, 8)
+		publicBase := p.migratePublicBase(c)
+		for _, me := range rawExports {
+			var appIDs []string
+			_ = json.Unmarshal([]byte(me.AppIDsJSON), &appIDs)
+			tok := me.Token
+			if tok == "" {
+				if v, ok := p.migrateTokens.Load(me.ID); ok {
+					if s, ok2 := v.(string); ok2 {
+						tok = s
+					}
+				}
+			}
+			downloadURL := ""
+			cmd := ""
+			if tok != "" && (me.Status == db.MigrateExportReady || me.Status == db.MigrateExportDownloaded) {
+				downloadURL = migrate.DownloadURL(publicBase, tok)
+				cmd = migrateShellCommand(downloadURL)
+			}
+			enrichedMigrateExports = append(enrichedMigrateExports, fiber.Map{
+				"id":              me.ID,
+				"status":          me.Status,
+				"token":           tok,
+				"apps":            appIDs,
+				"size_bytes":      me.SizeBytes,
+				"size_human":      migrate.FormatBytes(me.SizeBytes),
+				"estimated_bytes": me.EstimatedBytes,
+				"progress_log":    strings.Split(strings.TrimSpace(me.ProgressLog), "\n"),
+				"error":           me.Error,
+				"created_at":      me.CreatedAt.UTC().Format(time.RFC3339),
+				"expires_at":      me.ExpiresAt.UTC().Format(time.RFC3339),
+				"download_url":    downloadURL,
+				"migrate_cmd":     cmd,
+			})
+		}
 	} else {
 		ids := make([]string, 0, len(apps))
 		for _, a := range apps {
@@ -502,7 +537,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"users":               users,
 		"audit_logs":          auditLogs,
 		"settings":            settings,
-		"migrate_exports":     migrateExports,
+		"migrate_exports":     enrichedMigrateExports,
 		"docker_version":      dockerVersion,
 		"caddy": fiber.Map{
 			"up":     caddyUp,

@@ -22,13 +22,17 @@ type ExportDeps struct {
 	SourcePanelURL string
 	AppendLog      func(exportID int64, msg string)
 	QuiescePanel   func(ctx context.Context, log func(string)) (restore func(context.Context), err error)
+	PrepareApp     func(ctx context.Context, app db.App, logf func(string)) (cleanup func(), err error)
 }
 
 type exportAppMeta struct {
-	snap       AppSnapshot
-	domains    []DomainSnapshot
-	gitConfigs []GitSnapshot
-	panelEnv   string
+	snap         AppSnapshot
+	domains      []DomainSnapshot
+	gitConfigs   []GitSnapshot
+	panelEnv     string
+	phpSite      *PHPSiteSnapshot
+	phpDatabases []PHPDatabaseSnapshot
+	phpCronJobs  []PHPCronJobSnapshot
 }
 
 func RunExport(ctx context.Context, exportID int64, appIDs []string, deps ExportDeps) (plainToken string, err error) {
@@ -102,6 +106,17 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		i, app := i, app
 		g.Go(func() error {
 			log.log("archiving " + app.Name + " (" + app.ID + ")")
+			if deps.PrepareApp != nil {
+				cleanup, perr := deps.PrepareApp(gctx, app, func(msg string) {
+					log.log(app.Name + ": " + msg)
+				})
+				if perr != nil {
+					return fmt.Errorf("prepare %s: %w", app.Name, perr)
+				}
+				if cleanup != nil {
+					defer cleanup()
+				}
+			}
 			sourceDir := deps.WorkspaceRoot(app.ID)
 			vols, verr := deps.VolumeNames(gctx, app)
 			if verr != nil {
@@ -123,6 +138,45 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 				Status:      app.Status,
 				SourceType:  srcType,
 				Archive:     filepath.ToSlash(filepath.Join(appsDirName, app.ID+".tar.gz")),
+			}
+			if deps.DB.IsPHPSite(gctx, app.ID) {
+				if site, serr := deps.DB.GetPHPSite(gctx, app.ID); serr == nil {
+					meta[i].phpSite = &PHPSiteSnapshot{
+						AppID:        site.AppID,
+						OwnerID:      site.OwnerID,
+						UID:          site.UID,
+						SiteType:     site.SiteType,
+						PHPVersion:   site.PHPVersion,
+						RootDir:      site.RootDir,
+						SettingsJSON: site.SettingsJSON,
+						CreatedAt:    site.CreatedAt.UTC().Format(time.RFC3339),
+						SecurityJSON: deps.DB.GetPHPSecurityJSON(gctx, app.ID),
+					}
+				}
+				if dbs, derr := deps.DB.ListPHPDatabases(gctx, app.ID); derr == nil {
+					for _, d := range dbs {
+						meta[i].phpDatabases = append(meta[i].phpDatabases, PHPDatabaseSnapshot{
+							AppID:     d.AppID,
+							DBName:    d.DBName,
+							DBUser:    d.DBUser,
+							CreatedAt: d.CreatedAt.UTC().Format(time.RFC3339),
+						})
+					}
+				}
+				if crons, cerr := deps.DB.ListPHPCronJobs(gctx, app.ID); cerr == nil {
+					for _, c := range crons {
+						meta[i].phpCronJobs = append(meta[i].phpCronJobs, PHPCronJobSnapshot{
+							AppID:      c.AppID,
+							Schedule:   c.Schedule,
+							Command:    c.Command,
+							Enabled:    c.Enabled,
+							LastRunAt:  c.LastRunAt,
+							LastStatus: c.LastStatus,
+							LastOutput: c.LastOutput,
+							CreatedAt:  c.CreatedAt.UTC().Format(time.RFC3339),
+						})
+					}
+				}
 			}
 			domains, _ := deps.DB.ListAppDomains(gctx, app.ID)
 			for _, d := range domains {
@@ -166,6 +220,11 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		if strings.TrimSpace(m.panelEnv) != "" {
 			snap.PanelEnvs[m.snap.ID] = m.panelEnv
 		}
+		if m.phpSite != nil {
+			snap.PHPSites = append(snap.PHPSites, *m.phpSite)
+		}
+		snap.PHPDatabases = append(snap.PHPDatabases, m.phpDatabases...)
+		snap.PHPCronJobs = append(snap.PHPCronJobs, m.phpCronJobs...)
 	}
 
 	users, uerr := deps.DB.ListUsers(ctx)
@@ -248,7 +307,7 @@ func RunExport(ctx context.Context, exportID int64, appIDs []string, deps Export
 		return "", err
 	}
 	expires := time.Now().UTC().Add(LinkTTL)
-	if err := deps.DB.UpdateMigrateExportReady(ctx, exportID, bundlePath, st.Size(), hash, expires); err != nil {
+	if err := deps.DB.UpdateMigrateExportReady(ctx, exportID, bundlePath, st.Size(), plain, hash, expires); err != nil {
 		_ = os.Remove(bundlePath)
 		return "", err
 	}

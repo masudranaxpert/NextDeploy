@@ -511,6 +511,7 @@ CREATE TABLE IF NOT EXISTS private_registries (
 CREATE TABLE IF NOT EXISTS migrate_exports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   status TEXT NOT NULL DEFAULT 'queued',
+  token TEXT NOT NULL DEFAULT '',
   token_hash TEXT NOT NULL DEFAULT '',
   bundle_path TEXT NOT NULL DEFAULT '',
   work_dir TEXT NOT NULL DEFAULT '',
@@ -525,6 +526,7 @@ CREATE TABLE IF NOT EXISTS migrate_exports (
 );`); err != nil {
 		return err
 	}
+	_, _ = s.db.Exec(`ALTER TABLE migrate_exports ADD COLUMN token TEXT NOT NULL DEFAULT '';`)
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_migrate_exports_status ON migrate_exports(status, expires_at);`); err != nil {
 		return err
 	}

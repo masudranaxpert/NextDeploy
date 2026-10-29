@@ -107,6 +107,48 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 		_ = deps.DB.SyncGitProvidersIDSequence(ctx)
 	}
 
+	if len(snap.PHPSites) > 0 {
+		log.log("restoring php hosting configuration")
+		for _, ps := range snap.PHPSites {
+			createdAt, _ := time.Parse(time.RFC3339, ps.CreatedAt)
+			_ = deps.DB.InsertPHPSiteMigrate(ctx, db.PHPSite{
+				AppID:        ps.AppID,
+				OwnerID:      ps.OwnerID,
+				UID:          ps.UID,
+				SiteType:     ps.SiteType,
+				PHPVersion:   ps.PHPVersion,
+				RootDir:      ps.RootDir,
+				SettingsJSON: ps.SettingsJSON,
+				CreatedAt:    createdAt,
+			})
+			if strings.TrimSpace(ps.SecurityJSON) != "" {
+				_ = deps.DB.SetPHPSecurityJSON(ctx, ps.AppID, ps.SecurityJSON)
+			}
+		}
+		for _, pd := range snap.PHPDatabases {
+			createdAt, _ := time.Parse(time.RFC3339, pd.CreatedAt)
+			_ = deps.DB.InsertPHPDatabaseMigrate(ctx, db.PHPDatabase{
+				AppID:     pd.AppID,
+				DBName:    pd.DBName,
+				DBUser:    pd.DBUser,
+				CreatedAt: createdAt,
+			})
+		}
+		for _, pc := range snap.PHPCronJobs {
+			createdAt, _ := time.Parse(time.RFC3339, pc.CreatedAt)
+			_ = deps.DB.InsertPHPCronJobMigrate(ctx, db.PHPCronJob{
+				AppID:      pc.AppID,
+				Schedule:   pc.Schedule,
+				Command:    pc.Command,
+				Enabled:    pc.Enabled,
+				LastRunAt:  pc.LastRunAt,
+				LastStatus: pc.LastStatus,
+				LastOutput: pc.LastOutput,
+				CreatedAt:  createdAt,
+			})
+		}
+	}
+
 	gitByApp := map[string][]GitSnapshot{}
 	for _, g := range snap.GitConfigs {
 		gitByApp[g.AppID] = append(gitByApp[g.AppID], g)
@@ -232,6 +274,10 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 		for _, job := range jobs {
 			job := job
 			dg.Go(func() error {
+				if job.snap.SourceType == "php" || deps.DB.IsPHPSite(dctx, job.snap.ID) {
+					log.log("restored and running php site " + job.snap.Name)
+					return nil
+				}
 				dir := deps.WorkspaceRoot(job.snap.ID)
 				paths := deps.ComposePaths(job.app)
 				project := deps.ProjectName(job.app)

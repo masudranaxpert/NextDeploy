@@ -366,12 +366,13 @@ export interface MigrationExportBundle {
   volumeBytes?: number;
   estimatedSizeMB: number;
   actualSizeMB: number;
-  status: 'ready' | 'running' | 'failed';
+  status: 'ready' | 'running' | 'failed' | 'consumed' | 'expired';
   token: string;
   downloadUrl?: string;
   migrateCmd?: string;
   expiresIn: string;
   progressLog: string[];
+  error?: string;
 }
 
 export interface McpToolItem {

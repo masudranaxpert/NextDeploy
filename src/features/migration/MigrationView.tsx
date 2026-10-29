@@ -196,7 +196,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
   }, [apps, selectedSlugs]);
 
   const activeEstimate = liveEstimate || computedEstimate;
-  const activeBundle = selectedBundleForCmd || bundles[0];
+  const activeBundle = selectedBundleForCmd || bundles.find((b) => b.status === 'ready') || bundles[0];
 
   const handleStartExport = async () => {
     if (selectedSlugs.length === 0) {
@@ -260,14 +260,14 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
         </div>
       </div>
 
-      {/* Live Target VPS One-Liner Card (Matches Go backend migrate_cmd) */}
-      {activeBundle && (
+      {/* Target VPS One-Liner Card (Active Ready Bundle) */}
+      {activeBundle && activeBundle.status === 'ready' && (activeBundle.migrateCmd || activeBundle.token) && (
         <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-emerald-400" />
               <span className="text-xs font-semibold text-zinc-100">
-                Target VPS One-Command Import ({activeBundle.id})
+                Target VPS One-Command Import (Bundle #{activeBundle.id})
               </span>
               <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
                 Single-Use Token · Expires in {activeBundle.expiresIn}
@@ -279,7 +279,11 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 onClick={async () => {
                   const url =
                     activeBundle.downloadUrl ||
-                    `${window.location.origin}/migrate/download/${activeBundle.token}`;
+                    (activeBundle.token ? `${window.location.origin}/migrate/download/${activeBundle.token}` : '');
+                  if (!url) {
+                    toast.error('Download link not ready');
+                    return;
+                  }
                   const ok = await copyToClipboard(url);
                   if (ok) toast.success('Copied one-time download URL');
                 }}
@@ -292,10 +296,15 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 onClick={async () => {
                   const cmd =
                     activeBundle.migrateCmd ||
-                    `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
-                      activeBundle.downloadUrl ||
-                      `${window.location.origin}/migrate/download/${activeBundle.token}`
-                    }"`;
+                    (activeBundle.token
+                      ? `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/migrate.sh | sudo bash -s -- --url "${
+                          activeBundle.downloadUrl || `${window.location.origin}/migrate/download/${activeBundle.token}`
+                        }"`
+                      : '');
+                  if (!cmd) {
+                    toast.error('Command not available');
+                    return;
+                  }
                   const ok = await copyToClipboard(cmd);
                   if (ok) toast.success('Copied target VPS migrate.sh command');
                 }}
@@ -309,11 +318,70 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
 
           <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 font-mono text-[11px] text-zinc-200 overflow-x-auto whitespace-nowrap">
             {activeBundle.migrateCmd ||
-              `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/migrate.sh | sudo bash -s -- --url "${
-                activeBundle.downloadUrl ||
-                `${window.location.origin}/migrate/download/${activeBundle.token}`
-              }"`}
+              (activeBundle.token
+                ? `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/migrate.sh | sudo bash -s -- --url "${
+                    activeBundle.downloadUrl || `${window.location.origin}/migrate/download/${activeBundle.token}`
+                  }"`
+                : 'Generating command...')}
           </div>
+        </div>
+      )}
+
+      {/* Export Failed Notice Banner */}
+      {activeBundle && activeBundle.status === 'failed' && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/[0.07] p-4 space-y-2 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-semibold text-rose-300">
+              <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+              <span>Export Failed (Bundle #{activeBundle.id})</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setLogModalBundle(activeBundle)}
+                className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:text-white cursor-pointer"
+              >
+                <FileText className="h-3 w-3" />
+                View Export Logs
+              </button>
+              <button
+                type="button"
+                onClick={() => setExportModalOpen(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-rose-500/20 border border-rose-500/30 px-2.5 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30 cursor-pointer"
+              >
+                <Plus className="h-3 w-3" />
+                Try New Export
+              </button>
+            </div>
+          </div>
+          {activeBundle.error && (
+            <div className="rounded-lg bg-black/40 p-2.5 font-mono text-[11px] text-rose-300/90 break-words">
+              {activeBundle.error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Export Running Notice Banner */}
+      {activeBundle && activeBundle.status === 'running' && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.07] p-4 space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold text-blue-300">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-400 shrink-0" />
+              <span>Export Job Running (Bundle #{activeBundle.id})</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogModalBundle(activeBundle)}
+              className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:text-white cursor-pointer"
+            >
+              <FileText className="h-3 w-3" />
+              View Live Progress
+            </button>
+          </div>
+          <p className="text-[11px] text-zinc-400">
+            Exporting workspaces and snapshots... Download command will appear once ready.
+          </p>
         </div>
       )}
 
@@ -400,8 +468,16 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                         {
                           label: 'Download .nd-migrate',
                           icon: <Download className="h-3.5 w-3.5" />,
-                          onClick: () =>
-                            toast.success(`Downloading nextdeploy-${b.id}.nd-migrate`),
+                          onClick: () => {
+                            const url =
+                              b.downloadUrl ||
+                              (b.token ? `${window.location.origin}/migrate/download/${b.token}` : '');
+                            if (url) {
+                              window.location.href = url;
+                            } else {
+                              toast.error('Download link not ready or expired');
+                            }
+                          },
                         },
                         {
                           label: 'Delete Bundle',
@@ -501,6 +577,11 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                         {a.name}
                       </span>
                       <StatusBadge status={a.status} />
+                      {(a as any).sourceType === 'php' && (
+                        <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 font-mono text-[9px] text-indigo-300">
+                          PHP / DB
+                        </span>
+                      )}
                     </div>
                     <div className="mt-0.5 font-mono text-[10px] text-zinc-400">
                       {a.services.length} services · {a.volumes.length} volume(s) · {a.diskMB} MB
