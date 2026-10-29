@@ -98,19 +98,19 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
     >
       <div className="space-y-4 text-zinc-300">
         {/* Navigation Tabs Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-zinc-950 p-1">
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-zinc-950/80 p-0.5">
             <button
               type="button"
               onClick={() => setActiveTab('cache')}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'cache'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <Zap className="h-3.5 w-3.5 text-amber-400" />
-              <span>Static Disk Cache</span>
+              <span>Disk Cache</span>
               {activePlugin && (
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
               )}
@@ -118,27 +118,27 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
             <button
               type="button"
               onClick={() => setActiveTab('object-cache')}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'object-cache'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <Layers className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Object Cache (Redis)</span>
+              <span>Redis</span>
               <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">Soon</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('assets')}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
                 activeTab === 'assets'
                   ? 'bg-zinc-800 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <FileCheck className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Asset Minification</span>
+              <span>Assets</span>
               <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">Soon</span>
             </button>
           </div>
@@ -149,10 +149,10 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
               onClick={handleRefresh}
               disabled={refreshing}
               title="Rescan WordPress plugins on disk"
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50 cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 py-1 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 text-zinc-400 ${refreshing ? 'animate-spin text-orange-400' : ''}`} />
-              <span className="hidden sm:inline">Rescan</span>
+              <span>Rescan</span>
             </button>
           )}
         </div>
