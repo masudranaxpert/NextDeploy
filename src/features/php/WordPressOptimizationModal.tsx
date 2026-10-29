@@ -1,87 +1,104 @@
 import React, { useState } from 'react';
-import { BookOpen, Check, FileCheck, Layers, ShieldCheck, Zap } from 'lucide-react';
+import { Check, CheckCircle2, Circle, FileCheck, Layers, RefreshCw, ShieldCheck, Zap } from 'lucide-react';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import { WordPressIcon } from '../../components/ui/BrandIcons';
+
+export interface WordPressCachePluginInfo {
+  slug: string;
+  name: string;
+  installed: boolean;
+  has_cache: boolean;
+  cache_path: string;
+}
 
 interface WordPressOptimizationModalProps {
   open: boolean;
   onClose: () => void;
   siteName: string;
+  plugins?: WordPressCachePluginInfo[];
+  onRefresh?: () => void;
 }
 
 type TabKey = 'cache' | 'object-cache' | 'assets';
+
+const PLUGIN_DESCRIPTIONS: Record<string, { summary: string; sampleFile: string }> = {
+  'wp-fastest-cache': {
+    summary: 'Generates static HTML files and combines CSS/JS assets. Simple one-click setup.',
+    sampleFile: '/wp-content/cache/all/.../index.html',
+  },
+  'wp-super-cache': {
+    summary: 'Official Automattic static file generator designed for high-traffic WordPress sites.',
+    sampleFile: '/wp-content/cache/supercache/{host}{uri}/index-https.html',
+  },
+  'cache-enabler': {
+    summary: 'Lightweight disk cache engine with built-in precompressed Gzip (.gz) file output.',
+    sampleFile: '/wp-content/cache/cache-enabler/{host}{uri}/https-index.html',
+  },
+  'wp-rocket': {
+    summary: 'Premium caching and performance optimization suite for WordPress.',
+    sampleFile: '/wp-content/cache/wp-rocket/{host}{uri}/index-https.html',
+  },
+};
 
 export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProps> = ({
   open,
   onClose,
   siteName,
+  plugins = [],
+  onRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('cache');
-  const [lang, setLang] = useState<'bn' | 'en'>('bn');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const plugins = [
-    {
-      name: 'WP Fastest Cache',
-      path: '/wp-content/cache/all/.../index.html',
-      noteBn: 'সহজ সেটআপ, পেজ ক্যাশ ও বেসিক মিনিফিকেশন একসাথে কাজ করে।',
-      noteEn: 'Simple setup, handles page caching and basic asset minification out of the box.',
-    },
-    {
-      name: 'WP Super Cache',
-      path: '/wp-content/cache/supercache/.../index-https.html',
-      noteBn: 'অটোমেটিক স্ট্যাটিক ফাইল জেনারেটর, হাই-ট্রাফিকের জন্য নির্ভরযোগ্য।',
-      noteEn: 'Official Automattic static file generator, battle-tested for high traffic.',
-    },
-    {
-      name: 'Cache Enabler',
-      path: '/wp-content/cache/cache-enabler/.../https-index.html',
-      noteBn: 'লাইটওয়েট ডিস্ক ক্যাশ ইঞ্জিন, প্রিকমপ্রেসড Gzip সাপোর্ট রয়েছে।',
-      noteEn: 'Lightweight disk cache engine with built-in precompressed Gzip support.',
-    },
-    {
-      name: 'WP Rocket',
-      path: '/wp-content/cache/wp-rocket/.../index-https.html',
-      noteBn: 'প্রিমিয়াম অল-ইন-ওয়ান ক্যাশিং প্লাগইন।',
-      noteEn: 'Comprehensive premium caching suite.',
-    },
+  // Fallback list if props are not yet loaded
+  const fallbackPlugins: WordPressCachePluginInfo[] = [
+    { slug: 'wp-fastest-cache', name: 'WP Fastest Cache', installed: false, has_cache: false, cache_path: '/wp-content/cache/all' },
+    { slug: 'wp-super-cache', name: 'WP Super Cache', installed: false, has_cache: false, cache_path: '/wp-content/cache/supercache' },
+    { slug: 'cache-enabler', name: 'Cache Enabler', installed: false, has_cache: false, cache_path: '/wp-content/cache/cache-enabler' },
+    { slug: 'wp-rocket', name: 'WP Rocket', installed: false, has_cache: false, cache_path: '/wp-content/cache/wp-rocket' },
   ];
+
+  const displayPlugins = plugins.length > 0 ? plugins : fallbackPlugins;
+  const activePlugin = displayPlugins.find((p) => p.installed && p.has_cache);
+  const installedPlugin = displayPlugins.find((p) => p.installed);
+
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setRefreshing(false), 500);
+    }
+  };
 
   return (
     <ShadcnDialog
       open={open}
       onClose={onClose}
-      title={lang === 'bn' ? 'ওয়ার্ডপ্রেস অপ্টিমাইজেশন ও পারফরম্যান্স' : 'WordPress Optimization & Performance'}
-      description={
-        lang === 'bn'
-          ? `সাইট: ${siteName} · Caddy হাইপার-ক্যাশিং ও ট্রাফিক হ্যান্ডলিং গাইড`
-          : `Site: ${siteName} · Caddy zero-overhead disk caching & traffic guide`
-      }
+      title="WordPress Optimization & Performance"
+      description={`Site: ${siteName} · Caddy zero-overhead disk caching & traffic guide`}
       icon={<WordPressIcon className="h-5 w-5 text-[#3858E9]" />}
       maxWidth="2xl"
       footer={
         <div className="flex w-full items-center justify-between">
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
-            <span>
-              {lang === 'bn'
-                ? 'বাইপাস গার্ডরেল সক্রিয় · ডাইনামিক ডেটা নিরাপদ'
-                : 'Bypass guardrails active · Dynamic data protected'}
-            </span>
+            <span>Dynamic sessions & cart items automatically bypass cache</span>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="rounded-lg bg-zinc-800 px-3.5 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-zinc-700 cursor-pointer"
           >
-            {lang === 'bn' ? 'বুঝেছি / বন্ধ করুন' : 'Got it / Close'}
+            Close
           </button>
         </div>
       }
     >
       <div className="space-y-4 text-zinc-300">
-        {/* Language selector & tabs header */}
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-          {/* Navigation Tabs */}
+        {/* Navigation Tabs Header */}
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-zinc-950 p-1">
             <button
               type="button"
@@ -93,7 +110,10 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
               }`}
             >
               <Zap className="h-3.5 w-3.5 text-amber-400" />
-              <span>{lang === 'bn' ? 'স্ট্যাটিক ডিস্ক ক্যাশ' : 'Static Disk Cache'}</span>
+              <span>Static Disk Cache</span>
+              {activePlugin && (
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+              )}
             </button>
             <button
               type="button"
@@ -105,7 +125,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
               }`}
             >
               <Layers className="h-3.5 w-3.5 text-cyan-400" />
-              <span>{lang === 'bn' ? 'অবজেক্ট ক্যাশ (Redis)' : 'Object Cache (Redis)'}</span>
+              <span>Object Cache (Redis)</span>
               <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">Soon</span>
             </button>
             <button
@@ -118,126 +138,181 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
               }`}
             >
               <FileCheck className="h-3.5 w-3.5 text-emerald-400" />
-              <span>{lang === 'bn' ? 'অ্যাসেট মিনিফিকেশন' : 'Assets'}</span>
+              <span>Asset Minification</span>
               <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">Soon</span>
             </button>
           </div>
 
-          {/* Language Switch */}
-          <div className="flex items-center gap-1 self-end sm:self-auto">
+          {onRefresh && (
             <button
               type="button"
-              onClick={() => setLang('bn')}
-              className={`rounded px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
-                lang === 'bn' ? 'bg-orange-500/20 text-orange-400 font-semibold' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Rescan WordPress plugins on disk"
+              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/80 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50 cursor-pointer"
             >
-              বাংলা
+              <RefreshCw className={`h-3.5 w-3.5 text-zinc-400 ${refreshing ? 'animate-spin text-orange-400' : ''}`} />
+              <span className="hidden sm:inline">Rescan</span>
             </button>
-            <span className="text-zinc-700">|</span>
-            <button
-              type="button"
-              onClick={() => setLang('en')}
-              className={`rounded px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
-                lang === 'en' ? 'bg-orange-500/20 text-orange-400 font-semibold' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              English
-            </button>
-          </div>
+          )}
         </div>
 
         {/* Tab 1: Static Disk Cache */}
         {activeTab === 'cache' && (
-          <div className="space-y-4">
-            {/* Overview Box */}
-            <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 p-3.5">
-              <div className="flex items-start gap-2.5">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
-                  <Zap className="h-4 w-4" />
-                </div>
-                <div className="text-xs leading-relaxed">
-                  <p className="font-medium text-zinc-100">
-                    {lang === 'bn'
-                      ? 'Caddy ডিরেক্ট ডিস্ক ক্যাশ কীভাবে কাজ করে?'
-                      : 'How Caddy Zero-Overhead Disk Caching Works'}
-                  </p>
-                  <p className="mt-1 text-zinc-400">
-                    {lang === 'bn'
-                      ? 'আপনার ওয়ার্ডপ্রেস সাইটে নিচে উল্লেখিত ৪টি জনপ্রিয় ক্যাশিং প্লাগইনের যেকোনো একটি ইনস্টল করলেই হবে। প্লাগইন যখন পেজটির স্ট্যাটিক HTML ফাইল ডিস্কে সেভ করবে, Caddy স্বয়ংক্রিয়ভাবে সরাসরি তার ইন্টারনাল file_server দিয়ে ০.৫ মিলিসেকেন্ডে পেজটি ডেলিভার করবে। পিএইচপি (PHP-FPM) বা মারিয়াডিবি (MySQL) প্রসেস স্পর্শই হবে না।'
-                      : 'Install any one of the four supported caching plugins below. Once the plugin writes static HTML files to disk, Caddy serves them directly via its built-in file_server in under 1ms, completely bypassing PHP-FPM and MariaDB.'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Supported Plugins Grid */}
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-zinc-300">
-                {lang === 'bn'
-                  ? 'সমর্থিত প্লাগইনসমূহ (যেকোনো ১টি ব্যবহার করুন):'
-                  : 'Supported Plugins (choose any one):'}
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {plugins.map((p) => (
-                  <div
-                    key={p.name}
-                    className="flex flex-col justify-between rounded-lg border border-white/[0.06] bg-zinc-950/70 p-3 transition hover:border-white/[0.12]"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5 font-medium text-zinc-100 text-xs">
-                        <Check className="h-3.5 w-3.5 text-emerald-400" />
-                        <span>{p.name}</span>
-                      </div>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
-                        {lang === 'bn' ? p.noteBn : p.noteEn}
-                      </p>
-                    </div>
-                    <div className="mt-2.5 rounded bg-zinc-900/80 px-2 py-1 font-mono text-[10px] text-zinc-500 truncate">
-                      {p.path}
-                    </div>
+          <div className="space-y-3.5">
+            {/* Live Detection Summary Banner */}
+            {activePlugin ? (
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
                   </div>
-                ))}
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-semibold text-emerald-200">
+                      Caddy Static Disk Caching is Active
+                    </p>
+                    <p className="mt-0.5 text-emerald-300/80">
+                      <span className="font-medium text-emerald-100">{activePlugin.name}</span> is installed and generating static HTML on disk. Caddy serves matching visitor requests directly in &lt; 0.5 ms without running PHP-FPM or MariaDB.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : installedPlugin ? (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-semibold text-amber-200">
+                      {installedPlugin.name} Detected on Disk
+                    </p>
+                    <p className="mt-0.5 text-amber-300/80">
+                      The plugin is installed, but no pre-rendered cache files exist in <code className="rounded bg-black/40 px-1 py-0.5 font-mono text-[10.5px] text-amber-100">{installedPlugin.cache_path}</code> yet. Enable caching in WP Admin settings to start instant static serving.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-medium text-zinc-100">
+                      How Caddy Zero-Overhead Disk Caching Works
+                    </p>
+                    <p className="mt-0.5 text-zinc-400">
+                      Install any one of the 4 supported caching plugins below in WP Admin. When the plugin writes static HTML files to disk, Caddy automatically serves them via its internal file server in 0.5 ms, bypassing PHP-FPM and MariaDB entirely.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Supported Plugins Grid with Live Status */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-zinc-300">Supported Plugins & Detection Status:</span>
+                <span className="text-[11px] text-zinc-500">Choose any 1 plugin</span>
+              </div>
+
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                {displayPlugins.map((p) => {
+                  const meta = PLUGIN_DESCRIPTIONS[p.slug] || { summary: '', sampleFile: p.cache_path };
+                  const isServing = p.installed && p.has_cache;
+                  const isInstalledOnly = p.installed && !p.has_cache;
+
+                  return (
+                    <div
+                      key={p.slug}
+                      className={`flex flex-col justify-between rounded-xl border p-3.5 transition ${
+                        isServing
+                          ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
+                          : isInstalledOnly
+                          ? 'border-amber-500/30 bg-amber-950/15'
+                          : 'border-white/[0.06] bg-zinc-950/60 hover:border-white/[0.12]'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-100">
+                            {isServing ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                            ) : isInstalledOnly ? (
+                              <Check className="h-4 w-4 text-amber-400" />
+                            ) : (
+                              <Circle className="h-3.5 w-3.5 text-zinc-600" />
+                            )}
+                            <span>{p.name}</span>
+                          </div>
+
+                          {/* Plugin Status Badge */}
+                          {isServing ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 font-medium text-[10px] text-emerald-300">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.8)]" />
+                              Active (Cached)
+                            </span>
+                          ) : isInstalledOnly ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 font-medium text-[10px] text-amber-300">
+                              Installed
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] text-zinc-500">
+                              Not Installed
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="mt-2 text-[11.5px] leading-relaxed text-zinc-400">
+                          {meta.summary}
+                        </p>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between rounded-md bg-zinc-900/90 px-2 py-1 font-mono text-[10px] text-zinc-500">
+                        <span className="truncate">{p.cache_path}</span>
+                        {p.has_cache && (
+                          <span className="ml-1 shrink-0 font-sans text-[10px] font-medium text-emerald-400">
+                            Files ready
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Safety Guardrails */}
+            {/* Automatic Safety Guardrails */}
             <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 p-3.5">
-              <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+              <div className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
                 <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                <span>{lang === 'bn' ? 'স্বয়ংক্রিয় ক্যাশ বাইপাস রুলস' : 'Automatic Cache Bypass Guardrails'}</span>
+                <span>Automatic Bypass Guardrails</span>
               </div>
-              <ul className="mt-2 space-y-1.5 text-[11.5px] text-zinc-400">
+              <ul className="mt-2.5 space-y-1.5 text-[11.5px] text-zinc-400">
                 <li className="flex items-start gap-2">
                   <span className="text-emerald-400">✓</span>
                   <span>
-                    {lang === 'bn'
-                      ? 'লগইন করা ইউজার বা অ্যাডমিন (wordpress_logged_in) আসলে ক্যাশ বাইপাস হয়ে লাইভ PHP-FPM এ যাবে।'
-                      : 'Logged-in users or administrators (wordpress_logged_in) automatically bypass cache to PHP-FPM.'}
+                    Logged-in users and admins (<code className="text-zinc-300">wordpress_logged_in</code>) bypass cache to live PHP-FPM.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-emerald-400">✓</span>
                   <span>
-                    {lang === 'bn'
-                      ? 'WooCommerce কার্টে পণ্য যোগ থাকলে (woocommerce_items_in_cart) রিয়েল-টাইম লাইভ সেশনে চলবে।'
-                      : 'WooCommerce sessions with items in cart (woocommerce_items_in_cart) always run live.'}
+                    WooCommerce cart sessions (<code className="text-zinc-300">woocommerce_items_in_cart</code>) always route live.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-emerald-400">✓</span>
                   <span>
-                    {lang === 'bn'
-                      ? 'POST রিকোয়েস্ট, সার্চ কুয়েরি (?s=...) বা অ্যাডমিন ডিরেক্টরি (/wp-admin/) ক্যাশ হবে না।'
-                      : 'POST requests, search queries (?s=...), and /wp-admin/ paths are never cached.'}
+                    POST requests, search queries (<code className="text-zinc-300">?s=...</code>), and admin endpoints (<code className="text-zinc-300">/wp-admin/</code>) are never cached.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-emerald-400">✓</span>
                   <span>
-                    {lang === 'bn'
-                      ? 'কোনো প্লাগইন চালু না থাকলে বা ক্যাশ ফাইল না থাকলে সাধারণ PHP-FPM স্বাভাবিকভাবে চলবে।'
-                      : 'If no cache plugin is configured, requests seamlessly route to standard PHP-FPM.'}
+                    If no cache plugin is active, Caddy falls back to standard PHP-FPM routing without interruption.
                   </span>
                 </li>
               </ul>
@@ -249,13 +324,11 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
         {activeTab === 'object-cache' && (
           <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 p-6 text-center">
             <Layers className="mx-auto h-8 w-8 text-cyan-400/80" />
-            <h4 className="mt-3 text-sm font-medium text-zinc-200">
-              {lang === 'bn' ? 'Redis অবজেক্ট ক্যাশ মডিউল' : 'Redis Object Cache Module'}
+            <h4 className="mt-3 text-sm font-semibold text-zinc-200">
+              Redis Object Cache Module
             </h4>
             <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-zinc-400">
-              {lang === 'bn'
-                ? 'ওয়ার্ডপ্রেস ডাটাবেজ কুয়েরি রিডিউস করতে Redis ব্যাকএন্ড কন্টেইনার এবং মেমোরি ক্যাশিং খুব শীঘ্রই আসছে।'
-                : 'Shared Redis container and persistent in-memory object cache wiring for database queries will be available in the upcoming release.'}
+              Shared Redis container and persistent in-memory object cache wiring for WordPress database queries will be available in the upcoming release.
             </p>
           </div>
         )}
@@ -264,13 +337,11 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
         {activeTab === 'assets' && (
           <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 p-6 text-center">
             <FileCheck className="mx-auto h-8 w-8 text-emerald-400/80" />
-            <h4 className="mt-3 text-sm font-medium text-zinc-200">
-              {lang === 'bn' ? 'স্ট্যাটিক অ্যাসেট মিনিফিকেশন ও কমপ্রেশন' : 'Static Asset Minification & Precompression'}
+            <h4 className="mt-3 text-sm font-semibold text-zinc-200">
+              Static Asset Minification & Precompression
             </h4>
             <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-zinc-400">
-              {lang === 'bn'
-                ? 'CSS, JS ও ইমেজ অ্যাসেট অটো-মিনিফিকেশন এবং Gzip / Zstandard কমপ্রেশন গাইডলাইন পরবর্তী আপডেটে সংযুক্ত করা হবে।'
-                : 'Asset pipeline rules and Gzip / Zstandard precompression directives will be documented here in the next update.'}
+              Automated CSS/JS asset pipeline rules and Gzip / Zstandard precompression directives will be documented here in the next update.
             </p>
           </div>
         )}

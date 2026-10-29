@@ -165,6 +165,13 @@ export interface PhpSiteDetail {
   provision?: PhpProvision | null;
   installed_versions: string[];
   min_cron_interval_minutes: number;
+  wp_cache_plugins?: Array<{
+    slug: string;
+    name: string;
+    installed: boolean;
+    has_cache: boolean;
+    cache_path: string;
+  }>;
   limits: {
     max_memory_mb: number;
     max_storage_mb: number;

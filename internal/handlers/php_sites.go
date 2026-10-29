@@ -372,6 +372,41 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 	lim := p.DB.GetPHPUserLimits(ctx, owner.ID)
 	usedDB, _ := p.DB.CountPHPDatabasesForOwner(ctx, owner.ID)
 	usedCron, _ := p.DB.CountPHPCronJobsForOwner(ctx, owner.ID)
+
+	// Detect installed WordPress cache plugins and generated disk cache files
+	var wpCachePlugins []fiber.Map
+	if site.SiteType == phphosting.SiteTypeWordPress {
+		htdocsPath := filepath.Join(p.WorkspacesRoot, app.ID, "htdocs")
+		if site.RootDir != "" {
+			htdocsPath = filepath.Join(htdocsPath, site.RootDir)
+		}
+		checkPlugin := func(slug, name, cacheRelPath string) fiber.Map {
+			pluginDir := filepath.Join(htdocsPath, "wp-content", "plugins", slug)
+			installed := false
+			if fi, err := os.Stat(pluginDir); err == nil && fi.IsDir() {
+				installed = true
+			}
+			cacheDir := filepath.Join(htdocsPath, "wp-content", "cache", cacheRelPath)
+			hasCache := false
+			if fi, err := os.Stat(cacheDir); err == nil && fi.IsDir() {
+				hasCache = true
+			}
+			return fiber.Map{
+				"slug":       slug,
+				"name":       name,
+				"installed":  installed,
+				"has_cache":  hasCache,
+				"cache_path": "/wp-content/cache/" + cacheRelPath,
+			}
+		}
+		wpCachePlugins = []fiber.Map{
+			checkPlugin("wp-fastest-cache", "WP Fastest Cache", "all"),
+			checkPlugin("wp-super-cache", "WP Super Cache", "supercache"),
+			checkPlugin("cache-enabler", "Cache Enabler", "cache-enabler"),
+			checkPlugin("wp-rocket", "WP Rocket", "wp-rocket"),
+		}
+	}
+
 	return c.JSON(fiber.Map{
 		"ok":                        true,
 		"id":                        app.ID,
@@ -387,6 +422,7 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 		"provision":                 prov,
 		"installed_versions":        p.PHP.InstalledVersions(ctx),
 		"min_cron_interval_minutes": p.PHP.MinCronIntervalMinutes(ctx),
+		"wp_cache_plugins":          wpCachePlugins,
 		"limits": fiber.Map{
 			"max_memory_mb":  ceil.MemoryMB,
 			"max_storage_mb": ceil.StorageMB,
