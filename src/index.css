@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "./styles/solid-glass.css";
+/* solid-glass was overriding all standard button radii and borders across the entire app */
 
 /* Bengali: the UI fonts have no Bengali glyphs, and the browser's fallback face renders
    them small. Pick an installed Bengali font explicitly and scale it to match Latin text. */

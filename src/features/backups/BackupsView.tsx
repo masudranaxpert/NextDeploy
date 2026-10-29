@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Copy,
   AlertTriangle,
+  AlertCircle,
   ExternalLink,
   KeyRound,
   ArrowUpRight,
@@ -63,6 +64,25 @@ function parseDestinationConfig(rawConfig?: string): ParsedConfig {
   }
 }
 
+const G_DRIVE_OAUTH_URL =
+  'https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=202264815644.apps.googleusercontent.com&prompt=consent&redirect_uri=http%3A%2F%2F127.0.0.1%3A53682%2F&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive';
+
+function extractGoogleCode(raw: string): string {
+  const t = raw.trim();
+  if (!t) return '';
+  if (t.includes('code=')) {
+    try {
+      const u = new URL(t.startsWith('http') ? t : `http://${t}`);
+      const c = u.searchParams.get('code');
+      if (c) return decodeURIComponent(c);
+    } catch {
+      const m = t.match(/[?&]code=([^&#]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+    }
+  }
+  return t;
+}
+
 export const BackupsView: React.FC<BackupsViewProps> = ({
   apps = [],
   destinations: initialDestinations,
@@ -81,8 +101,8 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
   // Google Drive mode: quick (Rclone default) vs custom (User provided client credentials)
   const [gdriveMode, setGdriveMode] = useState<'quick' | 'custom'>('quick');
-  const [gdriveQuickCode, setGdriveQuickCode] = useState('');
-  const [isFetchingAuthUrl, setIsFetchingAuthUrl] = useState(false);
+  const [gdriveInput, setGdriveInput] = useState('');
+  const extractedCode = extractGoogleCode(gdriveInput);
 
   // Cloudflare R2 fields (matches internal/handlers/panel_backup_destinations.go)
   const [r2AccountId, setR2AccountId] = useState('');
@@ -121,7 +141,11 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     const res = await backendApi.backupDestinationsList();
     if (!silent) setIsRefreshing(false);
     const list = res.data?.destinations;
-    if (!Array.isArray(list) || list.length === 0) return;
+    if (!Array.isArray(list)) return;
+    if (list.length === 0) {
+      setDestinations([]);
+      return;
+    }
 
     setDestinations(
       list.map((d) => {
@@ -184,7 +208,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     setDestProvider(provider);
     setDestName(presetName);
     setEditDestId(destId);
-    setGdriveQuickCode('');
+    setGdriveInput('');
     setGdriveMode('quick');
     if (provider === 'r2') {
       setR2AccountId('');
@@ -241,46 +265,6 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
     }
   };
 
-  const handleOpenGoogleAuth = async () => {
-    setIsFetchingAuthUrl(true);
-    try {
-      const res = await backendApi.backupGDriveQuickAuthUrl();
-      if (res.ok && res.data?.auth_url) {
-        window.open(res.data.auth_url, '_blank', 'noopener,noreferrer');
-        toast.info('Google authorization page opened in a new tab.');
-      } else {
-        toast.error(res.error || 'Failed to generate authorization URL');
-      }
-    } catch {
-      toast.error('Failed to open authorization URL');
-    } finally {
-      setIsFetchingAuthUrl(false);
-    }
-  };
-
-  const handlePastedCodeOrUrl = (raw: string) => {
-    const trimmed = raw.trim();
-    if (trimmed.includes('code=')) {
-      try {
-        const u = new URL(trimmed.startsWith('http') ? trimmed : `http://${trimmed}`);
-        const code = u.searchParams.get('code');
-        if (code) {
-          setGdriveQuickCode(decodeURIComponent(code));
-          toast.success('Extracted authorization code from URL!');
-          return;
-        }
-      } catch {
-        const m = trimmed.match(/[?&]code=([^&]+)/);
-        if (m && m[1]) {
-          setGdriveQuickCode(decodeURIComponent(m[1]));
-          toast.success('Extracted authorization code from URL!');
-          return;
-        }
-      }
-    }
-    setGdriveQuickCode(trimmed);
-  };
-
   const handleConnectDestination = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -289,14 +273,15 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
       const cleanName = destName.trim() || 'Google Drive';
 
       if (gdriveMode === 'quick') {
-        if (!gdriveQuickCode.trim()) {
-          toast.error('Please click Authorize and paste the redirected URL or code.');
+        const codeToUse = extractGoogleCode(gdriveInput);
+        if (!codeToUse) {
+          toast.error('Please authorize and paste the redirected URL or code.');
           setIsSubmitting(false);
           return;
         }
 
         const res = await backendApi.backupGDriveExchangeCode({
-          code: gdriveQuickCode.trim(),
+          code: codeToUse,
           name: cleanName,
           id: editDestId || undefined,
         });
@@ -885,7 +870,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             <button
               type="button"
               onClick={() => setDestProvider('gdrive')}
-              className={`flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors cursor-pointer ${
+              className={`flex items-center gap-2.5 rounded border p-2.5 text-left transition-colors cursor-pointer ${
                 destProvider === 'gdrive'
                   ? 'border-white/20 bg-zinc-800/80 text-zinc-100'
                   : 'border-white/[0.06] bg-[#09090b]/60 text-zinc-400 hover:border-white/10 hover:text-zinc-200'
@@ -900,7 +885,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             <button
               type="button"
               onClick={() => setDestProvider('r2')}
-              className={`flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors cursor-pointer ${
+              className={`flex items-center gap-2.5 rounded border p-2.5 text-left transition-colors cursor-pointer ${
                 destProvider === 'r2'
                   ? 'border-white/20 bg-zinc-800/80 text-zinc-100'
                   : 'border-white/[0.06] bg-[#09090b]/60 text-zinc-400 hover:border-white/10 hover:text-zinc-200'
@@ -917,26 +902,25 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
           {/* Destination Name */}
           <div>
             <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-              Destination Label
+              Destination Label (Optional)
             </label>
             <input
               type="text"
-              required
               value={destName}
               onChange={(e) => setDestName(e.target.value)}
               placeholder={
                 destProvider === 'gdrive'
-                  ? 'e.g. Google Drive Primary'
-                  : 'e.g. Cloudflare R2 Primary'
+                  ? 'Google Drive (default)'
+                  : 'Cloudflare R2 (default)'
               }
-              className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
           </div>
 
           {destProvider === 'gdrive' ? (
             <div className="space-y-3">
               {/* Google Drive Sub-Tabs: Quick Setup vs Custom App */}
-              <div className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
+              <div className="flex items-center gap-1 rounded border border-white/[0.07] bg-[#09090b] p-0.5 w-fit">
                 <button
                   type="button"
                   onClick={() => setGdriveMode('quick')}
@@ -963,7 +947,7 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
               </div>
 
               {gdriveMode === 'quick' ? (
-                <div className="space-y-3 rounded-md border border-white/[0.06] bg-zinc-900/30 p-3.5 text-xs">
+                <div className="space-y-3 rounded border border-white/[0.06] bg-zinc-900/30 p-3.5 text-xs">
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-zinc-800 font-mono text-[11px] font-semibold text-zinc-300 border border-white/[0.06]">
                       1
@@ -973,15 +957,15 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                       <p className="text-[11px] leading-relaxed text-zinc-400">
                         Sign in to grant NextDeploy permission to manage backup archives in your Google Drive.
                       </p>
-                      <button
-                        type="button"
-                        disabled={isFetchingAuthUrl}
-                        onClick={() => void handleOpenGoogleAuth()}
-                        className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                      <a
+                        href={G_DRIVE_OAUTH_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1.5 rounded border border-white/10 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
                       >
                         <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
-                        <span>{isFetchingAuthUrl ? 'Opening...' : 'Open Google Sign-in'}</span>
-                      </button>
+                        <span>Sign in with Google</span>
+                      </a>
                     </div>
                   </div>
 
@@ -994,25 +978,30 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                     <div className="flex-1 space-y-1.5">
                       <div className="font-medium text-zinc-200">Paste Redirect URL or Code</div>
                       <p className="text-[11px] leading-relaxed text-zinc-400">
-                        Copy the redirect address from your browser address bar (starting with{' '}
+                        After granting permission, copy the full address from your browser bar (starting with{' '}
                         <code className="rounded bg-black/40 px-1 py-0.5 font-mono text-zinc-300">
                           http://127.0.0.1:53682
                         </code>
-                        ) and paste it below. Even if your browser displays a connection error page, the token is in the address.
+                        ) and paste it below. Even if the page shows a connection error, the authorization token is inside the URL.
                       </p>
                       <input
                         type="text"
-                        value={gdriveQuickCode}
-                        onChange={(e) => handlePastedCodeOrUrl(e.target.value)}
-                        placeholder="http://127.0.0.1:53682/?state=...&code=..."
-                        className="w-full rounded-md border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                        value={gdriveInput}
+                        onChange={(e) => setGdriveInput(e.target.value)}
+                        placeholder="Paste redirected address: http://127.0.0.1:53682/?state=...&code=..."
+                        className="w-full rounded border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
                       />
-                      {gdriveQuickCode && (
+                      {extractedCode ? (
                         <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>Authorization code detected</span>
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                          <span className="truncate">Authorization code ready: {extractedCode.slice(0, 16)}...</span>
                         </div>
-                      )}
+                      ) : gdriveInput.trim() ? (
+                        <div className="flex items-center gap-1.5 text-[11px] text-amber-400 font-mono">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>Could not find code. Please paste the full address from your browser.</span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1134,14 +1123,19 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
             <button
               type="button"
               onClick={() => setDestModalOpen(false)}
-              className="rounded-md border border-white/10 bg-transparent px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.05] transition-colors cursor-pointer"
+              className="rounded border border-white/10 bg-transparent px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.05] transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || (destProvider === 'gdrive' && gdriveMode === 'quick' && !gdriveQuickCode.trim())}
-              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-3.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-white transition-colors disabled:opacity-50 cursor-pointer"
+              disabled={
+                isSubmitting ||
+                (destProvider === 'gdrive' && gdriveMode === 'quick' && !extractedCode) ||
+                (destProvider === 'gdrive' && gdriveMode === 'custom' && (!gdriveClientId.trim() || !gdriveClientSecret.trim())) ||
+                (destProvider === 'r2' && (!r2AccountId.trim() || !r2Bucket.trim() || !r2AccessKeyId.trim() || !r2SecretAccessKey.trim()))
+              }
+              className="inline-flex items-center gap-1.5 rounded bg-zinc-100 px-3.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -1152,12 +1146,12 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
                 gdriveMode === 'quick' ? (
                   <>
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Save Google Drive</span>
+                    <span>{extractedCode ? 'Connect Google Drive' : 'Paste Code to Connect'}</span>
                   </>
                 ) : (
                   <>
                     <ExternalLink className="h-3.5 w-3.5" />
-                    <span>Authorize & Save</span>
+                    <span>Authorize with Google</span>
                   </>
                 )
               ) : (

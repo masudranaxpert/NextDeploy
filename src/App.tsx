@@ -1419,7 +1419,7 @@ export default function App() {
 
       {/* shadcn Sidebar-Inset Floating Main Canvas */}
       <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2">
-        <div className="relative flex min-h-full flex-1 flex-col overflow-hidden lg:rounded-2xl lg:border lg:border-white/[0.07] bg-[#0c0c0f] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_24px_60px_rgba(0,0,0,0.65)]">
+        <div className="relative flex min-h-full flex-1 flex-col overflow-hidden lg:rounded-lg lg:border lg:border-white/[0.07] bg-[#0c0c0f] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_24px_60px_rgba(0,0,0,0.65)]">
           {/* Subtle Top Ambient Ember Glow */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_60%_50%_at_50%_-15%,rgba(249,115,22,0.07),transparent)]" />
 
@@ -1862,9 +1862,9 @@ export default function App() {
           type="button"
           onClick={() => navigateTo('nextdeploy-ai')}
           aria-label="Open NextDeploy AI"
-          className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 flex size-12 items-center justify-center gap-2 rounded-full border border-orange-500/30 bg-zinc-950/90 text-xs font-semibold sm:right-5 sm:bottom-5 sm:size-auto sm:px-3.5 sm:py-2.5 text-zinc-100 shadow-2xl backdrop-blur-md hover:border-orange-500/60 hover:bg-zinc-900 active:scale-95 transition-all cursor-pointer group"
+          className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 flex size-11 items-center justify-center gap-2 rounded-md border border-white/10 bg-zinc-900/95 text-xs font-medium sm:right-5 sm:bottom-5 sm:size-auto sm:px-3 sm:py-2 text-zinc-200 shadow-xl backdrop-blur-md hover:border-white/20 hover:bg-zinc-800 active:scale-95 transition-all cursor-pointer group"
         >
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500/20 text-orange-400 group-hover:scale-110 transition-transform">
+          <div className="flex h-5 w-5 items-center justify-center rounded bg-orange-500/20 text-orange-400">
             <Bot className="h-3.5 w-3.5" />
           </div>
           <span className="max-sm:hidden">ND AI</span>
