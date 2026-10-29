@@ -39,10 +39,15 @@ func canUseBackupDestination(c *fiber.Ctx, dest db.BackupDestination) bool {
 func validateBackupDestinationConfig(provider string, m map[string]string) error {
 	switch provider {
 	case "gdrive":
-		for _, k := range []string{"client_id", "client_secret", "token", "folder_id"} {
-			if strings.TrimSpace(m[k]) == "" {
-				return fmt.Errorf("missing %s in destination config", k)
-			}
+		if strings.TrimSpace(m["token"]) == "" {
+			return fmt.Errorf("missing token in Google Drive destination config (reconnect required)")
+		}
+		if strings.TrimSpace(m["client_id"]) == "" {
+			m["client_id"] = rclone.RcloneDefaultGDriveClientID
+			m["client_secret"] = rclone.RcloneDefaultGDriveClientSecret
+		}
+		if strings.TrimSpace(m["folder_id"]) == "" {
+			m["folder_id"] = "root"
 		}
 	case "r2":
 		for _, k := range []string{"account_id", "access_key_id", "secret_access_key", "bucket"} {
@@ -303,6 +308,17 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 		appendLog(fmt.Sprintf("Error: %v", err))
 		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
 		return
+	}
+
+	if dest.Provider == "gdrive" {
+		if configMap["folder_id"] == "" || configMap["folder_id"] == "root" {
+			if fid, ferr := rclone.EnsureGoogleDriveFolder(ctx, configMap["token"], "nextdeploy"); ferr == nil && fid != "" {
+				configMap["folder_id"] = fid
+				_ = p.DB.UpdateBackupDestinationConfig(ctx, dest.ID, string(mustMarshal(configMap)))
+			} else {
+				configMap["folder_id"] = "root"
+			}
+		}
 	}
 
 	var (

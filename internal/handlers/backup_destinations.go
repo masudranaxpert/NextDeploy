@@ -182,6 +182,8 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 			if folderID == "" {
 				if fid, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy"); ferr == nil && fid != "" {
 					folderID = fid
+				} else {
+					folderID = "root"
 				}
 			}
 			cfgMap := map[string]string{
@@ -204,6 +206,8 @@ func (p *Panel) BackupDestinationCreate(c *fiber.Ctx) error {
 			if folderID == "" {
 				if ensuredID, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), cleanToken, "nextdeploy"); ferr == nil && ensuredID != "" {
 					folderID = ensuredID
+				} else {
+					folderID = "root"
 				}
 			}
 			cfgMap := map[string]string{
@@ -349,9 +353,23 @@ func (p *Panel) BackupDestinationTest(c *fiber.Ctx) error {
 				configMap["storage_limit"] = about.StorageQuota.Limit
 				configMap["storage_used"] = about.StorageQuota.Usage
 			}
+			if configMap["folder_id"] == "" || configMap["folder_id"] == "root" {
+				if fid, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), token, "nextdeploy"); ferr == nil && fid != "" {
+					configMap["folder_id"] = fid
+				} else {
+					configMap["folder_id"] = "root"
+				}
+			}
 			_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dest.ID, string(mustMarshal(configMap)))
 		} else if newToken != token && newToken != "" {
 			configMap["token"] = newToken
+			if configMap["folder_id"] == "" || configMap["folder_id"] == "root" {
+				if fid, ferr := rclone.EnsureGoogleDriveFolder(c.UserContext(), newToken, "nextdeploy"); ferr == nil && fid != "" {
+					configMap["folder_id"] = fid
+				} else {
+					configMap["folder_id"] = "root"
+				}
+			}
 			_ = p.DB.UpdateBackupDestinationConfig(c.UserContext(), dest.ID, string(mustMarshal(configMap)))
 		}
 		return c.JSON(fiber.Map{

@@ -190,19 +190,22 @@ func ExtractRcloneTokenJSON(raw string) (string, error) {
 }
 
 func rcloneEnvGoogleDrive(clientID, clientSecret, token, folderID string) []string {
+	cid := strings.TrimSpace(clientID)
+	csec := strings.TrimSpace(clientSecret)
+	if cid == "" || csec == "" {
+		cid = RcloneDefaultGDriveClientID
+		csec = RcloneDefaultGDriveClientSecret
+	}
 	out := []string{
 		"RCLONE_CONFIG_GDRIVE_TYPE=drive",
 		"RCLONE_CONFIG_GDRIVE_SCOPE=drive",
 		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_TOKEN=%s", token),
+		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_ID=%s", cid),
+		fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_SECRET=%s", csec),
 	}
-	if strings.TrimSpace(clientID) != "" && strings.TrimSpace(clientSecret) != "" {
-		out = append(out,
-			fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_ID=%s", strings.TrimSpace(clientID)),
-			fmt.Sprintf("RCLONE_CONFIG_GDRIVE_CLIENT_SECRET=%s", strings.TrimSpace(clientSecret)),
-		)
-	}
-	if strings.TrimSpace(folderID) != "" {
-		out = append(out, fmt.Sprintf("RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID=%s", folderID))
+	fid := strings.TrimSpace(folderID)
+	if fid != "" && fid != "root" {
+		out = append(out, fmt.Sprintf("RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID=%s", fid))
 	}
 	return out
 }
@@ -357,6 +360,18 @@ func EnsureGoogleDriveFolder(ctx context.Context, token, folderName string) (str
 	accessToken, ok := tokenData["access_token"].(string)
 	if !ok {
 		return "", fmt.Errorf("invalid token format")
+	}
+
+	if IsTokenExpired(token) {
+		if newToken, rerr := RefreshGoogleDriveToken(ctx, RcloneDefaultGDriveClientID, RcloneDefaultGDriveClientSecret, token); rerr == nil && newToken != "" {
+			token = newToken
+			var newTokenData map[string]interface{}
+			if json.Unmarshal([]byte(token), &newTokenData) == nil {
+				if at, aok := newTokenData["access_token"].(string); aok && at != "" {
+					accessToken = at
+				}
+			}
+		}
 	}
 
 	searchURL := "https://www.googleapis.com/drive/v3/files?q=" + url.QueryEscape(fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false", folderName))
@@ -865,9 +880,32 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 		return "", fmt.Errorf("invalid token format")
 	}
 
+	if IsTokenExpired(token) {
+		if newToken, rerr := RefreshGoogleDriveToken(ctx, RcloneDefaultGDriveClientID, RcloneDefaultGDriveClientSecret, token); rerr == nil && newToken != "" {
+			token = newToken
+			var newTokenData map[string]interface{}
+			if json.Unmarshal([]byte(token), &newTokenData) == nil {
+				if at, aok := newTokenData["access_token"].(string); aok && at != "" {
+					accessToken = at
+				}
+			}
+		}
+	}
+
 	// Split path into parts (e.g., "apps/volumes/file.tar.gz" -> ["apps", "volumes", "file.tar.gz"])
-	parts := strings.Split(filePath, "/")
+	var parts []string
+	for _, p := range strings.Split(filePath, "/") {
+		if strings.TrimSpace(p) != "" {
+			parts = append(parts, strings.TrimSpace(p))
+		}
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("invalid file path")
+	}
 	currentFolderID := folderID
+	if strings.TrimSpace(currentFolderID) == "" {
+		currentFolderID = "root"
+	}
 
 	// Navigate through folders
 	for i, part := range parts {
