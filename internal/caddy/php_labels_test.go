@@ -45,6 +45,24 @@ func TestSiteSecurityLabels(t *testing.T) {
 	}
 }
 
+func TestWordPressStaticCacheLabels(t *testing.T) {
+	l := PHPSiteLabels([]db.AppDomain{{Domain: "wp.test", EnableHTTPS: true}}, "/data/workspaces/app/htdocs", "/run/app.sock", SiteSecurity{})
+	if l["caddy.rewrite"] != "@wp_cache {http.matchers.file.relative}" {
+		t.Fatalf("expected rewrite label, got %q", l["caddy.rewrite"])
+	}
+	if !strings.Contains(l["caddy.@wp_cache.file.try_files"], "/wp-content/cache/all{path}/index.html") {
+		t.Fatalf("missing WP Fastest Cache try_files: %q", l["caddy.@wp_cache.file.try_files"])
+	}
+	if !strings.Contains(l["caddy.@wp_cache.0_not.header_regexp"], "wordpress_logged_in") {
+		t.Fatalf("missing logged in cookie bypass: %q", l["caddy.@wp_cache.0_not.header_regexp"])
+	}
+	// Static site without socket must not have cache rules
+	staticLabels := PHPSiteLabels([]db.AppDomain{{Domain: "static.test", EnableHTTPS: true}}, "/data/workspaces/app/htdocs", "", SiteSecurity{})
+	if _, ok := staticLabels["caddy.rewrite"]; ok {
+		t.Fatalf("static site should not have wp_cache rewrite label")
+	}
+}
+
 func TestNormalizeIPList(t *testing.T) {
 	got, err := NormalizeIPList([]string{" 1.2.3.4 ", "1.2.3.4", "10.1.2.3/8", "::ffff:5.6.7.8", "2001:db8::1"})
 	if err != nil {

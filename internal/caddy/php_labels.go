@@ -60,6 +60,16 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	labels[prefix+".respond_0"] = "@hidden 404"
 	sec.appendLabels(labels, prefix)
 	if socket != "" {
+		// Auto-serve WordPress static HTML disk cache (WP Fastest Cache, WP Super Cache,
+		// Cache Enabler, WP Rocket) directly via Caddy file_server in <1ms without touching PHP or DB.
+		// Bypassed for logged-in users, WooCommerce cart, POST requests, and admin/API endpoints.
+		labels[prefix+".@wp_cache.0_not.header_regexp"] = `Cookie "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_logged_in|woocommerce_items_in_cart|wp_woocommerce_session"`
+		labels[prefix+".@wp_cache.1_not.path_regexp"] = `(?i)(/wp-admin/|/xmlrpc.php|/wp-(app|cron|login|register|mail).php|/wp-json/|/feed/|sitemap.*.xml)`
+		labels[prefix+".@wp_cache.2_not.method"] = "POST"
+		labels[prefix+".@wp_cache.3_not.expression"] = "{query} != ''"
+		labels[prefix+".@wp_cache.file.try_files"] = "/wp-content/cache/all{path}/index.html /wp-content/cache/supercache/{host}{uri}/index-https.html /wp-content/cache/supercache/{host}{uri}/index.html /wp-content/cache/cache-enabler/{host}{uri}/https-index.html /wp-content/cache/cache-enabler/{host}{uri}/index.html /wp-content/cache/wp-rocket/{host}{uri}/index-https.html /wp-content/cache/wp-rocket/{host}{uri}/index.html"
+		labels[prefix+".rewrite"] = "@wp_cache {http.matchers.file.relative}"
+
 		labels[prefix+".php_fastcgi"] = "unix/" + socket
 		if d.ShieldNodeID != nil || d.EnableHTTPS {
 			labels[prefix+".php_fastcgi.env"] = "HTTPS on"
