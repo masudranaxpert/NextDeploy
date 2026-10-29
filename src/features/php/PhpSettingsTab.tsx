@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Copy, FolderOpen, KeyRound, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, Copy, FolderOpen, KeyRound, RotateCw, ShieldCheck, Trash2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
@@ -24,6 +24,7 @@ import {
   usePhpStatus,
 } from './ui';
 import { PhpVersionSelect } from './PhpVersionSelect';
+import { WordPressOptimizationModal } from './WordPressOptimizationModal';
 
 const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
 
@@ -39,6 +40,7 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
   const [secrets, setSecrets] = useState<Record<string, string> | null>(null);
   const loadedFor = useRef('');
   const [copied, setCopied] = useState('');
+  const [optModalOpen, setOptModalOpen] = useState(false);
 
   const copyValue = async (value: string, key: string) => {
     if (await copyToClipboard(value)) {
@@ -123,7 +125,22 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         </Card>
       )}
 
-      <Card title="Site">
+      <Card
+        title="Site"
+        actions={
+          detail.site.site_type === 'wordpress' ? (
+            <button
+              type="button"
+              onClick={() => setOptModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-400 transition hover:border-amber-500/40 hover:bg-amber-500/20 active:scale-95 cursor-pointer"
+              title="WordPress Caching & Performance Guide"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>Speed & Cache</span>
+            </button>
+          ) : undefined
+        }
+      >
         {/* Mobile: stacked key-value rows */}
         <div className="divide-y divide-white/[0.05] sm:hidden">
           <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
@@ -374,6 +391,12 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
           {secrets?.admin_email && <CopyField label="E-mail" value={secrets.admin_email} />}
         </div>
       </ShadcnDialog>
+
+      <WordPressOptimizationModal
+        open={optModalOpen}
+        onClose={() => setOptModalOpen(false)}
+        siteName={app.name || detail.site.primary_domain || 'WordPress'}
+      />
     </div>
   );
 };
