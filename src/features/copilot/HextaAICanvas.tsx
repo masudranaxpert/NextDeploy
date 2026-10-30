@@ -685,14 +685,14 @@ export function HextaAICanvas({
               type="button"
               onClick={() => setIsSettingsOpen(true)}
               className="group/settings flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-all hover:bg-white/[0.05] hover:text-zinc-200 cursor-pointer"
-              title="AI Provider Settings"
+              title="ND-AI Settings"
             >
               <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-orange-500/15 font-mono text-[10px] font-bold text-orange-400 uppercase ring-1 ring-orange-500/30">
-                {(currentUser?.username || 'admin').slice(0, 2).toUpperCase()}
+                ND
               </div>
               <div className="flex flex-col min-w-0 text-left leading-tight">
                 <span className="truncate text-xs font-medium text-zinc-200">
-                  {currentUser?.username || 'admin'}
+                  ND-AI
                 </span>
                 <span className="text-[10px] text-zinc-500 truncate">AI Settings</span>
               </div>

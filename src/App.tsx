@@ -651,9 +651,8 @@ export default function App() {
               const cImg = c.Image || '';
               return (
                 cImg === tagStr ||
-                cImg === repo ||
-                cImg.startsWith(repo + ':') ||
-                cImg.includes(shortId)
+                (tag === 'latest' && cImg === repo) ||
+                (shortId && cImg.includes(shortId))
               );
             })
             .map((c: any) => c.Name || c.ID);
