@@ -711,6 +711,8 @@ export default function App() {
         netInMbps: 0,
         netOutMbps: 0,
         requests: 0,
+        caddyRequests: 0,
+        panelRequests: 0,
       };
       setTelemetry((prev) => [...prev.slice(1), currentPoint]);
     }
@@ -1108,6 +1110,8 @@ export default function App() {
       netInMbps: 0,
       netOutMbps: 0,
       requests: 0,
+      caddyRequests: 0,
+      panelRequests: 0,
     };
     setTelemetry((prev) => [...prev.slice(1), nextPoint]);
   };

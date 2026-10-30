@@ -448,4 +448,6 @@ export interface TelemetryPoint {
   netInMbps: number;
   netOutMbps: number;
   requests: number;
+  caddyRequests?: number;
+  panelRequests?: number;
 }

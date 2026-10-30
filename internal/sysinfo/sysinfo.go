@@ -190,13 +190,15 @@ func InvalidateDiskCache() {
 }
 
 type TelemetryPoint struct {
-	Time       string  `json:"time"`
-	CPU        float64 `json:"cpu"`
-	Memory     float64 `json:"memory"`
-	DiskIO     float64 `json:"diskIo"`
-	NetInMbps  float64 `json:"netInMbps"`
-	NetOutMbps float64 `json:"netOutMbps"`
-	Requests   int     `json:"requests"`
+	Time          string  `json:"time"`
+	CPU           float64 `json:"cpu"`
+	Memory        float64 `json:"memory"`
+	DiskIO        float64 `json:"diskIo"`
+	NetInMbps     float64 `json:"netInMbps"`
+	NetOutMbps    float64 `json:"netOutMbps"`
+	Requests      int     `json:"requests"`
+	CaddyRequests int     `json:"caddyRequests"`
+	PanelRequests int     `json:"panelRequests"`
 }
 
 var (
@@ -210,7 +212,69 @@ var (
 	lastNetIn  uint64
 	lastNetOut uint64
 	lastNetAt  time.Time
+
+	caddyClient = &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	lastCaddyTotal uint64
+	lastCaddyAt    time.Time
 )
+
+func queryCaddyRequestsTotal() (uint64, bool) {
+	urls := []string{"http://caddy:2019/metrics", "http://127.0.0.1:2019/metrics"}
+	for _, u := range urls {
+		resp, err := caddyClient.Get(u)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		total, found := parseCaddyHttpRequestsTotal(string(body))
+		if !found {
+			go enableCaddyMetricsOnce(u)
+			continue
+		}
+		return total, true
+	}
+	return 0, false
+}
+
+func enableCaddyMetricsOnce(metricsURL string) {
+	configURL := strings.Replace(metricsURL, "/metrics", "/config/apps/http/metrics", 1)
+	req, err := http.NewRequest(http.MethodPost, configURL, strings.NewReader("{}"))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		if resp, err := caddyClient.Do(req); err == nil && resp != nil {
+			resp.Body.Close()
+		}
+	}
+}
+
+func parseCaddyHttpRequestsTotal(metricsData string) (uint64, bool) {
+	found := false
+	var sum uint64
+	lines := strings.Split(metricsData, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "caddy_http_requests_total") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				if val, err := strconv.ParseFloat(parts[len(parts)-1], 64); err == nil {
+					sum += uint64(val)
+					found = true
+				}
+			}
+		}
+	}
+	return sum, found
+}
 
 // RecordRequest increments the live request counter for throughput calculations.
 func RecordRequest() {
@@ -271,13 +335,15 @@ func StartTelemetryCollector() {
 			for i := 40; i >= 0; i-- {
 				t := now.Add(-time.Duration(i*30) * time.Second)
 				telemetryHistory = append(telemetryHistory, TelemetryPoint{
-					Time:       t.Format("15:04"),
-					CPU:        snap.CPUPercent,
-					Memory:     snap.MemUsedPct,
-					DiskIO:     snap.DiskUsedPct,
-					NetInMbps:  0,
-					NetOutMbps: 0,
-					Requests:   0,
+					Time:          t.Format("15:04"),
+					CPU:           snap.CPUPercent,
+					Memory:        snap.MemUsedPct,
+					DiskIO:        snap.DiskUsedPct,
+					NetInMbps:     0,
+					NetOutMbps:    0,
+					Requests:      0,
+					CaddyRequests: 0,
+					PanelRequests: 0,
 				})
 			}
 		}
@@ -292,10 +358,25 @@ func StartTelemetryCollector() {
 				cancel()
 
 				now := time.Now()
-				// Calculate real Requests per minute
-				reqs := atomic.SwapUint64(&reqCounter, 0)
-				// Since ticker is 15s, rate per minute is reqs * 4
-				reqRate := int(reqs * 4)
+				// Calculate real Panel requests per minute
+				panelReqs := atomic.SwapUint64(&reqCounter, 0)
+				panelRate := int(panelReqs * 4)
+
+				// Calculate real Caddy (Site) requests per minute
+				var caddyRate int
+				if caddyTotal, ok := queryCaddyRequestsTotal(); ok {
+					if !lastCaddyAt.IsZero() && now.After(lastCaddyAt) && lastCaddyTotal > 0 && caddyTotal >= lastCaddyTotal {
+						elapsedSec := now.Sub(lastCaddyAt).Seconds()
+						if elapsedSec > 0 {
+							diff := caddyTotal - lastCaddyTotal
+							caddyRate = int(math.Round(float64(diff) * 60.0 / elapsedSec))
+						}
+					}
+					lastCaddyTotal = caddyTotal
+					lastCaddyAt = now
+				}
+
+				totalRate := caddyRate + panelRate
 
 				// Calculate real network throughput in Mbps
 				rxBytes, txBytes := readProcNetDev()
@@ -316,13 +397,15 @@ func StartTelemetryCollector() {
 				lastNetAt = now
 
 				pt := TelemetryPoint{
-					Time:       now.Format("15:04"),
-					CPU:        s.CPUPercent,
-					Memory:     s.MemUsedPct,
-					DiskIO:     s.DiskUsedPct,
-					NetInMbps:  netInMbps,
-					NetOutMbps: netOutMbps,
-					Requests:   reqRate,
+					Time:          now.Format("15:04"),
+					CPU:           s.CPUPercent,
+					Memory:        s.MemUsedPct,
+					DiskIO:        s.DiskUsedPct,
+					NetInMbps:     netInMbps,
+					NetOutMbps:    netOutMbps,
+					Requests:      totalRate,
+					CaddyRequests: caddyRate,
+					PanelRequests: panelRate,
 				}
 
 				telemetryMu.Lock()

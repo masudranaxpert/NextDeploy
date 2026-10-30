@@ -32,6 +32,8 @@ export const EvilAreaChart: React.FC<EvilAreaChartProps> = ({
     if (!Array.isArray(data)) return [];
     return data.map((pt, idx) => ({
       ...pt,
+      caddyRequests: pt.caddyRequests ?? pt.requests ?? 0,
+      panelRequests: pt.panelRequests ?? 0,
       _idxKey: `${pt.time || ''}__${idx}`,
     }));
   }, [data]);

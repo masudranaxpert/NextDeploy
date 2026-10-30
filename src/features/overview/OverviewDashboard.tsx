@@ -627,8 +627,44 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       {/* Row 2: Telemetry Area Chart Card */}
       <div className={`rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${hostOnly}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <h2 className="text-xs font-semibold text-zinc-200">Host Throughput</h2>
+            {chartMetric === 'requests' && (
+              <div className="hidden sm:flex items-center gap-3 text-[11px] font-medium text-zinc-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-orange-500 shadow-sm" />
+                  Site Traffic (Caddy)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sky-400 shadow-sm" />
+                  Panel Traffic
+                </span>
+              </div>
+            )}
+            {chartMetric === 'cpu-mem' && (
+              <div className="hidden sm:flex items-center gap-3 text-[11px] font-medium text-zinc-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm" />
+                  CPU
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sky-400 shadow-sm" />
+                  RAM
+                </span>
+              </div>
+            )}
+            {chartMetric === 'network' && (
+              <div className="hidden sm:flex items-center gap-3 text-[11px] font-medium text-zinc-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-orange-500 shadow-sm" />
+                  Inbound
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-yellow-500 shadow-sm" />
+                  Outbound
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
             {(
@@ -657,11 +693,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         {chartMetric === 'requests' && (
           <EvilAreaChart
             data={telemetry}
-            dataKey="requests"
+            dataKey="caddyRequests"
+            secondaryKey="panelRequests"
             color="#f97316"
+            secondaryColor="#38bdf8"
             unit=" req/m"
             height={210}
-            label="Requests"
+            label="Site Traffic (Caddy)"
+            secondaryLabel="Panel Traffic"
           />
         )}
         {chartMetric === 'cpu-mem' && (
