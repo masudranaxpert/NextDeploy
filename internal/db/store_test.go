@@ -162,3 +162,32 @@ func TestStore_OwnershipAndIsolation(t *testing.T) {
 		t.Fatalf("Failed to delete admin user: %v", err)
 	}
 }
+
+func TestCreateBackupDestination_DuplicateName(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+	defer store.Close()
+
+	id1, err := store.CreateBackupDestination(ctx, nil, "Google Drive", "gdrive", "{}")
+	if err != nil {
+		t.Fatalf("Failed first insert: %v", err)
+	}
+	if id1 <= 0 {
+		t.Fatalf("Invalid id: %d", id1)
+	}
+
+	id2, err := store.CreateBackupDestination(ctx, nil, "Google Drive", "gdrive", "{}")
+	if err != nil {
+		t.Fatalf("Failed second insert with duplicate name: %v", err)
+	}
+	dest2, err := store.GetBackupDestination(ctx, id2)
+	if err != nil {
+		t.Fatalf("Failed to fetch second dest: %v", err)
+	}
+	if dest2.Name != "Google Drive (2)" {
+		t.Fatalf("Expected auto-disambiguated name 'Google Drive (2)', got '%s'", dest2.Name)
+	}
+}

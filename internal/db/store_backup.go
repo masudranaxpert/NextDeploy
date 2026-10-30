@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 )
 
 func (s *Store) CreateBackupDestination(ctx context.Context, userID *int64, name, provider, config string) (int64, error) {
@@ -10,13 +12,26 @@ func (s *Store) CreateBackupDestination(ctx context.Context, userID *int64, name
 	if userID != nil {
 		uid = *userID
 	}
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO backup_destinations (user_id, name, provider, config, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
-		uid, name, provider, config)
-	if err != nil {
+	baseName := strings.TrimSpace(name)
+	if baseName == "" {
+		baseName = "Backup Destination"
+	}
+
+	candidate := baseName
+	for i := 2; i <= 100; i++ {
+		res, err := s.db.ExecContext(ctx,
+			`INSERT INTO backup_destinations (user_id, name, provider, config, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+			uid, candidate, provider, config)
+		if err == nil {
+			return res.LastInsertId()
+		}
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: backup_destinations.name") {
+			candidate = fmt.Sprintf("%s (%d)", baseName, i)
+			continue
+		}
 		return 0, err
 	}
-	return res.LastInsertId()
+	return 0, fmt.Errorf("unable to generate unique destination name")
 }
 
 func (s *Store) ListBackupDestinations(ctx context.Context, userID *int64) ([]BackupDestination, error) {
