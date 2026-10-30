@@ -912,7 +912,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                    GitLab Deploy Token or PAT
+                    GitLab Personal Access Token or Deploy Token
                   </label>
                   <input
                     type="password"
@@ -922,6 +922,16 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     placeholder="glpat-•••••••••••• or gldt-••••••••••••"
                     className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
                   />
+                </div>
+
+                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-1.5 leading-relaxed">
+                  <div className="font-semibold text-zinc-100">Personal Access Token (PAT) Scopes</div>
+                  <p className="text-[11px] text-zinc-400">
+                    To auto-discover repositories and branches, create a PAT with <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code> scopes (or fine-grained permission <code className="text-orange-400 font-mono">Project: Read</code>).
+                  </p>
+                  <p className="text-[10px] text-zinc-500">
+                    Note: Deploy Tokens (<code className="text-zinc-400 font-mono">gldt-...</code>) only grant git clone access and cannot list projects via the GitLab REST API.
+                  </p>
                 </div>
               </div>
             )}

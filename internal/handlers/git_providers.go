@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -98,10 +99,15 @@ func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProv
 		if err != nil || token == "" {
 			return 0
 		}
-		endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=1"
-		body, status, err := gitlabAPIRequest(ctx, http.MethodGet, endpoint, token)
+		endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=100"
+		body, status, header, err := gitlabAPIRequest(ctx, http.MethodGet, endpoint, token)
 		if err != nil || status >= 300 {
 			return 0
+		}
+		if header != nil && header.Get("X-Total") != "" {
+			if total, err := strconv.Atoi(header.Get("X-Total")); err == nil {
+				return total
+			}
 		}
 		var projects []gitlabProject
 		if err := json.Unmarshal(body, &projects); err == nil {
@@ -148,8 +154,41 @@ func (p *Panel) GitProviderCreate(c *fiber.Ctx) error {
 	if notes == "" {
 		if provider == "github" {
 			notes = "Personal Access Token"
+		} else if strings.HasPrefix(token, "glpat-") {
+			notes = "Personal Access Token"
 		} else {
 			notes = "Deploy Token"
+		}
+	}
+
+	if provider == "gitlab" {
+		testURL := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=1"
+		body, status, _, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, testURL, token)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to connect to GitLab: " + err.Error()})
+		}
+		if status == http.StatusUnauthorized {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid GitLab token (401 Unauthorized). Please check your token."})
+		}
+		if status == http.StatusForbidden {
+			var errObj struct {
+				Error            string `json:"error"`
+				ErrorDescription string `json:"error_description"`
+			}
+			_ = json.Unmarshal(body, &errObj)
+			msg := errObj.ErrorDescription
+			if msg == "" {
+				msg = errObj.Error
+			}
+			if msg == "" {
+				msg = "Insufficient token permissions."
+			}
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("GitLab permission denied (403): %s Make sure your token has 'read_api' and 'read_repository' (or 'Project: Read') permissions.", msg),
+			})
+		}
+		if status >= 400 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("GitLab API error (%d): %s", status, string(body))})
 		}
 	}
 
@@ -226,6 +265,8 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 		} else if gp.Provider == "gitlab" {
 			if gp.RefreshToken != "" || gp.ExpiresAt > 0 {
 				pr.AuthMethod = "OAuth 2.0"
+			} else if strings.HasPrefix(gp.Token, "glpat-") {
+				pr.AuthMethod = "Personal Access Token"
 			} else {
 				pr.AuthMethod = "Deploy Token"
 			}

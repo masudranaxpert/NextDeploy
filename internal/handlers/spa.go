@@ -361,6 +361,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		} else if gp.Provider == "gitlab" {
 			if gp.RefreshToken != "" || gp.ExpiresAt > 0 {
 				it.AuthMethod = "OAuth 2.0"
+			} else if strings.HasPrefix(gp.Token, "glpat-") {
+				it.AuthMethod = "Personal Access Token"
 			} else {
 				it.AuthMethod = "Deploy Token"
 			}

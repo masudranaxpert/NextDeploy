@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
   Server,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
@@ -63,6 +64,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
 }) => {
   const { isAdmin } = useContext(OwnerContext);
   const [switchSourceModalOpen, setSwitchSourceModalOpen] = useState(false);
+  const [confirmDeleteManual, setConfirmDeleteManual] = useState(false);
   const [gitSyncModalOpen, setGitSyncModalOpen] = useState(false);
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
   const [gitRepoInput, setGitRepoInput] = useState(app.gitRepo || '');
@@ -150,7 +152,10 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               if (hasGitConnection) {
                 setSwitchSourceModalOpen(true);
               } else {
-                onOpenGitTab();
+                setGitRepoInput(app.gitRepo || '');
+                setGitBranchInput(app.gitBranch || 'main');
+                setConfirmDeleteManual(false);
+                setSwitchSourceModalOpen(true);
               }
             }}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
@@ -498,7 +503,13 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
             ? 'Switch to Pure Manual Workspace Directory'
             : 'Connect Git Repository Source'
         }
-        icon={<RefreshCw className="h-4 w-4 text-orange-400" />}
+        icon={
+          hasGitConnection ? (
+            <RefreshCw className="h-4 w-4 text-orange-400" />
+          ) : (
+            <GitBranch className="h-4 w-4 text-orange-400" />
+          )
+        }
       >
         <div className="space-y-4">
           {hasGitConnection ? (
@@ -508,33 +519,54 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               manually, use <strong>Pause Git sync</strong> instead.)
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-200 leading-relaxed">
-                Connecting a <strong>Git repository</strong> enables the Git tab and sets the
-                repository checkout as the deploy source.
+            <div className="space-y-3.5">
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-200 leading-relaxed space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-red-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
+                  <span>Permanent Deletion Warning</span>
+                </div>
+                <p>
+                  Connecting a Git repository will <strong>permanently delete all manual files</strong> in this workspace directory (<code className="font-mono text-red-300">/data/apps/{app.id}</code>). The project will henceforth be deployed from your Git repository.
+                </p>
               </div>
+
               <div>
                 <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Git Repository URL
+                  Git Repository URL <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
                   value={gitRepoInput}
                   onChange={(e) => setGitRepoInput(e.target.value)}
-                  placeholder="https://github.com/org/repo"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  placeholder="https://gitlab.com/username/repo or https://github.com/username/repo"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-orange-500/60 focus:outline-none"
                 />
               </div>
+
               <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Branch</label>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  Branch
+                </label>
                 <input
                   type="text"
                   value={gitBranchInput}
                   onChange={(e) => setGitBranchInput(e.target.value)}
                   placeholder="main"
-                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-orange-500/60 focus:outline-none"
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-950/20 p-2.5 text-xs text-zinc-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={confirmDeleteManual}
+                  onChange={(e) => setConfirmDeleteManual(e.target.checked)}
+                  className="mt-0.5 rounded border-zinc-700 accent-red-500 cursor-pointer"
+                />
+                <span className="text-[12px] text-red-200 leading-snug">
+                  I understand that connecting Git will <strong>permanently and irreversibly delete all manual files</strong> in this workspace.
+                </span>
+              </label>
             </div>
           )}
 
@@ -542,17 +574,24 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
             <button
               type="button"
               onClick={() => setSwitchSourceModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
+              disabled={!hasGitConnection && (!confirmDeleteManual || !gitRepoInput.trim())}
               onClick={async () => {
                 const targetSource = hasGitConnection ? 'files' : 'git';
-                if (targetSource === 'git' && !gitRepoInput.trim()) {
-                  toast.error('Please enter a Git repository URL');
-                  return;
+                if (targetSource === 'git') {
+                  if (!gitRepoInput.trim()) {
+                    toast.error('Please enter a Git repository URL');
+                    return;
+                  }
+                  if (!confirmDeleteManual) {
+                    toast.error('Please confirm permanent file deletion');
+                    return;
+                  }
                 }
                 const res = await backendApi.switchAppSource(app.id, targetSource);
                 if (!res.ok && !res.offlineFallback) {
@@ -562,6 +601,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 if (targetSource === 'git') {
                   const nextRepo = gitRepoInput.trim();
                   const nextBranch = gitBranchInput.trim() || 'main';
+                  await backendApi.saveAppGit(app.id, {
+                    repo_url: nextRepo,
+                    branch: nextBranch,
+                    auth_mode: 'public',
+                    auto_deploy: false,
+                  });
                   onUpdateApp({
                     ...app,
                     gitRepo: nextRepo,
@@ -571,7 +616,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                   });
                   setSwitchSourceModalOpen(false);
                   onOpenGitTab();
-                  toast.success('Connected Git repository source');
+                  toast.success('Connected Git repository source — manual files deleted and Git tab enabled');
                 } else {
                   onUpdateApp({
                     ...app,
@@ -584,9 +629,13 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                   toast.success('Switched to pure Manual Workspace Directory (Git detached)');
                 }
               }}
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className={`rounded-lg px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                !hasGitConnection
+                  ? 'border border-red-500/40 bg-red-600 text-white hover:bg-red-500'
+                  : 'bg-zinc-100 text-zinc-950 hover:bg-white'
+              }`}
             >
-              {hasGitConnection ? 'Detach Git & Use Manual Files' : 'Connect Git Source'}
+              {hasGitConnection ? 'Detach Git & Use Manual Files' : 'Delete Manual Files & Connect Git'}
             </button>
           </div>
         </div>

@@ -177,20 +177,23 @@ type gitlabBranch struct {
 	Name string `json:"name"`
 }
 
-func gitlabAPIRequest(ctx context.Context, method, endpoint, token string) ([]byte, int, error) {
+func gitlabAPIRequest(ctx context.Context, method, endpoint, token string) ([]byte, int, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
+	}
+	if strings.HasPrefix(token, "glpat-") {
+		req.Header.Set("PRIVATE-TOKEN", token)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, nil
+	return data, resp.StatusCode, resp.Header, nil
 }
 
 func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
@@ -210,7 +213,7 @@ func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "no token — reconnect provider"})
 	}
 	endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at&sort=desc"
-	body, status, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
+	body, status, _, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -268,7 +271,7 @@ func (p *Panel) AppGitLabProviderBranches(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "repo required"})
 	}
 	endpoint := fmt.Sprintf("%s/api/v4/projects/%s/repository/branches?per_page=100", gitlabAPIBase, repoPath)
-	body, status, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
+	body, status, _, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, endpoint, token)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
