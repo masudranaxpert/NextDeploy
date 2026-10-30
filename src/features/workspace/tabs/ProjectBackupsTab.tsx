@@ -87,7 +87,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
   const [manualSelectedVols, setManualSelectedVols] = useState<string[]>(
     app.volumes.map((v) => v.name)
   );
-  const [manualPauseContainers, setManualPauseContainers] = useState(!isPhp);
+  const [manualPauseContainers, setManualPauseContainers] = useState(false);
   const [isTriggeringBackup, setIsTriggeringBackup] = useState(false);
 
   // Schedules State (GET /apps/:id/backup/schedules)
@@ -104,7 +104,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
   const [schedCronPreset, setSchedCronPreset] = useState<string>('0 2 * * *');
   const [schedCustomCron, setSchedCustomCron] = useState<string>('0 2 * * *');
   const [schedRetention, setSchedRetention] = useState<string>('7');
-  const [schedPauseContainers, setSchedPauseContainers] = useState<boolean>(!isPhp);
+  const [schedPauseContainers, setSchedPauseContainers] = useState<boolean>(false);
 
   // Paginated Backup History State (GET /apps/:id/backup/history?page=...&per_page=...)
   const [historyItems, setHistoryItems] = useState<BackupArchiveRecord[]>(cached?.history ?? []);
@@ -333,7 +333,7 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     setSchedCronPreset('0 2 * * *');
     setSchedCustomCron('0 2 * * *');
     setSchedRetention('7');
-    setSchedPauseContainers(!isPhp);
+    setSchedPauseContainers(false);
     setScheduleModalOpen(true);
   };
 
