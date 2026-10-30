@@ -273,12 +273,6 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const isGitSyncActive = hasGitConnection && (app.gitSync ?? app.sourceType === 'git');
 
   useEffect(() => {
-    if (!hasGitConnection && activeTab === 'git') {
-      setActiveTab('overview');
-    }
-  }, [hasGitConnection, activeTab]);
-
-  useEffect(() => {
     if (app.php) prefetchPhpSite(app.id);
   }, [app.id, !!app.php]);
 
@@ -318,7 +312,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     { id: 'domains', label: 'Domains', count: app.domains.length },
     { id: 'env', label: 'Environment', count: app.envVars.length },
     { id: 'files', label: 'File Manager' },
-    ...(hasGitConnection ? [{ id: 'git' as AppWorkspaceTab, label: 'Git' }] : []),
+    { id: 'git', label: 'Git' },
     { id: 'volumes', label: 'Volumes', count: app.volumes.length },
     { id: 'backups', label: 'Backups' },
     { id: 'logs', label: 'Logs' },

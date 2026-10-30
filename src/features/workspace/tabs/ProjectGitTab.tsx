@@ -149,6 +149,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   const handleSaveGitConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!repoUrl.trim()) {
+      toast.error('Please enter or select a repository clone URL');
+      return;
+    }
+    const nextSync = app.gitRepo ? gitSyncEnabled : true;
     const res = await backendApi.saveAppGit(app.id, {
       auth_mode: authMode,
       git_provider_id: authMode === 'public' ? '' : selectedProviderId,
@@ -160,17 +165,22 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       toast.error(res.error || 'Failed to save Git configuration');
       return;
     }
+    setGitSyncEnabled(nextSync);
     onUpdateApp({
       ...app,
-      sourceType: gitSyncEnabled ? 'git' : 'compose',
-      gitSync: gitSyncEnabled,
+      sourceType: nextSync ? 'git' : 'compose',
+      gitSync: nextSync,
       gitAuthMode: authMode,
       gitProviderId: selectedProviderId,
       gitRepo: repoUrl.trim(),
       gitBranch: branch.trim() || 'main',
       webhookAutoDeploy: autoDeploy,
     });
-    toast.success(`Saved Git configuration (${branch.trim() || 'main'})`);
+    toast.success(
+      app.gitRepo
+        ? `Saved Git configuration (${branch.trim() || 'main'})`
+        : `Connected Git repository (${branch.trim() || 'main'})`
+    );
   };
 
   const handleDisconnectGit = async () => {
@@ -190,39 +200,53 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   return (
     <div className="space-y-4">
-      {/* Row 1: Git Sync ON / OFF Control Bar + Manual Sync Now */}
-      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-zinc-200">Git Sync:</span>
-            <ShadcnSwitch
-              checked={gitSyncEnabled}
-              onChange={(next) => void handleToggleGitSync(next)}
-            />
+      {/* Row 1: Git Sync ON / OFF Control Bar OR Onboarding banner if no repo connected */}
+      {!app.gitRepo ? (
+        <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/15">
+              <GitBranch className="h-4.5 w-4.5 text-orange-400" />
+            </span>
+            <div>
+              <div className="text-xs font-semibold text-zinc-100">Connect a Git Repository</div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">
+                Connect your GitHub or GitLab repository below to enable automated deployments and branch syncing.
+              </div>
+            </div>
           </div>
-          {gitSyncEnabled ? (
-            <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-300">
-              Git Sync ON · Auto-pulls {branch} on deploy
-            </span>
-          ) : (
-            <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-amber-300">
-              Git Sync OFF · Manual File Edits Active (Pull manually with Sync Now)
-            </span>
-          )}
         </div>
+      ) : (
+        <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-zinc-200">Git Sync:</span>
+              <ShadcnSwitch
+                checked={gitSyncEnabled}
+                onChange={(next) => void handleToggleGitSync(next)}
+              />
+            </div>
+            {gitSyncEnabled ? (
+              <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-300">
+                Git Sync ON · Auto-pulls {branch} on deploy
+              </span>
+            ) : (
+              <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-amber-300">
+                Git Sync OFF · Manual File Edits Active (Pull manually with Sync Now)
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleManualSyncNow()}
-            disabled={isSyncingNow}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-orange-500/35 bg-orange-500/12 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isSyncingNow ? 'animate-spin' : ''}`} />
-            {isSyncingNow ? 'Syncing...' : 'Sync Now (Pull from Git)'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleManualSyncNow()}
+              disabled={isSyncingNow}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-orange-500/35 bg-orange-500/12 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingNow ? 'animate-spin' : ''}`} />
+              {isSyncingNow ? 'Syncing...' : 'Sync Now (Pull from Git)'}
+            </button>
 
-          {app.gitRepo && (
             <button
               type="button"
               onClick={() => void handleDisconnectGit()}
@@ -231,9 +255,9 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               <Trash2 className="h-3.5 w-3.5" />
               Disconnect Git
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Row 2: Git Provider, Repository & Branch Configuration Form (POST /apps/:id/git) */}
       <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
@@ -241,30 +265,34 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-orange-400" />
             <h2 className="text-sm font-semibold text-zinc-100">
-              Git Repository &amp; Branch
+              {app.gitRepo ? 'Git Repository & Branch' : 'Configure Repository & Branch'}
             </h2>
-            <StatusBadge
-              status={gitSyncEnabled ? 'active' : 'stopped'}
-              label={gitSyncEnabled ? 'Git Sync ON' : 'Git Sync OFF'}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleToggleGitSync(!gitSyncEnabled)}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
-          >
-            {gitSyncEnabled ? (
-              <>
-                <Pause className="h-3 w-3 text-amber-400" />
-                Turn Off Git Sync
-              </>
-            ) : (
-              <>
-                <Play className="h-3 w-3 text-emerald-400" />
-                Turn On Git Sync
-              </>
+            {app.gitRepo && (
+              <StatusBadge
+                status={gitSyncEnabled ? 'active' : 'stopped'}
+                label={gitSyncEnabled ? 'Git Sync ON' : 'Git Sync OFF'}
+              />
             )}
-          </button>
+          </div>
+          {app.gitRepo && (
+            <button
+              type="button"
+              onClick={() => void handleToggleGitSync(!gitSyncEnabled)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+            >
+              {gitSyncEnabled ? (
+                <>
+                  <Pause className="h-3 w-3 text-amber-400" />
+                  Turn Off Git Sync
+                </>
+              ) : (
+                <>
+                  <Play className="h-3 w-3 text-emerald-400" />
+                  Turn On Git Sync
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSaveGitConfig} className="space-y-4">
@@ -476,10 +504,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="submit"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-400 cursor-pointer"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Save Git Configuration
+              {app.gitRepo ? 'Save Git Configuration' : 'Connect Repository'}
             </button>
           </div>
         </form>

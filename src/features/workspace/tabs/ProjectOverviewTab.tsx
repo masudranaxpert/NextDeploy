@@ -146,11 +146,26 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
 
           <button
             type="button"
-            onClick={() => setSwitchSourceModalOpen(true)}
+            onClick={() => {
+              if (hasGitConnection) {
+                setSwitchSourceModalOpen(true);
+              } else {
+                onOpenGitTab();
+              }
+            }}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
           >
-            <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
-            {hasGitConnection ? 'Switch to Manual Mode' : 'Connect Git'}
+            {hasGitConnection ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
+                Switch to Manual Mode
+              </>
+            ) : (
+              <>
+                <GitBranch className="h-3.5 w-3.5 text-orange-400" />
+                Connect Git
+              </>
+            )}
           </button>
         </div>
       </div>
