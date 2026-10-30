@@ -27,19 +27,19 @@ var (
 	MemoryLimitChoices = []string{"64M", "128M", "256M", "512M", "768M", "1G", "2G", "3G", "4G", "5G"}
 	SizeChoices        = []string{"2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", "768M", "1G", "2G", "3G", "4G", "5G"}
 	TimeChoices        = []int{15, 30, 60, 120, 180, 300, 600, 900, 1800, 3600}
-	InputVarChoices    = []int{1000, 2000, 5000, 10000, 20000, 50000, 100000}
+	InputVarChoices    = []int{1000, 2000, 3000, 5000, 10000, 20000, 50000, 100000}
 	ProcessManagerChoices = []string{"dynamic", "ondemand"}
 )
 
 func DefaultSettings() SiteSettings {
 	return SiteSettings{
 		MemoryLimit:         "256M",
-		MaxExecutionTime:    30,
-		MaxInputTime:        60,
-		MaxInputVars:        1000,
+		MaxExecutionTime:    60,
+		MaxInputTime:        120,
+		MaxInputVars:        3000,
 		PostMaxSize:         "64M",
 		UploadMaxFilesize:   "64M",
-		MaxChildren:         10,
+		MaxChildren:         20,
 		ProcessManager:      "dynamic",
 		AllowShellFunctions: false,
 	}

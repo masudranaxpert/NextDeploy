@@ -89,11 +89,11 @@ func RenderPool(sp PoolSpec) (string, error) {
 		w("pm.max_requests = 1000")
 	} else {
 		// Golden standard: dynamic process management eliminates cold start latency.
-		// Keep at least 1-2 workers hot in memory so visits always respond instantly (0ms delay).
-		startServers := 2
-		minSpare := 1
-		maxSpare := 3
-		if s.MaxChildren < 3 {
+		// Keep warm spare workers in memory so visits always respond instantly (0ms fork delay).
+		startServers := 4
+		minSpare := 2
+		maxSpare := 6
+		if s.MaxChildren < 6 {
 			startServers = 1
 			minSpare = 1
 			maxSpare = s.MaxChildren
@@ -105,6 +105,12 @@ func RenderPool(sp PoolSpec) (string, error) {
 		w("pm.max_spare_servers = %d", maxSpare)
 		w("pm.max_requests = 1000")
 	}
+	// Hard-kill stuck FPM workers (e.g. hung curl/sendmail/socket waits) after max_execution_time + 30s buffer.
+	terminateSec := s.MaxExecutionTime + 30
+	if terminateSec < 60 {
+		terminateSec = 60
+	}
+	w("request_terminate_timeout = %ds", terminateSec)
 	w("chdir = %s", DocRoot(sp.AppID, sp.RootDir))
 	w("catch_workers_output = yes")
 	w("decorate_workers_output = no")

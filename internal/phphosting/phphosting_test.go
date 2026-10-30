@@ -29,8 +29,9 @@ func TestRenderPoolConfinesSite(t *testing.T) {
 		"php_admin_value[memory_limit] = 256M",
 		"php_value[display_startup_errors] = 1", "php_value[zend.assertions] = -1",
 		"pm = dynamic",
-		"pm.start_servers = 2",
-		"pm.min_spare_servers = 1",
+		"pm.start_servers = 4",
+		"pm.min_spare_servers = 2",
+		"request_terminate_timeout = 90s",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pool missing %q\n%s", want, out)

@@ -659,7 +659,11 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	removeLabels(caddySvc, IsGlobalOptionLabel)
 	// Disable automatic HTTP-to-HTTPS redirect on port 80 globally.
 	// This prevents infinite redirect loops when traffic is SSL-terminated by Edge Shield nodes or Cloudflare.
-	mergeLabels(caddySvc, map[string]string{"caddy.auto_https": "disable_redirects"})
+	// Keep Prometheus metrics enabled globally so caddy-docker-proxy never strips /metrics on container events.
+	mergeLabels(caddySvc, map[string]string{
+		"caddy.auto_https": "disable_redirects",
+		"caddy.metrics":    `{{""}}`,
+	})
 	if len(opts.Labels()) > 0 {
 		mergeLabels(caddySvc, opts.Labels())
 	}
