@@ -263,7 +263,7 @@ func (p *Panel) startWordPressProvision(owner db.User, site db.PHPSite, wp phpho
 			log("==> Creating database")
 			dbName := fmt.Sprintf("u%d_wp_%s%s", owner.ID, randomAppSuffix(), randomAppSuffix())
 			dbPass := phphosting.RandomPassword(24)
-			if err := p.PHP.CreateDatabase(ctx, dbName, dbName, dbPass); err != nil {
+			if err := p.PHP.CreateDatabase(ctx, dbName, dbName, dbPass, site.AppID); err != nil {
 				return err
 			}
 			dbID, err := p.DB.CreatePHPDatabase(ctx, db.PHPDatabase{AppID: site.AppID, DBName: dbName})
@@ -446,8 +446,10 @@ type phpSettingsBody struct {
 	PostMaxSize       *string `json:"post_max_size"`
 	UploadMaxFilesize *string `json:"upload_max_filesize"`
 	MaxChildren       *int    `json:"max_children"`
-	ProcessManager    *string `json:"process_manager"`
-	Additional        *string `json:"additional"`
+	ProcessManager      *string `json:"process_manager"`
+	AllowShellFunctions *bool   `json:"allow_shell_functions"`
+	DisableFunctions    *string `json:"disable_functions"`
+	Additional          *string `json:"additional"`
 }
 
 // POST /apps/:id/php/settings
@@ -489,6 +491,12 @@ func (p *Panel) PHPSiteSettings(c *fiber.Ctx) error {
 	}
 	if body.ProcessManager != nil {
 		s.ProcessManager = *body.ProcessManager
+	}
+	if body.AllowShellFunctions != nil {
+		s.AllowShellFunctions = *body.AllowShellFunctions
+	}
+	if body.DisableFunctions != nil {
+		s.DisableFunctions = *body.DisableFunctions
 	}
 	if body.Additional != nil {
 		s.Additional = *body.Additional

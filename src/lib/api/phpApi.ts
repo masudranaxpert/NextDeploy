@@ -100,6 +100,8 @@ export interface PhpSettings {
   upload_max_filesize: string;
   max_children: number;
   process_manager?: 'dynamic' | 'ondemand';
+  allow_shell_functions?: boolean;
+  disable_functions?: string;
   additional: string;
 }
 

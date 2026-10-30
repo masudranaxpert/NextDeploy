@@ -16,9 +16,11 @@ type SiteSettings struct {
 	MaxInputVars      int    `json:"max_input_vars"`
 	PostMaxSize       string `json:"post_max_size"`       // e.g. 64M
 	UploadMaxFilesize string `json:"upload_max_filesize"` // e.g. 64M
-	MaxChildren       int    `json:"max_children"`
-	ProcessManager    string `json:"process_manager"`    // dynamic (default) or ondemand
-	Additional        string `json:"additional"`         // extra php.ini directives, one per line
+	MaxChildren         int    `json:"max_children"`
+	ProcessManager      string `json:"process_manager"`       // dynamic (default) or ondemand
+	AllowShellFunctions bool   `json:"allow_shell_functions"`  // false: dangerous exec functions disabled by default
+	DisableFunctions    string `json:"disable_functions"`      // custom disabled functions list (empty = use default)
+	Additional          string `json:"additional"`            // extra php.ini directives, one per line
 }
 
 var (
@@ -31,14 +33,15 @@ var (
 
 func DefaultSettings() SiteSettings {
 	return SiteSettings{
-		MemoryLimit:       "256M",
-		MaxExecutionTime:  30,
-		MaxInputTime:      60,
-		MaxInputVars:      1000,
-		PostMaxSize:       "64M",
-		UploadMaxFilesize: "64M",
-		MaxChildren:       10,
-		ProcessManager:    "dynamic",
+		MemoryLimit:         "256M",
+		MaxExecutionTime:    30,
+		MaxInputTime:        60,
+		MaxInputVars:        1000,
+		PostMaxSize:         "64M",
+		UploadMaxFilesize:   "64M",
+		MaxChildren:         10,
+		ProcessManager:      "dynamic",
+		AllowShellFunctions: false,
 	}
 }
 

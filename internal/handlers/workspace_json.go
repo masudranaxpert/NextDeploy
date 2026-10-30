@@ -237,7 +237,11 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 			}
 		}
 		if owner.Role != db.RoleAdmin {
-			if err := sandbox.CheckComposeSecurity([]byte(body.Content)); err != nil {
+			hostWs := ""
+			if p.Store != nil {
+				hostWs = p.Store.Path(appID)
+			}
+			if err := sandbox.CheckComposeSecurity([]byte(body.Content), hostWs); err != nil {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "message": "Security check failed: " + err.Error()})
 			}
 		}

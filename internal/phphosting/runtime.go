@@ -143,7 +143,7 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 		// (graceful reload and stop). Workers lose every capability when they setuid().
 		"--cap-drop", "ALL", "--cap-add", "SETUID", "--cap-add", "SETGID", "--cap-add", "DAC_READ_SEARCH", "--cap-add", "KILL",
 		"--security-opt", "no-new-privileges",
-		"--read-only", "--tmpfs", "/tmp:rw,nosuid,size=128m",
+		"--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec,size=128m",
 		"--pids-limit", "2048",
 	}
 	if cgroup != "" {
@@ -236,6 +236,7 @@ func (m *Manager) SiteLabels(ctx context.Context, site db.PHPSite) map[string]st
 // SyncRoutes (re)creates the label-carrying holder container of a site. Only this site's
 // holder is touched, so other sites keep serving while one site's domains change.
 func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
+	m.SweepSymlinks(appID)
 	site, err := m.DB.GetPHPSite(ctx, appID)
 	if err != nil {
 		return err
@@ -333,6 +334,7 @@ func (m *Manager) SyncSite(ctx context.Context, appID string) error {
 			return err
 		}
 	}
+	m.SyncSiteDBLimits(ctx, appID)
 	return m.SyncRoutes(ctx, appID)
 }
 

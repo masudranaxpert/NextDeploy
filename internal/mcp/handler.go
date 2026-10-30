@@ -297,7 +297,7 @@ func (h *Handler) handleAppCreate(ctx context.Context, u db.User, args map[strin
 
 	composeContent := getStringArg(args, "compose_content")
 	if strings.TrimSpace(composeContent) != "" {
-		if err := sandbox.CheckComposeSecurity([]byte(composeContent)); err != nil {
+		if err := sandbox.CheckComposeSecurity([]byte(composeContent), wsPath); err != nil {
 			return errorResult(fmt.Errorf("initial compose security check failed: %w", err))
 		}
 		composePath := filepath.Join(wsPath, "docker-compose.yml")
@@ -870,7 +870,7 @@ func (h *Handler) writeWorkspaceFile(ctx context.Context, app db.App, path, cont
 	}
 	cleanRel := filepath.ToSlash(strings.Trim(path, "/"))
 	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
-		if err := sandbox.CheckComposeSecurity([]byte(content)); err != nil {
+		if err := sandbox.CheckComposeSecurity([]byte(content), h.p.Store.Path(app.ID)); err != nil {
 			return fmt.Errorf("compose security validation failed: %w", err)
 		}
 	}
@@ -1043,7 +1043,7 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 		}
 		cleanRel := filepath.ToSlash(strings.Trim(w.Path, "/"))
 		if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
-			if err := sandbox.CheckComposeSecurity([]byte(w.Content)); err != nil {
+			if err := sandbox.CheckComposeSecurity([]byte(w.Content), h.p.Store.Path(appID)); err != nil {
 				return errorResult(fmt.Errorf("compose security validation failed for %s: %w", w.Path, err))
 			}
 		}
@@ -2212,7 +2212,7 @@ func (h *Handler) handleFilePatch(ctx context.Context, u db.User, args map[strin
 		if strings.Contains(patch, cf) {
 			cp := filepath.Join(workDir, cf)
 			if b, err := os.ReadFile(cp); err == nil {
-				if secErr := sandbox.CheckComposeSecurity(b); secErr != nil {
+				if secErr := sandbox.CheckComposeSecurity(b, workDir); secErr != nil {
 					_ = revertUnifiedPatch(ctx, workDir, patch)
 					return errorResult(fmt.Errorf("patch produced insecure compose file (%s): %w (reverted)", cf, secErr))
 				}

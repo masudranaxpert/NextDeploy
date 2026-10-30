@@ -225,7 +225,7 @@ func (p *Panel) PHPDBUserCreate(c *fiber.Ctx) error {
 		return phpJSONErr(c, 400, "password must be at least 10 characters")
 	}
 	user := dbPrefix(owner) + body.Name
-	if err := p.PHP.CreateDBUser(ctx, user, password); err != nil {
+	if err := p.PHP.CreateDBUser(ctx, user, password, site.AppID); err != nil {
 		if errors.Is(err, phphosting.ErrDatabaseExists) {
 			return phpJSONErr(c, 409, "a database user with this name already exists")
 		}

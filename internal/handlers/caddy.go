@@ -57,6 +57,103 @@ func stripDomainFileServing(d *db.AppDomain) {
 	d.MediaURLPrefix = ""
 }
 
+func (p *Panel) validateAppFileServingPaths(ctx context.Context, appID string, d *db.AppDomain) error {
+	if d == nil {
+		return nil
+	}
+	appWs := "/data/workspaces/" + appID
+	hostWs := ""
+	if p.Store != nil {
+		hostWs = p.Store.Path(appID)
+	}
+	mountPrefix := normalizeCaddySharedMountPrefix(p.DB.GetSetting(ctx, settingCaddySharedMountPrefix))
+
+	checkPath := func(label, raw string) error {
+		cleaned := filepath.Clean(strings.TrimSpace(raw))
+		if cleaned == "" || cleaned == "." {
+			return nil
+		}
+		if filepath.IsAbs(cleaned) {
+			inAppWs := cleaned == appWs || strings.HasPrefix(cleaned, appWs+"/")
+			inShared := mountPrefix != "" && (cleaned == mountPrefix || strings.HasPrefix(cleaned, mountPrefix+"/"))
+			if !inAppWs && !inShared {
+				return fmt.Errorf("%s %q is outside workspace %q (cross-workspace access denied)", label, raw, appWs)
+			}
+		} else {
+			if strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, "/../") {
+				return fmt.Errorf("%s %q contains path traversal", label, raw)
+			}
+		}
+		if hostWs != "" {
+			var testHostPath string
+			if filepath.IsAbs(cleaned) && strings.HasPrefix(cleaned, appWs) {
+				rel := strings.TrimPrefix(strings.TrimPrefix(cleaned, appWs), "/")
+				testHostPath = filepath.Join(hostWs, rel)
+			} else if !filepath.IsAbs(cleaned) {
+				testHostPath = filepath.Join(hostWs, cleaned)
+			}
+			if testHostPath != "" {
+				realWs, _ := filepath.EvalSymlinks(hostWs)
+				if realWs == "" {
+					realWs, _ = filepath.Abs(hostWs)
+				}
+				existing := testHostPath
+				for {
+					if _, err := os.Lstat(existing); err == nil {
+						break
+					}
+					parent := filepath.Dir(existing)
+					if parent == existing || len(parent) < len(hostWs) {
+						break
+					}
+					existing = parent
+				}
+				if fi, err := os.Lstat(existing); err == nil {
+					realTarget, err := filepath.EvalSymlinks(existing)
+					if err == nil {
+						rel, err := filepath.Rel(realWs, realTarget)
+						if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+							return fmt.Errorf("%s %q resolves via symlink to %q outside workspace", label, raw, realTarget)
+						}
+					} else if fi.Mode()&os.ModeSymlink != 0 {
+						if target, rerr := os.Readlink(existing); rerr == nil {
+							absTarget := target
+							if !filepath.IsAbs(absTarget) {
+								absTarget = filepath.Join(filepath.Dir(existing), target)
+							}
+							absTarget = filepath.Clean(absTarget)
+							rel, err := filepath.Rel(realWs, absTarget)
+							if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+								return fmt.Errorf("%s %q resolves via symlink to %q outside workspace", label, raw, absTarget)
+							}
+						}
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	if d.ServeStatic && d.StaticPath != "" {
+		if err := checkPath("static path", d.StaticPath); err != nil {
+			return err
+		}
+	}
+	if d.ServeMedia && d.MediaPath != "" {
+		if err := checkPath("media path", d.MediaPath); err != nil {
+			return err
+		}
+	}
+	for _, r := range d.EffectiveRouteRules() {
+		if r.Direct && r.Root != "" {
+			if err := checkPath("route root", r.Root); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (p *Panel) appDomainForRequest(c *fiber.Ctx) (db.AppDomain, error) {
 	id := c.Params("id")
 	did, err := strconv.ParseInt(c.Params("did"), 10, 64)
@@ -124,7 +221,11 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 		}
 	}
 	if owner.Role != db.RoleAdmin {
-		secured, err := sandbox.ValidateComposeSecurity(base)
+		hostWs := ""
+		if p.Store != nil {
+			hostWs = p.Store.Path(appID)
+		}
+		secured, err := sandbox.ValidateComposeSecurity(base, hostWs)
 		if err != nil {
 			return fmt.Errorf("security sandbox error: %w", err)
 		}
@@ -192,7 +293,11 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 		}
 	}
 	if owner.Role != db.RoleAdmin {
-		secured, err := sandbox.ValidateComposeSecurity(base)
+		hostWs := ""
+		if p.Store != nil {
+			hostWs = p.Store.Path(appID)
+		}
+		secured, err := sandbox.ValidateComposeSecurity(base, hostWs)
 		if err != nil {
 			return nil, fmt.Errorf("security sandbox error: %w", err)
 		}
@@ -445,6 +550,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err := db.ValidateAppDomainFileServing(&d); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
+	if err := p.validateAppFileServingPaths(c.UserContext(), id, &d); err != nil {
+		return c.Status(400).SendString(err.Error())
+	}
 	newID, err := p.DB.CreateAppDomain(c.UserContext(), d)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -569,6 +677,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		stripDomainFileServing(&d)
 	}
 	if err := db.ValidateAppDomainFileServing(&d); err != nil {
+		return c.Status(400).SendString(err.Error())
+	}
+	if err := p.validateAppFileServingPaths(c.UserContext(), id, &d); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
@@ -740,7 +851,7 @@ func (p *Panel) CaddyOverview(c *fiber.Ctx) error {
 	caddyCfg, _ := p.DB.GetAllCaddyConfig(ctx)
 	adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
 	if adminAPI == "" {
-		adminAPI = "http://caddy:2019"
+		adminAPI = caddy.DefaultAdminAPI
 	}
 
 	liveConfig, err := caddy.AdminConfigGet(ctx, adminAPI)

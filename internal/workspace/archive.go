@@ -132,7 +132,7 @@ func (s *Store) extractTarStream(wsID, base string, r io.Reader, headerBuf []byt
 
 			// Compose security inspection
 			if baseName == "docker-compose.yml" || baseName == "docker-compose.yaml" || baseName == "compose.yml" || baseName == "compose.yaml" {
-				if err := sandbox.CheckComposeSecurity(buf.Bytes()); err != nil {
+				if err := sandbox.CheckComposeSecurity(buf.Bytes(), base); err != nil {
 					return extractedFiles, totalBytes, fmt.Errorf("insecure compose file in archive (%s): %w", rawName, err)
 				}
 			}
@@ -236,7 +236,7 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 		totalBytes += n
 
 		if baseName == "docker-compose.yml" || baseName == "docker-compose.yaml" || baseName == "compose.yml" || baseName == "compose.yaml" {
-			if err := sandbox.CheckComposeSecurity(buf.Bytes()); err != nil {
+			if err := sandbox.CheckComposeSecurity(buf.Bytes(), base); err != nil {
 				return extractedFiles, totalBytes, fmt.Errorf("insecure compose file in archive (%s): %w", rawName, err)
 			}
 		}

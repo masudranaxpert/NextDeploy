@@ -50,13 +50,15 @@ func (m *Manager) InstallWordPress(ctx context.Context, site db.PHPSite, o WPOpt
 		return err
 	}
 	htdocs := DocRoot(site.AppID, "")
+	primary, allowed := m.ResolveAllowedDomains(ctx, site.AppID, o.URL)
+	hostSnippet := BuildDynamicWPHostSnippet(primary, allowed)
 	steps := []struct {
 		name string
 		cmd  string
 	}{
 		{"Downloading WordPress", fmt.Sprintf("wp core download --path=%s --locale=en_US", shellQuote(htdocs))},
-		{"Writing wp-config.php", fmt.Sprintf("wp config create --path=%s --dbname=%s --dbuser=%s --dbpass=%s --dbhost=%s --dbcharset=utf8mb4 --skip-check --extra-php <<'PHP'\ndefine('FS_METHOD', 'direct');\ndefine('WP_AUTO_UPDATE_CORE', 'minor');\nif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {\n    $_SERVER['HTTPS'] = 'on';\n}\nif (!defined('WP_HOME') && isset($_SERVER['HTTP_HOST'])) {\n    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')) ? 'https://' : 'http://';\n    define('WP_HOME', $proto . $_SERVER['HTTP_HOST']);\n    define('WP_SITEURL', $proto . $_SERVER['HTTP_HOST']);\n}\nPHP",
-			shellQuote(htdocs), shellQuote(o.DBName), shellQuote(o.DBUser), shellQuote(o.DBPass), MySQLContainer)},
+		{"Writing wp-config.php", fmt.Sprintf("wp config create --path=%s --dbname=%s --dbuser=%s --dbpass=%s --dbhost=%s --dbcharset=utf8mb4 --skip-check --extra-php <<'PHP'\ndefine('FS_METHOD', 'direct');\ndefine('WP_AUTO_UPDATE_CORE', 'minor');\nif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {\n    $_SERVER['HTTPS'] = 'on';\n}\n%s\nPHP",
+			shellQuote(htdocs), shellQuote(o.DBName), shellQuote(o.DBUser), shellQuote(o.DBPass), MySQLContainer, hostSnippet)},
 		{"Installing WordPress", fmt.Sprintf("wp core install --path=%s --url=%s --title=%s --admin_user=%s --admin_password=%s --admin_email=%s --skip-email",
 			shellQuote(htdocs), shellQuote(o.URL), shellQuote(o.Title), shellQuote(o.AdminUser), shellQuote(o.AdminPass), shellQuote(o.AdminEmail))},
 	}
@@ -83,14 +85,109 @@ func (m *Manager) InstallWordPress(ctx context.Context, site db.PHPSite, o WPOpt
 	return nil
 }
 
-const dynamicWPHostSnippet = `if (!defined('WP_HOME') && isset($_SERVER['HTTP_HOST'])) {
-    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')) ? 'https://' : 'http://';
-    define('WP_HOME', $proto . $_SERVER['HTTP_HOST']);
-    define('WP_SITEURL', $proto . $_SERVER['HTTP_HOST']);
-}`
+var (
+	oldDynamicWPHostPattern = regexp.MustCompile(`(?s)if \(!defined\('WP_HOME'\) && isset\(\$_SERVER\['HTTP_HOST'\]\)\) \{.*?define\('WP_SITEURL', \$proto \. \$_SERVER\['HTTP_HOST'\]\);\s*\}`)
+	nextDeployHostPattern   = regexp.MustCompile(`(?s)// NextDeploy: Dynamic host validation.*?define\('WP_SITEURL', \$proto \. \$target_host\);\s*\}`)
+)
+
+// ResolveAllowedDomains returns the primary domain and all registered domain aliases (including www variants if enabled).
+func (m *Manager) ResolveAllowedDomains(ctx context.Context, appID string, fallbackURL ...string) (primary string, allowed []string) {
+	seen := map[string]bool{}
+	add := func(h string) string {
+		h = strings.ToLower(strings.TrimSpace(h))
+		h = strings.TrimPrefix(h, "https://")
+		h = strings.TrimPrefix(h, "http://")
+		if idx := strings.Index(h, "/"); idx != -1 {
+			h = h[:idx]
+		}
+		if idx := strings.Index(h, ":"); idx != -1 {
+			h = h[:idx]
+		}
+		if h != "" && !seen[h] {
+			seen[h] = true
+			allowed = append(allowed, h)
+		}
+		return h
+	}
+
+	if m.DB != nil {
+		doms, err := m.DB.ListAppDomains(ctx, appID)
+		if err == nil {
+			for _, d := range doms {
+				dom := strings.ToLower(strings.TrimSpace(d.Domain))
+				if dom == "" {
+					continue
+				}
+				cleanDom := add(dom)
+				if d.IsPrimary && primary == "" && cleanDom != "" {
+					primary = cleanDom
+				}
+				if d.EnableWWW && cleanDom != "" {
+					if strings.HasPrefix(cleanDom, "www.") {
+						add(strings.TrimPrefix(cleanDom, "www."))
+					} else {
+						add("www." + cleanDom)
+					}
+				}
+			}
+		}
+	}
+
+	if primary == "" && len(allowed) > 0 {
+		primary = allowed[0]
+	}
+
+	if primary == "" && len(fallbackURL) > 0 && fallbackURL[0] != "" {
+		cleaned := add(fallbackURL[0])
+		if cleaned != "" {
+			primary = cleaned
+		}
+	}
+
+	if primary == "" {
+		primary = "localhost"
+	}
+
+	return primary, allowed
+}
+
+// BuildDynamicWPHostSnippet generates PHP code that validates HTTP_HOST against allowed domains,
+// falling back safely to the primary domain to prevent Host Header Injection attacks.
+func BuildDynamicWPHostSnippet(primary string, allowed []string) string {
+	primary = strings.TrimSpace(primary)
+	if primary == "" {
+		if len(allowed) > 0 {
+			primary = allowed[0]
+		} else {
+			primary = "localhost"
+		}
+	}
+	var b strings.Builder
+	b.WriteString("// NextDeploy: Dynamic host validation (protects against Host header injection)\n")
+	b.WriteString("$allowed_hosts = array(\n")
+	for _, h := range allowed {
+		h = strings.TrimSpace(h)
+		if h != "" {
+			b.WriteString(fmt.Sprintf("    '%s',\n", strings.ReplaceAll(h, "'", "\\'")))
+		}
+	}
+	b.WriteString(");\n")
+	b.WriteString(fmt.Sprintf("$primary_host = '%s';\n", strings.ReplaceAll(primary, "'", "\\'")))
+	b.WriteString(`$raw_host = isset($_SERVER['HTTP_HOST']) ? strtolower(trim($_SERVER['HTTP_HOST'])) : '';
+$raw_host = preg_replace('/:[0-9]+$/', '', $raw_host);
+$target_host = in_array($raw_host, $allowed_hosts, true) ? $raw_host : $primary_host;
+$proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false)) ? 'https://' : 'http://';
+if (!defined('WP_HOME')) {
+    define('WP_HOME', $proto . $target_host);
+}
+if (!defined('WP_SITEURL')) {
+    define('WP_SITEURL', $proto . $target_host);
+}`)
+	return b.String()
+}
 
 // EnsureDynamicWPHost ensures wp-config.php contains dynamic WP_HOME / WP_SITEURL definitions
-// to prevent redirect loops when accessing via custom domains, aliases, or sslip.io.
+// with strict domain whitelist validation to prevent Host header injection and redirect loops.
 func (m *Manager) EnsureDynamicWPHost(appID string) error {
 	configPath := filepath.Join(m.SitePath(appID), "htdocs", "wp-config.php")
 	data, err := os.ReadFile(configPath)
@@ -98,6 +195,22 @@ func (m *Manager) EnsureDynamicWPHost(appID string) error {
 		return err
 	}
 	content := string(data)
+	primary, allowed := m.ResolveAllowedDomains(context.Background(), appID)
+	newSnippet := BuildDynamicWPHostSnippet(primary, allowed)
+
+	if nextDeployHostPattern.MatchString(content) {
+		newContent := nextDeployHostPattern.ReplaceAllLiteralString(content, newSnippet)
+		if newContent != content {
+			return os.WriteFile(configPath, []byte(newContent), 0640)
+		}
+		return nil
+	}
+
+	if oldDynamicWPHostPattern.MatchString(content) {
+		newContent := oldDynamicWPHostPattern.ReplaceAllLiteralString(content, newSnippet)
+		return os.WriteFile(configPath, []byte(newContent), 0640)
+	}
+
 	if strings.Contains(content, "WP_HOME") || strings.Contains(content, "WP_SITEURL") {
 		return nil
 	}
@@ -105,13 +218,13 @@ func (m *Manager) EnsureDynamicWPHost(appID string) error {
 	target := "/* Add any custom values between this line and the \"stop editing\" line. */"
 	if idx := strings.Index(content, target); idx != -1 {
 		insertPoint := idx + len(target)
-		newContent := content[:insertPoint] + "\n\n" + dynamicWPHostSnippet + "\n" + content[insertPoint:]
+		newContent := content[:insertPoint] + "\n\n" + newSnippet + "\n" + content[insertPoint:]
 		return os.WriteFile(configPath, []byte(newContent), 0640)
 	}
 
 	target = "require_once"
 	if idx := strings.Index(content, target); idx != -1 {
-		newContent := content[:idx] + dynamicWPHostSnippet + "\n\n" + content[idx:]
+		newContent := content[:idx] + newSnippet + "\n\n" + content[idx:]
 		return os.WriteFile(configPath, []byte(newContent), 0640)
 	}
 	return nil

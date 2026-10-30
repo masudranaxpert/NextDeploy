@@ -111,6 +111,11 @@ export const CaddyProxyView: React.FC<{
     if (Array.isArray(caddyInfo?.shared_volumes)) {
       setSelectedSharedVolumes(caddyInfo.shared_volumes.filter(Boolean));
     }
+    if (typeof caddyInfo?.config?.admin_api === 'string' && caddyInfo.config.admin_api) {
+      setCaddyAdminApi(caddyInfo.config.admin_api);
+    } else {
+      setCaddyAdminApi('off');
+    }
   }, [caddyInfo]);
 
   const [applyBanner, setApplyBanner] = useState<{
@@ -128,7 +133,7 @@ export const CaddyProxyView: React.FC<{
   const [volumeFilter, setVolumeFilter] = useState('');
 
   // 3. Proxy Control card (POST /caddy/config & POST /caddy/container)
-  const [caddyAdminApi, setCaddyAdminApi] = useState('http://caddy:2019');
+  const [caddyAdminApi, setCaddyAdminApi] = useState(caddyInfo?.config?.admin_api || 'off');
   const [acmeEmail, setAcmeEmail] = useState('');
   const [caddyImage, setCaddyImage] = useState('lucaslorentz/caddy-docker-proxy:ci-alpine');
   const [caddyContainerRunning, setCaddyContainerRunning] = useState(true);
@@ -314,7 +319,7 @@ ${externalVolDefs}`;
     );
     return JSON.stringify(
       {
-        admin: { listen: caddyAdminApi },
+        admin: caddyAdminApi === 'off' ? { disabled: true } : { listen: caddyAdminApi },
         apps: {
           http: {
             servers: {
@@ -684,7 +689,7 @@ ${externalVolDefs}`;
               type="text"
               value={caddyAdminApi}
               onChange={(e) => setCaddyAdminApi(e.target.value)}
-              placeholder="http://caddy:2019"
+              placeholder="off"
               className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
             />
           </div>

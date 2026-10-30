@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// DefaultDisableFunctions lists dangerous command execution and process spawning functions disabled by default.
+const DefaultDisableFunctions = "exec,passthru,shell_exec,system,proc_open,popen,show_source,pcntl_exec"
+
 // PoolSpec describes one FPM pool (one per site).
 type PoolSpec struct {
 	AppID    string
@@ -107,11 +110,23 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("decorate_workers_output = no")
 	w("clear_env = yes")
 	w("env[HOME] = %s", tmp)
-	w("env[TMPDIR] = %s", tmp)
-	w("php_admin_value[open_basedir] = %s:/tmp:/usr/local/lib/php:/dev/urandom", site)
+	w("php_admin_value[open_basedir] = %s:/usr/local/lib/php:/dev/urandom", site)
 	w("php_admin_value[sys_temp_dir] = %s", tmp)
 	w("php_admin_value[upload_tmp_dir] = %s", tmp)
 	w("php_admin_value[session.save_path] = %s", tmp)
+	w("php_admin_flag[opcache.validate_permission] = on")
+	w("php_admin_flag[opcache.validate_root] = on")
+	if !s.AllowShellFunctions {
+		dis := strings.TrimSpace(s.DisableFunctions)
+		if dis == "" {
+			dis = DefaultDisableFunctions
+		}
+		w("php_admin_value[disable_functions] = %s", dis)
+	} else if s.DisableFunctions != "" {
+		w("php_admin_value[disable_functions] = %s", strings.TrimSpace(s.DisableFunctions))
+	} else {
+		w("php_admin_value[disable_functions] = \"\"")
+	}
 	w("php_admin_value[error_log] = %s/php-error.log", logs)
 	w("php_admin_flag[log_errors] = on")
 	w("php_admin_flag[display_errors] = off")

@@ -337,6 +337,23 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
                 </select>
               </Field>
             </div>
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.02] p-3.5">
+              <div className="min-w-0 pr-4">
+                <div className="text-xs font-medium text-zinc-200">Allow Shell &amp; Process Execution</div>
+                <p className="mt-0.5 text-[11px] text-zinc-400">
+                  Enables shell_exec, exec, system, proc_open, popen, passthru. Disabled by default to protect against remote code execution.
+                </p>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center shrink-0">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={!!form.allow_shell_functions}
+                  onChange={(e) => set('allow_shell_functions', e.target.checked)}
+                />
+                <div className="h-5 w-9 rounded-full bg-zinc-800 peer-checked:bg-orange-500 after:absolute after:top-[2px] after:left-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full" />
+              </label>
+            </div>
             <div className="mt-4">
               <Field label="Additional php.ini directives">
                 <textarea className={textareaCls} rows={4} value={form.additional} onChange={(e) => set('additional', e.target.value)} placeholder="one per line, e.g. opcache.enable = 0" />

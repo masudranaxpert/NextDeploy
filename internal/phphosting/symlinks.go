@@ -65,10 +65,10 @@ func (m *Manager) SweepSymlinks(appID string) int {
 	return removed
 }
 
-// StartSymlinkSweeper checks every PHP site once a minute.
+// StartSymlinkSweeper continuously checks PHP sites to stop TOCTOU symlink traversal.
 func (m *Manager) StartSymlinkSweeper(ctx context.Context) {
 	go func() {
-		t := time.NewTicker(time.Minute)
+		t := time.NewTicker(3 * time.Second)
 		defer t.Stop()
 		for {
 			select {

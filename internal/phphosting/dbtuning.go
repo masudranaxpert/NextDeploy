@@ -173,13 +173,45 @@ func (m *Manager) sqlPreferring(ctx context.Context, preferred, plain string) (s
 	return out, err
 }
 
+// CalcUserConnections scales the user's MAX_USER_CONNECTIONS limit dynamically based on
+// the site's PHP-FPM max_children and memory ceiling instead of a static cap.
+func CalcUserConnections(maxChildren, memoryMB int) int {
+	if maxChildren <= 0 {
+		maxChildren = 10
+	}
+	if memoryMB <= 0 {
+		memoryMB = 256
+	}
+	needed := maxChildren + 15
+	byMem := memoryMB / 16
+	conns := needed
+	if byMem > conns {
+		conns = byMem
+	}
+	if conns < 30 {
+		conns = 30
+	}
+	if conns > 300 {
+		conns = 300
+	}
+	return conns
+}
+
 // createLimitedUser creates a site database user with its connection and query limits.
-func (m *Manager) createLimitedUser(ctx context.Context, user, password string) error {
+func (m *Manager) createLimitedUser(ctx context.Context, user, password string, appID ...string) error {
 	image := m.mysqlImage(ctx)
+	conns := 30
+	if len(appID) > 0 && appID[0] != "" && m.DB != nil {
+		site, err := m.DB.GetPHPSite(ctx, appID[0])
+		if err == nil && site.AppID != "" {
+			s := ParseSettings(site.SettingsJSON)
+			conns = CalcUserConnections(s.MaxChildren, SizeToMB(s.MemoryLimit))
+		}
+	}
 	base := fmt.Sprintf("CREATE USER %s@'%%' IDENTIFIED BY %s ", SQLString(user), SQLString(password))
 	_, err := m.sqlPreferring(ctx,
-		base+userLimitClause(image, 25, m.querySeconds(ctx))+";",
-		base+"WITH MAX_USER_CONNECTIONS 25;")
+		base+userLimitClause(image, conns, m.querySeconds(ctx))+";",
+		base+fmt.Sprintf("WITH MAX_USER_CONNECTIONS %d;", conns))
 	return err
 }
 
@@ -208,31 +240,67 @@ func (m *Manager) ApplyQueryLimits(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	users := map[string]bool{}
+	userConns := map[string]int{}
 	for _, s := range sites {
+		settings := ParseSettings(s.SettingsJSON)
+		conns := CalcUserConnections(settings.MaxChildren, SizeToMB(settings.MemoryLimit))
+
 		dbs, _ := m.DB.ListPHPDatabases(ctx, s.AppID)
 		for _, d := range dbs {
 			if d.DBUser != "" && ValidIdent(d.DBUser) {
-				users[d.DBUser] = true
+				if existing, ok := userConns[d.DBUser]; !ok || conns > existing {
+					userConns[d.DBUser] = conns
+				}
 			}
 		}
 		list, _ := m.DB.ListPHPDBUsers(ctx, s.AppID)
 		for _, u := range list {
 			if ValidIdent(u.UserName) {
-				users[u.UserName] = true
+				if existing, ok := userConns[u.UserName]; !ok || conns > existing {
+					userConns[u.UserName] = conns
+				}
 			}
 		}
 	}
 	secs := m.querySeconds(ctx)
 	failed := false
-	for u := range users {
-		if _, err := m.sql(ctx, fmt.Sprintf("ALTER USER %s@'%%' %s;", SQLString(u), userLimitClause(image, 25, secs))); err != nil {
+	for u, conns := range userConns {
+		if _, err := m.sql(ctx, fmt.Sprintf("ALTER USER %s@'%%' %s;", SQLString(u), userLimitClause(image, conns, secs))); err != nil {
 			log.Printf("php database: query limit for %s: %v", u, err)
 			failed = true
 		}
 	}
 	if !failed {
 		_ = m.DB.SetSetting(ctx, settingQueryLimitsDone, "1")
+	}
+}
+
+// SyncSiteDBLimits dynamically updates database connection limits for a site's database users
+// when site settings (like max_children and memory_limit) change.
+func (m *Manager) SyncSiteDBLimits(ctx context.Context, appID string) {
+	if !m.MySQLEnabled(ctx) || !m.MySQLStatus(ctx).Ready || m.DB == nil {
+		return
+	}
+	site, err := m.DB.GetPHPSite(ctx, appID)
+	if err != nil || site.AppID == "" {
+		return
+	}
+	s := ParseSettings(site.SettingsJSON)
+	conns := CalcUserConnections(s.MaxChildren, SizeToMB(s.MemoryLimit))
+	image := m.mysqlImage(ctx)
+	secs := m.querySeconds(ctx)
+
+	dbs, _ := m.DB.ListPHPDatabases(ctx, appID)
+	for _, d := range dbs {
+		if d.DBUser != "" && ValidIdent(d.DBUser) {
+			_, _ = m.sql(ctx, fmt.Sprintf("ALTER USER %s@'%%' %s;", SQLString(d.DBUser), userLimitClause(image, conns, secs)))
+		}
+	}
+	users, _ := m.DB.ListPHPDBUsers(ctx, appID)
+	for _, u := range users {
+		if ValidIdent(u.UserName) {
+			_, _ = m.sql(ctx, fmt.Sprintf("ALTER USER %s@'%%' %s;", SQLString(u.UserName), userLimitClause(image, conns, secs)))
+		}
 	}
 }
 

@@ -2,6 +2,9 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -290,3 +293,86 @@ func TestValidateAndClampCompose_BuildContextEscapeBlocked(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateComposeSecurity_SymlinkBindMountBlocked(t *testing.T) {
+	wsDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// 1. Create escaping symlink inside workspace pointing to outside directory
+	escapingLink := filepath.Join(wsDir, "escape_link")
+	if err := os.Symlink(outsideDir, escapingLink); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create escaping symlink pointing to /var/run/docker.sock (or / if socket doesn't exist)
+	targetSock := "/var/run/docker.sock"
+	if _, err := os.Stat(targetSock); err != nil {
+		targetSock = "/"
+	}
+	sockLink := filepath.Join(wsDir, "sock_link")
+	if err := os.Symlink(targetSock, sockLink); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Compose mounting the escaping symlink
+	composeBad := `
+services:
+  web:
+    image: nginx:alpine
+    volumes:
+      - ./escape_link:/data
+`
+	if _, err := ValidateComposeSecurity([]byte(composeBad), wsDir); err == nil {
+		t.Fatal("expected compose with escaping symlink to be blocked, but it passed")
+	} else if !strings.Contains(err.Error(), "resolves via symlink") {
+		t.Fatalf("expected symlink escape security error, got: %v", err)
+	}
+
+	composeSock := `
+services:
+  web:
+    image: nginx:alpine
+    volumes:
+      - ./sock_link:/var/run/docker.sock
+`
+	if _, err := ValidateComposeSecurity([]byte(composeSock), wsDir); err == nil {
+		t.Fatal("expected compose with escaping socket symlink to be blocked, but it passed")
+	} else if !strings.Contains(err.Error(), "resolves via symlink") {
+		t.Fatalf("expected symlink escape security error, got: %v", err)
+	}
+
+	// 4. Broken escaping symlink (pointing to non-existent path outside workspace)
+	brokenLink := filepath.Join(wsDir, "broken_escape_link")
+	if err := os.Symlink("/var/run/nonexistent_socket_target", brokenLink); err != nil {
+		t.Fatal(err)
+	}
+	composeBroken := `
+services:
+  web:
+    image: nginx:alpine
+    volumes:
+      - ./broken_escape_link:/data
+`
+	if _, err := ValidateComposeSecurity([]byte(composeBroken), wsDir); err == nil {
+		t.Fatal("expected compose with broken escaping symlink to be blocked, but it passed")
+	} else if !strings.Contains(err.Error(), "resolves via symlink") {
+		t.Fatalf("expected symlink escape security error for broken symlink, got: %v", err)
+	}
+
+	// 5. Safe internal directory should succeed
+	safeDir := filepath.Join(wsDir, "safe_dir")
+	if err := os.MkdirAll(safeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	composeGood := `
+services:
+  web:
+    image: nginx:alpine
+    volumes:
+      - ./safe_dir:/data
+`
+	if _, err := ValidateComposeSecurity([]byte(composeGood), wsDir); err != nil {
+		t.Fatalf("expected safe compose to pass, got: %v", err)
+	}
+}
+

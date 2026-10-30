@@ -156,7 +156,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			caddyStatusMu.Unlock()
 			adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
 			if adminAPI == "" {
-				adminAPI = "http://caddy:2019"
+				adminAPI = caddy.DefaultAdminAPI
 			}
 			caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
 			if !caddyUp && (strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {

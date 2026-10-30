@@ -292,7 +292,7 @@ var ErrDatabaseExists = fmt.Errorf("a database or user with this name already ex
 // CreateDatabase creates a database plus a user that can only use that database. It never
 // touches anything that already exists: on a name clash it fails before changing anything,
 // and when a later step fails it removes only what this call created.
-func (m *Manager) CreateDatabase(ctx context.Context, dbName, dbUser, password string) error {
+func (m *Manager) CreateDatabase(ctx context.Context, dbName, dbUser, password string, appID ...string) error {
 	if !ValidIdent(dbName) || !ValidIdent(dbUser) {
 		return fmt.Errorf("invalid database or user name")
 	}
@@ -311,7 +311,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, dbName, dbUser, password s
 		}
 		return err
 	}
-	if err := m.createLimitedUser(ctx, dbUser, password); err != nil {
+	if err := m.createLimitedUser(ctx, dbUser, password, appID...); err != nil {
 		_, _ = m.sql(context.Background(), "DROP DATABASE IF EXISTS "+SQLIdent(dbName)+";")
 		if strings.Contains(strings.ToLower(err.Error()), "exists") {
 			return ErrDatabaseExists
@@ -507,7 +507,7 @@ func (m *Manager) DropDatabaseKeepUsers(ctx context.Context, dbName string, user
 }
 
 // CreateDBUser creates a user that can log in but has no privileges until it is granted a database.
-func (m *Manager) CreateDBUser(ctx context.Context, user, password string) error {
+func (m *Manager) CreateDBUser(ctx context.Context, user, password string, appID ...string) error {
 	if !ValidIdent(user) {
 		return fmt.Errorf("invalid user name")
 	}
@@ -518,7 +518,7 @@ func (m *Manager) CreateDBUser(ctx context.Context, user, password string) error
 	if strings.TrimSpace(out) != "0" {
 		return ErrDatabaseExists
 	}
-	return m.createLimitedUser(ctx, user, password)
+	return m.createLimitedUser(ctx, user, password, appID...)
 }
 
 func (m *Manager) DropDBUser(ctx context.Context, user string) error {

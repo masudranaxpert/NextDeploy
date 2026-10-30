@@ -80,6 +80,7 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	}
 	labels[prefix+".file_server.precompressed"] = "gzip zstd"
 	labels[prefix+".file_server"] = `{{""}}`
+	labels[prefix+".file_server.hide"] = ".git .env* *.sql *.db *.sqlite *.key *.sock"
 }
 
 // SiteSecurity is the per-site protection that Caddy enforces before a request reaches PHP.

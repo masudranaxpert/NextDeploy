@@ -5,7 +5,7 @@ services:
     caddy:
         container_name: caddy
         environment:
-            - CADDY_ADMIN=0.0.0.0:2019
+            - CADDY_ADMIN=off
             - CADDY_DOCKER_EVENT_THROTTLE_INTERVAL=50ms
             - CADDY_DOCKER_POLLING_INTERVAL=5s
             - CADDY_INGRESS_NETWORKS=NextDeploy

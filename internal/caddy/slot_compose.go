@@ -435,6 +435,7 @@ func appendSlotSiteLabels(labels map[string]string, prefix string, d db.AppDomai
 			labels[base] = path
 			labels[base+".0_root"] = "* " + root
 			labels[base+".1_file_server"] = `{{""}}`
+			labels[base+".1_file_server.hide"] = ".git .env* *.sql *.db *.sqlite *.key *.sock"
 			order++
 			continue
 		}

@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	DefaultAdminAPI    = "http://caddy:2019"
+	DefaultAdminAPI    = "off"
 	CaddyContainerName = "caddy"
 	CaddyImage         = "lucaslorentz/caddy-docker-proxy:ci-alpine"
 	CaddyNetwork       = "NextDeploy"
@@ -189,6 +189,9 @@ func AdminStatus(ctx context.Context, adminAPI string) (bool, string) {
 	if adminAPI == "" {
 		adminAPI = DefaultAdminAPI
 	}
+	if adminAPI == "off" || strings.EqualFold(adminAPI, "off") {
+		return true, "running (admin API disabled for security)"
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, adminAPI+"/config/", nil)
 	if err != nil {
@@ -210,6 +213,9 @@ func AdminStatus(ctx context.Context, adminAPI string) (bool, string) {
 func AdminConfigGet(ctx context.Context, adminAPI string) (string, error) {
 	if adminAPI == "" {
 		adminAPI = DefaultAdminAPI
+	}
+	if adminAPI == "off" || strings.EqualFold(adminAPI, "off") {
+		return "{\n  \"message\": \"Caddy Admin API is disabled (CADDY_ADMIN=off) for security\"\n}", nil
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, adminAPI+"/config/", nil)
@@ -233,6 +239,9 @@ func AdminConfigGet(ctx context.Context, adminAPI string) (string, error) {
 func AdminConfigPost(ctx context.Context, adminAPI, jsonConfig string) error {
 	if adminAPI == "" {
 		adminAPI = DefaultAdminAPI
+	}
+	if adminAPI == "off" || strings.EqualFold(adminAPI, "off") {
+		return fmt.Errorf("caddy admin API is disabled for security (CADDY_ADMIN=off)")
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, adminAPI+"/load",
@@ -635,7 +644,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	attachNetwork(caddySvc, PanelNetworkKey)
 	mergeEnv(caddySvc, map[string]string{
 		"CADDY_INGRESS_NETWORKS":              PanelNetworkName,
-		"CADDY_ADMIN":                         "0.0.0.0:2019",
+		"CADDY_ADMIN":                         "off",
 		"CADDY_DOCKER_POLLING_INTERVAL":        "5s",
 		"CADDY_DOCKER_EVENT_THROTTLE_INTERVAL": "50ms",
 	})
@@ -745,6 +754,7 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 			labels[base] = path
 			labels[base+".0_root"] = "* " + root
 			labels[base+".1_file_server"] = `{{""}}`
+			labels[base+".1_file_server.hide"] = ".git .env* *.sql *.db *.sqlite *.key *.sock"
 			order++
 			continue
 		}

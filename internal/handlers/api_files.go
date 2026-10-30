@@ -341,7 +341,11 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 
 	cleanRel := filepath.ToSlash(strings.Trim(reqPath, "/"))
 	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
-		if err := sandbox.CheckComposeSecurity([]byte(content)); err != nil {
+		hostWs := ""
+		if p.Store != nil {
+			hostWs = p.Store.Path(appID)
+		}
+		if err := sandbox.CheckComposeSecurity([]byte(content), hostWs); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "compose security check failed: " + err.Error()})
 		}
 	}

@@ -3,6 +3,7 @@ package sandbox
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -81,28 +82,94 @@ func isHostBindPath(src string) bool {
 	return false
 }
 
-func ValidateComposeSecurity(composeBytes []byte) ([]byte, error) {
-	return validateCompose(composeBytes, false, 0, 0)
+func ValidateComposeSecurity(composeBytes []byte, workspaceDir ...string) ([]byte, error) {
+	ws := ""
+	if len(workspaceDir) > 0 {
+		ws = workspaceDir[0]
+	}
+	return validateCompose(composeBytes, false, 0, 0, ws)
 }
 
-func CheckComposeSecurity(composeBytes []byte) error {
-	_, err := ValidateComposeSecurity(composeBytes)
+func CheckComposeSecurity(composeBytes []byte, workspaceDir ...string) error {
+	_, err := ValidateComposeSecurity(composeBytes, workspaceDir...)
 	return err
 }
 
 func ApplyResourceLimits(composeBytes []byte, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
-	return validateCompose(composeBytes, true, maxCPUs, maxMemoryMB)
+	return validateCompose(composeBytes, true, maxCPUs, maxMemoryMB, "")
 }
 
-func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
-	secured, err := ValidateComposeSecurity(composeBytes)
+func ValidateAndClampCompose(composeBytes []byte, maxCPUs float64, maxMemoryMB int, workspaceDir ...string) ([]byte, error) {
+	secured, err := ValidateComposeSecurity(composeBytes, workspaceDir...)
 	if err != nil {
 		return nil, err
 	}
 	return ApplyResourceLimits(secured, maxCPUs, maxMemoryMB)
 }
 
-func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, maxMemoryMB int) ([]byte, error) {
+func checkBindMountSource(src, svcName, workspaceDir string) error {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return nil
+	}
+	if isHostBindPath(src) {
+		return fmt.Errorf("host bind mount %q is blocked on service %q. Only named volumes or relative paths inside workspace are permitted", src, svcName)
+	}
+
+	cleanSrc := filepath.Clean(src)
+	isBind := strings.HasPrefix(src, ".") || strings.Contains(src, "/") || strings.Contains(src, "\\")
+	if !isBind {
+		return nil
+	}
+
+	ws := workspaceDir
+	if ws == "" {
+		ws = "."
+	}
+
+	realWs, err := filepath.EvalSymlinks(ws)
+	if err != nil {
+		realWs, _ = filepath.Abs(ws)
+	}
+
+	target := filepath.Join(ws, cleanSrc)
+	existing := target
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing || len(parent) < len(ws) {
+			break
+		}
+		existing = parent
+	}
+
+	if fi, err := os.Lstat(existing); err == nil {
+		realTarget, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			rel, err := filepath.Rel(realWs, realTarget)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				return fmt.Errorf("security error: host bind mount %q on service %q resolves via symlink to %q outside workspace directory %q", src, svcName, realTarget, ws)
+			}
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			if target, rerr := os.Readlink(existing); rerr == nil {
+				absTarget := target
+				if !filepath.IsAbs(absTarget) {
+					absTarget = filepath.Join(filepath.Dir(existing), target)
+				}
+				absTarget = filepath.Clean(absTarget)
+				rel, err := filepath.Rel(realWs, absTarget)
+				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+					return fmt.Errorf("security error: host bind mount %q on service %q resolves via symlink to %q outside workspace directory %q", src, svcName, absTarget, ws)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, maxMemoryMB int, workspaceDir string) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(composeBytes, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse compose file: %w", err)
@@ -315,15 +382,15 @@ func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, max
 						parts := strings.SplitN(v, ":", 2)
 						if len(parts) > 0 {
 							src := parts[0]
-							if isHostBindPath(src) {
-								return nil, fmt.Errorf("host bind mount %q is blocked on service %q. Only named volumes or relative paths inside workspace are permitted", src, svcName)
+							if err := checkBindMountSource(src, svcName, workspaceDir); err != nil {
+								return nil, err
 							}
 						}
 					case map[string]interface{}:
 						if t, ok3 := v["type"].(string); ok3 && t == "bind" {
 							if src, ok4 := v["source"].(string); ok4 {
-								if isHostBindPath(src) {
-									return nil, fmt.Errorf("host bind mount %q is blocked on service %q. Only named volumes or relative paths inside workspace are permitted", src, svcName)
+								if err := checkBindMountSource(src, svcName, workspaceDir); err != nil {
+									return nil, err
 								}
 							}
 						}
@@ -333,8 +400,8 @@ func validateCompose(composeBytes []byte, applyLimits bool, maxCPUs float64, max
 						if hasType && hasSource {
 							if t, ok3 := tRaw.(string); ok3 && t == "bind" {
 								if src, ok4 := srcRaw.(string); ok4 {
-									if isHostBindPath(src) {
-										return nil, fmt.Errorf("host bind mount %q is blocked on service %q. Only named volumes or relative paths inside workspace are permitted", src, svcName)
+									if err := checkBindMountSource(src, svcName, workspaceDir); err != nil {
+										return nil, err
 									}
 								}
 							}

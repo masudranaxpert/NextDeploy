@@ -17,7 +17,7 @@ export const systemAndTokensApi = {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: toFormBody({
-          admin_api: 'http://127.0.0.1:2019',
+          admin_api: 'off',
           email: 'masud132213@gmail.com',
           caddy_image: 'lucaslorentz/caddy-docker-proxy:2.9-alpine',
         }),

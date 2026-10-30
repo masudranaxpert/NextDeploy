@@ -1,6 +1,7 @@
 package phphosting
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,10 @@ func TestRenderPoolConfinesSite(t *testing.T) {
 		"[site-20007]", "user = 20007", "group = 20007",
 		"listen = /run/php/shop-ab12.sock", "listen.mode = 0660",
 		"chdir = /data/workspaces/shop-ab12/htdocs/public",
-		"php_admin_value[open_basedir] = /data/workspaces/shop-ab12:/tmp:/usr/local/lib/php:/dev/urandom",
+		"php_admin_value[open_basedir] = /data/workspaces/shop-ab12:/usr/local/lib/php:/dev/urandom",
+		"php_admin_flag[opcache.validate_permission] = on",
+		"php_admin_flag[opcache.validate_root] = on",
+		"php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,show_source,pcntl_exec",
 		"php_admin_value[memory_limit] = 256M",
 		"php_value[display_startup_errors] = 1", "php_value[zend.assertions] = -1",
 		"pm = dynamic",
@@ -365,3 +369,129 @@ func TestSnapToBinaryRAM(t *testing.T) {
 		}
 	}
 }
+
+func TestCalcUserConnections(t *testing.T) {
+	cases := []struct {
+		children int
+		memMB    int
+		want     int
+	}{
+		{0, 0, 30},           // defaults (10, 256) -> max(25, 16) = 25 -> clamped to min 30
+		{10, 256, 30},        // 10+15=25, 256/16=16 -> min 30
+		{20, 512, 35},        // 20+15=35, 512/16=32 -> 35
+		{50, 2048, 128},      // 50+15=65, 2048/16=128 -> 128
+		{100, 4096, 256},     // 100+15=115, 4096/16=256 -> 256
+		{200, 8192, 300},     // 200+15=215, 8192/16=512 -> clamped to max 300
+	}
+	for _, c := range cases {
+		got := CalcUserConnections(c.children, c.memMB)
+		if got != c.want {
+			t.Errorf("CalcUserConnections(%d, %d) = %d, want %d", c.children, c.memMB, got, c.want)
+		}
+	}
+}
+
+func TestBuildDynamicWPHostSnippet(t *testing.T) {
+	primary := "example.com"
+	allowed := []string{"example.com", "www.example.com", "alias.net"}
+	snippet := BuildDynamicWPHostSnippet(primary, allowed)
+
+	for _, want := range []string{
+		"// NextDeploy: Dynamic host validation",
+		"'example.com'",
+		"'www.example.com'",
+		"'alias.net'",
+		"$primary_host = 'example.com'",
+		"in_array($raw_host, $allowed_hosts, true) ? $raw_host : $primary_host",
+		"define('WP_HOME', $proto . $target_host)",
+		"define('WP_SITEURL', $proto . $target_host)",
+	} {
+		if !strings.Contains(snippet, want) {
+			t.Errorf("BuildDynamicWPHostSnippet missing %q", want)
+		}
+	}
+}
+
+func TestEnsureDynamicWPHost_ReplacesInsecureSnippet(t *testing.T) {
+	tmpDir := t.TempDir()
+	appID := "wp-test1"
+	htdocsDir := filepath.Join(tmpDir, appID, "htdocs")
+	if err := os.MkdirAll(htdocsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldConfig := `<?php
+define('DB_NAME', 'test');
+if (!defined('WP_HOME') && isset($_SERVER['HTTP_HOST'])) {
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')) ? 'https://' : 'http://';
+    define('WP_HOME', $proto . $_SERVER['HTTP_HOST']);
+    define('WP_SITEURL', $proto . $_SERVER['HTTP_HOST']);
+}
+require_once ABSPATH . 'wp-settings.php';
+`
+	configPath := filepath.Join(htdocsDir, "wp-config.php")
+	if err := os.WriteFile(configPath, []byte(oldConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &Manager{WorkspacesRoot: tmpDir}
+	if err := m.EnsureDynamicWPHost(appID); err != nil {
+		t.Fatalf("EnsureDynamicWPHost failed: %v", err)
+	}
+
+	updated, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(updated)
+
+	// Verify old insecure snippet is gone
+	if strings.Contains(content, "define('WP_HOME', $proto . $_SERVER['HTTP_HOST']);") {
+		t.Errorf("old insecure snippet still present in wp-config.php")
+	}
+	// Verify new secure snippet is present
+	if !strings.Contains(content, "// NextDeploy: Dynamic host validation") {
+		t.Errorf("new secure snippet not found in wp-config.php")
+	}
+	if !strings.Contains(content, "$target_host = in_array($raw_host, $allowed_hosts, true) ? $raw_host : $primary_host;") {
+		t.Errorf("host validation logic missing")
+	}
+}
+
+
+func TestResolveAllowedDomains_Sanitization(t *testing.T) {
+	m := &Manager{}
+	primary, allowed := m.ResolveAllowedDomains(context.Background(), "app-1", "https://portal.example.com:8443/wp-admin")
+	if primary != "portal.example.com" {
+		t.Errorf("expected primary 'portal.example.com', got %q", primary)
+	}
+	if len(allowed) != 1 || allowed[0] != "portal.example.com" {
+		t.Errorf("expected allowed ['portal.example.com'], got %v", allowed)
+	}
+}
+
+func TestRenderPoolShellFunctionsToggle(t *testing.T) {
+	// 1. By default: dangerous shell functions disabled
+	sDefault := DefaultSettings()
+	sDefault.AllowShellFunctions = false
+	out, err := RenderPool(PoolSpec{AppID: "test-site", UID: 20001, RootDir: "", Settings: sDefault})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "php_admin_value[disable_functions] = "+DefaultDisableFunctions) {
+		t.Errorf("expected default disabled functions in pool, got:\n%s", out)
+	}
+
+	// 2. When allowed: shell functions enabled / cleared
+	sAllowed := DefaultSettings()
+	sAllowed.AllowShellFunctions = true
+	outAllowed, err := RenderPool(PoolSpec{AppID: "test-site", UID: 20001, RootDir: "", Settings: sAllowed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(outAllowed, DefaultDisableFunctions) {
+		t.Errorf("dangerous functions should not be disabled when AllowShellFunctions is true, got:\n%s", outAllowed)
+	}
+}
+
+
