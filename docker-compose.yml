@@ -12,6 +12,7 @@ services:
         image: lucaslorentz/caddy-docker-proxy:ci-alpine
         labels:
             caddy.auto_https: disable_redirects
+            caddy.metrics: '{{""}}'
         networks:
             - nextdeploy
         ports:

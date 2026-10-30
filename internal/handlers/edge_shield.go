@@ -378,14 +378,15 @@ https:// {{
         header_up X-Forwarded-For {{remote_host}}
         header_up X-Forwarded-Proto https
         flush_interval -1
+        lb_retries 2
         lb_try_duration 5s
         lb_try_interval 250ms
         transport http {{
             {tls_directive}
             tls_server_name {{host}}
             versions 1.1
-            keepalive 90s
-            keepalive_interval 30s
+            keepalive 30s
+            keepalive_interval 15s
             keepalive_idle_conns 256
             keepalive_idle_conns_per_host 64
             response_header_timeout 600s

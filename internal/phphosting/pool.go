@@ -142,6 +142,9 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("php_admin_value[max_input_vars] = %d", s.MaxInputVars)
 	w("php_admin_value[post_max_size] = %s", s.PostMaxSize)
 	w("php_admin_value[upload_max_filesize] = %s", s.UploadMaxFilesize)
+	// Default to a no-op mailer so WordPress wp_mail() returns immediately when no SMTP plugin is configured,
+	// instead of blocking an FPM worker on /usr/sbin/sendmail -> 127.0.0.1:25 connection refused/timeout.
+	w("php_admin_value[sendmail_path] = /bin/true")
 	for _, d := range extra {
 		w("php_value[%s] = %s", d.Key, d.Value)
 	}
