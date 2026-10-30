@@ -406,7 +406,7 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         open={optModalOpen}
         onClose={() => setOptModalOpen(false)}
         siteName={app.name || detail.site.primary_domain || 'WordPress'}
-        plugins={detail.wp_cache_plugins}
+        plugins={detail.wp_cache_plugins || []}
         onRefresh={() => void reload()}
         onPurge={async () => {
           await phpApi.phpPurgeCache(app.id);

@@ -61,7 +61,8 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
     { slug: 'wp-rocket', name: 'WP Rocket', installed: false, has_cache: false, cache_path: '/wp-content/cache/wp-rocket' },
   ];
 
-  const displayPlugins = plugins.length > 0 ? plugins : fallbackPlugins;
+  const safePlugins = Array.isArray(plugins) ? plugins : [];
+  const displayPlugins = safePlugins.length > 0 ? safePlugins : fallbackPlugins;
   const activePlugin = displayPlugins.find((p) => p.installed && p.has_cache);
   const installedPlugin = displayPlugins.find((p) => p.installed);
 
