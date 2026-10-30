@@ -104,6 +104,7 @@ func (p *Panel) PHPStatus(c *fiber.Ctx) error {
 		"times":              phphosting.TimeChoices,
 		"max_input_vars":     phphosting.InputVarChoices,
 		"supported_versions": phphosting.SupportedVersions,
+		"process_managers":   phphosting.ProcessManagerChoices,
 	}
 	return c.JSON(out)
 }

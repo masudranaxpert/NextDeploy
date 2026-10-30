@@ -17,7 +17,8 @@ type SiteSettings struct {
 	PostMaxSize       string `json:"post_max_size"`       // e.g. 64M
 	UploadMaxFilesize string `json:"upload_max_filesize"` // e.g. 64M
 	MaxChildren       int    `json:"max_children"`
-	Additional        string `json:"additional"` // extra php.ini directives, one per line
+	ProcessManager    string `json:"process_manager"`    // dynamic (default) or ondemand
+	Additional        string `json:"additional"`         // extra php.ini directives, one per line
 }
 
 var (
@@ -25,6 +26,7 @@ var (
 	SizeChoices        = []string{"2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", "768M", "1G", "2G", "3G", "4G", "5G"}
 	TimeChoices        = []int{15, 30, 60, 120, 180, 300, 600, 900, 1800, 3600}
 	InputVarChoices    = []int{1000, 2000, 5000, 10000, 20000, 50000, 100000}
+	ProcessManagerChoices = []string{"dynamic", "ondemand"}
 )
 
 func DefaultSettings() SiteSettings {
@@ -36,6 +38,7 @@ func DefaultSettings() SiteSettings {
 		PostMaxSize:       "64M",
 		UploadMaxFilesize: "64M",
 		MaxChildren:       10,
+		ProcessManager:    "dynamic",
 	}
 }
 
@@ -70,6 +73,9 @@ func (s SiteSettings) withDefaults() SiteSettings {
 	}
 	if s.MaxChildren <= 0 {
 		s.MaxChildren = d.MaxChildren
+	}
+	if s.ProcessManager != "ondemand" && s.ProcessManager != "dynamic" {
+		s.ProcessManager = d.ProcessManager
 	}
 	return s
 }
@@ -211,6 +217,9 @@ func (s SiteSettings) Validate(c Ceilings) error {
 	}
 	if max := c.MaxChildrenFor(); s.MaxChildren < 1 || s.MaxChildren > max {
 		return fmt.Errorf("max_children must be between 1 and %d for this memory limit", max)
+	}
+	if s.ProcessManager != "" && s.ProcessManager != "dynamic" && s.ProcessManager != "ondemand" {
+		return fmt.Errorf("invalid process_manager %q (must be dynamic or ondemand)", s.ProcessManager)
 	}
 	if _, err := ParseAdditional(s.Additional); err != nil {
 		return err

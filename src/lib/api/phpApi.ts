@@ -99,6 +99,7 @@ export interface PhpSettings {
   post_max_size: string;
   upload_max_filesize: string;
   max_children: number;
+  process_manager?: 'dynamic' | 'ondemand';
   additional: string;
 }
 

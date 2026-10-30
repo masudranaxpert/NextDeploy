@@ -24,11 +24,25 @@ func TestRenderPoolConfinesSite(t *testing.T) {
 		"php_admin_value[open_basedir] = /data/workspaces/shop-ab12:/tmp:/usr/local/lib/php:/dev/urandom",
 		"php_admin_value[memory_limit] = 256M",
 		"php_value[display_startup_errors] = 1", "php_value[zend.assertions] = -1",
-		"pm = ondemand",
+		"pm = dynamic",
+		"pm.start_servers = 2",
+		"pm.min_spare_servers = 1",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pool missing %q\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderPoolOndemand(t *testing.T) {
+	s := DefaultSettings()
+	s.ProcessManager = "ondemand"
+	out, err := RenderPool(PoolSpec{AppID: "shop-ab12", UID: 20007, RootDir: "public", Settings: s})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "pm = ondemand") || !strings.Contains(out, "pm.process_idle_timeout = 60s") {
+		t.Errorf("expected ondemand pool settings, got:\n%s", out)
 	}
 }
 

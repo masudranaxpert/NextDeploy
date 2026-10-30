@@ -446,6 +446,7 @@ type phpSettingsBody struct {
 	PostMaxSize       *string `json:"post_max_size"`
 	UploadMaxFilesize *string `json:"upload_max_filesize"`
 	MaxChildren       *int    `json:"max_children"`
+	ProcessManager    *string `json:"process_manager"`
 	Additional        *string `json:"additional"`
 }
 
@@ -485,6 +486,9 @@ func (p *Panel) PHPSiteSettings(c *fiber.Ctx) error {
 	}
 	if body.MaxChildren != nil {
 		s.MaxChildren = *body.MaxChildren
+	}
+	if body.ProcessManager != nil {
+		s.ProcessManager = *body.ProcessManager
 	}
 	if body.Additional != nil {
 		s.Additional = *body.Additional

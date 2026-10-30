@@ -79,10 +79,29 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("group = %d", sp.UID)
 	w("listen = /run/php/%s.sock", sp.AppID)
 	w("listen.mode = 0660")
-	w("pm = ondemand")
-	w("pm.max_children = %d", s.MaxChildren)
-	w("pm.process_idle_timeout = 10s")
-	w("pm.max_requests = 500")
+	if s.ProcessManager == "ondemand" {
+		w("pm = ondemand")
+		w("pm.max_children = %d", s.MaxChildren)
+		w("pm.process_idle_timeout = 60s")
+		w("pm.max_requests = 1000")
+	} else {
+		// Golden standard: dynamic process management eliminates cold start latency.
+		// Keep at least 1-2 workers hot in memory so visits always respond instantly (0ms delay).
+		startServers := 2
+		minSpare := 1
+		maxSpare := 3
+		if s.MaxChildren < 3 {
+			startServers = 1
+			minSpare = 1
+			maxSpare = s.MaxChildren
+		}
+		w("pm = dynamic")
+		w("pm.max_children = %d", s.MaxChildren)
+		w("pm.start_servers = %d", startServers)
+		w("pm.min_spare_servers = %d", minSpare)
+		w("pm.max_spare_servers = %d", maxSpare)
+		w("pm.max_requests = 1000")
+	}
 	w("chdir = %s", DocRoot(sp.AppID, sp.RootDir))
 	w("catch_workers_output = yes")
 	w("decorate_workers_output = no")

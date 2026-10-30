@@ -326,6 +326,16 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
               <Field label={`Max PHP workers (up to ${maxWorkers})`}>
                 <input type="number" min={1} max={maxWorkers} className={inputCls} value={form.max_children} onChange={(e) => set('max_children', Number(e.target.value))} />
               </Field>
+              <Field label="Process manager (pm)">
+                <select
+                  className={selectCls}
+                  value={form.process_manager || 'dynamic'}
+                  onChange={(e) => set('process_manager', e.target.value as any)}
+                >
+                  <option value="dynamic">dynamic (Recommended — zero cold start)</option>
+                  <option value="ondemand">ondemand (Low memory — sleeps after 60s)</option>
+                </select>
+              </Field>
             </div>
             <div className="mt-4">
               <Field label="Additional php.ini directives">
