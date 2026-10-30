@@ -635,25 +635,51 @@ export default function App() {
 
     // 2. Live Docker Images with Live Container Usage
     if (Array.isArray(data.images)) {
+      const normalizeImageRef = (ref: string) => {
+        if (!ref) return '';
+        let s = ref.trim().toLowerCase();
+        s = s.replace(/^docker\.io\/library\//, '');
+        s = s.replace(/^docker\.io\//, '');
+        s = s.replace(/^library\//, '');
+        return s;
+      };
+
       setImages(
         data.images.map((img: any) => {
-          const tagStr =
-            Array.isArray(img.RepoTags) && img.RepoTags.length > 0
-              ? img.RepoTags[0]
-              : img.Tags || img.ID.slice(0, 12);
+          const repoTags: string[] = Array.isArray(img.RepoTags) ? img.RepoTags : [];
+          const tagStr = repoTags.length > 0 ? repoTags[0] : (img.Tags || img.ID.slice(0, 12));
           const parts = tagStr.split(':');
           const repo = parts[0] || tagStr;
           const tag = parts[1] || 'latest';
-          const shortId = img.ID.slice(0, 12);
+          const shortId = img.ID.slice(0, 12).toLowerCase();
+
+          // Collect all canonical representations for this image to match against containers
+          const candidateRefs = new Set<string>();
+          for (const rt of repoTags) {
+            if (rt && rt !== '<none>') {
+              candidateRefs.add(normalizeImageRef(rt));
+              const p = rt.split(':');
+              if (p[1] === 'latest') {
+                candidateRefs.add(normalizeImageRef(p[0]));
+              }
+            }
+          }
+          if (tagStr && tagStr !== '<none>') {
+            candidateRefs.add(normalizeImageRef(tagStr));
+            if (tag === 'latest') {
+              candidateRefs.add(normalizeImageRef(repo));
+            }
+          }
 
           const inUseBy = liveContainers
             .filter((c: any) => {
-              const cImg = c.Image || '';
-              return (
-                cImg === tagStr ||
-                (tag === 'latest' && cImg === repo) ||
-                (shortId && cImg.includes(shortId))
-              );
+              const cImg = normalizeImageRef(c.Image || '');
+              if (!cImg) return false;
+              if (candidateRefs.has(cImg)) return true;
+              if (cImg === normalizeImageRef(tagStr)) return true;
+              if (tag === 'latest' && cImg === normalizeImageRef(repo)) return true;
+              if (shortId && cImg.includes(shortId)) return true;
+              return false;
             })
             .map((c: any) => c.Name || c.ID);
 
