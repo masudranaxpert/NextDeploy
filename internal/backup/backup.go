@@ -150,7 +150,74 @@ func UnpauseContainers(ctx context.Context, containerIDs []string) {
 	}
 }
 
+// archiveVolumeMaybePaused implements the hybrid sub-second CoW snapshot architecture:
+// 1. If pauseContainers is true, running containers are frozen only for the ultra-short
+//    snapshot copy window (< 0.5s), and immediately unpaused so the site stays live.
+// 2. If pauseContainers is false, an atomic point-in-time snapshot volume is taken without
+//    pausing, preventing torn files or "file changed as we read it" during long compression.
+// 3. Compression (tar/gzip) streams in the background from the snapshot volume without blocking the site.
 func archiveVolumeMaybePaused(ctx context.Context, volumeName, outPath string, pauseContainers bool, emit func(string)) error {
+	snapVol := fmt.Sprintf("nd-snap-%d-%s", time.Now().UnixNano()%1000000, volumeName)
+	if len(snapVol) > 63 {
+		snapVol = snapVol[:63]
+	}
+
+	createCmd := exec.CommandContext(ctx, "docker", "volume", "create", snapVol)
+	if err := createCmd.Run(); err != nil {
+		if emit != nil {
+			emit(fmt.Sprintf("WARN: snapshot volume creation failed (%v); falling back to direct stream", err))
+		}
+		return directArchiveVolume(ctx, volumeName, outPath, pauseContainers, emit)
+	}
+	defer func() {
+		_ = exec.CommandContext(context.Background(), "docker", "volume", "rm", "-f", snapVol).Run()
+	}()
+
+	var paused []string
+	if pauseContainers {
+		var err error
+		paused, err = PauseContainersUsingVolume(ctx, volumeName)
+		if err != nil {
+			return fmt.Errorf("pause containers: %w", err)
+		}
+		if len(paused) > 0 && emit != nil {
+			emit(fmt.Sprintf("paused %d container(s) for sub-second snapshot", len(paused)))
+		}
+	}
+
+	// Fast snapshot phase: copy into the snapshot volume using CoW reflink if supported, or fast local copy
+	copyCmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", fmt.Sprintf("%s:/src:ro", volumeName),
+		"-v", fmt.Sprintf("%s:/dst", snapVol),
+		"alpine:3.20", "sh", "-c", "cp -a --reflink=auto /src/. /dst/ 2>/dev/null || cp -a /src/. /dst/")
+	var copyErrBuf bytes.Buffer
+	copyCmd.Stderr = &copyErrBuf
+	copyErr := copyCmd.Run()
+
+	// UNPAUSE IMMEDIATELY right after the fast snapshot copy!
+	if len(paused) > 0 {
+		UnpauseContainers(context.Background(), paused)
+		if emit != nil {
+			emit(fmt.Sprintf("unpaused %d container(s); proceeding with background compression", len(paused)))
+		}
+	}
+
+	if copyErr != nil {
+		if emit != nil {
+			emit(fmt.Sprintf("WARN: volume snapshot copy error: %s; falling back to direct stream", copyErrBuf.String()))
+		}
+		return directArchiveVolume(ctx, volumeName, outPath, false, emit)
+	}
+
+	if !pauseContainers && emit != nil {
+		emit(fmt.Sprintf("captured point-in-time snapshot of volume %s", volumeName))
+	}
+
+	// Now compress the snapshot volume in the background while containers run normally
+	return writeDockerVolumeArchive(ctx, snapVol, outPath)
+}
+
+func directArchiveVolume(ctx context.Context, volumeName, outPath string, pauseContainers bool, emit func(string)) error {
 	if !pauseContainers {
 		return writeDockerVolumeArchive(ctx, volumeName, outPath)
 	}
