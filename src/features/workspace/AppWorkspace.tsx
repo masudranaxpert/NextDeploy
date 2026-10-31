@@ -313,20 +313,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     { id: 'domains', label: 'Domains', count: app.domains.length },
     { id: 'env', label: 'Environment', count: app.envVars.length },
     { id: 'files', label: 'File Manager' },
-    ...(hasGitConnection ? [{ id: 'git' as AppWorkspaceTab, label: 'Git' }] : []),
+    { id: 'git' as AppWorkspaceTab, label: 'Git' },
     { id: 'volumes', label: 'Volumes', count: app.volumes.length },
     { id: 'backups', label: 'Backups' },
     { id: 'logs', label: 'Logs' },
     { id: 'terminal', label: 'Terminal' },
     { id: 'collaborators', label: 'Access' },
   ];
-
-  // Auto-redirect from git tab to overview if workspace is purely manual (no Git connection)
-  useEffect(() => {
-    if (activeTab === 'git' && !hasGitConnection && !app.php) {
-      setActiveTab('overview');
-    }
-  }, [activeTab, hasGitConnection, app.php]);
 
   return (
     <div className="space-y-5">
