@@ -971,11 +971,27 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   />
                 </div>
 
-                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-2 leading-relaxed">
-                  <div className="font-semibold text-zinc-100">GitLab Token Permissions:</div>
-                  <div className="text-[11px] text-zinc-400 space-y-1">
-                    <div><span className="text-zinc-200 font-medium">Classic PAT:</span> Select <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code>.</div>
-                    <div><span className="text-zinc-200 font-medium">Fine-grained PAT:</span> Under Group/Project, select <code className="text-orange-400 font-mono">Projects: Read</code> (to discover repos) and <code className="text-orange-400 font-mono">Code: Download</code> (to clone/pull code).</div>
+                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-2.5 leading-relaxed">
+                  <div className="font-semibold text-zinc-100 flex items-center justify-between">
+                    <span>GitLab Token Permissions Guide:</span>
+                    <span className="text-[10px] text-orange-400 font-mono">Fine-grained & Classic</span>
+                  </div>
+
+                  <div className="rounded-lg border border-orange-500/25 bg-orange-500/10 p-2.5 text-orange-200 space-y-1.5">
+                    <div className="font-semibold text-orange-300 text-[11px]">
+                      🔒 পার্সোনাল প্রাইভেট রিপো (User ট্যাবে পারমিশন আবশ্যক):
+                    </div>
+                    <p className="text-[10px] text-zinc-300 leading-normal">
+                      <strong>Group and project</strong> ট্যাব শুধুমাত্র নির্দিষ্ট প্রজেক্ট বা গ্রুপের জন্য। আপনার অ্যাকাউন্টের সব ব্যক্তিগত প্রাইভেট রিপোজিটরি পাওয়ার জন্য অবশ্যই <strong>User</strong> ট্যাবে গিয়ে পারমিশন দিতে হবে:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-[10px] text-zinc-300 pl-1">
+                      <li><strong>User ➔ Project:</strong> সিলেক্ট করুন <code className="text-orange-400 font-mono">Read</code> (প্রাইভেট রিপোজিটরিগুলো প্যানেলে পাওয়ার জন্য)।</li>
+                      <li><strong>User ➔ Code:</strong> সিলেক্ট করুন <code className="text-orange-400 font-mono">Download</code> (গিট ক্লোন করে কোড ডিপ্লয় করার জন্য)।</li>
+                    </ul>
+                  </div>
+
+                  <div className="text-[11px] text-zinc-400">
+                    <span className="text-zinc-200 font-medium">Classic PAT (বিকল্প):</span> শুধু <code className="text-orange-400 font-mono">read_api</code> এবং <code className="text-orange-400 font-mono">read_repository</code> স্কোপ দিন।
                   </div>
                   <p className="text-[10px] text-zinc-500">
                     Note: Deploy Tokens (<code className="text-zinc-400 font-mono">gldt-...</code>) only grant git clone access and cannot list projects via the GitLab REST API.
@@ -1205,11 +1221,19 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               </div>
 
               {editTokenProvider.provider === 'GitLab' && (
-                <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-xs text-orange-200 space-y-1.5 leading-relaxed">
-                  <div className="font-semibold text-orange-300">GitLab Token Permissions:</div>
-                  <div className="text-[11px] text-zinc-300 space-y-1">
-                    <div><span className="text-zinc-100 font-medium">Classic PAT:</span> Select <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code>.</div>
-                    <div><span className="text-zinc-100 font-medium">Fine-grained PAT:</span> Under Group/Project, select <code className="text-orange-400 font-mono">Projects: Read</code> and <code className="text-orange-400 font-mono">Code: Download</code>.</div>
+                <div className="rounded-lg border border-orange-500/25 bg-orange-500/10 p-3 text-xs text-orange-200 space-y-2 leading-relaxed">
+                  <div className="font-semibold text-orange-300 text-[11px]">
+                    🔒 পার্সোনাল প্রাইভেট রিপো (User ট্যাবে পারমিশন আবশ্যক):
+                  </div>
+                  <p className="text-[10px] text-zinc-300 leading-normal">
+                    <strong>Group and project</strong> ট্যাব নির্দিষ্ট প্রজেক্টের জন্য। পার্সোনাল সব প্রাইভেট রিপোজিটরি পাওয়ার জন্য অবশ্যই <strong>User</strong> ট্যাবে গিয়ে পারমিশন দিন:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[10px] text-zinc-300 pl-1">
+                    <li><strong>User ➔ Project:</strong> সিলেক্ট করুন <code className="text-orange-400 font-mono">Read</code> (প্রাইভেট রিপোজিটরিগুলো পাওয়ার জন্য)।</li>
+                    <li><strong>User ➔ Code:</strong> সিলেক্ট করুন <code className="text-orange-400 font-mono">Download</code> (গিট ক্লোন ও কোড ডিপ্লয় করার জন্য)।</li>
+                  </ul>
+                  <div className="text-[10px] text-zinc-400 pt-1 border-t border-orange-500/15">
+                    <span className="text-zinc-200 font-medium">Classic PAT (বিকল্প):</span> <code className="text-orange-400 font-mono">read_api</code> এবং <code className="text-orange-400 font-mono">read_repository</code>।
                   </div>
                 </div>
               )}
