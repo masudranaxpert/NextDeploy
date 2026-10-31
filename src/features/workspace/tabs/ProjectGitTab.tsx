@@ -185,6 +185,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   const handleDisconnectGit = async () => {
     await backendApi.deleteAppGit(app.id);
+    await backendApi.switchAppSource(app.id, 'files');
     onUpdateApp({
       ...app,
       sourceType: 'compose',

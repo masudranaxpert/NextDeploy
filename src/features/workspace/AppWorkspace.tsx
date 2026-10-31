@@ -269,8 +269,9 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   // Logs Explorer State & Realtime Streaming
   const logs = useWorkspaceLogs(app, activeTab);
 
-  const hasGitConnection = Boolean(app.gitRepo && app.gitRepo.trim() !== '');
-  const isGitSyncActive = hasGitConnection && (app.gitSync ?? app.sourceType === 'git');
+  const isGitWorkspace = app.sourceType === 'git' || Boolean(app.gitRepo && app.gitRepo.trim() !== '');
+  const hasGitConnection = isGitWorkspace;
+  const isGitSyncActive = Boolean(app.gitRepo && app.gitRepo.trim() !== '') && (app.gitSync ?? app.sourceType === 'git');
 
   useEffect(() => {
     if (app.php) prefetchPhpSite(app.id);
