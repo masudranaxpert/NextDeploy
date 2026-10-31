@@ -8,6 +8,9 @@ import {
   AlertTriangle,
   Pause,
   Play,
+  Key,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../../types/nextdeploy';
@@ -43,6 +46,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   );
   const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
+  const [webhookSecret, setWebhookSecret] = useState<string>(app.webhookSecret || '');
+  const [showSecret, setShowSecret] = useState<boolean>(false);
 
   useEffect(() => {
     setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
@@ -54,6 +59,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     }
     if (app.gitBranch) setBranch(app.gitBranch);
     if (app.webhookAutoDeploy !== undefined) setAutoDeploy(Boolean(app.webhookAutoDeploy));
+    if (app.webhookSecret) setWebhookSecret(app.webhookSecret);
   }, [app]);
 
   // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
@@ -237,6 +243,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       return;
     }
     setGitSyncEnabled(nextSync);
+    const savedSecret = (res.data as any)?.webhook_secret || webhookSecret;
+    if (savedSecret) {
+      setWebhookSecret(savedSecret);
+    }
     onUpdateApp({
       ...app,
       sourceType: nextSync ? 'git' : 'compose',
@@ -246,6 +256,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       gitRepo: repoUrl.trim(),
       gitBranch: branch.trim() || 'main',
       webhookAutoDeploy: autoDeploy,
+      webhookSecret: savedSecret,
     });
     toast.success(
       app.gitRepo
@@ -556,26 +567,64 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
             ))}
           </div>
 
-          {/* Webhook URL & Auto-Deploy Toggle */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 pt-1">
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-zinc-200">Push Webhook Endpoint</div>
-                  <div className="truncate font-mono text-[11px] text-zinc-500">{webhookUrl}</div>
+          {/* Webhook URL, Secret Token & Auto-Deploy Toggle */}
+          <div className="space-y-2.5 pt-1">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-200">Push Webhook Endpoint</div>
+                    <div className="truncate font-mono text-[11px] text-zinc-500">{webhookUrl}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await copyToClipboard(webhookUrl);
+                    if (ok) toast.success('Copied webhook URL');
+                  }}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
+                >
+                  Copy
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Key className="h-4 w-4 text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-200">Webhook Secret Token</div>
+                    <div className="truncate font-mono text-[11px] text-zinc-400">
+                      {webhookSecret ? (showSecret ? webhookSecret : '••••••••••••••••') : 'Auto-generated on save'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {webhookSecret && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret((v) => !v)}
+                      className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                      title={showSecret ? 'Hide secret' : 'Show secret'}
+                    >
+                      {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!webhookSecret}
+                    onClick={async () => {
+                      if (!webhookSecret) return;
+                      const ok = await copyToClipboard(webhookSecret);
+                      if (ok) toast.success('Copied Webhook Secret Token');
+                    }}
+                    className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-40"
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await copyToClipboard(webhookUrl);
-                  if (ok) toast.success('Copied webhook URL');
-                }}
-                className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
-              >
-                Copy
-              </button>
             </div>
 
             <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
@@ -588,6 +637,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                 </div>
               </div>
               <ShadcnSwitch checked={autoDeploy} onChange={setAutoDeploy} />
+            </div>
+
+            <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-2.5 text-[11px] text-zinc-400 leading-relaxed">
+              <span className="font-semibold text-zinc-300">GitLab Webhook Setup: </span>
+              In GitLab, go to <span className="text-zinc-200 font-medium">Settings ➔ Webhooks ➔ Add new webhook</span>. Paste the <span className="text-orange-400 font-mono">Push Webhook Endpoint</span> into <strong>URL</strong>, and paste the <span className="text-amber-400 font-mono">Webhook Secret Token</span> into <strong>Secret token</strong>. Check <strong>Push events</strong>.
             </div>
           </div>
 

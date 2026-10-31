@@ -126,7 +126,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	if oldCfgErr == nil && old.SyncPaused {
 		// Git sync is off: keep the edited credentials/branch, but do not clone/pull or switch the source.
 		if WantsJSON(c) {
-			return c.JSON(fiber.Map{"ok": true, "message": "Git configuration saved"})
+			return c.JSON(fiber.Map{"ok": true, "message": "Git configuration saved", "webhook_secret": cfg.WebhookSecret})
 		}
 		SetFlash(c, "saved")
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))
@@ -177,7 +177,7 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 	}
 	p.InvalidateAfterAppWorkspaceChange(appID)
 	if WantsJSON(c) {
-		return c.JSON(fiber.Map{"ok": true, "message": "Configuration saved and repository synced"})
+		return c.JSON(fiber.Map{"ok": true, "message": "Configuration saved and repository synced", "webhook_secret": cfg.WebhookSecret})
 	}
 	SetFlash(c, "saved_synced")
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=git", appID))

@@ -230,6 +230,10 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			svcs := p.LoadComposeServices(ctx, app.ID)
 			var gitPtr *db.AppGitConfig
 			if gcfg, err := p.DB.GetAppGitConfig(ctx, app.ID); err == nil {
+				if strings.TrimSpace(gcfg.WebhookSecret) == "" {
+					gcfg.WebhookSecret = RandomHex(16)
+					_ = p.DB.UpsertAppGitConfig(ctx, gcfg)
+				}
 				if !isAdmin {
 					// credentials never leave the server for non-admin sessions
 					gcfg.Token = ""
@@ -241,6 +245,18 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 					}
 				}
 				gitPtr = &gcfg
+			} else {
+				secret := RandomHex(16)
+				newCfg := db.AppGitConfig{
+					AppID:         app.ID,
+					Provider:      "gitlab",
+					Branch:        "main",
+					AuthMode:      "gitlab_token",
+					WebhookSecret: secret,
+					SyncPaused:    true,
+				}
+				_ = p.DB.UpsertAppGitConfig(ctx, newCfg)
+				gitPtr = &newCfg
 			}
 			dlogs, _ := p.DB.ListDeployLogs(ctx, app.ID, 10)
 			collabs, _ := p.DB.ListCollaboratorsWithUsers(ctx, app.ID)
