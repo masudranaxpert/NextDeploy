@@ -558,7 +558,13 @@ func (p *Panel) AppGitProviderBranches(c *fiber.Ctx) error {
 	if err := json.Unmarshal(body, &branches); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{"branches": branches})
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		if strings.TrimSpace(b.Name) != "" {
+			names = append(names, b.Name)
+		}
+	}
+	return c.JSON(fiber.Map{"branches": names})
 }
 
 func (p *Panel) GitSync(c *fiber.Ctx) error {

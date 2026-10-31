@@ -276,13 +276,19 @@ func (p *Panel) AppGitLabProviderBranches(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	if status >= 300 {
-		return c.JSON(fiber.Map{"branches": []gitlabBranch{{Name: "master"}, {Name: "main"}}})
+		return c.JSON(fiber.Map{"branches": []string{"master", "main"}})
 	}
 	var branches []gitlabBranch
 	if err := json.Unmarshal(body, &branches); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "parse error"})
 	}
-	return c.JSON(fiber.Map{"branches": branches})
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		if strings.TrimSpace(b.Name) != "" {
+			names = append(names, b.Name)
+		}
+	}
+	return c.JSON(fiber.Map{"branches": names})
 }
 
 type gitlabTokenResponse struct {

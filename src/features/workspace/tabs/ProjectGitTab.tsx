@@ -77,7 +77,13 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     setIsLoadingBranches(true);
     const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
     setIsLoadingBranches(false);
-    if (res.ok) setProviderBranches(res.data?.branches ?? []);
+    if (res.ok) {
+      const raw = (res.data as any)?.branches ?? [];
+      const list: string[] = raw
+        .map((b: any) => (typeof b === 'string' ? b : b?.name || ''))
+        .filter(Boolean);
+      setProviderBranches(list);
+    }
   };
 
   const loadProviderRepos = async (pid: string, targetMode?: string) => {
@@ -540,9 +546,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-orange-400 font-semibold focus:border-orange-500 focus:outline-none"
               />
               <datalist id="git-provider-branches">
-                {providerBranches.map((b) => (
-                  <option key={b} value={b} />
-                ))}
+                {providerBranches.map((b) => {
+                  const name = typeof b === 'string' ? b : (b as any)?.name || String(b);
+                  return <option key={name} value={name} />;
+                })}
               </datalist>
             </div>
           </div>
@@ -550,21 +557,24 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           {/* Quick Branch Pills */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-zinc-500 mr-1">Branches:</span>
-            {providerBranches.map((br) => (
-              <button
-                key={br}
-                type="button"
-                onClick={() => setBranch(br)}
-                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] cursor-pointer ${
-                  branch === br
-                    ? 'border-orange-500/50 bg-orange-500/15 text-orange-300 font-semibold'
-                    : 'border-white/[0.07] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <GitBranch className="h-3 w-3" />
-                {br}
-              </button>
-            ))}
+            {providerBranches.map((br) => {
+              const name = typeof br === 'string' ? br : (br as any)?.name || String(br);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setBranch(name)}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] cursor-pointer ${
+                    branch === name
+                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-300 font-semibold'
+                      : 'border-white/[0.07] bg-[#09090b] text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <GitBranch className="h-3 w-3" />
+                  {name}
+                </button>
+              );
+            })}
           </div>
 
           {/* Webhook URL, Secret Token & Auto-Deploy Toggle */}
