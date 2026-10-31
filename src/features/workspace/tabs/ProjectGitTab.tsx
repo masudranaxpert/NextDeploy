@@ -60,6 +60,44 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [providerRepos, setProviderRepos] = useState<RepoOption[]>([]);
   const [providerBranches, setProviderBranches] = useState<string[]>(app.gitBranch ? [app.gitBranch] : []);
 
+  const filteredProviders = providers.filter((p) => {
+    if (authMode === 'gitlab_token') return p.provider === 'GitLab';
+    if (authMode === 'github_app') return p.provider === 'GitHub';
+    return true;
+  });
+
+  const loadProviderBranches = async (pid: string, repoFull: string) => {
+    if (!pid || !repoFull) return;
+    setIsLoadingBranches(true);
+    const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
+    setIsLoadingBranches(false);
+    if (res.ok) setProviderBranches(res.data?.branches ?? []);
+  };
+
+  const loadProviderRepos = async (pid: string, targetMode?: string) => {
+    if (!pid) {
+      setProviderRepos([]);
+      return;
+    }
+    setIsLoadingRepos(true);
+    const res = await backendApi.gitProviderRepos(app.id, pid);
+    setIsLoadingRepos(false);
+    if (res.ok) {
+      const repos = res.data?.repos ?? [];
+      setProviderRepos(repos);
+      if (repos.length > 0) {
+        const exists = repos.find(
+          (r) => r.clone_url === repoUrl || r.full_name === selectedRepoFullName
+        );
+        const target = exists || repos[0];
+        setSelectedRepoFullName(target.full_name);
+        setRepoUrl(target.clone_url);
+        setBranch((cur) => (cur && cur !== 'main' ? cur : target.default_branch || 'main'));
+        void loadProviderBranches(pid, target.full_name);
+      }
+    }
+  };
+
   // The connected providers come from the server, never from sample data.
   useEffect(() => {
     let live = true;
@@ -72,12 +110,61 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
         authMethod: p.authMethod || (p.provider === 'gitlab' ? 'Token' : 'GitHub'),
       }));
       setProviders(list);
-      setSelectedProviderId((cur) => (cur && list.some((p) => p.id === cur) ? cur : list[0]?.id ?? ''));
+
+      // Auto-detect the matching authMode if not explicitly saved on app
+      let nextMode = authMode;
+      if (app.gitAuthMode) {
+        nextMode = app.gitAuthMode as any;
+      } else if (app.gitRepo) {
+        if (app.gitRepo.includes('gitlab.com')) nextMode = 'gitlab_token';
+        else if (app.gitRepo.includes('github.com')) nextMode = 'github_app';
+      } else {
+        const hasGitHub = list.some((p) => p.provider === 'GitHub');
+        const hasGitLab = list.some((p) => p.provider === 'GitLab');
+        if (!hasGitHub && hasGitLab) nextMode = 'gitlab_token';
+        else if (hasGitHub && !hasGitLab) nextMode = 'github_app';
+      }
+      setAuthMode(nextMode);
+
+      if (nextMode !== 'public') {
+        const matching = list.filter((p) =>
+          nextMode === 'gitlab_token' ? p.provider === 'GitLab' : p.provider === 'GitHub'
+        );
+        const preferredId = app.gitProviderId && matching.some((p) => p.id === app.gitProviderId)
+          ? app.gitProviderId
+          : matching[0]?.id || '';
+        setSelectedProviderId(preferredId);
+        if (preferredId) {
+          void loadProviderRepos(preferredId, nextMode);
+        }
+      }
     });
     return () => {
       live = false;
     };
-  }, [app.id]);
+  }, [app.id, app.gitAuthMode, app.gitRepo, app.gitProviderId]);
+
+  const handleSwitchAuthMode = (mode: 'public' | 'github_app' | 'gitlab_token') => {
+    setAuthMode(mode);
+    if (mode === 'public') {
+      setSelectedProviderId('');
+      setProviderRepos([]);
+      return;
+    }
+    const matching = providers.filter((p) =>
+      mode === 'gitlab_token' ? p.provider === 'GitLab' : p.provider === 'GitHub'
+    );
+    const nextPid = matching[0]?.id || '';
+    setSelectedProviderId(nextPid);
+    if (nextPid) {
+      void loadProviderRepos(nextPid, mode);
+    } else {
+      setProviderRepos([]);
+      setSelectedRepoFullName('');
+      setRepoUrl('');
+    }
+  };
+
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
@@ -86,27 +173,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [forceSyncModalOpen, setForceSyncModalOpen] = useState(false);
   const [forceSyncWarning, setForceSyncWarning] = useState('');
 
-  const loadProviderRepos = async (pid: string) => {
-    if (!pid) return;
-    setIsLoadingRepos(true);
-    const res = await backendApi.gitProviderRepos(app.id, pid);
-    setIsLoadingRepos(false);
-    if (res.ok) setProviderRepos(res.data?.repos ?? []);
-  };
-
-  const loadProviderBranches = async (pid: string, repoFull: string) => {
-    if (!pid || !repoFull) return;
-    setIsLoadingBranches(true);
-    const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
-    setIsLoadingBranches(false);
-    if (res.ok) setProviderBranches(res.data?.branches ?? []);
-  };
-
   useEffect(() => {
     if (authMode !== 'public' && selectedProviderId) {
       void loadProviderRepos(selectedProviderId);
     }
-  }, [authMode, selectedProviderId]);
+  }, [selectedProviderId]);
 
   const handleToggleGitSync = async (nextEnabled: boolean, force = false) => {
     const res = await backendApi.setGitSync(app.id, nextEnabled, force);
@@ -197,7 +268,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   };
 
   // The push endpoint is per project: the panel looks the project up by this id.
-  const webhookUrl = `${window.location.origin}/webhooks/github/${encodeURIComponent(app.id)}`;
+  const webhookEndpoint = authMode === 'gitlab_token' ? 'gitlab' : 'github';
+  const webhookUrl = `${window.location.origin}/webhooks/${webhookEndpoint}/${encodeURIComponent(app.id)}`;
 
   return (
     <div className="space-y-4">
@@ -321,7 +393,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               <button
                 key={mode.id}
                 type="button"
-                onClick={() => setAuthMode(mode.id)}
+                onClick={() => handleSwitchAuthMode(mode.id)}
                 className={`rounded-xl border p-3 text-left transition-all cursor-pointer ${
                   authMode === mode.id
                     ? 'border-orange-500/50 bg-orange-500/10 text-zinc-100'
@@ -351,21 +423,32 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                     Refresh Repos
                   </button>
                 </div>
-                <select
-                  value={selectedProviderId}
-                  onChange={(e) => {
-                    setSelectedProviderId(e.target.value);
-                    void loadProviderRepos(e.target.value);
-                  }}
-                  className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-                >
-                  {providers.length === 0 && <option value="">No provider connected</option>}
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.provider} · {p.accountName} ({p.authMethod})
-                    </option>
-                  ))}
-                </select>
+                {filteredProviders.length === 0 ? (
+                  <div className="flex h-9 items-center justify-between rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-400">
+                    <span>No {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'} provider connected</span>
+                    <a
+                      href="/git"
+                      className="text-[11px] font-semibold text-orange-400 hover:underline"
+                    >
+                      + Connect {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'}
+                    </a>
+                  </div>
+                ) : (
+                  <select
+                    value={selectedProviderId}
+                    onChange={(e) => {
+                      setSelectedProviderId(e.target.value);
+                      void loadProviderRepos(e.target.value);
+                    }}
+                    className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                  >
+                    {filteredProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.provider} · {p.accountName} ({p.authMethod})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>
@@ -382,12 +465,14 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                       setRepoUrl(matched.clone_url);
                       setBranch(matched.default_branch || 'main');
                     } else {
-                      setRepoUrl(`https://github.com/${full}.git`);
+                      const domain = authMode === 'gitlab_token' ? 'gitlab.com' : 'github.com';
+                      setRepoUrl(`https://${domain}/${full}.git`);
                     }
                     void loadProviderBranches(selectedProviderId, full);
                   }}
                   className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
                 >
+                  {providerRepos.length === 0 && <option value="">No repositories found</option>}
                   {providerRepos.map((r) => (
                     <option key={r.full_name} value={r.full_name}>
                       {r.full_name} {r.private ? '(Private)' : '(Public)'}
@@ -409,7 +494,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                 required
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/org/repo.git"
+                placeholder={
+                  authMode === 'gitlab_token'
+                    ? 'https://gitlab.com/username/project.git'
+                    : 'https://github.com/org/repo.git'
+                }
                 className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
               />
             </div>
