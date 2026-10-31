@@ -245,18 +245,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 					}
 				}
 				gitPtr = &gcfg
-			} else {
-				secret := RandomHex(16)
-				newCfg := db.AppGitConfig{
-					AppID:         app.ID,
-					Provider:      "gitlab",
-					Branch:        "main",
-					AuthMode:      "gitlab_token",
-					WebhookSecret: secret,
-					SyncPaused:    true,
-				}
-				_ = p.DB.UpsertAppGitConfig(ctx, newCfg)
-				gitPtr = &newCfg
 			}
 			dlogs, _ := p.DB.ListDeployLogs(ctx, app.ID, 10)
 			collabs, _ := p.DB.ListCollaboratorsWithUsers(ctx, app.ID)
