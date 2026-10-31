@@ -15,6 +15,8 @@ import {
   User,
   ExternalLink,
   Settings,
+  AlertCircle,
+  Key,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -76,6 +78,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [editInstallProvider, setEditInstallProvider] = useState<GitProviderConnection | null>(null);
   const [customInstallId, setCustomInstallId] = useState('');
   const [isSavingInstallId, setIsSavingInstallId] = useState(false);
+
+  // Edit / Update Token modal state (for updating token permissions/scopes)
+  const [editTokenProvider, setEditTokenProvider] = useState<GitProviderConnection | null>(null);
+  const [newTokenInput, setNewTokenInput] = useState('');
+  const [isUpdatingToken, setIsUpdatingToken] = useState(false);
 
   // Sync props to state
   useEffect(() => {
@@ -150,9 +157,9 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const gitlabRedirectUri =
 `${window.location.origin}/git/gitlab/callback`;
 
-  const refreshProviders = async () => {
+  const refreshProviders = async (force = false): Promise<GitProviderConnection[]> => {
     try {
-      const res = await backendApi.gitProvidersList();
+      const res = await backendApi.gitProvidersList(force ? '?refresh=1' : '');
       if (res.ok && Array.isArray(res.data?.providers)) {
         const mapped: GitProviderConnection[] = res.data.providers.map((gp: any) => ({
           id: String(gp.id),
@@ -160,7 +167,7 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
           authMethod: (gp.auth_method || (gp.provider === 'gitlab' ? 'OAuth 2.0' : 'GitHub App')) as any,
           accountName: gp.account_login || gp.name,
           instanceUrl: gp.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com',
-          status: gp.needs_install ? ('error' as const) : ('connected' as const),
+          status: (gp.error || gp.needs_install || gp.status === 'error') ? ('error' as const) : ('connected' as const),
           reposAccessible: typeof gp.repos_accessible === 'number' ? gp.repos_accessible : 0,
           webhookDeliveryRate: '100%',
           webhookUrl: '',
@@ -169,12 +176,15 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
           installUrl: gp.install_url,
           appSlug: gp.app_slug,
           installationId: gp.installation_id,
+          error: gp.error,
         }));
         setProviders(mapped);
+        return mapped;
       }
     } catch {
       // ignore
     }
+    return [];
   };
 
   const handleSelectRegPreset = (p: RegistryCredential['provider']) => {
@@ -441,8 +451,21 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           if (!isGitLab) {
                             await backendApi.refreshGitHubInstall(p.id);
                           }
-                          await refreshProviders();
-                          toast.success(`Synced installation & repositories for ${p.accountName}`);
+                          const updated = await refreshProviders(true);
+                          const cur = updated.find((item) => item.id === p.id);
+                          if (cur?.error) {
+                            toast.error(cur.error);
+                          } else {
+                            toast.success(`Synced repositories for ${p.accountName} (${cur?.reposAccessible ?? 0} repos)`);
+                          }
+                        },
+                      },
+                      {
+                        label: 'Update Token',
+                        icon: <Key className="h-3.5 w-3.5 text-orange-400" />,
+                        onClick: () => {
+                          setEditTokenProvider(p);
+                          setNewTokenInput('');
                         },
                       },
                       {
@@ -466,13 +489,37 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                         variant: 'danger',
                         onClick: async () => {
                           await backendApi.deleteGitProvider(p.id);
-                          await refreshProviders();
+                          await refreshProviders(true);
                           toast.success(`Disconnected ${p.accountName}`);
                         },
                       },
                     ]}
                   />
                 </div>
+
+                {p.error && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200 space-y-1.5">
+                    <div className="font-semibold flex items-center justify-between text-red-300">
+                      <div className="flex items-center gap-1.5">
+                        <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                        <span>Permission Denied (0 Repos)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditTokenProvider(p);
+                          setNewTokenInput('');
+                        }}
+                        className="rounded bg-red-500/20 px-2 py-0.5 text-[11px] font-semibold text-red-300 hover:bg-red-500/30 cursor-pointer"
+                      >
+                        Update Token
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-red-200/90 leading-relaxed font-mono">
+                      {p.error}
+                    </p>
+                  </div>
+                )}
 
                 {p.needsInstall && p.provider === 'GitHub' && (
                   <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5 text-xs text-amber-200">
@@ -1090,6 +1137,99 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                 </div>
               </form>
             </div>
+          )}
+        </ShadcnDialog>
+
+        {/* Update Token Dialog (GitLab / GitHub PAT) */}
+        <ShadcnDialog
+          open={Boolean(editTokenProvider)}
+          onClose={() => setEditTokenProvider(null)}
+          title={`Update Token for ${editTokenProvider?.accountName || 'Provider'}`}
+          icon={<Key className="h-4 w-4 text-orange-400" />}
+          maxWidth="md"
+        >
+          {editTokenProvider && (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newTokenInput.trim()) {
+                  toast.error('Token cannot be empty');
+                  return;
+                }
+                setIsUpdatingToken(true);
+                try {
+                  const res = await backendApi.updateProvider(editTokenProvider.id, {
+                    token: newTokenInput.trim(),
+                    provider: editTokenProvider.provider.toLowerCase(),
+                  });
+                  if (!res.ok) {
+                    toast.error(res.error || 'Failed to update token');
+                    return;
+                  }
+                  toast.success(`Successfully updated token for ${editTokenProvider.accountName}`);
+                  setEditTokenProvider(null);
+                  setNewTokenInput('');
+                  await refreshProviders(true);
+                } catch (err: any) {
+                  toast.error(err.message || 'Failed to update token');
+                } finally {
+                  setIsUpdatingToken(false);
+                }
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Provider:</span>
+                  <span className="font-semibold text-zinc-100">{editTokenProvider.provider}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Account:</span>
+                  <span className="font-semibold text-zinc-100">{editTokenProvider.accountName}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                  New Personal Access Token
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={newTokenInput}
+                  onChange={(e) => setNewTokenInput(e.target.value)}
+                  placeholder="glpat-•••••••••••• or github_pat_••••••••••••"
+                  className="w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500/60"
+                />
+              </div>
+
+              {editTokenProvider.provider === 'GitLab' && (
+                <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-xs text-orange-200 space-y-1.5 leading-relaxed">
+                  <div className="font-semibold text-orange-300">Required GitLab Scopes:</div>
+                  <p className="text-[11px] text-zinc-300">
+                    Ensure your token has <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code> scopes (or fine-grained permission <code className="text-orange-400 font-mono">Project: Read</code>).
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditTokenProvider(null)}
+                  className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingToken || !newTokenInput.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer disabled:opacity-50"
+                >
+                  <Key className="h-3.5 w-3.5" />
+                  {isUpdatingToken ? 'Updating & Verifying...' : 'Update & Verify Token'}
+                </button>
+              </div>
+            </form>
           )}
         </ShadcnDialog>
       </div>

@@ -25,39 +25,52 @@ var repoCountCache sync.Map // provider id -> repoCountEntry
 
 type repoCountEntry struct {
 	n          int
+	errStr     string
 	at         time.Time
 	refreshing *int32
 }
 
-func (p *Panel) fetchAccessibleReposCount(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
-	if v, ok := repoCountCache.Load(gp.ID); ok {
-		e := v.(repoCountEntry)
-		if time.Since(e.at) > 5*time.Minute && atomic.CompareAndSwapInt32(e.refreshing, 0, 1) {
-			go func() {
-				defer atomic.StoreInt32(e.refreshing, 0)
-				bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				defer cancel()
-				n := p.fetchAccessibleReposCountLive(bg, gp, d)
-				repoCountCache.Store(gp.ID, repoCountEntry{n: n, at: time.Now(), refreshing: e.refreshing})
-			}()
+func (p *Panel) fetchAccessibleReposCount(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail, forceRefresh bool) (int, string) {
+	if !forceRefresh {
+		if v, ok := repoCountCache.Load(gp.ID); ok {
+			e := v.(repoCountEntry)
+			if time.Since(e.at) > 5*time.Minute && atomic.CompareAndSwapInt32(e.refreshing, 0, 1) {
+				go func() {
+					defer atomic.StoreInt32(e.refreshing, 0)
+					bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					n, errStr := p.fetchAccessibleReposCountLive(bg, gp, d)
+					repoCountCache.Store(gp.ID, repoCountEntry{n: n, errStr: errStr, at: time.Now(), refreshing: e.refreshing})
+				}()
+			}
+			return e.n, e.errStr
 		}
-		return e.n
 	}
+
 	flag := new(int32)
 	atomic.StoreInt32(flag, 1)
+	if forceRefresh {
+		bg, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		n, errStr := p.fetchAccessibleReposCountLive(bg, gp, d)
+		atomic.StoreInt32(flag, 0)
+		repoCountCache.Store(gp.ID, repoCountEntry{n: n, errStr: errStr, at: time.Now(), refreshing: flag})
+		return n, errStr
+	}
+
 	// Seed with 0 and fetch asynchronously in background to ensure instant page bootstrap.
 	repoCountCache.Store(gp.ID, repoCountEntry{n: 0, at: time.Now(), refreshing: flag})
 	go func() {
 		defer atomic.StoreInt32(flag, 0)
 		bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		n := p.fetchAccessibleReposCountLive(bg, gp, d)
-		repoCountCache.Store(gp.ID, repoCountEntry{n: n, at: time.Now(), refreshing: flag})
+		n, errStr := p.fetchAccessibleReposCountLive(bg, gp, d)
+		repoCountCache.Store(gp.ID, repoCountEntry{n: n, errStr: errStr, at: time.Now(), refreshing: flag})
 	}()
-	return 0
+	return 0, ""
 }
 
-func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) int {
+func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProvider, d db.GitHubProviderDetail) (int, string) {
 	if gp.Provider == "github" {
 		var token string
 		var endpoint string
@@ -67,54 +80,88 @@ func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProv
 		} else if strings.TrimSpace(d.InstallationID) != "" {
 			minted, err := gitx.MintGitHubInstallationToken(ctx, d.GitHubAppID, d.InstallationID, d.PrivateKeyPEM)
 			if err != nil {
-				return 0
+				return 0, "GitHub App token mint failed: " + err.Error()
 			}
 			token = minted
 			endpoint = "https://api.github.com/installation/repositories?per_page=1"
 		} else {
-			return 0
+			return 0, ""
 		}
 
 		body, status, err := githubAPIRequest(ctx, http.MethodGet, endpoint, token, nil)
-		if err != nil || status >= 300 {
-			return 0
+		if err != nil {
+			return 0, "GitHub network error: " + err.Error()
+		}
+		if status == http.StatusUnauthorized {
+			return 0, "GitHub token is invalid or expired (401 Unauthorized)"
+		}
+		if status == http.StatusForbidden {
+			return 0, "GitHub token permission denied (403 Forbidden)"
+		}
+		if status >= 300 {
+			return 0, fmt.Sprintf("GitHub API returned error (%d)", status)
 		}
 		if strings.TrimSpace(gp.Token) != "" {
 			var list []githubInstallationRepository
 			if err := json.Unmarshal(body, &list); err == nil {
-				return len(list)
+				return len(list), ""
 			}
-			return 0
+			return 0, ""
 		}
 		var payload githubInstallationRepositoriesResponse
 		if err := json.Unmarshal(body, &payload); err == nil {
 			if payload.TotalCount > 0 {
-				return payload.TotalCount
+				return payload.TotalCount, ""
 			}
-			return len(payload.Repositories)
+			return len(payload.Repositories), ""
 		}
-		return 0
+		return 0, ""
 	} else if gp.Provider == "gitlab" {
 		token, err := p.EnsureFreshGitLabToken(ctx, gp.ID)
 		if err != nil || token == "" {
-			return 0
+			errMsg := "missing token"
+			if err != nil {
+				errMsg = err.Error()
+			}
+			return 0, "GitLab token missing or refresh failed: " + errMsg
 		}
 		endpoint := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=100"
 		body, status, header, err := gitlabAPIRequest(ctx, http.MethodGet, endpoint, token)
-		if err != nil || status >= 300 {
-			return 0
+		if err != nil {
+			return 0, "GitLab network error: " + err.Error()
+		}
+		if status == http.StatusUnauthorized {
+			return 0, "Invalid GitLab token (401 Unauthorized). Please check or renew your token."
+		}
+		if status == http.StatusForbidden {
+			var errObj struct {
+				Error            string `json:"error"`
+				ErrorDescription string `json:"error_description"`
+			}
+			_ = json.Unmarshal(body, &errObj)
+			msg := errObj.ErrorDescription
+			if msg == "" {
+				msg = errObj.Error
+			}
+			if msg == "" {
+				msg = "Insufficient token permissions."
+			}
+			return 0, fmt.Sprintf("GitLab permission denied (403): %s (Required scopes: 'read_api' & 'read_repository', or fine-grained 'Project: Read')", msg)
+		}
+		if status >= 300 {
+			return 0, fmt.Sprintf("GitLab API error (%d)", status)
 		}
 		if header != nil && header.Get("X-Total") != "" {
 			if total, err := strconv.Atoi(header.Get("X-Total")); err == nil {
-				return total
+				return total, ""
 			}
 		}
 		var projects []gitlabProject
 		if err := json.Unmarshal(body, &projects); err == nil {
-			return len(projects)
+			return len(projects), ""
 		}
 	}
-	return 0
+	return 0, ""
 }
 
 // GitProviderCreate creates a new Git provider credential using a PAT or Deploy Token.
@@ -234,6 +281,8 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 		detailMap[d.ProviderID] = d
 	}
 
+	forceRefresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
+
 	type providerRes struct {
 		db.GitProvider
 		AuthMethod      string `json:"auth_method"`
@@ -242,12 +291,17 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 		AccountLogin    string `json:"account_login,omitempty"`
 		InstallURL      string `json:"install_url,omitempty"`
 		NeedsInstall    bool   `json:"needs_install,omitempty"`
+		Status          string `json:"status"`
 		ReposAccessible int    `json:"repos_accessible"`
+		Error           string `json:"error,omitempty"`
 	}
 
 	var res []providerRes
 	for _, gp := range providers {
-		pr := providerRes{GitProvider: gp}
+		pr := providerRes{
+			GitProvider: gp,
+			Status:      "connected",
+		}
 		d := detailMap[gp.ID]
 		if gp.Provider == "github" {
 			if d.GitHubAppID != "" || d.AppSlug != "" {
@@ -273,8 +327,15 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 		} else {
 			pr.AuthMethod = "Token"
 		}
-		if !pr.NeedsInstall {
-			pr.ReposAccessible = p.fetchAccessibleReposCount(c.UserContext(), gp, d)
+		if pr.NeedsInstall {
+			pr.Status = "error"
+		} else {
+			count, errStr := p.fetchAccessibleReposCount(c.UserContext(), gp, d, forceRefresh)
+			pr.ReposAccessible = count
+			if errStr != "" {
+				pr.Error = errStr
+				pr.Status = "error"
+			}
 		}
 		res = append(res, pr)
 	}
@@ -320,10 +381,31 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).SendString("forbidden")
 	}
 
+	var req struct {
+		Name           string `json:"name"`
+		Provider       string `json:"provider"`
+		Token          string `json:"token"`
+		Notes          string `json:"notes"`
+		InstallationID string `json:"installation_id"`
+	}
+	_ = c.BodyParser(&req)
+
 	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		name = strings.TrimSpace(req.Name)
+	}
 	provider := strings.TrimSpace(c.FormValue("provider"))
+	if provider == "" {
+		provider = strings.TrimSpace(req.Provider)
+	}
 	token := strings.TrimSpace(c.FormValue("token"))
+	if token == "" {
+		token = strings.TrimSpace(req.Token)
+	}
 	notes := strings.TrimSpace(c.FormValue("notes"))
+	if notes == "" {
+		notes = strings.TrimSpace(req.Notes)
+	}
 
 	if name == "" {
 		name = existing.Name
@@ -340,6 +422,47 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 		token = existing.Token
 	}
 
+	if provider == "gitlab" && strings.TrimSpace(token) != "" {
+		testURL := gitlabAPIBase + "/api/v4/projects?membership=true&per_page=1"
+		body, status, _, err := gitlabAPIRequest(c.UserContext(), http.MethodGet, testURL, token)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to connect to GitLab: " + err.Error()})
+		}
+		if status == http.StatusUnauthorized {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid GitLab token (401 Unauthorized). Please check your token."})
+		}
+		if status == http.StatusForbidden {
+			var errObj struct {
+				Error            string `json:"error"`
+				ErrorDescription string `json:"error_description"`
+			}
+			_ = json.Unmarshal(body, &errObj)
+			msg := errObj.ErrorDescription
+			if msg == "" {
+				msg = errObj.Error
+			}
+			if msg == "" {
+				msg = "Insufficient token permissions."
+			}
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("GitLab permission denied (403): %s Make sure your token has 'read_api' and 'read_repository' (or 'Project: Read') permissions.", msg),
+			})
+		}
+		if status >= 400 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("GitLab API error (%d): %s", status, string(body))})
+		}
+	}
+
+	if notes == "" {
+		if provider == "github" {
+			notes = "Personal Access Token"
+		} else if strings.HasPrefix(token, "glpat-") {
+			notes = "Personal Access Token"
+		} else {
+			notes = existing.Notes
+		}
+	}
+
 	if err := p.DB.UpdateGitProvider(c.UserContext(), id, name, provider, token, notes); err != nil {
 		if WantsJSON(c) {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
@@ -348,7 +471,12 @@ func (p *Panel) GitProviderUpdate(c *fiber.Ctx) error {
 		return c.Redirect("/git")
 	}
 
+	repoCountCache.Delete(id)
+
 	installID := strings.TrimSpace(c.FormValue("installation_id"))
+	if installID == "" {
+		installID = strings.TrimSpace(req.InstallationID)
+	}
 	if installID != "" && (existing.Provider == "github" || provider == "github") {
 		if detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), id); derr == nil {
 			detail.InstallationID = installID

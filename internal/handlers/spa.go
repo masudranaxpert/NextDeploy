@@ -339,11 +339,13 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		AccountLogin    string `json:"account_login,omitempty"`
 		InstallURL      string `json:"install_url,omitempty"`
 		NeedsInstall    bool   `json:"needs_install,omitempty"`
+		Status          string `json:"status"`
 		ReposAccessible int    `json:"repos_accessible"`
+		Error           string `json:"error,omitempty"`
 	}
 	var enrichedGitProviders []spaGitProviderItem
 	for _, gp := range gitProviders {
-		it := spaGitProviderItem{GitProvider: gp}
+		it := spaGitProviderItem{GitProvider: gp, Status: "connected"}
 		d := ghDetailMap[gp.ID]
 		if gp.Provider == "github" {
 			if d.GitHubAppID != "" || d.AppSlug != "" {
@@ -369,8 +371,15 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		} else {
 			it.AuthMethod = "Token"
 		}
-		if !it.NeedsInstall {
-			it.ReposAccessible = p.fetchAccessibleReposCount(ctx, gp, d)
+		if it.NeedsInstall {
+			it.Status = "error"
+		} else {
+			count, errStr := p.fetchAccessibleReposCount(ctx, gp, d, false)
+			it.ReposAccessible = count
+			if errStr != "" {
+				it.Error = errStr
+				it.Status = "error"
+			}
 		}
 		it.Token, it.RefreshToken = "", "" // provider credentials stay server-side
 		enrichedGitProviders = append(enrichedGitProviders, it)

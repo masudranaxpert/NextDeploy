@@ -592,7 +592,9 @@ func main() {
 	app.Post("/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
 	app.Post("/api/v1/git/providers", p.APIAuthMiddleware, p.GitProviderCreate)
 	app.Post("/git/:pid/update", p.GitProviderUpdate)
+	app.Post("/api/v1/git/providers/:pid", p.APIAuthMiddleware, p.GitProviderUpdate)
 	app.Post("/git/:pid/delete", p.GitProviderDelete)
+	app.Post("/api/v1/git/providers/:pid/delete", p.APIAuthMiddleware, p.GitProviderDelete)
 	app.Get("/api/v1/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
 	app.Get("/git/webhooks", p.APIAuthMiddleware, p.APIWebhookDeliveries)
 

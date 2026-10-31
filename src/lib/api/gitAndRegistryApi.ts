@@ -1,7 +1,7 @@
 import { requestJson, toFormBody } from './http';
 
 export const gitAndRegistryApi = {
-  gitProvidersList: () =>
+  gitProvidersList: (query = '') =>
     requestJson<{
       ok: boolean;
       providers: Array<{
@@ -12,8 +12,17 @@ export const gitAndRegistryApi = {
         notes?: string;
         accountName?: string;
         authMethod?: string;
+        status?: string;
+        error?: string;
+        repos_accessible?: number;
       }>;
-    }>(`/api/v1/git/providers`),
+    }>(`/api/v1/git/providers${query ? (query.startsWith('?') ? query : '?' + query) : ''}`),
+  updateProvider: (id: string | number, payload: { name?: string; provider?: string; token?: string; notes?: string }) =>
+    requestJson<{ ok: boolean; error?: string }>(`/api/v1/git/providers/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   createProvider: (payload: { name: string; provider: 'github' | 'gitlab'; token: string; notes?: string }) =>
     requestJson<{ ok: boolean; id: number; name: string; provider: string }>(`/api/v1/git/providers`, {
       method: 'POST',

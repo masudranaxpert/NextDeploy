@@ -262,6 +262,7 @@ export interface GitProviderConnection {
   installUrl?: string;
   appSlug?: string;
   installationId?: string;
+  error?: string;
 }
 
 export interface SyncedGitRepository {
