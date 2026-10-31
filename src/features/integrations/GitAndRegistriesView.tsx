@@ -971,11 +971,12 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   />
                 </div>
 
-                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-1.5 leading-relaxed">
-                  <div className="font-semibold text-zinc-100">Personal Access Token (PAT) Scopes</div>
-                  <p className="text-[11px] text-zinc-400">
-                    To auto-discover repositories and branches, create a PAT with <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code> scopes (or fine-grained permission <code className="text-orange-400 font-mono">Project: Read</code>).
-                  </p>
+                <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-3 text-xs text-zinc-300 space-y-2 leading-relaxed">
+                  <div className="font-semibold text-zinc-100">GitLab Token Permissions:</div>
+                  <div className="text-[11px] text-zinc-400 space-y-1">
+                    <div><span className="text-zinc-200 font-medium">Classic PAT:</span> Select <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code>.</div>
+                    <div><span className="text-zinc-200 font-medium">Fine-grained PAT:</span> Under Group/Project, select <code className="text-orange-400 font-mono">Projects: Read</code> (to discover repos) and <code className="text-orange-400 font-mono">Code: Download</code> (to clone/pull code).</div>
+                  </div>
                   <p className="text-[10px] text-zinc-500">
                     Note: Deploy Tokens (<code className="text-zinc-400 font-mono">gldt-...</code>) only grant git clone access and cannot list projects via the GitLab REST API.
                   </p>
@@ -1205,10 +1206,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
 
               {editTokenProvider.provider === 'GitLab' && (
                 <div className="rounded-lg border border-orange-500/20 bg-orange-500/10 p-3 text-xs text-orange-200 space-y-1.5 leading-relaxed">
-                  <div className="font-semibold text-orange-300">Required GitLab Scopes:</div>
-                  <p className="text-[11px] text-zinc-300">
-                    Ensure your token has <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code> scopes (or fine-grained permission <code className="text-orange-400 font-mono">Project: Read</code>).
-                  </p>
+                  <div className="font-semibold text-orange-300">GitLab Token Permissions:</div>
+                  <div className="text-[11px] text-zinc-300 space-y-1">
+                    <div><span className="text-zinc-100 font-medium">Classic PAT:</span> Select <code className="text-orange-400 font-mono">read_api</code> and <code className="text-orange-400 font-mono">read_repository</code>.</div>
+                    <div><span className="text-zinc-100 font-medium">Fine-grained PAT:</span> Under Group/Project, select <code className="text-orange-400 font-mono">Projects: Read</code> and <code className="text-orange-400 font-mono">Code: Download</code>.</div>
+                  </div>
                 </div>
               )}
 
