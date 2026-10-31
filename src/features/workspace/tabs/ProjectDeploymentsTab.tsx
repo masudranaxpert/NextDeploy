@@ -166,7 +166,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
         const canInstantRollback =
           Boolean(standbySlotHasImage) &&
           !isCurrentProd &&
-          (dep.slot?.toLowerCase() === standbySlotName || isLatestStandby);
+          isLatestStandby;
 
         const envType = dep.commitMessage.toLowerCase().includes('rollback')
           ? ('rollback' as const)
@@ -576,7 +576,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
                             icon: <TerminalIcon className="h-3.5 w-3.5" />,
                             onClick: () => setBuildLogsDeployment(dep),
                           },
-                          ...((dep.isLatestStandby || dep.slot?.toLowerCase() === standbySlotName) && !isCurrentProd
+                          ...(dep.isLatestStandby && !isCurrentProd
                             ? [
                                 {
                                   label: `Promote Slot ${dep.slot?.toUpperCase()} to Prod`,
@@ -824,7 +824,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
                               icon: <TerminalIcon className="h-3.5 w-3.5" />,
                               onClick: () => setBuildLogsDeployment(dep),
                             },
-                            ...((dep.isLatestStandby || dep.slot?.toLowerCase() === standbySlotName) && !isCurrentProd
+                            ...(dep.isLatestStandby && !isCurrentProd
                               ? [
                                   {
                                     label: `Promote Slot ${dep.slot?.toUpperCase()} to Prod`,
