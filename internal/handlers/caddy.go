@@ -486,15 +486,22 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if port <= 0 {
 		port = 3000
 	}
-	domainClean := caddy.CleanQuotedValue(c.FormValue("domain"))
-	isWildcard := strings.HasSuffix(strings.ToLower(domainClean), ".sslip.io") || strings.HasSuffix(strings.ToLower(domainClean), ".nip.io")
-
 	var shieldIDPtr *int64
-	if !isWildcard {
-		if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
+	u, _ := currentUser(c)
+	app, _ := p.DB.GetApp(c.UserContext(), id)
+
+	if u.Role == db.RoleAdmin {
+		// Admin: default is Direct Origin, but Admin can select any Shield Node if desired
+		sVal := strings.TrimSpace(c.FormValue("shield_node_id"))
+		if sVal != "" && sVal != "0" && sVal != "direct" && sVal != "none" {
 			if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
 				shieldIDPtr = &sID
 			}
+		}
+	} else {
+		// Regular User: automatically route through the shield assigned by admin to this user/app
+		if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
+			shieldIDPtr = &node.ID
 		}
 	}
 
@@ -619,7 +626,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 			shieldIDPtr = current.ShieldNodeID
 		}
 	} else {
-		if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
+		if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" && sVal != "none" {
 			if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
 				shieldIDPtr = &sID
 			}
