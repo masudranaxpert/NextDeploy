@@ -3,13 +3,31 @@ import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } fro
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
-import { backendApi, formatWildcardDomain, getCachedShieldNodes } from '../../lib/backendApi';
+import { backendApi, formatWildcardDomain, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { ShadcnSelect } from '../../components/ui/Primitives';
 import { Card, EmptyState, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
+
+const updateDomainWithIp = (currentDomain: string, ip: string, slug: string): string => {
+  if (!currentDomain) return currentDomain;
+  const dashed = ip.replace(/\./g, '-');
+  const match = currentDomain.match(/^((?:.+?-)?)(?:\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})\.(sslip\.io|nip\.io)$/i);
+  if (match) {
+    const prefix = match[1] || '';
+    const provider = match[2];
+    return `${prefix}${dashed}.${provider}`;
+  }
+  if (currentDomain.endsWith('.sslip.io')) {
+    return formatWildcardDomain(slug, 'sslip.io', ip);
+  }
+  if (currentDomain.endsWith('.nip.io')) {
+    return formatWildcardDomain(slug, 'nip.io', ip);
+  }
+  return currentDomain;
+};
 
 export const PhpDomainsTab: React.FC<{
   app: AppStack;
@@ -22,10 +40,7 @@ export const PhpDomainsTab: React.FC<{
   const [www, setWww] = useState(false);
   const cachedShield = getCachedShieldNodes();
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
-  const [shieldNodeId, setShieldNodeId] = useState<number | null>(() => {
-    const active = (cachedShield.nodes || []).find((s) => s.status === 'connected') || cachedShield.nodes?.[0];
-    return active ? active.id : null;
-  });
+  const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
   const [copiedDomainId, setCopiedDomainId] = useState<number | null>(null);
 
@@ -33,8 +48,6 @@ export const PhpDomainsTab: React.FC<{
     backendApi.listShieldNodes().then((res) => {
       if (res.ok && res.nodes) {
         setShieldNodes(res.nodes);
-        const active = res.nodes.find((s) => s.status === 'connected') || res.nodes[0];
-        if (active) setShieldNodeId(active.id);
       }
     }).catch(() => {});
   }, []);
@@ -45,7 +58,7 @@ export const PhpDomainsTab: React.FC<{
       toast.error('Enter a valid domain such as example.com');
       return;
     }
-    const targetShieldId = shieldNodeId || (shieldNodes.find((s) => s.status === 'connected')?.id ?? (shieldNodes[0]?.id ?? null));
+    const targetShieldId = shieldNodeId;
     if (targetShieldId) {
       const target = shieldNodes.find((s) => s.id === targetShieldId);
       if (target && target.status !== 'connected' && isAdmin) {
@@ -140,20 +153,28 @@ export const PhpDomainsTab: React.FC<{
         title="Add domain"
         actions={
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setDomain(formatWildcardDomain(app.slug, 'sslip.io'))}
-              className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
-            >
-              + sslip.io
-            </button>
-            <button
-              type="button"
-              onClick={() => setDomain(formatWildcardDomain(app.slug, 'nip.io'))}
-              className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
-            >
-              + nip.io
-            </button>
+            {(() => {
+              const matchedShield = shieldNodes.find((s) => s.id === shieldNodeId);
+              const activeIp = matchedShield?.ip || getServerPublicIp();
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'sslip.io', activeIp))}
+                    className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                  >
+                    + sslip.io
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'nip.io', activeIp))}
+                    className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
+                  >
+                    + nip.io
+                  </button>
+                </>
+              );
+            })()}
           </div>
         }
       >
@@ -174,7 +195,13 @@ export const PhpDomainsTab: React.FC<{
               <div className="w-64 shrink-0" title="Route traffic through Edge Shield Proxy or Direct Origin">
                 <ShadcnSelect
                   value={shieldNodeId ?? ''}
-                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                  onChange={(val) => {
+                    const nextId = val ? Number(val) : null;
+                    setShieldNodeId(nextId);
+                    const matched = shieldNodes.find((s) => s.id === nextId);
+                    const nextIp = matched?.ip || getServerPublicIp();
+                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug));
+                  }}
                   options={[
                     { value: '', label: 'Direct Origin (Server IP)' },
                     ...shieldNodes.map((s) => ({
@@ -192,6 +219,15 @@ export const PhpDomainsTab: React.FC<{
                     })),
                   ]}
                 />
+                <div className="mt-1 flex items-center justify-between text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-950/60 border border-white/[0.04]">
+                  <span className="text-zinc-500">Routing Target:</span>
+                  <span className="text-emerald-400 font-medium">
+                    {(() => {
+                      const matched = shieldNodes.find((s) => s.id === shieldNodeId);
+                      return matched ? `${matched.name} (${matched.ip})` : `Origin (${getServerPublicIp()})`;
+                    })()}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -250,7 +286,13 @@ export const PhpDomainsTab: React.FC<{
               <div className="pt-0.5">
                 <ShadcnSelect
                   value={shieldNodeId ?? ''}
-                  onChange={(val) => setShieldNodeId(val ? Number(val) : null)}
+                  onChange={(val) => {
+                    const nextId = val ? Number(val) : null;
+                    setShieldNodeId(nextId);
+                    const matched = shieldNodes.find((s) => s.id === nextId);
+                    const nextIp = matched?.ip || getServerPublicIp();
+                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug));
+                  }}
                   options={[
                     { value: '', label: 'Direct Origin (Server IP)' },
                     ...shieldNodes.map((s) => ({
@@ -268,6 +310,15 @@ export const PhpDomainsTab: React.FC<{
                     })),
                   ]}
                 />
+                <div className="mt-1 flex items-center justify-between text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-950/60 border border-white/[0.04]">
+                  <span className="text-zinc-500">Routing Target:</span>
+                  <span className="text-emerald-400 font-medium">
+                    {(() => {
+                      const matched = shieldNodes.find((s) => s.id === shieldNodeId);
+                      return matched ? `${matched.name} (${matched.ip})` : `Origin (${getServerPublicIp()})`;
+                    })()}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -307,9 +358,13 @@ export const PhpDomainsTab: React.FC<{
                             return;
                           }
                         }
+                        const targetNode = newId ? shieldNodes.find((s) => s.id === newId) : null;
+                        const nextIp = targetNode?.ip || getServerPublicIp();
+                        const nextDomain = updateDomainWithIp(d.domain, nextIp, app.slug);
+
                         setBusy('shield' + d.id);
                         const res = await backendApi.domainEdit(app.id, d.id, {
-                          domain: d.domain,
+                          domain: nextDomain,
                           service: 'php',
                           port: 80,
                           enable_https: d.forceHttps,
@@ -322,10 +377,14 @@ export const PhpDomainsTab: React.FC<{
                           return;
                         }
                         const updated = app.domains.map((dom) =>
-                          dom.id === d.id ? { ...dom, shield_node_id: newId } : dom
+                          dom.id === d.id ? { ...dom, domain: nextDomain, shield_node_id: newId } : dom
                         );
-                        onUpdateApp?.({ ...app, domains: updated });
-                        toast.success(`Updated ${d.domain} route`);
+                        onUpdateApp?.({
+                          ...app,
+                          primaryDomain: app.primaryDomain === d.domain ? nextDomain : app.primaryDomain,
+                          domains: updated,
+                        });
+                        toast.success(`Updated ${nextDomain} route`);
                         await onChanged();
                       }}
                       options={[
