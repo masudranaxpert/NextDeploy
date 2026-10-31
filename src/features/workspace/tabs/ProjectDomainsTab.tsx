@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, getCachedShieldNodes, getServerPublicIp } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -1090,19 +1090,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         setDomainShieldNodeId(nextId);
                         const matched = shieldNodes.find((s) => s.id === nextId);
                         const nextIp = matched?.ip || getServerPublicIp();
-                        if (domainHost) {
-                          const dashed = nextIp.replace(/\./g, '-');
-                          const match = domainHost.match(/^((?:.+?-)?)(?:\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})\.(sslip\.io|nip\.io)$/i);
-                          if (match) {
-                            const prefix = match[1] || '';
-                            const provider = match[2];
-                            setDomainHost(`${prefix}${dashed}.${provider}`);
-                          } else if (domainHost.endsWith('.sslip.io')) {
-                            setDomainHost(formatWildcardDomain(app.slug, 'sslip.io', nextIp));
-                          } else if (domainHost.endsWith('.nip.io')) {
-                            setDomainHost(formatWildcardDomain(app.slug, 'nip.io', nextIp));
-                          }
-                        }
+                        setDomainHost((prev) => updateDomainWithIp(prev, nextIp, app.slug));
                       }}
                       options={[
                         { value: '', label: 'Direct Origin (Server IP)' },

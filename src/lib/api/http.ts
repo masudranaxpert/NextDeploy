@@ -390,3 +390,27 @@ export function formatSlotPreviewDomain(
   }
   return `${cleanSlot}.${cleanDom}`;
 }
+
+export function updateDomainWithIp(
+  currentDomain: string,
+  ip: string,
+  slug?: string
+): string {
+  if (!currentDomain) return currentDomain;
+  const dashed = ip.replace(/\./g, '-');
+  const match = currentDomain.match(
+    /^(?:(.+?)[.-])?(\d{1,3}[.-]\d{1,3}[.-]\d{1,3}[.-]\d{1,3})\.(sslip\.io|nip\.io)$/i
+  );
+  if (match) {
+    const prefix = match[1] ? `${match[1]}-` : '';
+    const provider = (match[3]?.toLowerCase() === 'nip.io' ? 'nip.io' : 'sslip.io') as 'sslip.io' | 'nip.io';
+    return `${prefix}${dashed}.${provider}`;
+  }
+  if (currentDomain.endsWith('.sslip.io')) {
+    return formatWildcardDomain(slug || 'app', 'sslip.io', ip);
+  }
+  if (currentDomain.endsWith('.nip.io')) {
+    return formatWildcardDomain(slug || 'app', 'nip.io', ip);
+  }
+  return currentDomain;
+}

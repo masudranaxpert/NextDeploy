@@ -3,31 +3,13 @@ import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } fro
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
-import { backendApi, formatWildcardDomain, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
+import { backendApi, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { ShadcnSelect } from '../../components/ui/Primitives';
 import { Card, EmptyState, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
-
-const updateDomainWithIp = (currentDomain: string, ip: string, slug: string): string => {
-  if (!currentDomain) return currentDomain;
-  const dashed = ip.replace(/\./g, '-');
-  const match = currentDomain.match(/^((?:.+?-)?)(?:\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})\.(sslip\.io|nip\.io)$/i);
-  if (match) {
-    const prefix = match[1] || '';
-    const provider = match[2];
-    return `${prefix}${dashed}.${provider}`;
-  }
-  if (currentDomain.endsWith('.sslip.io')) {
-    return formatWildcardDomain(slug, 'sslip.io', ip);
-  }
-  if (currentDomain.endsWith('.nip.io')) {
-    return formatWildcardDomain(slug, 'nip.io', ip);
-  }
-  return currentDomain;
-};
 
 export const PhpDomainsTab: React.FC<{
   app: AppStack;

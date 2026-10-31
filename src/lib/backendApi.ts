@@ -20,6 +20,7 @@ export {
   type DomainFormPayload,
   formatSlotPreviewDomain,
   formatWildcardDomain,
+  updateDomainWithIp,
   getServerPublicIp,
   setServerPublicIp,
 } from './api/http';
