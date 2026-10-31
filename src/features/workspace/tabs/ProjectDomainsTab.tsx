@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, getCachedShieldNodes } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, getCachedShieldNodes, getServerPublicIp } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -914,24 +914,32 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     Domain Name
                   </label>
                   <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDomainHost(formatWildcardDomain(app.slug, 'sslip.io'))
-                      }
-                      className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
-                    >
-                      + sslip.io
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDomainHost(formatWildcardDomain(app.slug, 'nip.io'))
-                      }
-                      className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
-                    >
-                      + nip.io
-                    </button>
+                    {(() => {
+                      const matchedShield = shieldNodes.find((s) => s.id === domainShieldNodeId);
+                      const activeIp = matchedShield?.ip || getServerPublicIp();
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDomainHost(formatWildcardDomain(app.slug, 'sslip.io', activeIp))
+                            }
+                            className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
+                          >
+                            + sslip.io
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDomainHost(formatWildcardDomain(app.slug, 'nip.io', activeIp))
+                            }
+                            className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
+                          >
+                            + nip.io
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <input
@@ -1077,7 +1085,25 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   <div className="pt-1">
                     <ShadcnSelect
                       value={domainShieldNodeId ?? ''}
-                      onChange={(val) => setDomainShieldNodeId(val ? Number(val) : null)}
+                      onChange={(val) => {
+                        const nextId = val ? Number(val) : null;
+                        setDomainShieldNodeId(nextId);
+                        const matched = shieldNodes.find((s) => s.id === nextId);
+                        const nextIp = matched?.ip || getServerPublicIp();
+                        if (domainHost) {
+                          const dashed = nextIp.replace(/\./g, '-');
+                          const match = domainHost.match(/^((?:.+?-)?)(?:\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})\.(sslip\.io|nip\.io)$/i);
+                          if (match) {
+                            const prefix = match[1] || '';
+                            const provider = match[2];
+                            setDomainHost(`${prefix}${dashed}.${provider}`);
+                          } else if (domainHost.endsWith('.sslip.io')) {
+                            setDomainHost(formatWildcardDomain(app.slug, 'sslip.io', nextIp));
+                          } else if (domainHost.endsWith('.nip.io')) {
+                            setDomainHost(formatWildcardDomain(app.slug, 'nip.io', nextIp));
+                          }
+                        }
+                      }}
                       options={[
                         { value: '', label: 'Direct Origin (Server IP)' },
                         ...shieldNodes.map((s) => ({
@@ -1095,6 +1121,15 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         })),
                       ]}
                     />
+                    <div className="mt-2 flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded bg-zinc-950/60 border border-white/[0.04]">
+                      <span className="text-zinc-500">Routing DNS Target IP:</span>
+                      <span className="text-emerald-400 font-medium">
+                        {(() => {
+                          const matched = shieldNodes.find((s) => s.id === domainShieldNodeId);
+                          return matched ? `${matched.name} (${matched.ip})` : `Origin Server (${getServerPublicIp()})`;
+                        })()}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
