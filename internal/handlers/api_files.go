@@ -129,7 +129,8 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 		relSlash := filepath.ToSlash(rel)
 		name := d.Name()
 
-		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" || name == ".env" || strings.HasPrefix(name, ".env.") {
+		// Skip internal panel metadata and git directories, but allow .env and other dotfiles
+		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -332,10 +333,7 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	}
 
 	baseName := filepath.Base(reqPath)
-	if baseName == ".env" || strings.HasPrefix(baseName, ".env.") {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot edit .env file directly; use the Env tab or nd env"})
-	}
-	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" {
+	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" || baseName == ".nextdeploy" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot modify internal managed files"})
 	}
 
@@ -382,6 +380,9 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 
 	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == app.ComposeFile {
 		_ = p.SyncAppCaddyOverrideCtx(ctx, appID)
+	}
+	if cleanRel == ".env" {
+		_ = p.DB.UpdatePanelEnv(ctx, appID, content)
 	}
 
 	p.RecordAuditLog(c, "save_workspace_file", "app", appID, fmt.Sprintf("Updated %s via API", reqPath))
@@ -433,10 +434,7 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 	}
 
 	baseName := filepath.Base(reqPath)
-	if baseName == ".env" || strings.HasPrefix(baseName, ".env.") {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete .env file; use the Env tab or nd env"})
-	}
-	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" {
+	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" || baseName == ".nextdeploy" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete internal managed files"})
 	}
 
@@ -464,6 +462,10 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 	}
 
 	p.InvalidateAfterAppWorkspaceChange(appID)
+	cleanDel := filepath.ToSlash(strings.Trim(reqPath, "/"))
+	if cleanDel == ".env" {
+		_ = p.DB.UpdatePanelEnv(ctx, appID, "")
+	}
 	p.RecordAuditLog(c, "delete_workspace_file", "app", appID, fmt.Sprintf("Deleted %s via API", reqPath))
 
 	return c.JSON(fiber.Map{

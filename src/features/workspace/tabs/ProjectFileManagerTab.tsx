@@ -63,8 +63,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           const p = item.rel_path || item.path || item.name;
           const isDir = Boolean(item.is_dir || item.type === 'directory' || item.type === 'dir');
           const ext = p.split('.').pop()?.toLowerCase() || '';
+          const isEnv = p.endsWith('.env') || p.includes('.env.') || p.startsWith('.env');
           const lang =
-            ext === 'ts' || ext === 'tsx'
+            isEnv
+              ? 'env'
+              : ext === 'ts' || ext === 'tsx'
               ? 'typescript'
               : ext === 'js' || ext === 'jsx'
               ? 'javascript'

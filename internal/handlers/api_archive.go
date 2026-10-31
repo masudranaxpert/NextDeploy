@@ -249,8 +249,8 @@ func (p *Panel) DownloadWorkspaceArchive(c *fiber.Ctx) error {
 				return nil
 			}
 
-			// Exclude sensitive environment secrets from public pull/archive
-			if name == ".env" || strings.HasPrefix(name, ".env.") {
+			// Exclude sensitive environment secrets from public pull/archive, but allow templates like .env.example
+			if name == ".env" || (strings.HasPrefix(name, ".env.") && !strings.HasSuffix(name, ".example") && !strings.HasSuffix(name, ".sample") && !strings.HasSuffix(name, ".template")) {
 				return nil
 			}
 

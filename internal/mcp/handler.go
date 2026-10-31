@@ -732,7 +732,7 @@ func (h *Handler) handleFileList(ctx context.Context, u db.User, args map[string
 		relSlash := filepath.ToSlash(rel)
 		name := d.Name()
 
-		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" || name == ".env" || strings.HasPrefix(name, ".env.") {
+		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -1009,10 +1009,7 @@ func (h *Handler) handleWorkspaceApply(ctx context.Context, u db.User, args map[
 
 	for _, d := range deletes {
 		base := filepath.Base(d)
-		if base == ".env" || strings.HasPrefix(base, ".env.") {
-			return errorResult(fmt.Errorf("cannot delete environment file %q; use the Env tab or env_set", d))
-		}
-		if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" {
+		if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" || base == ".nextdeploy" {
 			return errorResult(fmt.Errorf("cannot delete protected file %q", d))
 		}
 		delPath := d
@@ -1117,10 +1114,7 @@ func (h *Handler) handleFileDelete(ctx context.Context, u db.User, args map[stri
 		return errorResult(err)
 	}
 	base := filepath.Base(path)
-	if base == ".env" || strings.HasPrefix(base, ".env.") {
-		return errorResult(errors.New("cannot delete environment file; use the Env tab or env_set"))
-	}
-	if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" {
+	if base == ".nextdeploy.generated.compose.yml" || base == ".panel-meta" || base == ".nextdeploy" {
 		return errorResult(errors.New("cannot delete internal generated files"))
 	}
 	var delErr error

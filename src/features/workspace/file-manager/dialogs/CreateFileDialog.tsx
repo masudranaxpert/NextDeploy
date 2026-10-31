@@ -51,6 +51,7 @@ export const CreateFileDialog: React.FC<CreateFileDialogProps> = ({
               { label: 'SQL', file: 'migration.sql' },
               { label: 'Shell', file: 'deploy.sh' },
               { label: 'JSON', file: 'settings.json' },
+              { label: '.env.example', file: '.env.example' },
             ].map((tpl) => {
               const prefix = currentDir ? `${currentDir}/` : '';
               const suggested = `${prefix}${tpl.file}`;

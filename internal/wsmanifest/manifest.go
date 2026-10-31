@@ -153,7 +153,7 @@ func loadGitignoreRules(wsRoot string) []string {
 // matchesIgnore reports whether a slash-separated relative path should be excluded.
 func matchesIgnore(relPath string, isDir bool, rules []string, customExcludes []string, includeLocks bool) bool {
 	base := filepath.Base(relPath)
-	if base == ".env" || strings.HasPrefix(base, ".env.") {
+	if base == ".env" {
 		return true
 	}
 	if defaultExcludedDirs[base] || defaultExcludedDirs[relPath] {
