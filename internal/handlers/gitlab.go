@@ -336,12 +336,12 @@ func exchangeGitLabCode(ctx context.Context, clientID, clientSecret, code, redir
 }
 
 func (p *Panel) refreshGitLabToken(ctx context.Context, provider db.GitProvider) (string, error) {
+	if provider.RefreshToken == "" {
+		return provider.Token, nil
+	}
 	now := time.Now().Unix()
 	if provider.ExpiresAt > now+60 {
 		return provider.Token, nil
-	}
-	if provider.RefreshToken == "" {
-		return "", fmt.Errorf("no refresh token available")
 	}
 
 	v, _ := p.GitlabTokenMu.LoadOrStore(provider.ID, &sync.Mutex{})
@@ -414,7 +414,7 @@ func (p *Panel) EnsureFreshGitLabToken(ctx context.Context, providerID int64) (s
 		return "", err
 	}
 
-	if provider.Provider != "gitlab" {
+	if provider.Provider != "gitlab" || provider.RefreshToken == "" {
 		return provider.Token, nil
 	}
 
