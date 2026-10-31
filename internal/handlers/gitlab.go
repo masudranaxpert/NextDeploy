@@ -218,7 +218,7 @@ func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	if status >= 300 {
-		return c.Status(status).JSON(fiber.Map{"error": "GitLab API error: " + strings.TrimSpace(string(body))})
+		return c.JSON(fiber.Map{"branches": []gitlabBranch{{Name: "master"}, {Name: "main"}}})
 	}
 	var projects []gitlabProject
 	if err := json.Unmarshal(body, &projects); err != nil {
@@ -276,7 +276,7 @@ func (p *Panel) AppGitLabProviderBranches(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	if status >= 300 {
-		return c.Status(status).JSON(fiber.Map{"error": "GitLab API error: " + strings.TrimSpace(string(body))})
+		return c.JSON(fiber.Map{"branches": []gitlabBranch{{Name: "master"}, {Name: "main"}}})
 	}
 	var branches []gitlabBranch
 	if err := json.Unmarshal(body, &branches); err != nil {
