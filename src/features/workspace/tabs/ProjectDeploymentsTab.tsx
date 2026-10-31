@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   Pin,
   PinOff,
@@ -56,6 +56,16 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
   isPinnedProduction,
 }) => {
   const liveDeployLogRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll live build log to the bottom when new logs stream in
+  useEffect(() => {
+    if (liveDeployLogRef.current) {
+      const el = liveDeployLogRef.current;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [liveDeployState?.output, isBuildLogExpanded, liveDeployState?.running]);
   const [isPinningSlot, setIsPinningSlot] = useState(false);
   const [isPromotingSlot, setIsPromotingSlot] = useState(false);
   const [deployEnvFilter, setDeployEnvFilter] = useState<'all' | 'production' | 'rollback'>('all');
@@ -474,7 +484,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
               {isVisible && (
                 <div
                   ref={liveDeployLogRef}
-                  className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px] scroll-smooth"
+                  className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px]"
                 >
                   {renderStyledBuildLog(liveDeployState.output || 'Waiting for output...')}
                 </div>
