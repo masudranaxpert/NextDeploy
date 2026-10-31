@@ -480,6 +480,7 @@ export default function App() {
       memMB: a.usage?.memory_mb || 0,
       diskMB: a.disk_mb || 0,
       reqPerMin: 0,
+      composeServices: Array.isArray(a.services) ? a.services : [],
       services:
         appContainers.length > 0
           ? appContainers.map((c: any, sIdx: number) => ({

@@ -486,21 +486,14 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if port <= 0 {
 		port = 3000
 	}
+	domainClean := caddy.CleanQuotedValue(c.FormValue("domain"))
+	isWildcard := strings.HasSuffix(strings.ToLower(domainClean), ".sslip.io") || strings.HasSuffix(strings.ToLower(domainClean), ".nip.io")
+
 	var shieldIDPtr *int64
-	u, _ := currentUser(c)
-	app, _ := p.DB.GetApp(c.UserContext(), id)
-	if u.Role != db.RoleAdmin {
-		if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
-			shieldIDPtr = &node.ID
-		}
-	} else {
-		if sVal := c.FormValue("shield_node_id"); sVal != "" {
+	if !isWildcard {
+		if sVal := strings.TrimSpace(c.FormValue("shield_node_id")); sVal != "" && sVal != "0" && sVal != "direct" {
 			if sID, err := strconv.ParseInt(sVal, 10, 64); err == nil && sID > 0 {
 				shieldIDPtr = &sID
-			}
-		} else {
-			if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
-				shieldIDPtr = &node.ID
 			}
 		}
 	}

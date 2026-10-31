@@ -204,6 +204,7 @@ export interface AppStack {
   memMB: number;
   diskMB: number;
   reqPerMin: number;
+  composeServices?: string[];
   services: ContainerService[];
   domains: DomainRoute[];
   files: ComposeFileNode[];

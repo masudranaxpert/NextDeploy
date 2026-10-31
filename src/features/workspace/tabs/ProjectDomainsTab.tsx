@@ -36,6 +36,8 @@ const detectPortFromServiceString = (portsStr?: string): number | null => {
   if (!portsStr) return null;
   const arrowMatch = portsStr.match(/->(\d+)/);
   if (arrowMatch) return parseInt(arrowMatch[1], 10);
+  const colonMatch = portsStr.match(/:(\d+)(?:\/|$)/);
+  if (colonMatch) return parseInt(colonMatch[1], 10);
   const numMatch = portsStr.match(/(\d+)\/(?:tcp|udp)/i) || portsStr.match(/\b(\d{2,5})\b/);
   if (numMatch) return parseInt(numMatch[1], 10);
   return null;
@@ -52,7 +54,14 @@ const extractComposeServices = (app: AppStack): { name: string; port: number | n
     }
   }
 
-  // 2. Exposed ports
+  // 2. Compose services parsed by backend from compose file
+  for (const name of app.composeServices || []) {
+    if (name && !map.has(name)) {
+      map.set(name, null);
+    }
+  }
+
+  // 3. Exposed ports
   for (const p of app.ports || []) {
     if (p.service) {
       if (!map.has(p.service) || map.get(p.service) === null) {
@@ -61,7 +70,7 @@ const extractComposeServices = (app: AppStack): { name: string; port: number | n
     }
   }
 
-  // 3. Compose file in workspace
+  // 4. Compose file in workspace
   const composeNode = (app.files || []).find((f) =>
     f.type === 'file' && /(?:docker-compose|\bcompose)\.ya?ml$/i.test(f.path)
   );
@@ -107,7 +116,7 @@ const extractComposeServices = (app: AppStack): { name: string; port: number | n
     }
   }
 
-  // 4. Existing domain routes
+  // 5. Existing domain routes
   for (const d of app.domains || []) {
     if (d.targetService) {
       if (!map.has(d.targetService) || map.get(d.targetService) === null) {
@@ -116,8 +125,25 @@ const extractComposeServices = (app: AppStack): { name: string; port: number | n
     }
   }
 
+  // 6. Check environment variables for PORT if port is still null
+  const defaultEnvPort = (() => {
+    const pVar = (app.envVars || []).find((e) => e.key === 'PORT' && e.value);
+    if (pVar) {
+      const parsed = parseInt(pVar.value, 10);
+      if (parsed > 0 && parsed <= 65535) return parsed;
+    }
+    return null;
+  })();
+  if (defaultEnvPort) {
+    for (const [name, port] of map.entries()) {
+      if (port === null) {
+        map.set(name, defaultEnvPort);
+      }
+    }
+  }
+
   if (map.size === 0) {
-    map.set('app', 3000);
+    map.set('app', defaultEnvPort || 80);
   }
 
   return Array.from(map.entries()).map(([name, port]) => ({ name, port }));
@@ -138,8 +164,9 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   };
   const [editingDomainId, setEditingDomainId] = useState<string | null>(null);
   const [domainHost, setDomainHost] = useState('');
-  const [domainService, setDomainService] = useState('web');
-  const [domainPort, setDomainPort] = useState('3000');
+  const [domainService, setDomainService] = useState('app');
+  const [isCustomDomainService, setIsCustomDomainService] = useState(false);
+  const [domainPort, setDomainPort] = useState('80');
   const [domainHttps, setDomainHttps] = useState(true);
   const [domainWww, setDomainWww] = useState(false);
   const [domainStatic, setDomainStatic] = useState(false);
@@ -241,8 +268,12 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const openAddModal = () => {
     setEditingDomainId(null);
     setDomainHost('');
-    setDomainService(serviceOptions[0] || 'app');
-    setDomainPort('3000');
+    const primarySvc = detectedServices[0];
+    const initialService = primarySvc ? primarySvc.name : (serviceOptions[0] || 'app');
+    const initialPort = primarySvc?.port ? String(primarySvc.port) : '80';
+    setDomainService(initialService);
+    setDomainPort(initialPort);
+    setIsCustomDomainService(false);
     setDomainHttps(true);
     setDomainWww(false);
     setDomainStatic(false);
@@ -251,16 +282,17 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(false);
     setDomainMediaPath('/var/www/media');
     setDomainMediaPrefix('/media/');
-    const defaultShield = shieldNodes.find((s) => s.status === 'connected') || shieldNodes[0];
-    setDomainShieldNodeId(defaultShield ? defaultShield.id : null);
+    setDomainShieldNodeId(null);
     setShowDomainModal(true);
   };
 
   const openEditModal = (d: DomainRoute) => {
     setEditingDomainId(d.id);
     setDomainHost(d.domain);
-    setDomainService(d.targetService || 'app');
-    setDomainPort(String(d.targetPort || 3000));
+    const svc = d.targetService || 'app';
+    setDomainService(svc);
+    setIsCustomDomainService(!detectedServices.some((s) => s.name === svc));
+    setDomainPort(String(d.targetPort || 80));
     setDomainHttps(d.forceHttps !== false);
     setDomainWww(Boolean(d.enableWww));
     setDomainStatic(Boolean(d.serveStatic));
@@ -914,23 +946,63 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1">
-                    Compose Service Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    list="domain-service-options"
-                    value={domainService}
-                    onChange={(e) => setDomainService(e.target.value)}
-                    placeholder="app"
-                    className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500"
-                  />
-                  <datalist id="domain-service-options">
-                    {serviceOptions.map((s) => (
-                      <option key={s} value={s} />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-zinc-300">
+                      Compose Service Name
+                    </label>
+                    {detectedServices.length > 0 && (
+                      <span className="text-[10px] text-zinc-400 font-mono">
+                        {detectedServices.length} detected
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    value={
+                      isCustomDomainService
+                        ? '__custom__'
+                        : detectedServices.some((s) => s.name === domainService)
+                          ? domainService
+                          : '__custom__'
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__custom__') {
+                        setIsCustomDomainService(true);
+                      } else {
+                        setIsCustomDomainService(false);
+                        setDomainService(val);
+                        const match = detectedServices.find((s) => s.name === val);
+                        if (match?.port) {
+                          setDomainPort(String(match.port));
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500 cursor-pointer"
+                  >
+                    {detectedServices.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.name} {s.port ? `(Port: ${s.port})` : ''}
+                      </option>
                     ))}
-                  </datalist>
+                    <option value="__custom__">+ Custom service name</option>
+                  </select>
+                  {isCustomDomainService && (
+                    <input
+                      type="text"
+                      required
+                      value={domainService}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDomainService(val);
+                        const match = detectedServices.find((s) => s.name === val);
+                        if (match?.port) {
+                          setDomainPort(String(match.port));
+                        }
+                      }}
+                      placeholder="e.g. app, web, api"
+                      className="mt-2 w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono focus:outline-none focus:border-orange-500"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -944,8 +1016,20 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     max={65535}
                     value={domainPort}
                     onChange={(e) => setDomainPort(e.target.value)}
+                    placeholder="e.g. 8000"
                     className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-white/[0.08] text-xs text-zinc-100 font-mono tabular-nums focus:outline-none focus:border-orange-500"
                   />
+                  {(() => {
+                    const matched = detectedServices.find((s) => s.name === domainService);
+                    if (matched?.port && String(matched.port) === domainPort) {
+                      return (
+                        <div className="mt-1 text-[10px] text-emerald-400 font-mono">
+                          ✓ Auto-detected port from {domainService}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               </div>
 
