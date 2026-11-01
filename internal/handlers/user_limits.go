@@ -19,6 +19,8 @@ import (
 
 	"github.com/shirou/gopsutil/v3/disk"
 
+	"panel/internal/runutil"
+
 	"panel/internal/db"
 	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
@@ -37,7 +39,8 @@ func cgroupHelperImage() string {
 	if img := strings.TrimSpace(os.Getenv("PANEL_CGROUP_HELPER_IMAGE")); img != "" {
 		return img
 	}
-	return "docker:cli"
+	// The panel image already ships the docker CLI and util-linux, so no third-party image is pulled.
+	return runutil.HelperImage()
 }
 
 // cgroupMode returns "systemd" or "cgroupfs" when per-user group limits are
@@ -117,8 +120,9 @@ func (p *Panel) runCgroupHelper(ctx context.Context, userID int64, extraArgs []s
 	name := fmt.Sprintf("nextdeploy-cgroup-%d-%d", userID, time.Now().UnixNano())
 	args := []string{"run", "--rm", "--name", name, "--privileged", "--network=none"}
 	args = append(args, extraArgs...)
-	args = append(args, cgroupHelperImage())
-	args = append(args, cmd...)
+	// The panel image's entrypoint is the panel binary; override it with the helper command.
+	args = append(args, "--entrypoint", cmd[0], cgroupHelperImage())
+	args = append(args, cmd[1:]...)
 	out, err := exec.CommandContext(cctx, "docker", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cgroup helper failed: %v: %s", err, strings.TrimSpace(string(out)))

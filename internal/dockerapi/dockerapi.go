@@ -963,13 +963,57 @@ func RemoveVolumeByName(ctx context.Context, name string) error {
 	return cli.VolumeRemove(ctx, name, false)
 }
 
+// protectedImageMarkers lists platform runtime images that must survive "Delete Unused":
+// PHP version images are pulled on demand and have no container until a site uses them.
+var protectedImageMarkers = []string{"nextdeploy-php", "nextdeploy-v2", "caddy-docker-proxy", "phpmyadmin", "mariadb", "busybox"}
+
+func isProtectedImage(tags []string) bool {
+	for _, t := range tags {
+		for _, m := range protectedImageMarkers {
+			if strings.Contains(t, m) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// PruneImages removes unused app images (e.g. stopped Blue/Green slots) but never platform runtime images.
 func PruneImages(ctx context.Context) error {
 	cli, err := apiClient()
 	if err != nil {
 		return err
 	}
+	cs, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return err
+	}
+	inUse := make(map[string]bool, len(cs))
+	for _, c := range cs {
+		inUse[c.ImageID] = true
+	}
+	list, err := cli.ImageList(ctx, types.ImageListOptions{})
+	if err != nil {
+		return err
+	}
+	for _, im := range list {
+		if inUse[im.ID] || isProtectedImage(im.RepoTags) {
+			continue
+		}
+		// Non-forced remove: Docker still refuses images with dependent children.
+		_, _ = cli.ImageRemove(ctx, im.ID, types.ImageRemoveOptions{PruneChildren: true})
+	}
+	return nil
+}
 
-	_, err = cli.ImagesPrune(ctx, filters.Args{})
+func PruneDanglingImages(ctx context.Context) error {
+	cli, err := apiClient()
+	if err != nil {
+		return err
+	}
+
+	f := filters.NewArgs(filters.Arg("dangling", "true"))
+	_, err = cli.ImagesPrune(ctx, f)
 	return err
 }
 

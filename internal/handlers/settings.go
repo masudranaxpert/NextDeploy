@@ -570,7 +570,7 @@ func rootStackComposeHelperTarget(ctx context.Context) (hostComposePath, project
 	return hostComposePath, project, nil
 }
 
-// runRootStackComposeViaHelperContainer runs compose in a one-off container (docker:cli) so the panel container
+// runRootStackComposeViaHelperContainer runs compose in a one-off container (panel image) so the panel container
 // is not the client process that triggers its own recreate. services are passed to `docker compose up -d` (e.g. "panel" or "caddy").
 func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath, projectName string, services []string) error {
 	if len(services) == 0 {
@@ -580,7 +580,8 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 	hostInstallDir := filepath.Dir(hostComposePath)
 	img := strings.TrimSpace(os.Getenv("PANEL_COMPOSE_HELPER_IMAGE"))
 	if img == "" {
-		img = "docker:cli"
+		// Panel image already contains docker + compose; avoids pulling and deleting docker:cli on every apply.
+		img = runutil.HelperImage()
 	}
 	name := fmt.Sprintf("nextdeploy-compose-apply-%d", time.Now().UnixNano())
 	// No -d: wait for the helper to exit so we capture success/failure and compose logs on stderr.
@@ -595,7 +596,7 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 	// By mounting hostInstallDir at its own path we guarantee that the resolved absolute
 	// source paths match real host filesystem locations.
 	args := []string{
-		"run", "--rm", "--name", name,
+		"run", "--rm", "--name", name, "--entrypoint", "docker",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
 		"-v", hostInstallDir + ":" + hostInstallDir,
 		"-w", hostInstallDir,
@@ -607,7 +608,7 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 	args = append(args, services...)
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	text := strings.TrimSpace(string(out))
-	if composeHelperPruneAfterRun() {
+	if composeHelperPruneAfterRun() && img != runutil.HelperImage() {
 		pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 90*time.Second)
 		rmiOut, rmiErr := exec.CommandContext(pruneCtx, "docker", "rmi", img).CombinedOutput()
 		pruneCancel()
