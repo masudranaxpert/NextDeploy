@@ -76,7 +76,7 @@ func (p *Panel) fetchAccessibleReposCountLive(ctx context.Context, gp db.GitProv
 		var endpoint string
 		if strings.TrimSpace(gp.Token) != "" {
 			token = strings.TrimSpace(gp.Token)
-			endpoint = "https://api.github.com/user/repos?per_page=1"
+			endpoint = "https://api.github.com/user/repos?per_page=100&affiliation=owner,collaborator,organization_member"
 		} else if strings.TrimSpace(d.InstallationID) != "" {
 			minted, err := gitx.MintGitHubInstallationToken(ctx, d.GitHubAppID, d.InstallationID, d.PrivateKeyPEM)
 			if err != nil {
@@ -315,6 +315,7 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 				pr.InstallURL = "/git/" + strconv.FormatInt(gp.ID, 10) + "/github/install"
 			} else {
 				pr.AuthMethod = "Fine-Grained PAT"
+				pr.AccountLogin = gp.Name
 			}
 		} else if gp.Provider == "gitlab" {
 			if gp.RefreshToken != "" || gp.ExpiresAt > 0 {

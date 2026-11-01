@@ -361,8 +361,8 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 	}
 	cp := p.ComposeFilePath(c.UserContext(), app, id)
 	if _, err := os.Stat(cp); err != nil {
-		hasDockerfile, hasCompose := p.Store.HasDockerArtifacts(id)
-		if !hasDockerfile || hasCompose {
+		hasDockerfile, _ := p.Store.HasDockerArtifacts(id)
+		if !hasDockerfile {
 			msg := "[error]\nCompose file not found. Set path on Overview or upload the file / sync the repository first."
 			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
 			if wantJSON {

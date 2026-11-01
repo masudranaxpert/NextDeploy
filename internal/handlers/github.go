@@ -332,6 +332,7 @@ func githubAPIRequest(ctx context.Context, method, rawURL, token string, body an
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "NextDeploy-ControlPlane/2.5")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

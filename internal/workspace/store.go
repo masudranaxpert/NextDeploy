@@ -222,11 +222,12 @@ type FileEntry struct {
 }
 
 func (s *Store) HasDockerArtifacts(wsID string) (hasDockerfile, hasCompose bool) {
-	dirs := []string{
-		s.Path(wsID),
-		filepath.Join(s.ReservedPath(wsID), "repo"),
+	repoDir := filepath.Join(s.ReservedPath(wsID), "repo")
+	targetDirs := []string{s.Path(wsID)}
+	if st, err := os.Stat(repoDir); err == nil && st.IsDir() {
+		targetDirs = []string{repoDir}
 	}
-	for _, base := range dirs {
+	for _, base := range targetDirs {
 		for _, n := range []string{"Dockerfile", "dockerfile"} {
 			if st, err := os.Stat(filepath.Join(base, n)); err == nil && !st.IsDir() {
 				hasDockerfile = true

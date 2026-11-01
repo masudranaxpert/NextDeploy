@@ -303,6 +303,11 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.Mu.Unlock()
 						_ = p.syncRootStackCompose(runCtx)
 						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+						go func() {
+							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+							defer cancel()
+							_ = dockerapi.PruneDanglingImages(bg)
+						}()
 					} else {
 						_ = p.DB.UpdateAppSlots(runCtx, id, targetSlot, currentSlot)
 						r.Mu.Lock()
@@ -327,6 +332,11 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						p.StopOtherComposeStacks(runCtx, app, id, slotProject)
 						_ = p.syncRootStackCompose(runCtx)
 						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+						go func() {
+							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+							defer cancel()
+							_ = dockerapi.PruneDanglingImages(bg)
+						}()
 					}
 				}
 			} else {

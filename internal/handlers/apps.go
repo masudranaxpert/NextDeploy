@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -108,6 +109,21 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 				WebhookSecret: RandomSecret(),
 				AutoDeploy:    true,
 			}
+			if strings.Contains(strings.ToLower(repoURL), "gitlab") {
+				cfg.Provider = "gitlab"
+			}
+			// Auto-link connected git provider if available
+			providers, _ := p.DB.ListGitProviders(c.UserContext(), &u.ID)
+			for _, gp := range providers {
+				if gp.Provider == cfg.Provider {
+					cfg.GitProviderID = gp.ID
+					if strings.TrimSpace(gp.Token) != "" {
+						cfg.AuthMode = "token"
+						cfg.Token = gp.Token
+					}
+					break
+				}
+			}
 			if cfg.AuthMode == "" {
 				cfg.AuthMode = "public"
 			}
@@ -117,6 +133,12 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			if err := os.MkdirAll(filepath.Join(p.Store.ReservedPath(id), "repo"), 0750); err != nil {
 				return c.Status(500).SendString(err.Error())
 			}
+			// Trigger initial clone in background
+			go func() {
+				bg, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+				defer cancel()
+				_, _ = p.SyncGitAppSource(bg, id)
+			}()
 		}
 	}
 	p.RecordAuditLog(c, "create_app", "app", id, "Created app: "+name+" with source: "+sourceType)

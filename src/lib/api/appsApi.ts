@@ -63,11 +63,23 @@ export const appsAndDockerApi = {
           composeContent?: string;
         }
   ) => {
-    const name = typeof payload === 'string' ? payload : payload.name;
+    if (typeof payload === 'string') {
+      return requestJson('/apps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: toFormBody({ name: payload }),
+      });
+    }
     return requestJson('/apps', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ name }),
+      body: toFormBody({
+        name: payload.name,
+        source_type: payload.sourceType || 'compose',
+        repo_url: payload.gitRepo || '',
+        branch: payload.gitBranch || 'main',
+        compose_content: payload.composeContent || '',
+      }),
     });
   },
   deleteApp: (appId: string) =>
