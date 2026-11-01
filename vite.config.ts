@@ -11,23 +11,11 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'sync-web-dist-for-go-embed',
-        // keep hashed files from older builds for three days (open tabs may still ask for them), then drop them
-        writeBundle(_opts: unknown, bundle: Record<string, unknown>) {
-          const fresh = new Set(Object.keys(bundle).map((f) => path.basename(f)));
-          const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
-          for (const dir of ['dist/assets', 'web/dist/assets']) {
-            const abs = path.resolve(import.meta.dirname, dir);
-            if (!fs.existsSync(abs)) continue;
-            for (const f of fs.readdirSync(abs)) {
-              const full = path.join(abs, f);
-              if (!fresh.has(f) && fs.statSync(full).isFile() && fs.statSync(full).mtimeMs < cutoff) fs.rmSync(full);
-            }
-          }
-        },
         closeBundle() {
           const srcDir = path.resolve(import.meta.dirname, 'dist');
           const destDir = path.resolve(import.meta.dirname, 'web/dist');
           if (fs.existsSync(srcDir)) {
+            fs.rmSync(destDir, {recursive: true, force: true});
             fs.mkdirSync(destDir, {recursive: true});
             fs.cpSync(srcDir, destDir, {recursive: true});
             fs.rmSync(path.join(destDir, 'assets/aistudio'), {recursive: true, force: true});
@@ -36,7 +24,7 @@ export default defineConfig(() => {
       },
     ],
     build: {
-      emptyOutDir: false,
+      emptyOutDir: true,
       rolldownOptions: {
         output: {
           // libraries change rarely: their own files stay cached in the browser across app updates

@@ -75,7 +75,7 @@ const McpAndCliView = lazyRetry(() => import('./features/automation/McpAndCliVie
 const UsersAndSettingsView = lazyRetry(() => import('./features/system/UsersAndSettingsView').then((m) => ({ default: m.UsersAndSettingsView })));
 const PhpSitesView = lazyRetry(() => import('./features/php/PhpSitesView').then((m) => ({ default: m.PhpSitesView })));
 const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView').then((m) => ({ default: m.PhpInstanceView })));
-const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.ProjectsListView })));
+const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsListView').then((m) => ({ default: m.default || m.ProjectsListView })));
 const ShieldProxiesView = lazyRetry(() => import('./features/shield/ShieldProxiesView').then((m) => ({ default: m.ShieldProxiesView })));
 const CopilotView = lazyRetry(() => import('./features/copilot/CopilotView').then((m) => ({ default: m.CopilotView })));
 

@@ -456,3 +456,5 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     </div>
   );
 };
+
+export default ProjectsListView;
