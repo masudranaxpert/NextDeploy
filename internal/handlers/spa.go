@@ -438,7 +438,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		}
 		resOwners = &ro
 		cliSessions, _ = p.DB.ListCLISessions()
-		auditLogs, _ = p.DB.ListAuditLogs(ctx, 100, 0)
+		auditLogs, _ = p.DB.ListAuditLogs(ctx, 20, 0)
 		settings, _ = p.DB.GetAllSettings(ctx)
 		rawExports, _ := p.DB.ListRecentMigrateExports(ctx, 8)
 		publicBase := p.migratePublicBase(c)
@@ -480,7 +480,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		for _, a := range apps {
 			ids = append(ids, a.ID)
 		}
-		auditLogs, _ = p.DB.ListAuditLogsForUser(ctx, u.ID, ids, 100, 0)
+		auditLogs, _ = p.DB.ListAuditLogsForUser(ctx, u.ID, ids, 20, 0)
 	}
 
 	// Host-level telemetry and the raw volume list are admin territory; everyone else sees
@@ -632,6 +632,9 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"origin_ip": func() string {
 			if !isAdmin {
 				return ""
+			}
+			if sys.PublicIP != "" {
+				return sys.PublicIP
 			}
 			return sysinfo.DetectHostIP()
 		}(),

@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	DefaultAdminAPI    = "off"
+	DefaultAdminAPI    = "http://caddy:2019"
 	CaddyContainerName = "caddy"
 	CaddyImage         = "lucaslorentz/caddy-docker-proxy:ci-alpine"
 	CaddyNetwork       = "NextDeploy"
@@ -644,7 +644,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	attachNetwork(caddySvc, PanelNetworkKey)
 	mergeEnv(caddySvc, map[string]string{
 		"CADDY_INGRESS_NETWORKS":              PanelNetworkName,
-		"CADDY_ADMIN":                         "off",
+		"CADDY_ADMIN":                         "0.0.0.0:2019",
 		"CADDY_DOCKER_POLLING_INTERVAL":        "5s",
 		"CADDY_DOCKER_EVENT_THROTTLE_INTERVAL": "50ms",
 	})

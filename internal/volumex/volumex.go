@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/perflog"
@@ -95,8 +96,16 @@ type volumeDfItem struct {
 	Size string `json:"Size"`
 }
 
-// VolumeSizes returns maps of volume name -> size in MB, and volume name -> human formatted size string.
-func VolumeSizes(ctx context.Context) (map[string]float64, map[string]string) {
+var (
+	volDfMu      sync.RWMutex
+	volDfMB      map[string]float64
+	volDfHuman   map[string]string
+	volDfAt      time.Time
+	volDfBusy    bool
+	volDfCacheTTL = 45 * time.Second
+)
+
+func fetchVolumeSizesUncached(ctx context.Context) (map[string]float64, map[string]string) {
 	sizesMB := make(map[string]float64)
 	sizesHuman := make(map[string]string)
 
@@ -120,6 +129,47 @@ func VolumeSizes(ctx context.Context) (map[string]float64, map[string]string) {
 		sizesMB[item.Name] = ParseDockerSizeToMB(raw)
 	}
 	return sizesMB, sizesHuman
+}
+
+// VolumeSizes returns maps of volume name -> size in MB, and volume name -> human formatted size string.
+// Results are cached with a 45s TTL so repeated calls during bootstrap never block the request.
+func VolumeSizes(ctx context.Context) (map[string]float64, map[string]string) {
+	volDfMu.RLock()
+	mb, human, at, busy := volDfMB, volDfHuman, volDfAt, volDfBusy
+	if mb != nil && time.Since(at) < volDfCacheTTL {
+		volDfMu.RUnlock()
+		return mb, human
+	}
+	volDfMu.RUnlock()
+
+	// If stale data exists, return it immediately and refresh in background
+	if mb != nil && !busy {
+		volDfMu.Lock()
+		volDfBusy = true
+		volDfMu.Unlock()
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			nMB, nHuman := fetchVolumeSizesUncached(bg)
+			volDfMu.Lock()
+			if len(nMB) > 0 {
+				volDfMB, volDfHuman, volDfAt = nMB, nHuman, time.Now()
+			}
+			volDfBusy = false
+			volDfMu.Unlock()
+		}()
+		return mb, human
+	}
+
+	// First run without cache
+	volDfMu.Lock()
+	defer volDfMu.Unlock()
+	if volDfMB != nil && time.Since(volDfAt) < volDfCacheTTL {
+		return volDfMB, volDfHuman
+	}
+	nMB, nHuman := fetchVolumeSizesUncached(ctx)
+	volDfMB, volDfHuman, volDfAt = nMB, nHuman, time.Now()
+	return volDfMB, volDfHuman
 }
 
 // ParseDockerSizeToMB converts Docker sizes like "793.4MB", "70.03kB", "1.5GB", "0B" to float64 MB.
