@@ -23,3 +23,13 @@ func TestMatchesVolumeNameSiblingSlug(t *testing.T) {
 		t.Fatal("diu-test must own its volume name")
 	}
 }
+
+func TestMatchesImageRepoBlueGreen(t *testing.T) {
+	all := []string{"hermes-agent-d766", "cloak-traffic-engine-5381"}
+	if !MatchesImageRepo("hermes-agent-d766-blue-app", "hermes-agent-d766", all) {
+		t.Fatal("hermes-agent-d766 must own its blue slot image")
+	}
+	if !MatchesImageRepo("hermes-agent-d766-green-app", "hermes-agent-d766", all) {
+		t.Fatal("hermes-agent-d766 must own its green slot image")
+	}
+}

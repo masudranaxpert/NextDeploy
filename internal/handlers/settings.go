@@ -1112,7 +1112,11 @@ func (p *Panel) runScheduledCleanupForce() {
 	ctx := context.Background()
 	runCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
-	res := dockerx.DockerPruneWithOptions(runCtx, p.currentPruneOptions(ctx))
+	opts := p.currentPruneOptions(ctx)
+	if opts.Images {
+		_ = dockerapi.PruneImages(runCtx)
+	}
+	res := dockerx.DockerPruneWithOptions(runCtx, opts)
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))
 	_ = p.DB.SetSetting(ctx, settingCleanupLastLog, runutil.StatusText(runutil.Result{OK: res.OK, Output: res.Output}))
@@ -1243,6 +1247,9 @@ func (p *Panel) runScheduledCleanup() {
 	defer cancel()
 	opts := dockerx.DefaultPruneOptions()
 	opts.BuildCache = settingBool(cfg[settingCleanupIncludeBuildCache], false)
+	if opts.Images {
+		_ = dockerapi.PruneImages(runCtx)
+	}
 	res := dockerx.DockerPruneWithOptions(runCtx, opts)
 	now := time.Now().UTC()
 	_ = p.DB.SetSetting(ctx, settingCleanupLastRun, now.Format(time.RFC3339))

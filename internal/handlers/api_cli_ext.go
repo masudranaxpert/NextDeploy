@@ -595,6 +595,7 @@ func (p *Panel) APISystemCleanup(c *fiber.Ctx) error {
 	}
 	ctx := c.UserContext()
 	cRes := runutil.Run(ctx, "", nil, "docker", "container", "prune", "-f")
+	_ = dockerapi.PruneImages(ctx)
 	iRes := runutil.Run(ctx, "", nil, "docker", "image", "prune", "-f")
 	bRes := runutil.Run(ctx, "", nil, "docker", "builder", "prune", "-f")
 

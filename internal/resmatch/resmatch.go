@@ -76,5 +76,6 @@ func MatchesImageRepo(repo, project string, allProjects []string) bool {
 	if repo == project || repo == alt {
 		return true
 	}
-	return OwnedByProject(repo, project, "_", allProjects) || OwnedByProject(repo, alt, "_", allProjects)
+	return OwnedByProject(repo, project, "_", allProjects) || OwnedByProject(repo, alt, "_", allProjects) ||
+		OwnedByProject(repo, project, "-", allProjects) || OwnedByProject(repo, alt, "-", allProjects)
 }
