@@ -51,7 +51,7 @@ export const appsAndDockerApi = {
   logout: () => requestJson('/logout', { method: 'POST' }),
 
   // Apps & Compose Lifecycle
-  createApp: (
+  createApp: async (
     payload:
       | string
       | {
@@ -63,30 +63,41 @@ export const appsAndDockerApi = {
           composeContent?: string;
         }
   ) => {
+    let res;
     if (typeof payload === 'string') {
-      return requestJson('/apps', {
+      res = await requestJson('/apps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: toFormBody({ name: payload }),
       });
+    } else {
+      res = await requestJson('/apps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: toFormBody({
+          name: payload.name,
+          source_type: payload.sourceType || 'compose',
+          repo_url: payload.gitRepo || '',
+          branch: payload.gitBranch || 'main',
+          compose_content: payload.composeContent || '',
+        }),
+      });
     }
-    return requestJson('/apps', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({
-        name: payload.name,
-        source_type: payload.sourceType || 'compose',
-        repo_url: payload.gitRepo || '',
-        branch: payload.gitBranch || 'main',
-        compose_content: payload.composeContent || '',
-      }),
-    });
+    if (res?.ok && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nd:invalidate'));
+    }
+    return res;
   },
-  deleteApp: (appId: string) =>
-    requestJson<{ ok: boolean; message?: string; error?: string }>(
+  deleteApp: async (appId: string) => {
+    const res = await requestJson<{ ok: boolean; message?: string; error?: string }>(
       `/api/v1/apps/${encodeURIComponent(appId)}/delete`,
       { method: 'POST' }
-    ),
+    );
+    if (res?.ok && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nd:invalidate'));
+    }
+    return res;
+  },
   composeAction: (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy', service?: string) =>
     requestJson<{ ok: boolean; job_id?: string; action?: string; error?: string }>(
       `/apps/${encodeURIComponent(appId)}/compose/${action}`,

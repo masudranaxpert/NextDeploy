@@ -56,9 +56,10 @@ import { OverviewDashboard } from './features/overview/OverviewDashboard';
 import { AuthView } from './features/auth/AuthView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
+import { dataSync } from './lib/dataSync';
+import { PageSkeleton } from './components/skeletons/PageSkeletons';
 
-// Each screen is its own chunk: only the code for the page you open is downloaded first,
-// the rest is fetched quietly in the background (see the idle prefetch below).
+// Each screen is its own chunk with instant .preload() capability on hover.
 const AppWorkspace = lazyRetry(() => import('./features/workspace/AppWorkspace').then((m) => ({ default: m.AppWorkspace })));
 const ContainersView = lazyRetry(() => import('./features/docker/ContainersView').then((m) => ({ default: m.ContainersView })));
 const ImagesView = lazyRetry(() => import('./features/docker/ImagesView').then((m) => ({ default: m.ImagesView })));
@@ -79,8 +80,70 @@ const ProjectsListView = lazyRetry(() => import('./features/projects/ProjectsLis
 const ShieldProxiesView = lazyRetry(() => import('./features/shield/ShieldProxiesView').then((m) => ({ default: m.ShieldProxiesView })));
 const CopilotView = lazyRetry(() => import('./features/copilot/CopilotView').then((m) => ({ default: m.CopilotView })));
 
-// Start downloading the code of the page in the address bar right away (while the data request
-// runs), instead of waiting for the data first and the code second.
+// On-demand route prefetching triggered by user hover (instant 0ms click feel)
+const prefetchRoute = (nav: NavigationSection) => {
+  switch (nav) {
+    case 'apps':
+      AppWorkspace.preload?.();
+      ProjectsListView.preload?.();
+      break;
+    case 'containers':
+      ContainersView.preload?.();
+      break;
+    case 'images':
+      ImagesView.preload?.();
+      break;
+    case 'volumes':
+      VolumesView.preload?.();
+      break;
+    case 'php-sites':
+      PhpSitesView.preload?.();
+      break;
+    case 'php-instance':
+      PhpInstanceView.preload?.();
+      break;
+    case 'proxy':
+    case 'proxy-options':
+    case 'proxy-routes':
+      CaddyProxyView.preload?.();
+      CaddyOptionsView.preload?.();
+      CaddyRoutesView.preload?.();
+      break;
+    case 'shield-proxies':
+      ShieldProxiesView.preload?.();
+      break;
+    case 'backup':
+      BackupsView.preload?.();
+      break;
+    case 'git':
+    case 'registries':
+      GitAndRegistriesView.preload?.();
+      break;
+    case 'users':
+    case 'settings':
+    case 'audit-logs':
+      UsersAndSettingsView.preload?.();
+      break;
+    case 'monitor':
+      MonitorView.preload?.();
+      break;
+    case 'mcp':
+    case 'cli-sessions':
+      McpAndCliView.preload?.();
+      break;
+    case 'migrate':
+      MigrationView.preload?.();
+      break;
+    case 'terminal':
+      VpsTerminalView.preload?.();
+      break;
+    case 'nextdeploy-ai':
+      CopilotView.preload?.();
+      break;
+  }
+};
+
+// Start downloading the code of the page in the address bar right away
 if (typeof window !== 'undefined') {
   const path = window.location.pathname;
   if (path.startsWith('/apps/')) void import('./features/workspace/AppWorkspace');
@@ -93,14 +156,6 @@ if (typeof window !== 'undefined') {
   else if (path.startsWith('/nextdeploy-ai') || path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
   else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
 }
-
-const ViewSkeleton: React.FC = () => (
-  <div className="space-y-4" aria-busy="true" aria-label="Loading">
-    <div className="h-7 w-48 animate-pulse rounded-lg bg-white/[0.05]" />
-    <div className="h-40 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
-    <div className="h-64 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
-  </div>
-);
 
 
 
@@ -1023,23 +1078,39 @@ export default function App() {
     };
   }, [isBootstrapping, authMode]);
 
-  // After the first screen is up, fetch the other screens' code while the browser is idle,
-  // so opening them later is instant.
+  // Smart Data Sync: revalidate when navigating between pages (guarded by 15s cooldown to prevent DB hammering)
   useEffect(() => {
     if (isBootstrapping || authMode) return;
-    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
-    const run = () => {
-      void import('./features/workspace/AppWorkspace');
-      void import('./features/php/PhpSitesView');
-      void import('./features/projects/ProjectsListView');
-      void import('./features/docker/ContainersView');
-      void import('./features/docker/ImagesView');
-      void import('./features/docker/VolumesView');
-      void import('./features/monitoring/MonitorView');
+    dataSync.checkRouteRevalidate(
+      () => backendApi.bootstrap(),
+      (data) => applyBootstrapData(data)
+    );
+  }, [activeNav, selectedAppId, isBootstrapping, authMode, applyBootstrapData]);
+
+  // Window Focus revalidation (guarded by 30s focus cooldown)
+  useEffect(() => {
+    if (isBootstrapping || authMode) return;
+    const onFocus = () => {
+      dataSync.checkFocusRevalidate(
+        () => backendApi.bootstrap(),
+        (data) => applyBootstrapData(data)
+      );
     };
-    if (idle) idle(run);
-    else window.setTimeout(run, 1500);
-  }, [isBootstrapping, authMode]);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [isBootstrapping, authMode, applyBootstrapData]);
+
+  // Instant mutation invalidation: triggered on create, delete, or update
+  useEffect(() => {
+    const onInvalidate = () => {
+      dataSync.invalidate(
+        () => backendApi.bootstrap(),
+        (data) => applyBootstrapData(data)
+      );
+    };
+    window.addEventListener('nd:invalidate', onInvalidate);
+    return () => window.removeEventListener('nd:invalidate', onInvalidate);
+  }, [applyBootstrapData]);
 
   // First page data. Only a 401 means "not signed in". A slow or failed request is retried and, if
   // it keeps failing, shown as an error: it must never put a signed-in user on the login page.
@@ -1440,6 +1511,8 @@ export default function App() {
                   <button
                     key={item.id}
                     type="button"
+                    onMouseEnter={() => prefetchRoute(item.id)}
+                    onTouchStart={() => prefetchRoute(item.id)}
                     onClick={() => {
                       navigateTo(item.id);
                       setMobileMenuOpen(false);
@@ -1580,7 +1653,7 @@ export default function App() {
                 : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7"
             }
           >
-            <Suspense fallback={<ViewSkeleton />}>
+            <Suspense fallback={<PageSkeleton nav={selectedApp ? 'apps' : activeNav} />}>
             {selectedApp ? (
               <AppWorkspace
                 app={selectedApp}

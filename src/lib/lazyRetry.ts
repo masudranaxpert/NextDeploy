@@ -43,14 +43,20 @@ if (typeof window !== 'undefined') {
   });
 }
 
-/** React.lazy that recovers from a missing chunk after an update. */
+/** React.lazy that recovers from a missing chunk after an update, and supports instant on-hover .preload() */
 export function lazyRetry<T extends ComponentType<any>>(factory: () => Promise<{ default: T }>) {
-  return lazy(async () => {
+  const Component = lazy(async () => {
     try {
       return await factory();
     } catch (err) {
       if (reloadForNewVersion()) return new Promise<{ default: T }>(() => {}); // page is reloading
       throw err;
     }
-  });
+  }) as React.LazyExoticComponent<T> & { preload: () => Promise<any> };
+
+  Component.preload = () => {
+    return factory().catch(() => {});
+  };
+
+  return Component;
 }

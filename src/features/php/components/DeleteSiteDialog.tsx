@@ -31,6 +31,9 @@ export const DeleteSiteDialog: React.FC<{
     }
     toast.success(`${site.name} was deleted`);
     onClose();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nd:invalidate'));
+    }
     await onDeleted(site.id);
   };
 
