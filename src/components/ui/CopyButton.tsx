@@ -41,10 +41,10 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
 
   const defaultClasses =
     variant === 'outline'
-      ? 'inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white hover:border-white/[0.15] cursor-pointer transition-colors'
+      ? 'inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:text-white hover:border-white/[0.15] active:scale-95 cursor-pointer transition-all duration-100 ease-out'
       : variant === 'badge'
-      ? 'inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-zinc-300 hover:border-orange-500/40 hover:text-orange-300 cursor-pointer transition-colors'
-      : 'inline-flex items-center gap-1 rounded p-1 text-zinc-400 hover:text-zinc-200 cursor-pointer transition-colors';
+      ? 'inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-[#09090b] px-2 py-0.5 font-mono text-[11px] text-zinc-300 hover:border-orange-500/40 hover:text-orange-300 active:scale-95 cursor-pointer transition-all duration-100 ease-out'
+      : 'inline-flex items-center gap-1 rounded p-1 text-zinc-400 hover:text-zinc-200 active:scale-90 cursor-pointer transition-all duration-100 ease-out';
 
   return (
     <button

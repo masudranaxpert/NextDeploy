@@ -1636,7 +1636,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setNewAppModalOpen(true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white active:scale-[0.98] shadow-xs transition-all duration-100 ease-out cursor-pointer whitespace-nowrap"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Create Project</span>

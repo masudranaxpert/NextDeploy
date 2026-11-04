@@ -89,7 +89,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${widthClass} overflow-hidden rounded-lg border border-white/[0.08] bg-[#0e0e11] text-zinc-100 shadow-[0_20px_60px_rgba(0,0,0,0.8)]`}
+        className={`relative w-full ${widthClass} overflow-hidden rounded-lg border border-white/[0.08] bg-[#0e0e11] text-zinc-100 shadow-[0_20px_60px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in-95 duration-150 ease-out`}
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5">
@@ -1313,13 +1313,13 @@ export const DeployNewAppModal: React.FC<DeployNewAppModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+            className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer"
           >
             <Plus className="h-3.5 w-3.5" />
             Create & Deploy

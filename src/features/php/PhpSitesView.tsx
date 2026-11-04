@@ -28,7 +28,7 @@ interface Props {
   onGoInstance: () => void;
 }
 
-export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onDeleteSite, onRefresh, onGoInstance }) => {
+const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onDeleteSite, onRefresh, onGoInstance }) => {
   const sites = useMemo(() => apps.filter((a) => a.php), [apps]);
   const [status, setStatus] = useState<PhpStatusData | null>(null);
   const [search, setSearch] = useState('');
@@ -300,3 +300,5 @@ export const PhpSitesView: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onDel
     </div>
   );
 };
+
+export const PhpSitesView = React.memo(PhpSitesViewComponent);

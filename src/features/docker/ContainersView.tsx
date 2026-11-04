@@ -29,7 +29,7 @@ interface ContainersViewProps {
   onRefresh: () => Promise<void> | void;
 }
 
-export const ContainersView: React.FC<ContainersViewProps> = ({
+const ContainersViewComponent: React.FC<ContainersViewProps> = ({
   apps,
   liveContainers = [],
   onOpenAppTab,
@@ -434,3 +434,5 @@ export const ContainersView: React.FC<ContainersViewProps> = ({
     </div>
   );
 };
+
+export const ContainersView = React.memo(ContainersViewComponent);
