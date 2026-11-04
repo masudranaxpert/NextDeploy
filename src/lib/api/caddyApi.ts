@@ -1,4 +1,5 @@
 import { requestJson } from './http';
+import { notifyMutation } from '../dataSync';
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',
@@ -42,12 +43,25 @@ export const caddyApi = {
       cloudflare_ranges: string[];
       labels: Record<string, string>;
     }>('/caddy/options'),
-  caddyOptionsSave: (options: CaddyOptions, apply: boolean) =>
-    requestJson<{ ok: boolean; applying: boolean; options: CaddyOptions }>('/caddy/options', json({ ...options, apply })),
+  caddyOptionsSave: async (options: CaddyOptions, apply: boolean) => {
+    const res = await requestJson<{ ok: boolean; applying: boolean; options: CaddyOptions }>('/caddy/options', json({ ...options, apply }));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   caddyRoutes: () => requestJson<{ ok: boolean; routes: ProxyRoute[] }>('/caddy/routes'),
-  caddyRouteSave: (route: Partial<ProxyRoute>) =>
-    requestJson<{ ok: boolean; route: ProxyRoute }>(route.id ? `/caddy/routes/${route.id}` : '/caddy/routes', json(route)),
-  caddyRouteToggle: (id: number, enabled: boolean) =>
-    requestJson<{ ok: boolean }>(`/caddy/routes/${id}/toggle`, json({ enabled })),
-  caddyRouteDelete: (id: number) => requestJson<{ ok: boolean }>(`/caddy/routes/${id}/delete`, { method: 'POST' }),
+  caddyRouteSave: async (route: Partial<ProxyRoute>) => {
+    const res = await requestJson<{ ok: boolean; route: ProxyRoute }>(route.id ? `/caddy/routes/${route.id}` : '/caddy/routes', json(route));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  caddyRouteToggle: async (id: number, enabled: boolean) => {
+    const res = await requestJson<{ ok: boolean }>(`/caddy/routes/${id}/toggle`, json({ enabled }));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  caddyRouteDelete: async (id: number) => {
+    const res = await requestJson<{ ok: boolean }>(`/caddy/routes/${id}/delete`, { method: 'POST' });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
 };

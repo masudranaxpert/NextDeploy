@@ -111,10 +111,24 @@ class DataSyncManager {
   /**
    * Call after any Create / Delete / Update mutation to invalidate cache and refresh immediately.
    */
-  public invalidate(fetcher: () => Promise<any>, onData: (data: any) => void): void {
+  public invalidate(fetcher?: () => Promise<any>, onData?: (data: any) => void): void {
     this.lastBootstrapTime = 0; // mark stale
-    void this.revalidateBootstrap(fetcher, onData, true);
+    if (fetcher && onData) {
+      void this.revalidateBootstrap(fetcher, onData, true);
+    } else {
+      notifyMutation();
+    }
   }
 }
 
 export const dataSync = new DataSyncManager();
+
+/**
+ * Global helper to notify all subscribers and tabs that a mutation happened.
+ * Dispatches the 'nd:invalidate' custom event.
+ */
+export function notifyMutation(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nd:invalidate'));
+  }
+}

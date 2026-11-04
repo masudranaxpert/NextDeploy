@@ -1,4 +1,5 @@
 import { BootstrapData, DomainFormPayload, requestJson, requestText, resultFromResponse, toFormBody } from './http';
+import { notifyMutation } from '../dataSync';
 
 // Helper to encode file paths in Base64 for query parameters.
 // This prevents external WAFs (like Cloudflare Managed Rules for WordPress / PHP)
@@ -83,8 +84,8 @@ export const appsAndDockerApi = {
         }),
       });
     }
-    if (res?.ok && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nd:invalidate'));
+    if (res?.ok) {
+      notifyMutation();
     }
     return res;
   },
@@ -93,20 +94,25 @@ export const appsAndDockerApi = {
       `/api/v1/apps/${encodeURIComponent(appId)}/delete`,
       { method: 'POST' }
     );
-    if (res?.ok && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nd:invalidate'));
+    if (res?.ok) {
+      notifyMutation();
     }
     return res;
   },
-  composeAction: (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy', service?: string) =>
-    requestJson<{ ok: boolean; job_id?: string; action?: string; error?: string }>(
+  composeAction: async (appId: string, action: 'up' | 'down' | 'restart' | 'redeploy', service?: string) => {
+    const res = await requestJson<{ ok: boolean; job_id?: string; action?: string; error?: string }>(
       `/apps/${encodeURIComponent(appId)}/compose/${action}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: toFormBody({ service }),
       }
-    ),
+    );
+    if (res?.ok) {
+      notifyMutation();
+    }
+    return res;
+  },
   deployProgress: (appId: string) =>
     requestJson<{
       ok: boolean;
@@ -345,22 +351,28 @@ export const appsAndDockerApi = {
     ),
 
   // Container & Image Lifecycle
-  appContainerAction: (
+  appContainerAction: async (
     appId: string,
     containerName: string,
     action: 'start' | 'stop' | 'restart' | 'remove'
-  ) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/containers/${action}`, {
+  ) => {
+    const res = await requestJson(`/apps/${encodeURIComponent(appId)}/containers/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ name: containerName, container: containerName }),
-    }),
-  globalContainerRestart: (containerName: string) =>
-    requestJson('/containers/restart', {
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  globalContainerRestart: async (containerName: string) => {
+    const res = await requestJson('/containers/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ name: containerName }),
-    }),
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   appExec: (appId: string, container: string, command: string) => {
     const fd = new FormData();
     fd.append('container', container);
@@ -370,55 +382,74 @@ export const appsAndDockerApi = {
       { method: 'POST', body: fd }
     );
   },
-  appContainersRemoveSelected: (appId: string, containerNames: string[]) => {
+  appContainersRemoveSelected: async (appId: string, containerNames: string[]) => {
     const body = new URLSearchParams();
     for (const name of containerNames) {
       body.append('name', name);
       body.append('containers', name);
     }
-    return requestJson(`/apps/${encodeURIComponent(appId)}/containers/remove-selected`, {
+    const res = await requestJson(`/apps/${encodeURIComponent(appId)}/containers/remove-selected`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
+    if (res?.ok) notifyMutation();
+    return res;
   },
-  globalContainerAction: (containerName: string, action: 'restart' | 'remove') =>
-    requestJson(`/containers/${action}`, {
+  globalContainerAction: async (containerName: string, action: 'restart' | 'remove') => {
+    const res = await requestJson(`/containers/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ name: containerName }),
-    }),
-  globalContainersRemoveSelected: (containerNames: string[]) => {
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  globalContainersRemoveSelected: async (containerNames: string[]) => {
     const body = new URLSearchParams();
     for (const name of containerNames) {
       body.append('name', name);
     }
-    return requestJson('/containers/remove-selected', {
+    const res = await requestJson('/containers/remove-selected', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
+    if (res?.ok) notifyMutation();
+    return res;
   },
-  globalContainersPrune: () =>
-    requestJson<{ ok: boolean; message?: string }>('/containers/prune', { method: 'POST' }),
-  globalImageRemove: (idOrTag: string) =>
-    requestJson(`/images/remove`, {
+  globalContainersPrune: async () => {
+    const res = await requestJson<{ ok: boolean; message?: string }>('/containers/prune', { method: 'POST' });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  globalImageRemove: async (idOrTag: string) => {
+    const res = await requestJson(`/images/remove`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ id: idOrTag, image_id: idOrTag }),
-    }),
-  globalImagesPrune: () =>
-    requestJson<{ ok: boolean; message?: string }>('/images/prune', { method: 'POST' }),
-  globalVolumeRemove: (volumeName: string) =>
-    requestJson('/volumes/remove', {
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  globalImagesPrune: async () => {
+    const res = await requestJson<{ ok: boolean; message?: string }>('/images/prune', { method: 'POST' });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  globalVolumeRemove: async (volumeName: string) => {
+    const res = await requestJson('/volumes/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({ name: volumeName }),
-    }),
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
 
   // Domains & DNS Check
-  domainCreate: (appId: string, payload: DomainFormPayload) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/domains`, {
+  domainCreate: async (appId: string, payload: DomainFormPayload) => {
+    const res = await requestJson(`/apps/${encodeURIComponent(appId)}/domains`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({
@@ -436,9 +467,12 @@ export const appsAndDockerApi = {
         media_url_prefix: payload.media_url_prefix || '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
-    }),
-  domainEdit: (appId: string, domainId: string | number, payload: DomainFormPayload) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/edit`, {
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  domainEdit: async (appId: string, domainId: string | number, payload: DomainFormPayload) => {
+    const res = await requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/edit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: toFormBody({
@@ -456,7 +490,10 @@ export const appsAndDockerApi = {
         media_url_prefix: payload.media_url_prefix || '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
-    }),
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   previewSave: (
     appId: string,
     cfg: { provider: string; base: string; service: string; port: number }
@@ -469,19 +506,25 @@ export const appsAndDockerApi = {
         body: JSON.stringify(cfg),
       }
     ),
-  domainSetPrimary: (appId: string, domainId: string | number) =>
-    requestJson<{
+  domainSetPrimary: async (appId: string, domainId: string | number) => {
+    const res = await requestJson<{
       ok: boolean;
       primary_domain?: string;
       domains?: any[];
       error?: string;
     }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/primary`, {
       method: 'POST',
-    }),
-  domainDelete: (appId: string, domainId: string | number) =>
-    requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/delete`, {
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  domainDelete: async (appId: string, domainId: string | number) => {
+    const res = await requestJson(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/delete`, {
       method: 'POST',
-    }),
+    });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   domainDnsCheck: async (appId: string, domainId: string | number) => {
     const res = await requestJson<{
       ok: boolean;

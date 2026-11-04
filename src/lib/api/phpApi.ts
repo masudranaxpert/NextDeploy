@@ -1,4 +1,5 @@
 import { requestJson } from './http';
+import { notifyMutation } from '../dataSync';
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',
@@ -190,26 +191,32 @@ export interface PhpSiteDetail {
 export const phpApi = {
   // ---- any user ----
   phpStatus: () => requestJson<PhpStatusData>('/api/php/status'),
-  phpCreateSite: (body: {
+  phpCreateSite: async (body: {
     name: string;
     type: 'php' | 'wordpress' | 'static';
     php_version?: string;
     title?: string;
     wp_admin_user?: string;
     wp_admin_email?: string;
-  }) =>
-    requestJson<{ ok: boolean; id: string; domain: string; provisioning?: boolean; error?: string }>(
+  }) => {
+    const res = await requestJson<{ ok: boolean; id: string; domain: string; provisioning?: boolean; error?: string }>(
       '/api/php/sites',
       json(body)
-    ),
+    );
+    if (res?.ok) notifyMutation();
+    return res;
+  },
 
   // ---- admin: instance ----
   phpInstance: () => requestJson<PhpInstanceData>('/api/php/instance'),
   phpSetModule: (enabled: boolean) => requestJson('/api/php/instance/module', json({ enabled })),
   phpMysqlQueryLimit: (seconds: number) =>
     requestJson('/api/php/instance/mysql', json({ action: 'limits', query_seconds: seconds })),
-  phpMysql: (action: 'enable' | 'disable' | 'restart', memoryMb?: number) =>
-    requestJson('/api/php/instance/mysql', json({ action, memory_mb: memoryMb })),
+  phpMysql: async (action: 'enable' | 'disable' | 'restart', memoryMb?: number) => {
+    const res = await requestJson('/api/php/instance/mysql', json({ action, memory_mb: memoryMb }));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   phpSecurity: (appId: string) => requestJson<{ ok: boolean; security: PhpSecurity; client_ip: string }>(site(appId, '/security')),
   phpSecuritySave: (appId: string, body: Partial<PhpSecurity> & { basic_auth_password?: string; remove_password?: boolean }) =>
     requestJson<{ ok: boolean; security: PhpSecurity }>(site(appId, '/security'), json(body)),
@@ -218,9 +225,16 @@ export const phpApi = {
     requestJson<{ ok: boolean; redis?: PhpInstanceData['redis'] }>('/api/php/instance/redis', json({ action })),
   phpPmaOpenAll: () => requestJson<{ ok: boolean; url: string }>('/api/php/instance/pma/open', json({})),
   phpPmaOpen: (appId: string) => requestJson<{ ok: boolean; url: string }>(site(appId, "/pma/open"), json({})),
-  phpVersion: (version: string, action: 'install' | 'remove') =>
-    requestJson('/api/php/instance/versions', json({ version, action })),
-  phpRestartContainer: (name: string) => requestJson('/api/php/instance/containers/restart', json({ name })),
+  phpVersion: async (version: string, action: 'install' | 'remove') => {
+    const res = await requestJson('/api/php/instance/versions', json({ version, action }));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  phpRestartContainer: async (name: string) => {
+    const res = await requestJson('/api/php/instance/containers/restart', json({ name }));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
   phpInstanceSettings: (minCronIntervalMinutes: number) =>
     requestJson('/api/php/instance/settings', json({ min_cron_interval_minutes: minCronIntervalMinutes })),
   phpUserLimits: (userId: number, maxDatabases: number, maxCronJobs: number) =>
