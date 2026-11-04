@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, Lock, ShieldCheck, User } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { backendApi } from '../../lib/backendApi';
 
 interface AuthViewProps {
@@ -176,16 +176,6 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
 
   return (
     <div className="grid min-h-screen bg-[#09090b] text-zinc-100 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-      <Toaster
-        position="bottom-right"
-        theme="dark"
-        richColors
-        closeButton
-        duration={4500}
-        visibleToasts={4}
-        mobileOffset={{ bottom: 16, left: 16, right: 16 }}
-        toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
-      />
       <section className="flex flex-col px-4 pb-6 pt-8 min-[900px]:px-12 min-[900px]:py-8">
         <div className="flex items-center gap-2.5 font-display text-[17px] font-bold tracking-tight">
           <NextDeployMark className="h-[30px] w-[30px]" />
