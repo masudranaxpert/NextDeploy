@@ -660,15 +660,37 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 	})
 }
 
-// MetricsHistory returns the time-series ring buffer of CPU, RAM, Disk and Net metrics.
+// MetricsHistory returns the time-series ring buffer of CPU, RAM, Disk and Net metrics,
+// along with the latest host snapshot and live container usage.
 // GET /api/v1/metrics/history
 func (p *Panel) MetricsHistory(c *fiber.Ctx) error {
-	if u, ok := currentUser(c); !ok || u.Role != db.RoleAdmin {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin role required"})
 	}
 	history := sysinfo.GetTelemetryHistory()
+	snap := sysinfo.Collect(ctx)
+
+	type containerUsageItem struct {
+		ID         string  `json:"id"`
+		CPUPercent float64 `json:"cpu_percent"`
+		MemoryMB   int64   `json:"memory_mb"`
+	}
+	uRows := p.usageRows(ctx)
+	usageList := make([]containerUsageItem, len(uRows))
+	for i, r := range uRows {
+		usageList[i] = containerUsageItem{
+			ID:         r.ID,
+			CPUPercent: r.CPUPercent,
+			MemoryMB:   int64(r.MemUsage / (1024 * 1024)),
+		}
+	}
+
 	return c.JSON(fiber.Map{
-		"ok":      true,
-		"history": history,
+		"ok":         true,
+		"history":    history,
+		"sys":        snap,
+		"containers": usageList,
 	})
 }

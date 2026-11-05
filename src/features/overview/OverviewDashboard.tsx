@@ -1,6 +1,6 @@
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, Check, Copy, GitBranch, Globe, Server, Shield, User } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, GitBranch, Globe, Info, RefreshCw, Server, Shield, User } from 'lucide-react';
 import { NavigationSection, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi, getCachedShieldNodes } from '../../lib/backendApi';
@@ -29,6 +29,7 @@ interface OverviewDashboardProps {
   } | null;
   /** Host services with their real state (admins only). */
   services?: Array<{ name: string; ver: string; meta: string; ok: boolean }>;
+  onRefresh?: () => void;
   onSelectApp: (appId: string) => void;
   onSelectNav: (nav: NavigationSection) => void;
 }
@@ -41,6 +42,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
   isAdmin = true,
   quota = null,
   services = [],
+  onRefresh,
   onSelectApp,
   onSelectNav,
 }) => {
@@ -208,11 +210,39 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
       {/* Row 1/2: Host Telemetry & DNS Target Cards */}
       {isAdmin ? (
         <div className="space-y-3.5 xl:space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-medium text-zinc-400">Live Telemetry</span>
+            </div>
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                title="Refresh stats immediately"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span>Sync now</span>
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-3.5 xl:gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 xl:p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs font-medium text-zinc-400">Host Memory</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-zinc-400">Host Memory</p>
+                    <span
+                      className="cursor-help text-zinc-500 hover:text-zinc-300 transition-colors"
+                      title="Physical RAM used by VPS host OS. Container stats sum higher due to shared kernel libraries and active page caches."
+                    >
+                      <Info className="h-3 w-3" />
+                    </span>
+                  </div>
                   <p className="mt-1.5 font-mono text-xl xl:text-2xl font-bold tabular-nums text-zinc-100 leading-none">
                     {memUsedGB} <span className="text-xs font-normal text-zinc-500">/ {memTotalGB} GB</span>
                   </p>
@@ -223,7 +253,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
               </div>
               <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full"
+                  className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${memPct}%` }}
                 />
               </div>
@@ -243,7 +273,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
               </div>
               <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
+                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${diskPct}%` }}
                 />
               </div>
@@ -264,7 +294,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
               </div>
               <div className="mt-3.5 h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
+                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${cpuPct}%` }}
                 />
               </div>

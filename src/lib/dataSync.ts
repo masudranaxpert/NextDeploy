@@ -13,8 +13,8 @@ type Listener = () => void;
 class DataSyncManager {
   private inFlightBootstrap: Promise<any> | null = null;
   private lastBootstrapTime = 0;
-  // Data is considered fresh for 15 seconds; route changes within 15s use cache with 0 network calls.
-  private staleTimeMs = 15_000;
+  // Data is considered fresh for 4 seconds; route changes after 4s trigger background revalidation.
+  private staleTimeMs = 4_000;
   // Window focus check has a 30s cooldown to prevent spamming on rapid alt-tabs.
   private focusCooldownMs = 30_000;
   private lastFocusRevalidate = 0;

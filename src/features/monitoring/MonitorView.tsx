@@ -19,9 +19,10 @@ interface MonitorViewProps {
   apps: AppStack[];
   onStreamTick?: () => void;
   onUpdateTelemetry?: (pts: TelemetryPoint[]) => void;
+  onLiveMetrics?: (data: any) => void;
 }
 
-export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStreamTick, onUpdateTelemetry }) => {
+export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStreamTick, onUpdateTelemetry, onLiveMetrics }) => {
   const [pinnedApps, setPinnedApps] = useState<string[]>([]);
   const [monitorSearch, setMonitorSearch] = useState('');
   const [monitorStatusFilter, setMonitorStatusFilter] = useState<
@@ -36,8 +37,11 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
   const fetchLatestMetrics = async () => {
     try {
       const res = await backendApi.metricsHistory();
-      if (res.ok && Array.isArray(res.data?.history) && res.data.history.length > 0) {
-        onUpdateTelemetry?.(res.data.history);
+      if (res.ok && res.data) {
+        if (Array.isArray(res.data.history) && res.data.history.length > 0) {
+          onUpdateTelemetry?.(res.data.history);
+        }
+        onLiveMetrics?.(res.data);
       }
     } catch {
       // ignore network errors

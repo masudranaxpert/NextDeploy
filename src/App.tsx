@@ -653,6 +653,35 @@ export default function App() {
     setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages)));
   };
 
+  const applyLiveMetrics = React.useCallback(
+    (data: { sys?: any; history?: TelemetryPoint[]; containers?: any[] }) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.sys) {
+        setSys(data.sys);
+      }
+      if (Array.isArray(data.history) && data.history.length > 0) {
+        setTelemetry(data.history);
+      }
+      if (Array.isArray(data.containers) && data.containers.length > 0) {
+        const usageMap = new Map<string, { cpu_percent: number; memory_mb: number }>();
+        data.containers.forEach((c) => {
+          if (c?.id) {
+            usageMap.set(c.id, { cpu_percent: c.cpu_percent || 0, memory_mb: c.memory_mb || 0 });
+          }
+        });
+        setLiveContainers((prev) =>
+          prev.map((c) => {
+            const u =
+              usageMap.get(c.id) ||
+              (c.id && c.id.length >= 12 ? usageMap.get(c.id.slice(0, 12)) : undefined);
+            return u ? { ...c, cpuPct: u.cpu_percent, memUsedMB: u.memory_mb } : c;
+          })
+        );
+      }
+    },
+    []
+  );
+
   const applyBootstrapData = React.useCallback((data: any) => {
     if (!data || typeof data !== 'object') return;
     if (data.public_ip) {
@@ -1078,14 +1107,61 @@ export default function App() {
     };
   }, [isBootstrapping, authMode]);
 
-  // Smart Data Sync: revalidate when navigating between pages (guarded by 15s cooldown to prevent DB hammering)
+  // Smart Data Sync: revalidate when navigating between pages
   useEffect(() => {
     if (isBootstrapping || authMode) return;
+    // Fast-path: immediately pull fresh telemetry for live dashboard views
+    if (activeNav === 'overview' || activeNav === 'containers' || activeNav === 'monitor') {
+      backendApi
+        .metricsHistory()
+        .then((res) => {
+          if (res?.ok && res?.data) {
+            applyLiveMetrics(res.data);
+          }
+        })
+        .catch(() => {});
+    }
     dataSync.checkRouteRevalidate(
       () => backendApi.bootstrap(),
       (data) => applyBootstrapData(data)
     );
-  }, [activeNav, selectedAppId, isBootstrapping, authMode, applyBootstrapData]);
+  }, [activeNav, selectedAppId, isBootstrapping, authMode, applyBootstrapData, applyLiveMetrics]);
+
+  // Live Telemetry & Metrics Polling (runs every 4s only when tab is visible and on live views)
+  useEffect(() => {
+    if (isBootstrapping || authMode) return;
+    const isLiveNav = activeNav === 'overview' || activeNav === 'containers' || activeNav === 'monitor';
+    if (!isLiveNav) return;
+
+    let mounted = true;
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (!mounted) return;
+      try {
+        const res = await backendApi.metricsHistory();
+        if (res?.ok && res?.data && mounted) {
+          applyLiveMetrics(res.data);
+        }
+      } catch {
+        // network blip: ignore
+      }
+    };
+
+    const intervalId = window.setInterval(poll, 4000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void poll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activeNav, isBootstrapping, authMode, applyLiveMetrics]);
 
   // Window Focus revalidation (guarded by 30s focus cooldown)
   useEffect(() => {
@@ -1728,6 +1804,10 @@ export default function App() {
                   { name: 'caddy-proxy', ver: '', meta: caddyInfo?.up ? 'serving' : caddyInfo?.status || 'not reachable', ok: !!caddyInfo?.up },
                   { name: 'mcp-server', ver: 'JSON-RPC', meta: `${MCP_TOOLS_CATALOG.length} tools`, ok: true },
                 ]}
+                onRefresh={async () => {
+                  const r = await backendApi.metricsHistory();
+                  if (r?.ok && r?.data) applyLiveMetrics(r.data);
+                }}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}
               />
@@ -1774,6 +1854,7 @@ export default function App() {
                 apps={apps}
                 onStreamTick={appendTelemetryTick}
                 onUpdateTelemetry={setTelemetry}
+                onLiveMetrics={applyLiveMetrics}
               />
             ) : activeNav === 'containers' ? (
               <ContainersView
