@@ -120,6 +120,11 @@ func main() {
 	})
 	app.Use(compress.New())
 	app.Use(logger.New(logger.Config{
+		Next: func(c *fiber.Ctx) bool {
+			// Suppress high-frequency polling from flooding stdout and Docker log buffers
+			p := c.Path()
+			return p == "/api/v1/metrics/history" || p == "/api/panel/version"
+		},
 		Format: "${green}[${time}]${reset} ${cyan}${status}${reset} ${magenta}${method}${reset} ${yellow}${path}${reset} ${white}${latency}${reset}\n",
 	}))
 

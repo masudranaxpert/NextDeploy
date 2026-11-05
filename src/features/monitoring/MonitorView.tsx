@@ -49,20 +49,9 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
   };
 
   useEffect(() => {
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    // Initial fetch on mount; subsequent polling is centralized in App.tsx
     void fetchLatestMetrics();
-
-    const timer = setInterval(() => {
-      if (Date.now() - sessionStart >= FIVE_MINUTES_MS) {
-        setIsLivePaused(true);
-        clearInterval(timer);
-        return;
-      }
-      void fetchLatestMetrics();
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [sessionStart]);
+  }, []);
 
   const handleRefreshOrResume = () => {
     setSessionStart(Date.now());

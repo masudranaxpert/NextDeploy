@@ -1134,9 +1134,11 @@ export default function App() {
     if (!isLiveNav) return;
 
     let mounted = true;
+    let inFlight = false;
     const poll = async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      if (!mounted) return;
+      if (!mounted || inFlight) return;
+      inFlight = true;
       try {
         const res = await backendApi.metricsHistory();
         if (res?.ok && res?.data && mounted) {
@@ -1144,6 +1146,8 @@ export default function App() {
         }
       } catch {
         // network blip: ignore
+      } finally {
+        inFlight = false;
       }
     };
 
