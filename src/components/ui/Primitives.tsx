@@ -113,6 +113,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close dialog"
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
@@ -1019,6 +1020,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close command palette"
             className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-white cursor-pointer shrink-0"
           >
             ESC

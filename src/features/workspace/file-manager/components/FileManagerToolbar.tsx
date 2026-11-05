@@ -135,20 +135,21 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
         </div>
       )}
 
-      {/* 2. MAIN ACTION TOOLBAR */}
-      <div className="border-b border-white/[0.07] bg-[#0c0c0f] px-3 sm:px-4 py-2.5">
-        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-          {/* MOBILE & TABLET VIEW: 2 rows with 3 buttons each (grid-cols-3) (< xl) */}
-          <div className="grid grid-cols-3 gap-2 w-full xl:hidden">
-            {/* Row 1: Item 1 - New File */}
-            <button
-              type="button"
-              onClick={onOpenNewFile}
-              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold px-2 text-xs shadow-sm shadow-orange-950/40 border border-orange-400/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
-            >
-              <FilePlus className="h-4 w-4 shrink-0" />
-              <span className="truncate">New File</span>
-            </button>
+      {/* 2. MAIN ACTION TOOLBAR (hidden when in code editor to maximize vertical screen space) */}
+      {!editingFilePath && (
+        <div className="border-b border-white/[0.07] bg-[#0c0c0f] px-3 sm:px-4 py-2.5">
+          <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+            {/* MOBILE & TABLET VIEW: 2 rows with 3 buttons each (grid-cols-3) (< xl) */}
+            <div className="grid grid-cols-3 gap-2 w-full xl:hidden">
+              {/* Row 1: Item 1 - New File */}
+              <button
+                type="button"
+                onClick={onOpenNewFile}
+                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-semibold px-2 text-xs shadow-sm shadow-orange-950/40 border border-orange-500/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer"
+              >
+                <FilePlus className="h-4 w-4 shrink-0" />
+                <span className="truncate">New File</span>
+              </button>
 
             {/* Row 1: Item 2 - New Folder */}
             <button
@@ -229,7 +230,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenNewFile}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold px-3 text-xs shadow-sm shadow-orange-950/40 border border-orange-400/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-semibold px-3 text-xs shadow-sm shadow-orange-950/40 border border-orange-500/30 transition-transform active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0"
             >
               <FilePlus className="h-4 w-4 shrink-0" />
               <span>New File</span>
@@ -341,6 +342,7 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
           </div>
         </div>
       </div>
+    )}
 
       {/* 2. PATH & BREADCRUMB NAVIGATION BAR */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#09090b]/90 px-3.5 py-2 font-mono text-xs">
@@ -422,19 +424,6 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
           >
             <Folder className="h-3 w-3 text-amber-400" />
             <span>{mobileTreeOpen ? 'Hide Tree' : 'Folder Tree'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={onToggleHiddenFiles}
-            className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors ${
-              showHiddenFiles
-                ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
-                : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
-            }`}
-            title={showHiddenFiles ? 'Hide hidden files' : 'Show hidden files (.git, .gitignore, etc.)'}
-          >
-            {showHiddenFiles ? <Eye className="h-3 w-3 text-orange-400" /> : <EyeOff className="h-3 w-3 text-zinc-500" />}
-            <span>{showHiddenFiles ? 'Hidden On' : 'Hidden Off'}</span>
           </button>
           <span className="hidden sm:inline">Right-click any row for actions</span>
           <span className="hidden sm:inline text-zinc-700">·</span>

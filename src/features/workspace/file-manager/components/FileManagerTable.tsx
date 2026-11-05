@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ActionMenu } from '../../../../components/ui/Primitives';
-import { formatFileSize, formatPermOctal } from '../utils';
+import { formatFileSize, formatPermOctal, formatRelativeDate } from '../utils';
 import type { ComposeFileNode } from '../../../../types/nextdeploy';
 
 interface FileManagerTableProps {
@@ -365,8 +365,8 @@ export const FileManagerTable: React.FC<FileManagerTableProps> = ({
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-zinc-500">Directory</td>
-                    <td className="px-3 py-2.5 font-sans text-[11px] text-zinc-400">
-                      2d ago
+                    <td className="px-3 py-2.5 font-sans text-[11px] text-zinc-500">
+                      —
                     </td>
                     <td
                       className="px-3 py-2.5 text-[11px] text-zinc-400"
@@ -499,7 +499,14 @@ export const FileManagerTable: React.FC<FileManagerTableProps> = ({
                       {formatFileSize(file.sizeBytes)}
                     </td>
                     <td className="px-3 py-2.5 font-sans text-[11px] text-zinc-400">
-                      {file.updatedAt}
+                      {(() => {
+                        const { relative, full } = formatRelativeDate(file.updatedAt);
+                        return (
+                          <span title={full} className="cursor-default hover:text-zinc-200 transition-colors">
+                            {relative}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td
                       className="px-3 py-2.5 text-[11px] text-emerald-400"

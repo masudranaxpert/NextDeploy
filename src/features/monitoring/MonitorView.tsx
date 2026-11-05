@@ -373,6 +373,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({ telemetry, apps, onStr
                           <button
                             type="button"
                             onClick={() => togglePin(app.slug)}
+                            aria-label={isPinned ? `Unpin ${app.name}` : `Pin ${app.name}`}
                             className={`cursor-pointer ${
                               isPinned ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-300'
                             }`}

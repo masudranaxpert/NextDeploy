@@ -66,3 +66,38 @@ export function isHiddenDotFile(nameOrPath: string): boolean {
   const base = nameOrPath.split('/').pop()?.trim() || '';
   return base.startsWith('.');
 }
+
+/**
+ * Formats a timestamp into a clean relative string (e.g. "Just now", "5m ago", "2h ago", "3d ago")
+ * and an absolute ISO/localized string for tooltips.
+ */
+export function formatRelativeDate(value?: number | string | Date | null): { relative: string; full: string } {
+  if (!value) return { relative: '—', full: '—' };
+  let date: Date;
+  if (typeof value === 'number') {
+    date = new Date(value < 1e11 ? value * 1000 : value);
+  } else if (typeof value === 'string') {
+    date = new Date(value);
+  } else {
+    date = value;
+  }
+
+  if (isNaN(date.getTime())) {
+    return { relative: typeof value === 'string' ? value : '—', full: '—' };
+  }
+
+  const now = Date.now();
+  const diffSec = Math.floor((now - date.getTime()) / 1000);
+  const full = date.toLocaleString();
+
+  if (diffSec < 60) return { relative: 'Just now', full };
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return { relative: `${diffMin}m ago`, full };
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return { relative: `${diffHours}h ago`, full };
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return { relative: `${diffDays}d ago`, full };
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return { relative: `${diffMonths}mo ago`, full };
+  return { relative: `${Math.floor(diffDays / 365)}y ago`, full };
+}

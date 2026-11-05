@@ -1490,7 +1490,7 @@ export default function App() {
               <Search className="h-4 w-4 lg:h-3.5 lg:w-3.5 text-zinc-500" />
               <span>Quick Jump...</span>
             </span>
-            <kbd className="rounded border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
+            <kbd className="rounded border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
               ⌘K
             </kbd>
           </button>
@@ -1500,7 +1500,7 @@ export default function App() {
         <nav className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar px-3 py-2 space-y-3.5 lg:space-y-4">
           {visibleNavGroups.map((grp) => (
             <div key={grp.group} className="space-y-0.5 sm:space-y-0.5">
-              <p className="px-3 lg:px-2.5 pt-1.5 pb-1 text-[11px] lg:text-[10px] font-semibold uppercase tracking-wider text-zinc-500 select-none">
+              <p className="px-3 lg:px-2.5 pt-1.5 pb-1 text-[11px] lg:text-[10px] font-semibold uppercase tracking-wider text-zinc-400 select-none">
                 {grp.group}
               </p>
               {grp.items.map((item) => {
