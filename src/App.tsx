@@ -1237,10 +1237,17 @@ export default function App() {
   const exportRunning = migrationBundles.some((b) => b.status === 'running');
   React.useEffect(() => {
     if (!exportRunning) return;
+    let inFlight = false;
     const t = window.setInterval(async () => {
-      const r = await backendApi.bootstrap();
-      if (r.ok && Array.isArray(r.data?.migrate_exports)) {
-        setMigrationBundles(mapMigrateExports(r.data.migrate_exports));
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const r = await backendApi.bootstrap();
+        if (r.ok && Array.isArray(r.data?.migrate_exports)) {
+          setMigrationBundles(mapMigrateExports(r.data.migrate_exports));
+        }
+      } finally {
+        inFlight = false;
       }
     }, 3000);
     return () => window.clearInterval(t);

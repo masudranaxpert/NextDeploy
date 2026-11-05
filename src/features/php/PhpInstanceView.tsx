@@ -64,8 +64,26 @@ export const PhpInstanceView: React.FC<{ onChanged: () => void | Promise<void> }
   const working =
     !!data && (data.mysql_task.running || (data.versions ?? []).some((v) => v.build?.running));
   useEffect(() => {
-    const t = setInterval(() => void load(), working ? 2500 : 15000);
-    return () => clearInterval(t);
+    let inFlight = false;
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await load();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const t = setInterval(poll, working ? 2500 : 15000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [working, load]);
 
   const seeded = data !== null;

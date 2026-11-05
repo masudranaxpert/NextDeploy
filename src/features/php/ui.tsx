@@ -231,8 +231,19 @@ export function usePhpSite(appId: string, pollMs = 0) {
 
   useEffect(() => {
     if (!pollMs) return;
-    const t = setInterval(() => void reload(), pollMs);
-    return () => clearInterval(t);
+    const poll = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void reload();
+    };
+    const t = setInterval(poll, pollMs);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void reload();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [pollMs, reload]);
 
   return { detail, error, loading, reload };

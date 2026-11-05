@@ -114,8 +114,26 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
 
   useEffect(() => {
     if (!live) return;
-    const t = setInterval(() => void load(), 3000);
-    return () => clearInterval(t);
+    let inFlight = false;
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await load();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const t = setInterval(poll, 3000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [live, load]);
 
   const parsedEntries = useMemo(() => {

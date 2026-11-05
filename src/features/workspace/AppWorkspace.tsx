@@ -177,24 +177,32 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   useEffect(() => {
     if (app.php) return;
     let active = true;
+    let inFlight = false;
     let wasRunning = liveDeployState.running;
     let timer: number | undefined;
 
     const checkProgress = async () => {
-      const res = await backendApi.deployProgress(app.id);
-      if (!active || !res.ok || !res.data) return;
-      const { running, action, output } = res.data;
-      setLiveDeployState((prev) => {
-        if (prev.running === running && prev.output === output && prev.action === action) {
-          return prev;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const res = await backendApi.deployProgress(app.id);
+        if (!active || !res.ok || !res.data) return;
+        const { running, action, output } = res.data;
+        setLiveDeployState((prev) => {
+          if (prev.running === running && prev.output === output && prev.action === action) {
+            return prev;
+          }
+          return { running: Boolean(running), action: action || 'Deploy', output: output || '' };
+        });
+        if (wasRunning && !running) {
+          wasRunning = false;
+          await refreshAppFromBackend();
+        } else if (running) {
+          wasRunning = true;
         }
-        return { running: Boolean(running), action: action || 'Deploy', output: output || '' };
-      });
-      if (wasRunning && !running) {
-        wasRunning = false;
-        await refreshAppFromBackend();
-      } else if (running) {
-        wasRunning = true;
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -206,9 +214,17 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
     const intervalMs = liveDeployState.running ? 1200 : 15000;
     timer = window.setInterval(checkProgress, intervalMs);
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkProgress();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       active = false;
       if (timer) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [app.id, app.php, liveDeployState.running]);
 
