@@ -1110,8 +1110,9 @@ export default function App() {
   // Smart Data Sync: revalidate when navigating between pages
   useEffect(() => {
     if (isBootstrapping || authMode) return;
-    // Fast-path: immediately pull fresh telemetry for live dashboard views
-    if (activeNav === 'overview' || activeNav === 'containers' || activeNav === 'monitor') {
+    const isLiveNav = activeNav === 'overview' || activeNav === 'containers' || activeNav === 'monitor';
+    if (isLiveNav) {
+      // Live views only need the ultra-lightweight metrics (<2KB) — bypass heavy full-bootstrap
       backendApi
         .metricsHistory()
         .then((res) => {
@@ -1120,14 +1121,16 @@ export default function App() {
           }
         })
         .catch(() => {});
+    } else {
+      // Resource views (apps, volumes, backups, settings) revalidate full state if stale
+      dataSync.checkRouteRevalidate(
+        () => backendApi.bootstrap(),
+        (data) => applyBootstrapData(data)
+      );
     }
-    dataSync.checkRouteRevalidate(
-      () => backendApi.bootstrap(),
-      (data) => applyBootstrapData(data)
-    );
   }, [activeNav, selectedAppId, isBootstrapping, authMode, applyBootstrapData, applyLiveMetrics]);
 
-  // Live Telemetry & Metrics Polling (runs every 4s only when tab is visible and on live views)
+  // Live Telemetry & Metrics Polling (adaptive: 4s active -> 15s idle -> pause on 10m inactivity)
   useEffect(() => {
     if (isBootstrapping || authMode) return;
     const isLiveNav = activeNav === 'overview' || activeNav === 'containers' || activeNav === 'monitor';
@@ -1135,9 +1138,35 @@ export default function App() {
 
     let mounted = true;
     let inFlight = false;
-    const poll = async () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      if (!mounted || inFlight) return;
+    let timerId: number | undefined;
+    let lastActivity = Date.now();
+
+    const getInterval = () => {
+      const idleMs = Date.now() - lastActivity;
+      if (idleMs > 10 * 60 * 1000) return 0; // Paused after 10m idle
+      if (idleMs > 2 * 60 * 1000) return 15000; // Back off to 15s after 2m idle
+      return 4000; // Active 4s polling
+    };
+
+    const scheduleNext = () => {
+      if (!mounted) return;
+      if (timerId !== undefined) window.clearTimeout(timerId);
+      const delay = getInterval();
+      if (delay > 0) {
+        timerId = window.setTimeout(tick, delay);
+      }
+    };
+
+    const tick = async () => {
+      if (!mounted) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        scheduleNext();
+        return;
+      }
+      if (inFlight) {
+        scheduleNext();
+        return;
+      }
       inFlight = true;
       try {
         const res = await backendApi.metricsHistory();
@@ -1148,22 +1177,41 @@ export default function App() {
         // network blip: ignore
       } finally {
         inFlight = false;
+        scheduleNext();
       }
     };
 
-    const intervalId = window.setInterval(poll, 4000);
+    const onUserActivity = () => {
+      const wasIdle = Date.now() - lastActivity > 2 * 60 * 1000;
+      lastActivity = Date.now();
+      if (wasIdle && mounted) {
+        // Instantly wake up from idle backoff
+        void tick();
+      }
+    };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void poll();
+        lastActivity = Date.now();
+        void tick();
       }
     };
+
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('mousemove', onUserActivity, { passive: true });
+    window.addEventListener('keydown', onUserActivity, { passive: true });
+    window.addEventListener('touchstart', onUserActivity, { passive: true });
+
+    // Start initial tick
+    scheduleNext();
 
     return () => {
       mounted = false;
-      window.clearInterval(intervalId);
+      if (timerId !== undefined) window.clearTimeout(timerId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('mousemove', onUserActivity);
+      window.removeEventListener('keydown', onUserActivity);
+      window.removeEventListener('touchstart', onUserActivity);
     };
   }, [activeNav, isBootstrapping, authMode, applyLiveMetrics]);
 
