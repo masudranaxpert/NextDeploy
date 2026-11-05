@@ -253,6 +253,9 @@ func (p *Panel) BrowseUpload(c *fiber.Ctx) error {
 		if isGeneratedComposeRel(relPath) {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "message": generatedComposeManagedMsg()})
 		}
+		if workspace.IsProtectedEnvFile(relPath) {
+			continue // silently skip writing protected .env files to preserve environment security
+		}
 
 		f, err := file.Open()
 		if err != nil {

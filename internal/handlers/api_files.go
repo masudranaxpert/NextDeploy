@@ -129,8 +129,8 @@ func (p *Panel) APIAppFilesList(c *fiber.Ctx) error {
 		relSlash := filepath.ToSlash(rel)
 		name := d.Name()
 
-		// Skip internal panel metadata and git directories, but allow .env and other dotfiles
-		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" {
+		// Skip internal panel metadata, git directories, and protected .env files
+		if name == ".panel-meta" || name == ".nextdeploy" || name == ".nextdeploy.generated.compose.yml" || name == ".git" || workspace.IsProtectedEnvFile(name) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

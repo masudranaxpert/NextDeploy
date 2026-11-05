@@ -7,6 +7,8 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   FilePlus,
   Folder,
   FolderOpen,
@@ -46,6 +48,8 @@ interface FileManagerToolbarProps {
   currentSubfoldersCount: number;
   currentDirFilesCount: number;
   renderFileIcon: (filename: string) => React.ReactNode;
+  showHiddenFiles: boolean;
+  onToggleHiddenFiles: () => void;
 }
 
 export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
@@ -74,6 +78,8 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
   currentSubfoldersCount,
   currentDirFilesCount,
   renderFileIcon,
+  showHiddenFiles,
+  onToggleHiddenFiles,
 }) => {
   return (
     <>
@@ -209,6 +215,11 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
                   icon: <RotateCcw className="h-4 w-4 text-amber-400" />,
                   onClick: onOpenRestoreArchive,
                 },
+                {
+                  label: showHiddenFiles ? 'Hide hidden files' : 'Show hidden files',
+                  icon: showHiddenFiles ? <EyeOff className="h-4 w-4 text-zinc-400" /> : <Eye className="h-4 w-4 text-orange-400" />,
+                  onClick: onToggleHiddenFiles,
+                },
               ]}
             />
           </div>
@@ -287,8 +298,31 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
                   icon: <RotateCcw className="h-4 w-4 text-amber-400" />,
                   onClick: onOpenRestoreArchive,
                 },
+                {
+                  label: showHiddenFiles ? 'Hide hidden files' : 'Show hidden files',
+                  icon: showHiddenFiles ? <EyeOff className="h-4 w-4 text-zinc-400" /> : <Eye className="h-4 w-4 text-orange-400" />,
+                  onClick: onToggleHiddenFiles,
+                },
               ]}
             />
+
+            <button
+              type="button"
+              onClick={onToggleHiddenFiles}
+              className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-all active:scale-[0.97] touch-manipulation select-none cursor-pointer shrink-0 ${
+                showHiddenFiles
+                  ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                  : 'border-white/[0.08] bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+              }`}
+              title={showHiddenFiles ? 'Hide hidden files' : 'Show hidden files (.git, .gitignore, etc.)'}
+            >
+              {showHiddenFiles ? (
+                <Eye className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              )}
+              <span>{showHiddenFiles ? 'Hidden On' : 'Hidden Off'}</span>
+            </button>
           </div>
 
           {/* Search Filter */}
@@ -388,6 +422,19 @@ export const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
           >
             <Folder className="h-3 w-3 text-amber-400" />
             <span>{mobileTreeOpen ? 'Hide Tree' : 'Folder Tree'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onToggleHiddenFiles}
+            className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors ${
+              showHiddenFiles
+                ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                : 'border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+            }`}
+            title={showHiddenFiles ? 'Hide hidden files' : 'Show hidden files (.git, .gitignore, etc.)'}
+          >
+            {showHiddenFiles ? <Eye className="h-3 w-3 text-orange-400" /> : <EyeOff className="h-3 w-3 text-zinc-500" />}
+            <span>{showHiddenFiles ? 'Hidden On' : 'Hidden Off'}</span>
           </button>
           <span className="hidden sm:inline">Right-click any row for actions</span>
           <span className="hidden sm:inline text-zinc-700">·</span>

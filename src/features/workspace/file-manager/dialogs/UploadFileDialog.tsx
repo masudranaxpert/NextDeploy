@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { ShadcnDialog } from '../../../../components/ui/Primitives';
-import { formatFileSize } from '../utils';
+import { formatFileSize, isProtectedEnvFile } from '../utils';
 
 interface UploadFileDialogProps {
   open: boolean;
@@ -77,8 +78,14 @@ export const UploadFileDialog: React.FC<UploadFileDialogProps> = ({
                 e.preventDefault();
                 setIsDragOverUploadZone(false);
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                  const dropped = Array.from(e.dataTransfer.files);
-                  setSelectedUploadFiles((prev) => [...prev, ...dropped]);
+                  const rawFiles = Array.from(e.dataTransfer.files);
+                  const safeFiles = rawFiles.filter((f) => !isProtectedEnvFile(f.name));
+                  if (rawFiles.length > safeFiles.length) {
+                    toast.info('Skipped .env — manage environment variables in the Environment tab');
+                  }
+                  if (safeFiles.length > 0) {
+                    setSelectedUploadFiles((prev) => [...prev, ...safeFiles]);
+                  }
                 }
               }}
               className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-all cursor-pointer ${
@@ -95,8 +102,14 @@ export const UploadFileDialog: React.FC<UploadFileDialogProps> = ({
                 className="hidden"
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {
-                    const files = Array.from(e.target.files);
-                    setSelectedUploadFiles((prev) => [...prev, ...files]);
+                    const rawFiles = Array.from(e.target.files);
+                    const safeFiles = rawFiles.filter((f) => !isProtectedEnvFile(f.name));
+                    if (rawFiles.length > safeFiles.length) {
+                      toast.info('Skipped .env — manage environment variables in the Environment tab');
+                    }
+                    if (safeFiles.length > 0) {
+                      setSelectedUploadFiles((prev) => [...prev, ...safeFiles]);
+                    }
                   }
                 }}
               />

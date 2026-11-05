@@ -97,7 +97,7 @@ func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64)
 		if p == "." || strings.HasPrefix(p, "..") {
 			continue
 		}
-		if filepath.Base(p) == caddy.GeneratedCompose {
+		if filepath.Base(p) == caddy.GeneratedCompose || IsProtectedEnvFile(p) {
 			continue
 		}
 		dest := filepath.Join(base, p)
@@ -227,7 +227,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 	var list []FileEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".panel-meta" || name == ReservedDir || name == caddy.GeneratedCompose {
+		if name == ".panel-meta" || name == ReservedDir || name == caddy.GeneratedCompose || IsProtectedEnvFile(name) {
 			continue
 		}
 		relPath := name
@@ -307,7 +307,7 @@ func (s *Store) ListGitRepoChildren(wsID, rel string) ([]FileEntry, error) {
 	var list []FileEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".git" {
+		if name == ".git" || IsProtectedEnvFile(name) {
 			continue
 		}
 		relPath := name

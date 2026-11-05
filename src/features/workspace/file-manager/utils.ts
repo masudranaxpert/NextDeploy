@@ -34,3 +34,35 @@ export function formatFileSize(bytes?: number): string {
   }
   return `${bytes} B`;
 }
+
+/**
+ * Returns true if the file or folder is a secret/protected environment file.
+ * Preserves safe template files like .env.example, .env.sample, .env.template, .env.dist.
+ */
+export function isProtectedEnvFile(nameOrPath: string): boolean {
+  if (!nameOrPath) return false;
+  const base = nameOrPath.split('/').pop()?.toLowerCase().trim() || '';
+  if (
+    base === '.env.example' ||
+    base === '.env.sample' ||
+    base === '.env.template' ||
+    base === '.env.dist' ||
+    base === '.env.defaults'
+  ) {
+    return false;
+  }
+  return (
+    base === '.env' ||
+    base.startsWith('.env.') ||
+    base.endsWith('.env')
+  );
+}
+
+/**
+ * Returns true if a file or folder starts with a dot (e.g. .git, .gitignore, .dockerignore)
+ */
+export function isHiddenDotFile(nameOrPath: string): boolean {
+  if (!nameOrPath) return false;
+  const base = nameOrPath.split('/').pop()?.trim() || '';
+  return base.startsWith('.');
+}

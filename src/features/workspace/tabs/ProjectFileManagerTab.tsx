@@ -24,9 +24,9 @@ import {
   CollisionDialog,
   UploadFileDialog,
 } from '../file-manager/dialogs';
-import { formatPermOctal } from '../file-manager/utils';
+import { formatPermOctal, isProtectedEnvFile, isHiddenDotFile } from '../file-manager/utils';
 
-export { formatPermOctal };
+export { formatPermOctal, isProtectedEnvFile, isHiddenDotFile };
 
 interface ProjectFileManagerTabProps {
   app: AppStack;
@@ -43,6 +43,26 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   const [renamedPaths, setRenamedPaths] = useState<Record<string, string>>({});
   const [isDragOverFileManager, setIsDragOverFileManager] = useState(false);
   const [liveFileList, setLiveFileList] = useState<ComposeFileNode[] | null>(null);
+
+  const [showHiddenFiles, setShowHiddenFiles] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nd_show_hidden_files') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleHiddenFiles = () => {
+    setShowHiddenFiles((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nd_show_hidden_files', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // Sync real files from server disk into frontend state
   const syncWorkspaceFilesFromDisk = async (invalidatedPaths?: string[]) => {
@@ -144,8 +164,15 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           name: mappedPath.split('/').pop() || mappedPath,
         };
       })
-      .filter((f) => !deletedFilePaths.includes(f.path));
-  }, [liveFileList, app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths]);
+      .filter((f) => {
+        if (deletedFilePaths.includes(f.path)) return false;
+        // 1. Secret .env files are permanently hidden from file manager
+        if (isProtectedEnvFile(f.path) || isProtectedEnvFile(f.name)) return false;
+        // 2. Other hidden dotfiles are hidden unless user turned on showHiddenFiles
+        if (!showHiddenFiles && isHiddenDotFile(f.name)) return false;
+        return true;
+      });
+  }, [liveFileList, app.files, app.primaryDomain, app.services, app.slug, deletedFilePaths, renamedPaths, showHiddenFiles]);
 
   const [editingFilePath, setEditingFilePath] = useState<string | null>(null);
   const [isFileLoading, setIsFileLoading] = useState(false);
@@ -250,8 +277,14 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
         }
       }
     });
-    return Array.from(folderSet).sort();
-  }, [customFolders, defaultRichFiles, deletedFilePaths]);
+    return Array.from(folderSet)
+      .filter((d) => {
+        if (showHiddenFiles) return true;
+        const parts = d.split('/');
+        return !parts.some((segment) => isHiddenDotFile(segment));
+      })
+      .sort();
+  }, [customFolders, defaultRichFiles, deletedFilePaths, showHiddenFiles]);
 
   const rootFolders = useMemo(() => {
     return allFolderPaths.filter((d) => !d.includes('/'));
@@ -484,6 +517,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     const cleanName = newFileName.trim().replace(/^\/+/, '');
     if (!cleanName) return;
 
+    if (isProtectedEnvFile(cleanName)) {
+      toast.error('.env is managed in the Environment tab, not in the file manager.');
+      return;
+    }
+
     const dir = newFileTargetDir ? newFileTargetDir.trim().replace(/^\/+|\/+$/g, '') : '';
     const fullPath = dir ? `${dir}/${cleanName}` : cleanName;
 
@@ -700,13 +738,32 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
 
   // Run Local File Upload with Progress
   const runLocalUpload = async (files: File[]): Promise<boolean> => {
+    // Exclude protected .env files
+    const safeFiles: File[] = [];
+    let skippedEnvCount = 0;
+    for (const file of files) {
+      if (isProtectedEnvFile(file.name)) {
+        skippedEnvCount++;
+      } else {
+        safeFiles.push(file);
+      }
+    }
+
+    if (skippedEnvCount > 0) {
+      toast.info('Skipped .env — manage environment variables in the Environment tab');
+    }
+
+    if (safeFiles.length === 0) {
+      return true;
+    }
+
     setIsUploadingFiles(true);
     setUploadProgress(0);
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      for (let i = 0; i < safeFiles.length; i++) {
+        const file = safeFiles[i];
         setUploadFileName(file.name);
-        const pct = Math.round(((i + 1) / files.length) * 100);
+        const pct = Math.round(((i + 1) / safeFiles.length) * 100);
         setUploadProgress(pct);
         const res = await backendApi.fileUpload(app.id, file, currentDir || '');
         if (!res.ok) {
@@ -714,7 +771,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           return false;
         }
       }
-      toast.success(`Uploaded ${files.length} file(s) into /${currentDir || 'root'}`);
+      toast.success(`Uploaded ${safeFiles.length} file(s) into /${currentDir || 'root'}`);
       await syncWorkspaceFilesFromDisk();
       return true;
     } catch (err: any) {
@@ -901,6 +958,8 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           currentSubfoldersCount={currentSubfolders.length}
           currentDirFilesCount={currentDirFiles.length}
           renderFileIcon={renderFileIcon}
+          showHiddenFiles={showHiddenFiles}
+          onToggleHiddenFiles={toggleHiddenFiles}
         />
 
         {/* Main Body: Code Editor (when file opened) OR Directory Listing Table */}
