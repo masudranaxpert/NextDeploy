@@ -250,9 +250,9 @@ func main() {
 	app.Post("/api/v1/php/sites/:id/cron", p.APIAuthMiddleware, p.PHPCronCreate)
 	app.Delete("/api/v1/php/sites/:id/cron/:jid", p.APIAuthMiddleware, p.PHPCronDelete)
 	app.Post("/api/v1/php/sites/:id/cron/:jid/run", p.APIAuthMiddleware, p.PHPCronRun)
-	app.Get("/api/v1/php/instance", p.APIAuthMiddleware, p.PHPInstance)
-	app.Post("/api/v1/php/instance/mysql", p.APIAuthMiddleware, p.PHPMySQLAction)
-	app.Post("/api/v1/php/instance/redis", p.APIAuthMiddleware, p.PHPRedisAction)
+	app.Get("/api/v1/php/instance", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.PHPInstance)
+	app.Post("/api/v1/php/instance/mysql", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.PHPMySQLAction)
+	app.Post("/api/v1/php/instance/redis", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.PHPRedisAction)
 
 	// CLI Volumes API
 	app.Get("/api/v1/volumes", p.APIAuthMiddleware, p.APIVolumesList)
@@ -278,12 +278,12 @@ func main() {
 	app.Post("/api/v1/backups/schedules", p.APIAuthMiddleware, p.APIBackupScheduleCreate)
 	app.Delete("/api/v1/backups/schedules/:id", p.APIAuthMiddleware, p.APIBackupScheduleDelete)
 
-	// CLI Proxy API
-	app.Get("/api/v1/proxy/routes", p.APIAuthMiddleware, p.CaddyRoutesList)
-	app.Post("/api/v1/proxy/routes", p.APIAuthMiddleware, p.CaddyRouteSave)
-	app.Delete("/api/v1/proxy/routes/:id", p.APIAuthMiddleware, p.CaddyRouteDelete)
-	app.Post("/api/v1/proxy/reload", p.APIAuthMiddleware, p.APIProxyReload)
-	app.Get("/api/v1/proxy/logs", p.APIAuthMiddleware, p.CaddyLogs)
+	// CLI Proxy API (admin only)
+	app.Get("/api/v1/proxy/routes", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyRoutesList)
+	app.Post("/api/v1/proxy/routes", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyRouteSave)
+	app.Delete("/api/v1/proxy/routes/:id", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyRouteDelete)
+	app.Post("/api/v1/proxy/reload", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APIProxyReload)
+	app.Get("/api/v1/proxy/logs", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyLogs)
 
 	// AI Copilot (omp RPC headless harness)
 	app.Get("/api/v1/copilot/status", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CopilotStatus)

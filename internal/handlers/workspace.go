@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"panel/internal/workspace"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -151,6 +153,9 @@ func (p *Panel) WorkspaceFile(c *fiber.Ctx) error {
 		return c.Status(400).SendString("file view is disabled for git-backed apps")
 	}
 	rel := ResolveSafePathQuery(c)
+	if workspace.IsProtectedEnvFile(rel) {
+		return c.Status(fiber.StatusForbidden).SendString("access to .env files is restricted; manage environment variables in the Environment tab")
+	}
 	full, err := p.Store.SafeFilePath(id, rel)
 	if err != nil {
 		return c.Status(400).SendString("invalid path")

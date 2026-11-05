@@ -207,6 +207,9 @@ func (p *Panel) APIAppFileContent(c *fiber.Ctx) error {
 	if reqPath == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path query parameter required"})
 	}
+	if workspace.IsProtectedEnvFile(reqPath) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "access to .env files is restricted; manage environment variables in the Environment tab"})
+	}
 
 	var full string
 	var pathErr error
@@ -336,6 +339,9 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" || baseName == ".nextdeploy" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot modify internal managed files"})
 	}
+	if workspace.IsProtectedEnvFile(reqPath) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "editing .env files is restricted; manage environment variables in the Environment tab"})
+	}
 
 	cleanRel := filepath.ToSlash(strings.Trim(reqPath, "/"))
 	if cleanRel == "docker-compose.yml" || cleanRel == "docker-compose.yaml" || cleanRel == "compose.yml" || cleanRel == "compose.yaml" || cleanRel == app.ComposeFile {
@@ -436,6 +442,9 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 	baseName := filepath.Base(reqPath)
 	if baseName == ".nextdeploy.generated.compose.yml" || baseName == ".panel-meta" || baseName == ".nextdeploy" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot delete internal managed files"})
+	}
+	if workspace.IsProtectedEnvFile(reqPath) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "cannot delete protected .env files"})
 	}
 
 	var delErr error

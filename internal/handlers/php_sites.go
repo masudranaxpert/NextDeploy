@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,7 +131,7 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 				}
 			}
 		}
-		if !phphosting.IsSupportedVersion(version) || !containsStr(installed, version) {
+		if !phphosting.IsSupportedVersion(version) || !slices.Contains(installed, version) {
 			return phpJSONErr(c, 400, "PHP "+version+" is not installed")
 		}
 	}
@@ -241,15 +242,6 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 		resp["provisioning"] = true
 	}
 	return c.JSON(resp)
-}
-
-func containsStr(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
 }
 
 // startWordPressProvision creates the database and installs WordPress in the background.

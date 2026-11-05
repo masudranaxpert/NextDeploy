@@ -96,6 +96,9 @@ func (p *Panel) WorkspaceFilesBlob(c *fiber.Ctx) error {
 	if strings.TrimSpace(rel) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "path required"})
 	}
+	if workspace.IsProtectedEnvFile(rel) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "access to .env files is restricted; manage environment variables in the Environment tab"})
+	}
 	full, err := p.Store.SafeFilePath(appID, rel)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path"})
@@ -218,6 +221,11 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 			"ok": false, "message": generatedComposeManagedMsg(),
 		})
 	}
+	if workspace.IsProtectedEnvFile(rel) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"ok": false, "message": "editing .env files is restricted; manage environment variables in the Environment tab",
+		})
+	}
 
 	full, err := p.Store.SafeFilePath(appID, rel)
 	if err != nil {
@@ -310,6 +318,9 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 			if d.IsDir() {
 				return nil
 			}
+			if workspace.IsProtectedEnvFile(rel) {
+				return nil
+			}
 			n, err := zipAddFile(zw, path, rel, maxWorkspaceZipBytes-written)
 			written += n
 			if err != nil {
@@ -335,6 +346,9 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(400).SendString("invalid paths parameter")
 		}
+		if workspace.IsProtectedEnvFile(rel) {
+			continue
+		}
 		full, err := p.Store.SafeFilePath(appID, rel)
 		if err != nil {
 			return c.Status(400).SendString("invalid path")
@@ -350,6 +364,9 @@ func (p *Panel) WorkspaceFilesDownloadZip(c *fiber.Ctx) error {
 					return err
 				}
 				if d.IsDir() {
+					return nil
+				}
+				if workspace.IsProtectedEnvFile(d.Name()) {
 					return nil
 				}
 				sub, err := filepath.Rel(full, path)

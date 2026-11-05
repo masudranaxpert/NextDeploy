@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -111,24 +112,6 @@ func SizeToMB(v string) int {
 	return n * mult
 }
 
-func containsString(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
-}
-
-func containsInt(list []int, v int) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
-}
-
 // Ceilings are the hard upper bounds a site's PHP settings may not exceed: the smaller of the
 // owner's quota and what the server really has. 0 means "unknown/unbounded".
 type Ceilings struct {
@@ -192,23 +175,23 @@ func (c Ceilings) SizeChoices() []string {
 
 // Validate checks every field against the allowed choices and the ceilings.
 func (s SiteSettings) Validate(c Ceilings) error {
-	if !containsString(MemoryLimitChoices, s.MemoryLimit) {
+	if !slices.Contains(MemoryLimitChoices, s.MemoryLimit) {
 		return fmt.Errorf("invalid memory_limit %q", s.MemoryLimit)
 	}
 	if c.MemoryMB > 0 && SizeToMB(s.MemoryLimit) > c.MemoryMB {
 		return fmt.Errorf("memory_limit %s is more than you can use (%d MB available)", s.MemoryLimit, c.MemoryMB)
 	}
-	if !containsInt(TimeChoices, s.MaxExecutionTime) {
+	if !slices.Contains(TimeChoices, s.MaxExecutionTime) {
 		return fmt.Errorf("invalid max_execution_time %d", s.MaxExecutionTime)
 	}
-	if !containsInt(TimeChoices, s.MaxInputTime) {
+	if !slices.Contains(TimeChoices, s.MaxInputTime) {
 		return fmt.Errorf("invalid max_input_time %d", s.MaxInputTime)
 	}
-	if !containsInt(InputVarChoices, s.MaxInputVars) {
+	if !slices.Contains(InputVarChoices, s.MaxInputVars) {
 		return fmt.Errorf("invalid max_input_vars %d", s.MaxInputVars)
 	}
 	for name, v := range map[string]string{"post_max_size": s.PostMaxSize, "upload_max_filesize": s.UploadMaxFilesize} {
-		if !containsString(SizeChoices, v) {
+		if !slices.Contains(SizeChoices, v) {
 			return fmt.Errorf("invalid %s %q", name, v)
 		}
 		if cap := c.SizeCapMB(); cap > 0 && SizeToMB(v) > cap {
