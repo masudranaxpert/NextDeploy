@@ -24,19 +24,32 @@ import (
 
 // ServeSPA serves the embedded React SPA index.html for client-side routing.
 func (p *Panel) ServeSPA(c *fiber.Ctx) error {
-	c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	var body []byte
 	if len(p.SPAIndexHTML) > 0 {
-		c.Type("html", "utf-8")
-		return c.Send(p.SPAIndexHTML)
-	}
-	// Fallback to reading from disk during local dev if not embedded
-	for _, candidate := range []string{"web/dist/index.html", "dist/index.html", "index.html"} {
-		if b, err := os.ReadFile(candidate); err == nil && len(b) > 0 {
-			c.Type("html", "utf-8")
-			return c.Send(b)
+		body = p.SPAIndexHTML
+	} else {
+		// Fallback to reading from disk during local dev if not embedded
+		for _, candidate := range []string{"web/dist/index.html", "dist/index.html", "index.html"} {
+			if b, err := os.ReadFile(candidate); err == nil && len(b) > 0 {
+				body = b
+				break
+			}
 		}
 	}
-	return c.Status(fiber.StatusServiceUnavailable).SendString("NextDeploy UI bundle not found. Run 'npm run build' first.")
+	if len(body) == 0 {
+		return c.Status(fiber.StatusServiceUnavailable).SendString("NextDeploy UI bundle not found. Run 'npm run build' first.")
+	}
+
+	c.Set("Cache-Control", "no-cache")
+	sum := sha256.Sum256(body)
+	etag := `W/"` + hex.EncodeToString(sum[:6]) + `"`
+	c.Set("ETag", etag)
+	if match := c.Get("If-None-Match"); match != "" && (match == etag || strings.Contains(match, etag)) {
+		return c.SendStatus(fiber.StatusNotModified)
+	}
+
+	c.Type("html", "utf-8")
+	return c.Send(body)
 }
 
 // The slow Docker lookups every page load needs. They are shared by all users (each user's view is

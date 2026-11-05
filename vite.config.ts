@@ -31,7 +31,7 @@ export default defineConfig(() => {
           codeSplitting: {
             groups: [
               { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler|react-is)[\\/]/ },
-              { name: 'vendor-ui', test: /node_modules[\\/](sonner|lucide-react|motion|framer-motion|motion-dom|motion-utils)[\\/]/ },
+              { name: 'vendor-ui', test: /node_modules[\\/](sonner|lucide-react)[\\/]/ },
             ],
           },
         },

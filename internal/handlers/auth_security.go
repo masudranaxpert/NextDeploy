@@ -143,6 +143,35 @@ func sessionCookieSet(c *fiber.Ctx, token string, expires time.Time) *fiber.Cook
 	}
 }
 
+const loggedInCookie = "nd_logged_in"
+
+func loggedInCookieSet(c *fiber.Ctx, expires time.Time) *fiber.Cookie {
+	isSecure := false
+	if c != nil && (c.Protocol() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")) {
+		isSecure = true
+	}
+	return &fiber.Cookie{
+		Name:     loggedInCookie,
+		Value:    "1",
+		Expires:  expires,
+		HTTPOnly: false,
+		Secure:   isSecure,
+		SameSite: "Lax",
+		Path:     "/",
+	}
+}
+
+func loggedInCookieClear() *fiber.Cookie {
+	return &fiber.Cookie{
+		Name:     loggedInCookie,
+		Value:    "",
+		MaxAge:   -1,
+		HTTPOnly: false,
+		SameSite: "Lax",
+		Path:     "/",
+	}
+}
+
 // SetOneTimeTokenCookie stores a newly generated API/CLI token in a short-lived HttpOnly cookie
 // so it is never exposed in URL query parameters, browser history, or access logs.
 func SetOneTimeTokenCookie(c *fiber.Ctx, rawToken, tokenName string) {

@@ -27,7 +27,6 @@ import {
   Terminal,
   Users,
   X,
-  Loader2,
   LogOut,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
@@ -50,16 +49,17 @@ import {
 import {
   MCP_TOOLS_CATALOG,
 } from './data/mcpTools';
-import { CommandPaletteModal, DeployNewAppModal } from './components/ui/Primitives';
 import { NextDeployLogoMark } from './components/ui/BrandIcons';
-import { OverviewDashboard } from './features/overview/OverviewDashboard';
-import { AuthView } from './features/auth/AuthView';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
 import { dataSync } from './lib/dataSync';
-import { PageSkeleton } from './components/skeletons/PageSkeletons';
+import { PageSkeleton, DashboardSkeleton } from './components/skeletons/PageSkeletons';
 
 // Each screen is its own chunk with instant .preload() capability on hover.
+const OverviewDashboard = lazyRetry(() => import('./features/overview/OverviewDashboard').then((m) => ({ default: m.OverviewDashboard })));
+const AuthView = lazyRetry(() => import('./features/auth/AuthView').then((m) => ({ default: m.AuthView })));
+const CommandPaletteModal = lazyRetry(() => import('./components/ui/Primitives').then((m) => ({ default: m.CommandPaletteModal })));
+const DeployNewAppModal = lazyRetry(() => import('./components/ui/Primitives').then((m) => ({ default: m.DeployNewAppModal })));
 const AppWorkspace = lazyRetry(() => import('./features/workspace/AppWorkspace').then((m) => ({ default: m.AppWorkspace })));
 const ContainersView = lazyRetry(() => import('./features/docker/ContainersView').then((m) => ({ default: m.ContainersView })));
 const ImagesView = lazyRetry(() => import('./features/docker/ImagesView').then((m) => ({ default: m.ImagesView })));
@@ -83,6 +83,9 @@ const CopilotView = lazyRetry(() => import('./features/copilot/CopilotView').the
 // On-demand route prefetching triggered by user hover (instant 0ms click feel)
 const prefetchRoute = (nav: NavigationSection) => {
   switch (nav) {
+    case 'overview':
+      OverviewDashboard.preload?.();
+      break;
     case 'apps':
       AppWorkspace.preload?.();
       ProjectsListView.preload?.();
@@ -146,7 +149,8 @@ const prefetchRoute = (nav: NavigationSection) => {
 // Start downloading the code of the page in the address bar right away
 if (typeof window !== 'undefined') {
   const path = window.location.pathname;
-  if (path.startsWith('/apps/')) void import('./features/workspace/AppWorkspace');
+  if (path === '/' || path.startsWith('/overview')) void import('./features/overview/OverviewDashboard');
+  else if (path.startsWith('/apps/')) void import('./features/workspace/AppWorkspace');
   else if (path.startsWith('/php-sites')) void import('./features/php/PhpSitesView');
   else if (path.startsWith('/php-instance')) void import('./features/php/PhpInstanceView');
   else if (path.startsWith('/apps')) void import('./features/projects/ProjectsListView');
@@ -155,6 +159,7 @@ if (typeof window !== 'undefined') {
   else if (path.startsWith('/volumes')) void import('./features/docker/VolumesView');
   else if (path.startsWith('/nextdeploy-ai') || path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
   else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
+  else if (path === '/login' || path === '/setup') void import('./features/auth/AuthView');
 }
 
 
@@ -222,6 +227,11 @@ function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
   });
 }
 
+const hasLoggedInCookie = (): boolean => {
+  if (typeof document === 'undefined') return false;
+  return /(?:^|;\s*)nd_logged_in=1(?:\s*;|$)/.test(document.cookie);
+};
+
 export default function App() {
   // Parse route from window.location.pathname on load
   const parseInitialRoute = (): { nav: NavigationSection; appId: string | null } => {
@@ -277,6 +287,11 @@ export default function App() {
     if (typeof window !== 'undefined') {
       if (window.location.pathname === '/setup') return 'setup';
       if (window.location.pathname === '/login') return 'login';
+      if (window.location.pathname === '/' || window.location.pathname === '') {
+        if (!hasLoggedInCookie()) {
+          return 'login';
+        }
+      }
     }
     return null;
   });
@@ -285,6 +300,11 @@ export default function App() {
     if (typeof window !== 'undefined') {
       if (window.location.pathname === '/setup' || window.location.pathname === '/login') {
         return false;
+      }
+      if (window.location.pathname === '/' || window.location.pathname === '') {
+        if (!hasLoggedInCookie()) {
+          return false;
+        }
       }
     }
     return true;
@@ -1278,8 +1298,9 @@ export default function App() {
     } catch {
       // ignore
     }
+    if (authMode) return;
     void loadBootstrap();
-  }, [loadBootstrap]);
+  }, [loadBootstrap, authMode]);
 
   // A running export finishes on the server: refresh until none is running.
   const exportRunning = migrationBundles.some((b) => b.status === 'running');
@@ -1505,17 +1526,19 @@ export default function App() {
           mobileOffset={{ bottom: 16, left: 16, right: 16 }}
           toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
         />
-        <AuthView
-          mode={authMode}
-          onSuccess={() => {
-            // no page reload: the sign-in screen stays until the data for the new session has
-            // arrived, then the dashboard replaces it (no spinner in between)
-            setSelectedAppId(null);
-            setActiveNav('overview');
-            window.history.replaceState(null, '', '/overview');
-            void loadBootstrap();
-          }}
-        />
+        <Suspense fallback={null}>
+          <AuthView
+            mode={authMode}
+            onSuccess={() => {
+              // no page reload: the sign-in screen stays until the data for the new session has
+              // arrived, then the dashboard replaces it (no spinner in between)
+              setSelectedAppId(null);
+              setActiveNav('overview');
+              window.history.replaceState(null, '', '/overview');
+              void loadBootstrap();
+            }}
+          />
+        </Suspense>
       </>
     );
   }
@@ -1537,18 +1560,6 @@ export default function App() {
         >
           Try again
         </button>
-      </div>
-    );
-  }
-
-  if (isBootstrapping) {
-    return (
-      <div className="min-h-screen w-full bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center gap-4">
-        <NextDeployLogoMark className="h-12 w-12 rounded-xl shadow-[0_10px_25px_-5px_rgba(254,110,0,0.35)]" />
-        <div className="flex items-center gap-2.5 font-mono text-xs text-zinc-400">
-          <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
-          <span>Loading NextDeploy...</span>
-        </div>
       </div>
     );
   }
@@ -1789,7 +1800,9 @@ export default function App() {
             }
           >
             <Suspense fallback={<PageSkeleton nav={selectedApp ? 'apps' : activeNav} />}>
-            {selectedApp ? (
+            {isBootstrapping ? (
+              <DashboardSkeleton />
+            ) : selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
                 onBack={() => navigateTo(selectedApp.php ? 'php-sites' : 'apps')}
@@ -2133,24 +2146,32 @@ export default function App() {
       </div>
 
       {/* Modals */}
-      <CommandPaletteModal
-        open={cmdPaletteOpen}
-        onClose={() => setCmdPaletteOpen(false)}
-        apps={apps}
-        images={images}
-        volumes={volumes}
-        gitProviders={gitProviders}
-        isAdmin={isAdminUser}
-        onSelectNav={(nav) => navigateTo(nav)}
-        onSelectApp={(id, tab) => navigateTo('apps', id, false, tab)}
-        onOpenNewApp={() => setNewAppModalOpen(true)}
-      />
+      {cmdPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPaletteModal
+            open={cmdPaletteOpen}
+            onClose={() => setCmdPaletteOpen(false)}
+            apps={apps}
+            images={images}
+            volumes={volumes}
+            gitProviders={gitProviders}
+            isAdmin={isAdminUser}
+            onSelectNav={(nav) => navigateTo(nav)}
+            onSelectApp={(id, tab) => navigateTo('apps', id, false, tab)}
+            onOpenNewApp={() => setNewAppModalOpen(true)}
+          />
+        </Suspense>
+      )}
 
-      <DeployNewAppModal
-        open={newAppModalOpen}
-        onClose={() => setNewAppModalOpen(false)}
-        onCreateApp={handleCreateApp}
-      />
+      {newAppModalOpen && (
+        <Suspense fallback={null}>
+          <DeployNewAppModal
+            open={newAppModalOpen}
+            onClose={() => setNewAppModalOpen(false)}
+            onCreateApp={handleCreateApp}
+          />
+        </Suspense>
+      )}
 
       {/* Floating shortcut to the NextDeploy AI page */}
       {isAdminUser && activeNav !== 'nextdeploy-ai' && (

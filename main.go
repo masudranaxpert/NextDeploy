@@ -370,9 +370,7 @@ func main() {
 	app.Use("/apps/:id/upload", p.PHPOwnershipMiddleware)
 	app.Use("/apps/:id/upload-zip", p.PHPOwnershipMiddleware)
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.Redirect("/overview")
-	})
+	app.Get("/", p.ServeSPA)
 	app.Get("/overview", p.ServeSPA)
 	app.Get("/monitor", p.ServeSPA)
 	app.Use("/monitor/ws", p.WSUpgrade)
