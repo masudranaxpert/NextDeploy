@@ -146,10 +146,25 @@ const prefetchRoute = (nav: NavigationSection) => {
   }
 };
 
+const hasLoggedInCookie = (): boolean => {
+  if (typeof document === 'undefined') return false;
+  return /(?:^|;\s*)nd_logged_in=1(?:\s*;|$)/.test(document.cookie);
+};
+
+const clearLoggedInCookie = () => {
+  if (typeof document !== 'undefined') {
+    document.cookie = 'nd_logged_in=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax';
+  }
+};
+
 // Start downloading the code of the page in the address bar right away
 if (typeof window !== 'undefined') {
   const path = window.location.pathname;
-  if (path === '/' || path.startsWith('/overview')) void import('./features/overview/OverviewDashboard');
+  if (path === '/' || path === '') {
+    if (hasLoggedInCookie()) void import('./features/overview/OverviewDashboard');
+    else void import('./features/auth/AuthView');
+  }
+  else if (path.startsWith('/overview')) void import('./features/overview/OverviewDashboard');
   else if (path.startsWith('/apps/')) void import('./features/workspace/AppWorkspace');
   else if (path.startsWith('/php-sites')) void import('./features/php/PhpSitesView');
   else if (path.startsWith('/php-instance')) void import('./features/php/PhpInstanceView');
@@ -227,10 +242,6 @@ function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
   });
 }
 
-const hasLoggedInCookie = (): boolean => {
-  if (typeof document === 'undefined') return false;
-  return /(?:^|;\s*)nd_logged_in=1(?:\s*;|$)/.test(document.cookie);
-};
 
 export default function App() {
   // Parse route from window.location.pathname on load
@@ -392,6 +403,7 @@ export default function App() {
   const [caddyInfo, setCaddyInfo] = useState<{ up: boolean; status: string; config?: Record<string, string> } | null>(null);
 
   const handleLogout = async () => {
+    clearLoggedInCookie();
     try {
       sessionStorage.removeItem('nextdeploy_bootstrap_cache_v1');
       await backendApi.logout();
@@ -1085,6 +1097,7 @@ export default function App() {
   // Any request answered with 401 means the session ended: show the sign-in screen once.
   useEffect(() => {
     const onUnauthorized = () => {
+      clearLoggedInCookie();
       setAuthMode((cur) => cur ?? 'login');
       setIsBootstrapping(false);
     };
@@ -1266,6 +1279,7 @@ export default function App() {
     async (attempt = 0): Promise<void> => {
       const res = await backendApi.bootstrap();
       if (res.status === 401 || res.data?.needs_setup) {
+        clearLoggedInCookie();
         setIsBootstrapping(false);
         setAuthMode(res.data?.needs_setup || window.location.pathname === '/setup' ? 'setup' : 'login');
         return;
@@ -1801,7 +1815,11 @@ export default function App() {
           >
             <Suspense fallback={<PageSkeleton nav={selectedApp ? 'apps' : activeNav} />}>
             {isBootstrapping ? (
-              <DashboardSkeleton />
+              activeNav === 'overview' && !selectedApp ? (
+                <DashboardSkeleton />
+              ) : (
+                <PageSkeleton nav={selectedApp ? 'apps' : activeNav} />
+              )
             ) : selectedApp ? (
               <AppWorkspace
                 app={selectedApp}

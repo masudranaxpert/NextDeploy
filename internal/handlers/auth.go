@@ -94,6 +94,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	// Validate session cookie
 	token := c.Cookies(sessionCookie)
 	if token == "" {
+		c.Cookie(loggedInCookieClear(c))
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized", "redirect": "/login"})
 		}
@@ -101,8 +102,8 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	}
 	userID, expiresAt, err := p.DB.GetSession(ctx, token)
 	if err != nil || time.Now().After(expiresAt) {
-		c.Cookie(sessionCookieClear())
-		c.Cookie(loggedInCookieClear())
+		c.Cookie(sessionCookieClear(c))
+		c.Cookie(loggedInCookieClear(c))
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "session expired", "redirect": "/login"})
 		}
@@ -110,14 +111,16 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 	}
 	user, err := p.DB.GetUserByID(ctx, userID)
 	if err != nil {
+		c.Cookie(sessionCookieClear(c))
+		c.Cookie(loggedInCookieClear(c))
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "user not found", "redirect": "/login"})
 		}
 		return c.Redirect("/login")
 	}
 	if user.Status == db.UserStatusSuspended {
-		c.Cookie(sessionCookieClear())
-		c.Cookie(loggedInCookieClear())
+		c.Cookie(sessionCookieClear(c))
+		c.Cookie(loggedInCookieClear(c))
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "Your account has been suspended."})
 		}
@@ -352,8 +355,8 @@ func (p *Panel) Logout(c *fiber.Ctx) error {
 	if token != "" {
 		_ = p.DB.DeleteSession(c.UserContext(), token)
 	}
-	c.Cookie(sessionCookieClear())
-	c.Cookie(loggedInCookieClear())
+	c.Cookie(sessionCookieClear(c))
+	c.Cookie(loggedInCookieClear(c))
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true, "redirect": "/login"})
 	}

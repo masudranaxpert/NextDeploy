@@ -42,9 +42,27 @@ func (p *Panel) ServeSPA(c *fiber.Ctx) error {
 
 	c.Set("Cache-Control", "no-cache")
 	sum := sha256.Sum256(body)
-	etag := `W/"` + hex.EncodeToString(sum[:6]) + `"`
+	tag := hex.EncodeToString(sum[:6])
+	etag := `W/"` + tag + `"`
 	c.Set("ETag", etag)
-	if match := c.Get("If-None-Match"); match != "" && (match == etag || strings.Contains(match, etag)) {
+
+	if c.Path() == "/" {
+		if token := c.Cookies(sessionCookie); token != "" && p.DB != nil {
+			if userID, expiresAt, err := p.DB.GetSession(c.UserContext(), token); err == nil && time.Now().Before(expiresAt) {
+				if user, err := p.DB.GetUserByID(c.UserContext(), userID); err == nil && user.Status != db.UserStatusSuspended {
+					c.Cookie(loggedInCookieSet(c, expiresAt))
+				} else {
+					c.Cookie(loggedInCookieClear(c))
+				}
+			} else {
+				c.Cookie(loggedInCookieClear(c))
+			}
+		} else if c.Cookies(loggedInCookie) != "" {
+			c.Cookie(loggedInCookieClear(c))
+		}
+	}
+
+	if match := c.Get("If-None-Match"); match != "" && (match == "*" || match == etag || strings.Contains(match, tag)) {
 		return c.SendStatus(fiber.StatusNotModified)
 	}
 

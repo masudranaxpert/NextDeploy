@@ -116,12 +116,17 @@ func (p *Panel) clearLoginFailures(username string, ips ...string) {
 	delete(p.loginFails, strings.ToLower(strings.TrimSpace(username)))
 }
 
-func sessionCookieClear() *fiber.Cookie {
+func sessionCookieClear(c ...*fiber.Ctx) *fiber.Cookie {
+	isSecure := false
+	if len(c) > 0 && c[0] != nil && (c[0].Protocol() == "https" || strings.EqualFold(c[0].Get("X-Forwarded-Proto"), "https")) {
+		isSecure = true
+	}
 	return &fiber.Cookie{
 		Name:     sessionCookie,
 		Value:    "",
 		MaxAge:   -1,
 		HTTPOnly: true,
+		Secure:   isSecure,
 		SameSite: "Lax",
 		Path:     "/",
 	}
@@ -161,12 +166,17 @@ func loggedInCookieSet(c *fiber.Ctx, expires time.Time) *fiber.Cookie {
 	}
 }
 
-func loggedInCookieClear() *fiber.Cookie {
+func loggedInCookieClear(c ...*fiber.Ctx) *fiber.Cookie {
+	isSecure := false
+	if len(c) > 0 && c[0] != nil && (c[0].Protocol() == "https" || strings.EqualFold(c[0].Get("X-Forwarded-Proto"), "https")) {
+		isSecure = true
+	}
 	return &fiber.Cookie{
 		Name:     loggedInCookie,
 		Value:    "",
 		MaxAge:   -1,
 		HTTPOnly: false,
+		Secure:   isSecure,
 		SameSite: "Lax",
 		Path:     "/",
 	}
