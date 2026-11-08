@@ -19,7 +19,7 @@ func TestWorkspaceRejectsSymlinkEscape(t *testing.T) {
 		}
 	}
 	if err := os.Symlink(victim, filepath.Join(attacker, "l")); err != nil {
-		t.Fatal(err)
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
 	}
 
 	if _, err := s.SaveUploadedFile("attacker", "l/evil.php", strings.NewReader("x")); err == nil {

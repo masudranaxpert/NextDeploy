@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -259,8 +260,12 @@ func extractWorkspaceArchive(r io.Reader, absTarget string) (int, int, int64, er
 
 // isSafeTarPath validates that an archive path does not escape the target root.
 func isSafeTarPath(name string) bool {
-	cleanName := filepath.Clean(filepath.ToSlash(name))
-	if cleanName == "" || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, "../") || filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "/") {
+	if name == "" {
+		return false
+	}
+	slashName := filepath.ToSlash(name)
+	cleanName := path.Clean(slashName)
+	if cleanName == "" || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, "../") || path.IsAbs(cleanName) || strings.HasPrefix(cleanName, "/") || strings.Contains(name, ":") || strings.HasPrefix(name, "\\") {
 		return false
 	}
 	return true

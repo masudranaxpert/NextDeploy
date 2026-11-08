@@ -108,6 +108,8 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleEnvReveal(ctx, u, params.Arguments)
 	case "env_set":
 		return h.handleEnvSet(ctx, u, params.Arguments)
+	case "env_unset", "env_delete", "env_rm":
+		return h.handleEnvUnset(ctx, u, params.Arguments)
 	case "compose_get":
 		return h.handleComposeGet(ctx, u, params.Arguments)
 	case "deploy":
@@ -1280,6 +1282,63 @@ func (h *Handler) handleEnvSet(ctx context.Context, u db.User, args map[string]i
 
 func (h *Handler) handleEnvSetBatch(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
 	return h.handleEnvSet(ctx, u, args)
+}
+
+func (h *Handler) handleEnvUnset(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
+	appID := getStringArg(args, "app_id")
+	if _, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper); err != nil {
+		return errorResult(err)
+	}
+
+	var toDelete []string
+	singleKey := strings.TrimSpace(getStringArg(args, "key"))
+	if singleKey != "" {
+		toDelete = append(toDelete, singleKey)
+	}
+
+	if rawKeys, ok := args["keys"].([]interface{}); ok {
+		for _, item := range rawKeys {
+			k := strings.TrimSpace(fmt.Sprint(item))
+			if k != "" && k != "<nil>" {
+				toDelete = append(toDelete, k)
+			}
+		}
+	} else if rawStrKeys, ok := args["keys"].([]string); ok {
+		for _, k := range rawStrKeys {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				toDelete = append(toDelete, k)
+			}
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return errorResult(errors.New("either 'key' or 'keys' must be provided"))
+	}
+
+	cur, _ := h.p.DB.GetPanelEnv(ctx, appID)
+	for _, k := range toDelete {
+		cur = unsetDotEnvVar(cur, k)
+	}
+
+	if err := h.p.DB.UpdatePanelEnv(ctx, appID, cur); err != nil {
+		return errorResult(fmt.Errorf("failed updating panel env: %w", err))
+	}
+
+	root := h.p.ComposeWorkspaceRoot(ctx, appID)
+	_ = h.p.SyncWorkspaceEnvFromPanel(appID, root, cur)
+	_ = h.p.SyncAppCaddyOverrideCtx(ctx, appID)
+
+	if len(toDelete) == 1 {
+		return textResult(fmt.Sprintf("Environment variable %q unset successfully", toDelete[0]))
+	}
+
+	return jsonResult(map[string]interface{}{
+		"app_id":       appID,
+		"deleted_keys": toDelete,
+		"count":        len(toDelete),
+		"message":      fmt.Sprintf("Successfully removed %d environment variable(s)", len(toDelete)),
+	})
 }
 
 func (h *Handler) handleComposeGet(ctx context.Context, u db.User, args map[string]interface{}) (CallToolResult, error) {
@@ -2691,4 +2750,18 @@ func setDotEnvVar(envText, key, val string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func unsetDotEnvVar(envText, key string) string {
+	lines := strings.Split(envText, "\n")
+	var out []string
+	prefix := key + "="
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) || trimmed == key {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

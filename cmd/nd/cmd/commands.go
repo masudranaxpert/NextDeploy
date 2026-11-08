@@ -1753,9 +1753,17 @@ func RunLogs(cl *client.Client, args []string) error {
 		if isErrorLog {
 			q.Set("error", "true")
 		}
+		if follow {
+			q.Set("follow", "true")
+		} else {
+			q.Set("follow", "false")
+		}
 		ws, _, wsErr := cl.DialWebSocket("/api/v1/apps/"+appID+"/ws/logs", q)
 		if wsErr == nil {
 			defer ws.Close()
+			if !follow {
+				_ = ws.SetReadDeadline(time.Now().Add(1500 * time.Millisecond))
+			}
 			for {
 				msgType, data, rerr := ws.ReadMessage()
 				if rerr != nil {
@@ -2294,7 +2302,7 @@ func parseAndPrintExecResult(body []byte) error {
 func RunEnv(cl *client.Client, args []string) error {
 	jsonOut, args := extractJSONFlag(args)
 	if len(args) < 1 {
-		return fmt.Errorf("usage: nd env list [app_id] [--json] | nd env get [app_id] [KEY] | nd env set [app_id] KEY=VALUE ...")
+		return fmt.Errorf("usage: nd env list [app_id] [--json] | nd env get [app_id] [KEY] | nd env set [app_id] KEY=VALUE ... | nd env unset [app_id] KEY ...")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -2451,8 +2459,47 @@ func RunEnv(cl *client.Client, args []string) error {
 		}
 		fmt.Println("✓ Environment updated.")
 
+	case "unset", "rm", "delete":
+		if len(envArgs) < 1 {
+			return fmt.Errorf("usage: nd env unset [app_id] KEY [KEY2 ...]")
+		}
+		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
+			"method": "tools/call",
+			"params": map[string]interface{}{
+				"name": "env_unset",
+				"arguments": map[string]interface{}{
+					"app_id": appID,
+					"keys":   envArgs,
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if status >= 400 {
+			return fmt.Errorf("server error: %s", client.JSONError(body))
+		}
+		var unsetResp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &unsetResp); err == nil {
+			if unsetResp.Result.IsError && len(unsetResp.Result.Content) > 0 {
+				return fmt.Errorf("%s", unsetResp.Result.Content[0].Text)
+			}
+		}
+		if len(envArgs) == 1 {
+			fmt.Printf("✓ Environment variable %q removed.\n", envArgs[0])
+		} else {
+			fmt.Printf("✓ %d environment variable(s) removed.\n", len(envArgs))
+		}
+
 	default:
-		return fmt.Errorf("unknown env subcommand: %s (use list, get, or set)", sub)
+		return fmt.Errorf("unknown env subcommand: %s (use list, get, set, or unset)", sub)
 	}
 	return nil
 }
@@ -2783,6 +2830,66 @@ func runDomainList(cl *client.Client, appID string, jsonOut bool) error {
 	return nil
 }
 
+// resolveAppAndService resolves (appID, service) taking linked project into account.
+func resolveAppAndService(args []string, explicitService string) (string, string, error) {
+	var appFlag string
+	var posArgs []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if (a == "-a" || a == "--app") && i+1 < len(args) {
+			appFlag = args[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--app=") {
+			appFlag = strings.TrimPrefix(a, "--app=")
+		} else if strings.HasPrefix(a, "-a=") {
+			appFlag = strings.TrimPrefix(a, "-a=")
+		} else {
+			posArgs = append(posArgs, a)
+		}
+	}
+
+	service := explicitService
+
+	// 1. If explicit --app flag was passed:
+	if appFlag != "" {
+		if service == "" && len(posArgs) > 0 {
+			service = posArgs[0]
+		}
+		return appFlag, service, nil
+	}
+
+	// 2. Check for linked project in current directory
+	pc, pcErr := config.LoadProject(".")
+	hasLinked := pcErr == nil && pc.AppID != ""
+
+	if hasLinked {
+		if len(posArgs) == 0 {
+			// 'nd stop' -> stop linked app
+			return pc.AppID, service, nil
+		}
+		if len(posArgs) == 1 {
+			// If service was already provided via -s, single positional arg is appID override
+			if service != "" {
+				return posArgs[0], service, nil
+			}
+			// In linked project context, a single positional arg is interpreted as service name
+			return pc.AppID, posArgs[0], nil
+		}
+		// 2 or more positional args: 'nd stop other-app redis'
+		return posArgs[0], posArgs[1], nil
+	}
+
+	// 3. Not in linked project: first positional argument is app ID
+	if len(posArgs) == 0 {
+		return "", "", fmt.Errorf("app_id required (pass --app <id>, specify as argument, or run 'nd link <id>')")
+	}
+	appID := posArgs[0]
+	if service == "" && len(posArgs) > 1 {
+		service = posArgs[1]
+	}
+	return appID, service, nil
+}
+
 // RunStop stops an app or a specific service container.
 // Usage: nd stop [app_id] [service] [-s <service>]
 func RunStop(cl *client.Client, args []string) error {
@@ -2792,17 +2899,16 @@ func RunStop(cl *client.Client, args []string) error {
 		if (args[i] == "-s" || args[i] == "--service") && i+1 < len(args) {
 			service = args[i+1]
 			i++
+		} else if strings.HasPrefix(args[i], "--service=") {
+			service = strings.TrimPrefix(args[i], "--service=")
 		} else {
 			cleanArgs = append(cleanArgs, args[i])
 		}
 	}
 
-	appID, rest, err := resolveAppID(cleanArgs)
+	appID, service, err := resolveAppAndService(cleanArgs, service)
 	if err != nil {
 		return err
-	}
-	if service == "" && len(rest) > 0 {
-		service = rest[0]
 	}
 
 	payload := map[string]interface{}{"app_id": appID}
@@ -2877,12 +2983,9 @@ func RunRestart(cl *client.Client, args []string) error {
 		}
 	}
 
-	appID, rest, err := resolveAppID(cleanArgs)
+	appID, service, err := resolveAppAndService(cleanArgs, service)
 	if err != nil {
 		return err
-	}
-	if service == "" && len(rest) > 0 {
-		service = rest[0]
 	}
 
 	payload := map[string]interface{}{"app_id": appID}

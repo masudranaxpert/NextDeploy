@@ -483,3 +483,94 @@ func (p *Panel) APIAppFileDelete(c *fiber.Ctx) error {
 		"message": fmt.Sprintf("Successfully deleted %s", reqPath),
 	})
 }
+
+// APIAppEnvDelete unsets one or more environment variables for an application.
+// DELETE /api/v1/apps/:id/env/:key or POST /api/v1/apps/:id/env/unset
+func (p *Panel) APIAppEnvDelete(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+	}
+
+	appID := strings.TrimSpace(c.Params("id"))
+	if appID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "app id required"})
+	}
+
+	allowed, err := p.CanAccessApp(ctx, u.ID, u.Role, appID, db.CollabRoleDeveloper)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	if !allowed {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "access denied"})
+	}
+
+	key := strings.TrimSpace(c.Params("key"))
+	if key == "" {
+		key = strings.TrimSpace(c.Query("key"))
+	}
+	var keys []string
+	if key != "" {
+		keys = append(keys, key)
+	}
+
+	var reqBody struct {
+		Key  string   `json:"key"`
+		Keys []string `json:"keys"`
+	}
+	if err := c.BodyParser(&reqBody); err == nil {
+		if reqBody.Key != "" {
+			keys = append(keys, strings.TrimSpace(reqBody.Key))
+		}
+		for _, k := range reqBody.Keys {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				keys = append(keys, k)
+			}
+		}
+	}
+
+	if len(keys) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "key or keys required"})
+	}
+
+	cur, _ := p.DB.GetPanelEnv(ctx, appID)
+	lines := strings.Split(cur, "\n")
+	var outLines []string
+	toRemove := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		toRemove[k] = true
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		idx := strings.Index(trimmed, "=")
+		if idx > 0 {
+			k := strings.TrimSpace(trimmed[:idx])
+			if toRemove[k] {
+				continue
+			}
+		} else if toRemove[trimmed] {
+			continue
+		}
+		outLines = append(outLines, line)
+	}
+	newEnv := strings.Join(outLines, "\n")
+
+	if err := p.DB.UpdatePanelEnv(ctx, appID, newEnv); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+
+	root := p.ComposeWorkspaceRoot(ctx, appID)
+	_ = p.SyncWorkspaceEnvFromPanel(appID, root, newEnv)
+	_ = p.SyncAppCaddyOverrideCtx(ctx, appID)
+
+	p.RecordAuditLog(c, "unset_env_var", "app", appID, fmt.Sprintf("Unset %d env variable(s) via API", len(keys)))
+
+	return c.JSON(fiber.Map{
+		"ok":           true,
+		"deleted_keys": keys,
+		"count":        len(keys),
+	})
+}

@@ -185,6 +185,8 @@ func run() int {
 		err = cmd.RunServerShell(cl, rest)
 	case "php":
 		err = cmd.RunPHP(cl, rest)
+	case "db":
+		err = cmd.RunDB(cl, rest)
 	case "volume", "volumes":
 		err = cmd.RunVolume(cl, rest)
 	case "backup", "backups":

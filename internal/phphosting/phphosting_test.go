@@ -273,9 +273,15 @@ func TestSweepSymlinksRemovesOnlyEscapingLinks(t *testing.T) {
 	good := filepath.Join(site, "htdocs", "ok")
 	bad := filepath.Join(site, "htdocs", "l")
 	relBad := filepath.Join(site, "htdocs", "inner", "up")
-	os.Symlink("inner", good)
-	os.Symlink(other, bad)
-	os.Symlink("../../../app2", relBad)
+	if err := os.Symlink("inner", good); err != nil {
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
+	}
+	if err := os.Symlink(other, bad); err != nil {
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
+	}
+	if err := os.Symlink("../../../app2", relBad); err != nil {
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
+	}
 	m := &Manager{WorkspacesRoot: root}
 	if n := m.SweepSymlinks("app1"); n != 2 {
 		t.Fatalf("removed %d links, want 2", n)

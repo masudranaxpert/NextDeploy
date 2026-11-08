@@ -258,6 +258,20 @@ func AllTools() []Tool {
 			},
 		},
 		{
+			Name: "env_unset",
+			Description: "Delete/remove one or more environment variables from an application and synchronize workspace .env. " +
+				"Provide 'key' for a single variable, or 'keys' (array of strings) to delete multiple variables in one atomic call.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "The application ID"},
+					"key":    {Type: "string", Description: "Single environment variable key to remove"},
+					"keys":   {Type: "array", Description: "List of environment variable keys to remove"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
 			Name: "compose_get",
 			Description: "Get the effective docker-compose.yml configuration for an application. " +
 				"Pass summary:true to get only services and port mappings (saving 95%+ tokens). Pass service to inspect a single service.",

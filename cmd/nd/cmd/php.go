@@ -14,6 +14,11 @@ import (
 	"nd/internal/ui"
 )
 
+// RunDB provides a root shortcut for MariaDB/MySQL database management under 'nd db'.
+func RunDB(cl *client.Client, args []string) error {
+	return runPHPDB(cl, args)
+}
+
 // RunPHP handles all PHP hosting operations under 'nd php'.
 func RunPHP(cl *client.Client, args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {

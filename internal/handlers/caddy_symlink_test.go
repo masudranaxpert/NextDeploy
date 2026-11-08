@@ -22,7 +22,7 @@ func TestValidateAppFileServingPaths_SymlinksAndTraversal(t *testing.T) {
 	outsideDir := t.TempDir()
 	escapeLink := filepath.Join(wsDir, "escape_link")
 	if err := os.Symlink(outsideDir, escapeLink); err != nil {
-		t.Fatal(err)
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
 	}
 
 	brokenEscapeLink := filepath.Join(wsDir, "broken_link")

@@ -247,7 +247,7 @@ func PackTarGz(localDir string, files []string) (io.Reader, int64, error) {
 				continue
 			}
 			mode := int64(0644)
-			if fi.Mode()&0111 != 0 {
+			if isExecutable(absPath, fi) {
 				mode = 0755
 			}
 			hdr := &tar.Header{
@@ -294,4 +294,26 @@ func fileHash(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func isExecutable(path string, fi os.FileInfo) bool {
+	if fi.Mode()&0111 != 0 {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".sh" || ext == ".bash" {
+		return true
+	}
+	if fi.Size() >= 2 {
+		f, err := os.Open(path)
+		if err == nil {
+			var magic [2]byte
+			n, _ := io.ReadFull(f, magic[:])
+			_ = f.Close()
+			if n == 2 && magic[0] == '#' && magic[1] == '!' {
+				return true
+			}
+		}
+	}
+	return false
 }

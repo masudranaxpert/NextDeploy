@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -172,8 +173,10 @@ func TestExtractWorkspaceArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entrypoint.sh not extracted: %v", err)
 	}
-	if scriptInfo.Mode().Perm()&0100 == 0 {
-		t.Errorf("entrypoint.sh must retain executable bit, got perm: %v", scriptInfo.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if scriptInfo.Mode().Perm()&0100 == 0 {
+			t.Errorf("entrypoint.sh must retain executable bit, got perm: %v", scriptInfo.Mode().Perm())
+		}
 	}
 
 	// Verify .env was NOT created

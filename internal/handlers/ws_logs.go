@@ -67,7 +67,8 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	if p.PHP != nil {
 		if site, serr := p.DB.GetPHPSite(chkCtx, app.ID); serr == nil {
 			if isErrorLog {
-				p.streamPHPErrorLogWS(c, site, tail)
+				follow := c.Query("follow") == "true" || c.Query("follow") == "1"
+				p.streamPHPErrorLogWS(c, site, tail, follow)
 				return
 			}
 			if site.SiteType == phphosting.SiteTypeStatic {
@@ -281,7 +282,7 @@ func (p *Panel) AppLogsREST(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "logs": res, "container": logRef})
 }
 
-func (p *Panel) streamPHPErrorLogWS(c *fws.Conn, site db.PHPSite, tailStr string) {
+func (p *Panel) streamPHPErrorLogWS(c *fws.Conn, site db.PHPSite, tailStr string, follow bool) {
 	n, _ := strconv.Atoi(tailStr)
 	if n < 10 {
 		n = 100
@@ -290,6 +291,10 @@ func (p *Panel) streamPHPErrorLogWS(c *fws.Conn, site db.PHPSite, tailStr string
 	initial := tailFile(path, n)
 	if initial != "" {
 		_ = c.WriteMessage(websocket.TextMessage, []byte(initial+"\n"))
+	}
+	if !follow {
+		_ = c.Close()
+		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

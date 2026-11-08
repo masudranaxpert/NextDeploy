@@ -1,15 +1,16 @@
 package cmd
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
+	"sync"
+	"time"
 
 	"nd/internal/client"
 
@@ -67,6 +68,18 @@ func RunServerShell(cl *client.Client, args []string) error {
 	return runPTYSession(cl, "/api/v1/ws/host-terminal", "", "")
 }
 
+func isPTYError(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.HasPrefix(lower, "forbidden") ||
+		strings.HasPrefix(lower, "unauthorized") ||
+		strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "no active container") ||
+		strings.Contains(lower, "could not start shell") ||
+		strings.Contains(lower, "permission denied") ||
+		strings.Contains(lower, "static sites") ||
+		strings.Contains(lower, "missing app")
+}
+
 // runPTYSession handles the bidirectional TTY session over WebSocket.
 func runPTYSession(cl *client.Client, path, container, cmd string) error {
 	stdinFd := int(os.Stdin.Fd())
@@ -101,6 +114,33 @@ func runPTYSession(cl *client.Client, path, container, cmd string) error {
 	}
 	defer ws.Close()
 
+	// Detect error frames or early closures sent before entering raw terminal mode.
+	var initialData []byte
+	var initialType int
+	hasInitial := false
+
+	_ = ws.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	firstType, firstData, firstErr := ws.ReadMessage()
+	_ = ws.SetReadDeadline(time.Time{})
+
+	if firstErr != nil {
+		var netErr net.Error
+		if errors.As(firstErr, &netErr) && netErr.Timeout() {
+			// Normal timeout: container shell started silently waiting for stdin
+		} else {
+			// Connection closed or broken before shell session started
+			return fmt.Errorf("terminal session ended immediately: %w", firstErr)
+		}
+	} else {
+		msgStr := strings.TrimSpace(string(firstData))
+		if firstType == websocket.TextMessage && isPTYError(msgStr) {
+			return fmt.Errorf("%s", msgStr)
+		}
+		initialData = firstData
+		initialType = firstType
+		hasInitial = true
+	}
+
 	if isTerminal {
 		oldState, terr := term.MakeRaw(stdinFd)
 		if terr == nil {
@@ -110,24 +150,20 @@ func runPTYSession(cl *client.Client, path, container, cmd string) error {
 			}()
 		}
 
-		// Handle terminal resize dynamically via SIGWINCH
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGWINCH)
-		defer signal.Stop(sigChan)
+		stopResize := monitorTerminalResize(stdinFd, ws)
+		defer stopResize()
+	}
 
-		go func() {
-			for range sigChan {
-				if w, h, err := term.GetSize(stdinFd); err == nil && w > 0 && h > 0 {
-					resizeMsg := map[string]interface{}{
-						"op":   "resize",
-						"cols": w,
-						"rows": h,
-					}
-					b, _ := json.Marshal(resizeMsg)
-					_ = ws.WriteMessage(websocket.TextMessage, b)
-				}
-			}
-		}()
+	if hasInitial && (initialType == websocket.BinaryMessage || initialType == websocket.TextMessage) {
+		_, _ = os.Stdout.Write(initialData)
+	}
+
+	var sessionErr error
+	var errOnce sync.Once
+	setErr := func(err error) {
+		errOnce.Do(func() {
+			sessionErr = err
+		})
 	}
 
 	done := make(chan struct{})
@@ -139,6 +175,12 @@ func runPTYSession(cl *client.Client, path, container, cmd string) error {
 			mt, message, rerr := ws.ReadMessage()
 			if rerr != nil {
 				return
+			}
+			if mt == websocket.TextMessage {
+				msgStr := strings.TrimSpace(string(message))
+				if isPTYError(msgStr) {
+					setErr(fmt.Errorf("%s", msgStr))
+				}
 			}
 			if mt == websocket.BinaryMessage || mt == websocket.TextMessage {
 				_, _ = os.Stdout.Write(message)
@@ -166,5 +208,5 @@ func runPTYSession(cl *client.Client, path, container, cmd string) error {
 	}()
 
 	<-done
-	return nil
+	return sessionErr
 }

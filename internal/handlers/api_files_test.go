@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"panel/internal/db"
@@ -196,5 +197,71 @@ func TestAPIAppFilesEndpoints(t *testing.T) {
 	}
 	if _, err := os.Stat(subDir); !os.IsNotExist(err) {
 		t.Errorf("expected subdir to be deleted")
+	}
+}
+
+func TestAPIAppEnvDelete(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "api_env_test_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	p := &Panel{
+		DB:             store,
+		Store:          workspace.NewStore(tmpDir),
+		WorkspacesRoot: tmpDir,
+	}
+
+	ctx := context.Background()
+	adminID, _ := store.CreateUser(ctx, "adminuser", "hash", db.RoleAdmin)
+	rawToken, _, _ := store.CreateAPIToken(ctx, adminID, "Env Test Token", "cli", nil, false, false, false, false)
+
+	appID := "env-app"
+	_ = store.CreateApp(ctx, appID, "Env App", adminID)
+	_ = os.MkdirAll(p.Store.Path(appID), 0750)
+
+	// Set initial env
+	_ = store.UpdatePanelEnv(ctx, appID, "PORT=8080\nDB_PASS=secret\nFEATURE=true\n")
+
+	fiberApp := fiber.New()
+	fiberApp.Delete("/api/v1/apps/:id/env/:key", p.APIAuthMiddleware, p.APIAppEnvDelete)
+	fiberApp.Post("/api/v1/apps/:id/env/unset", p.APIAuthMiddleware, p.APIAppEnvDelete)
+
+	// 1. Delete single key via URL param
+	req := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID+"/env/DB_PASS", nil)
+	req.Header.Set("Authorization", "Bearer "+rawToken)
+	resp, err := fiberApp.Test(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE env/:key failed: status=%d err=%v", resp.StatusCode, err)
+	}
+
+	cur, _ := store.GetPanelEnv(ctx, appID)
+	if strings.Contains(cur, "DB_PASS") {
+		t.Errorf("expected DB_PASS to be removed, got: %s", cur)
+	}
+	if !strings.Contains(cur, "PORT=8080") || !strings.Contains(cur, "FEATURE=true") {
+		t.Errorf("PORT and FEATURE should remain, got: %s", cur)
+	}
+
+	// 2. Unset batch keys via POST JSON body
+	body, _ := json.Marshal(map[string]interface{}{"keys": []string{"PORT", "FEATURE"}})
+	reqBatch := httptest.NewRequest("POST", "/api/v1/apps/"+appID+"/env/unset", bytes.NewReader(body))
+	reqBatch.Header.Set("Authorization", "Bearer "+rawToken)
+	reqBatch.Header.Set("Content-Type", "application/json")
+	respBatch, err := fiberApp.Test(reqBatch)
+	if err != nil || respBatch.StatusCode != http.StatusOK {
+		t.Fatalf("POST env/unset failed: status=%d err=%v", respBatch.StatusCode, err)
+	}
+
+	curAfter, _ := store.GetPanelEnv(ctx, appID)
+	if strings.Contains(curAfter, "PORT") || strings.Contains(curAfter, "FEATURE") {
+		t.Errorf("expected PORT and FEATURE to be removed, got: %s", curAfter)
 	}
 }

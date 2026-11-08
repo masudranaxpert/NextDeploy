@@ -301,7 +301,7 @@ func TestValidateComposeSecurity_SymlinkBindMountBlocked(t *testing.T) {
 	// 1. Create escaping symlink inside workspace pointing to outside directory
 	escapingLink := filepath.Join(wsDir, "escape_link")
 	if err := os.Symlink(outsideDir, escapingLink); err != nil {
-		t.Fatal(err)
+		t.Skipf("skipping symlink test on unprivileged host: %v", err)
 	}
 
 	// 2. Create escaping symlink pointing to /var/run/docker.sock (or / if socket doesn't exist)

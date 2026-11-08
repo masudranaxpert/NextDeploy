@@ -44,7 +44,8 @@ func TestSessionPathSafetyAndListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := filepath.Join(dir, "a.jsonl")
-	if err := os.WriteFile(good, []byte(`{"type":"title","title":"Hello"}`+"\n"+`{"type":"session","id":"i1","cwd":"`+root+`"}`+"\n"), 0o644); err != nil {
+	bCwd, _ := json.Marshal(root)
+	if err := os.WriteFile(good, []byte(`{"type":"title","title":"Hello"}`+"\n"+`{"type":"session","id":"i1","cwd":`+string(bCwd)+`}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.safeSessionPath(good); err != nil {

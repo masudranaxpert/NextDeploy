@@ -141,6 +141,11 @@ func (s *Store) extractTarStream(wsID, base string, r io.Reader, headerBuf []byt
 			mode := os.FileMode(0640)
 			if header.Mode&0111 != 0 {
 				mode = 0750
+			} else {
+				ext := strings.ToLower(filepath.Ext(cleanRel))
+				if ext == ".sh" || ext == ".bash" || bytes.HasPrefix(buf.Bytes(), []byte("#!")) {
+					mode = 0750
+				}
 			}
 
 			if err := os.WriteFile(dest, buf.Bytes(), mode); err != nil {
@@ -246,6 +251,12 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 		mode := f.Mode().Perm()
 		if mode == 0 {
 			mode = 0640
+		}
+		if mode&0111 == 0 {
+			ext := strings.ToLower(filepath.Ext(cleanRel))
+			if ext == ".sh" || ext == ".bash" || bytes.HasPrefix(buf.Bytes(), []byte("#!")) {
+				mode |= 0750
+			}
 		}
 		if err := os.WriteFile(dest, buf.Bytes(), mode); err != nil {
 			return extractedFiles, totalBytes, err

@@ -180,10 +180,11 @@ func (m *Manager) HostPath(ctx context.Context, panelPath string) string {
 
 func translateHostPath(mounts []mountInfo, p string) string {
 	best := -1
+	pSlash := filepath.ToSlash(p)
 	for i, mt := range mounts {
-		d := filepath.Clean(mt.Destination)
-		if p == d || strings.HasPrefix(p, d+string(filepath.Separator)) {
-			if best < 0 || len(d) > len(filepath.Clean(mounts[best].Destination)) {
+		d := strings.TrimRight(filepath.ToSlash(mt.Destination), "/")
+		if pSlash == d || strings.HasPrefix(pSlash, d+"/") {
+			if best < 0 || len(d) > len(strings.TrimRight(filepath.ToSlash(mounts[best].Destination), "/")) {
 				best = i
 			}
 		}
@@ -191,8 +192,9 @@ func translateHostPath(mounts []mountInfo, p string) string {
 	if best < 0 {
 		return p
 	}
-	rel := strings.TrimPrefix(p, filepath.Clean(mounts[best].Destination))
-	return filepath.Clean(mounts[best].Source + rel)
+	bestDest := strings.TrimRight(filepath.ToSlash(mounts[best].Destination), "/")
+	rel := strings.TrimPrefix(pSlash, bestDest)
+	return strings.TrimRight(filepath.ToSlash(mounts[best].Source), "/") + rel
 }
 
 func loadSelfMounts(ctx context.Context) []mountInfo {

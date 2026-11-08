@@ -165,14 +165,47 @@ func runBackupLog(cl *client.Client, args []string) error {
 }
 
 func runBackupRestore(cl *client.Client, args []string) error {
-	appID, rem, err := resolveAppID(args)
-	histID := ""
-	if len(rem) > 0 {
-		histID = rem[0]
-	} else if appID != "" {
-		histID = appID
+	var appFlag string
+	var posArgs []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if (a == "-a" || a == "--app") && i+1 < len(args) {
+			appFlag = args[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--app=") {
+			appFlag = strings.TrimPrefix(a, "--app=")
+		} else if strings.HasPrefix(a, "-a=") {
+			appFlag = strings.TrimPrefix(a, "-a=")
+		} else {
+			posArgs = append(posArgs, a)
+		}
 	}
-	if err != nil || histID == "" {
+
+	var appID, histID string
+	pc, pcErr := config.LoadProject(".")
+	hasLinked := pcErr == nil && pc.AppID != ""
+
+	if appFlag != "" {
+		appID = appFlag
+		if len(posArgs) > 0 {
+			histID = posArgs[0]
+		}
+	} else if hasLinked {
+		if len(posArgs) == 1 {
+			appID = pc.AppID
+			histID = posArgs[0]
+		} else if len(posArgs) >= 2 {
+			appID = posArgs[0]
+			histID = posArgs[1]
+		}
+	} else {
+		if len(posArgs) >= 2 {
+			appID = posArgs[0]
+			histID = posArgs[1]
+		}
+	}
+
+	if appID == "" || histID == "" {
 		return fmt.Errorf("history ID required: nd backup restore [app_id] <history_id>")
 	}
 

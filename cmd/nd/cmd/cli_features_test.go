@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"nd/internal/client"
@@ -92,6 +94,39 @@ func TestCLI_ShieldListAndReassign(t *testing.T) {
 
 	if err := runShieldReassign(cl, []string{"1", "2"}); err != nil {
 		t.Fatalf("runShieldReassign failed: %v", err)
+	}
+}
+
+func TestCLI_ShieldTest(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/shield-nodes/1/test":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":        true,
+				"reachable": true,
+			})
+		case "/api/v1/shield-nodes/2/test":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":        false,
+				"reachable": false,
+				"error":     "TCP port 80 unreachable on 192.0.2.2: dial tcp 192.0.2.2:80: i/o timeout",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	cl := client.New(config.Config{ServerURL: ts.URL, Token: "test-token"}, "test-sess")
+
+	if err := runShieldTest(cl, []string{"1"}); err != nil {
+		t.Fatalf("expected node 1 test to succeed, got %v", err)
+	}
+
+	if err := runShieldTest(cl, []string{"2"}); err == nil {
+		t.Fatalf("expected node 2 test to fail, but it returned nil")
 	}
 }
 
@@ -239,4 +274,111 @@ func TestCLI_PHPDBExportImport(t *testing.T) {
 	if err := runPHPDB(cl, []string{"import", "site-1", "1", exportFile}); err != nil {
 		t.Fatalf("runPHPDB import failed: %v", err)
 	}
+}
+
+func TestCLI_EnvUnset(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" {
+			var req map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			params := req["params"].(map[string]interface{})
+			name := params["name"].(string)
+			args := params["arguments"].(map[string]interface{})
+			if name != "env_unset" {
+				t.Errorf("expected env_unset, got %s", name)
+			}
+			if args["app_id"] != "test-app" {
+				t.Errorf("expected app_id=test-app, got %v", args["app_id"])
+			}
+			keys := args["keys"].([]interface{})
+			if len(keys) != 1 || keys[0] != "OLD_KEY" {
+				t.Errorf("expected keys=[OLD_KEY], got %v", keys)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"result": map[string]interface{}{
+					"content": []map[string]interface{}{
+						{"text": "Environment variable \"OLD_KEY\" unset successfully"},
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cl := client.New(config.Config{ServerURL: ts.URL, Token: "test-token"}, "test-sess")
+
+	if err := RunEnv(cl, []string{"unset", "test-app", "OLD_KEY"}); err != nil {
+		t.Fatalf("RunEnv unset failed: %v", err)
+	}
+}
+
+func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "linked_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	origCwd, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origCwd)
+
+	_ = config.SaveProject(".", "linked-app")
+
+	var lastAction string
+	var lastAppID string
+	var lastService string
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" {
+			var req map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			params := req["params"].(map[string]interface{})
+			lastAction = params["name"].(string)
+			args := params["arguments"].(map[string]interface{})
+			lastAppID = fmt.Sprint(args["app_id"])
+			if s, ok := args["service"]; ok {
+				lastService = fmt.Sprint(s)
+			} else {
+				lastService = ""
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"result": map[string]interface{}{"ok": true}})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/backups/restore/") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cl := client.New(config.Config{ServerURL: ts.URL, Token: "test-token"}, "test-sess")
+
+	// 1. nd stop redis in linked project -> app=linked-app, service=redis
+	if err := RunStop(cl, []string{"redis"}); err != nil {
+		t.Fatalf("RunStop redis failed: %v", err)
+	}
+	if lastAppID != "linked-app" || lastService != "redis" {
+		t.Errorf("expected linked-app / redis, got %s / %s", lastAppID, lastService)
+	}
+
+	// 2. nd restart web in linked project -> app=linked-app, service=web
+	if err := RunRestart(cl, []string{"web"}); err != nil {
+		t.Fatalf("RunRestart web failed: %v", err)
+	}
+	if lastAppID != "linked-app" || lastService != "web" {
+		t.Errorf("expected linked-app / web, got %s / %s", lastAppID, lastService)
+	}
+
+	// 3. nd backup restore 42 in linked project -> app=linked-app, histID=42
+	if err := runBackupRestore(cl, []string{"42"}); err != nil {
+		t.Fatalf("runBackupRestore 42 failed: %v", err)
+	}
+	_ = lastAction
 }

@@ -93,6 +93,24 @@ func runShieldTest(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("test failed: %s", client.JSONError(data))
 	}
+
+	var resp struct {
+		OK        bool   `json:"ok"`
+		Reachable bool   `json:"reachable"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("invalid response from server: %w", err)
+	}
+
+	if !resp.OK || !resp.Reachable {
+		errMsg := strings.TrimSpace(resp.Error)
+		if errMsg == "" {
+			errMsg = "node is unreachable or down"
+		}
+		return fmt.Errorf("shield node %s test failed: %s", nodeID, errMsg)
+	}
+
 	ui.Success("Shield node %s is healthy and reachable", nodeID)
 	return nil
 }
