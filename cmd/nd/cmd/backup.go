@@ -278,8 +278,50 @@ func runBackupSchedule(cl *client.Client, args []string) error {
 		return nil
 
 	case "add":
-		appID, rem, err := resolveAppID(rest)
-		if err != nil || len(rem) < 2 {
+		var appFlag string
+		var posArgs []string
+		for i := 0; i < len(rest); i++ {
+			a := rest[i]
+			if (a == "-a" || a == "--app") && i+1 < len(rest) {
+				appFlag = rest[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--app=") {
+				appFlag = strings.TrimPrefix(a, "--app=")
+			} else if strings.HasPrefix(a, "-a=") {
+				appFlag = strings.TrimPrefix(a, "-a=")
+			} else {
+				posArgs = append(posArgs, a)
+			}
+		}
+
+		pc, pcErr := config.LoadProject(".")
+		hasLinked := pcErr == nil && pc.AppID != ""
+
+		var appID string
+		var rem []string
+
+		if appFlag != "" {
+			appID = appFlag
+			rem = posArgs
+		} else if hasLinked {
+			if len(posArgs) >= 2 && posArgs[0] == pc.AppID {
+				appID = pc.AppID
+				rem = posArgs[1:]
+			} else if len(posArgs) == 2 || (len(posArgs) > 2 && (posArgs[2] == "--retention" || strings.HasPrefix(posArgs[2], "--retention="))) {
+				appID = pc.AppID
+				rem = posArgs
+			} else if len(posArgs) >= 3 {
+				appID = posArgs[0]
+				rem = posArgs[1:]
+			}
+		} else {
+			if len(posArgs) >= 3 {
+				appID = posArgs[0]
+				rem = posArgs[1:]
+			}
+		}
+
+		if appID == "" || len(rem) < 2 {
 			return fmt.Errorf("usage: nd backup schedule add [app_id] <dest_id> \"<cron>\" [--retention 7]")
 		}
 		destID, _ := strconv.ParseInt(rem[0], 10, 64)
@@ -311,14 +353,13 @@ func runBackupSchedule(cl *client.Client, args []string) error {
 		return nil
 
 	case "rm", "delete":
-		appID, rem, err := resolveAppID(rest)
 		schedID := ""
-		if len(rem) > 0 {
-			schedID = rem[0]
-		} else if appID != "" {
-			schedID = appID
+		if len(rest) == 1 {
+			schedID = rest[0]
+		} else if len(rest) >= 2 {
+			schedID = rest[1]
 		}
-		if err != nil || schedID == "" {
+		if schedID == "" {
 			return fmt.Errorf("schedule ID required: nd backup schedule rm [app_id] <schedule_id>")
 		}
 		data, status, err := cl.Do("DELETE", "/api/v1/backups/schedules/"+schedID, nil)

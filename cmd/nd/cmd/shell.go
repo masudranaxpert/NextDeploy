@@ -72,6 +72,8 @@ func isPTYError(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.HasPrefix(lower, "forbidden") ||
 		strings.HasPrefix(lower, "unauthorized") ||
+		strings.HasPrefix(lower, "error:") ||
+		strings.HasPrefix(lower, "failed to") ||
 		strings.Contains(lower, "not found") ||
 		strings.Contains(lower, "no active container") ||
 		strings.Contains(lower, "could not start shell") ||
@@ -174,6 +176,9 @@ func runPTYSession(cl *client.Client, path, container, cmd string) error {
 		for {
 			mt, message, rerr := ws.ReadMessage()
 			if rerr != nil {
+				if websocket.IsUnexpectedCloseError(rerr, websocket.CloseNormalClosure) {
+					setErr(fmt.Errorf("terminal session ended unexpectedly: %w", rerr))
+				}
 				return
 			}
 			if mt == websocket.TextMessage {

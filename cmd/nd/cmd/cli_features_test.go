@@ -332,6 +332,11 @@ func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
 	var lastAppID string
 	var lastService string
 
+	var lastScheduleAppID string
+	var lastScheduleDestID int64
+	var lastScheduleCron string
+	var lastScheduleRetention int
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mcp" {
 			var req map[string]interface{}
@@ -346,10 +351,37 @@ func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
 				lastService = ""
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"result": map[string]interface{}{"ok": true}})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"result": map[string]interface{}{
+					"ok": true,
+					"content": []map[string]interface{}{
+						{"text": "success"},
+					},
+				},
+			})
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/v1/backups/restore/") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+			return
+		}
+		if r.URL.Path == "/api/v1/backups/schedules" && r.Method == http.MethodPost {
+			var payload map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			lastScheduleAppID = fmt.Sprint(payload["app_id"])
+			if d, ok := payload["dest_id"].(float64); ok {
+				lastScheduleDestID = int64(d)
+			}
+			lastScheduleCron = fmt.Sprint(payload["cron"])
+			if ret, ok := payload["retention"].(float64); ok {
+				lastScheduleRetention = int(ret)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/backups/schedules/") && r.Method == http.MethodDelete {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 			return
@@ -380,5 +412,41 @@ func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
 	if err := runBackupRestore(cl, []string{"42"}); err != nil {
 		t.Fatalf("runBackupRestore 42 failed: %v", err)
 	}
-	_ = lastAction
+
+	// 4. nd env unset OLD_VAR in linked project -> app=linked-app, keys=[OLD_VAR]
+	if err := RunEnv(cl, []string{"unset", "OLD_VAR"}); err != nil {
+		t.Fatalf("RunEnv unset failed in linked project: %v", err)
+	}
+	if lastAction != "env_unset" || lastAppID != "linked-app" {
+		t.Errorf("expected env_unset on linked-app, got action=%s app=%s", lastAction, lastAppID)
+	}
+
+	// 5. nd env get OLD_VAR in linked project -> app=linked-app
+	if err := RunEnv(cl, []string{"get", "OLD_VAR"}); err != nil {
+		t.Fatalf("RunEnv get failed in linked project: %v", err)
+	}
+	if lastAction != "env_reveal" || lastAppID != "linked-app" {
+		t.Errorf("expected env_reveal on linked-app, got action=%s app=%s", lastAction, lastAppID)
+	}
+
+	// 6. nd env set FOO=BAR in linked project -> app=linked-app
+	if err := RunEnv(cl, []string{"set", "FOO=BAR"}); err != nil {
+		t.Fatalf("RunEnv set failed in linked project: %v", err)
+	}
+	if lastAction != "env_set" || lastAppID != "linked-app" {
+		t.Errorf("expected env_set on linked-app, got action=%s app=%s", lastAction, lastAppID)
+	}
+
+	// 7. nd backup schedule add 5 "0 3 * * *" in linked project -> app=linked-app, dest=5
+	if err := runBackupSchedule(cl, []string{"add", "5", "0 3 * * *", "--retention", "14"}); err != nil {
+		t.Fatalf("runBackupSchedule add failed in linked project: %v", err)
+	}
+	if lastScheduleAppID != "linked-app" || lastScheduleDestID != 5 || lastScheduleCron != "0 3 * * *" || lastScheduleRetention != 14 {
+		t.Errorf("expected linked-app / dest=5 / retention=14, got %s / %d / %d", lastScheduleAppID, lastScheduleDestID, lastScheduleRetention)
+	}
+
+	// 8. nd backup schedule rm 77 in linked project
+	if err := runBackupSchedule(cl, []string{"rm", "77"}); err != nil {
+		t.Fatalf("runBackupSchedule rm failed: %v", err)
+	}
 }

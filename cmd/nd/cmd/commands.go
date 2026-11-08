@@ -2298,6 +2298,65 @@ func parseAndPrintExecResult(body []byte) error {
 	return nil
 }
 
+// resolveEnvAppAndArgs resolves (appID, envArgs) taking linked project context and env subcommand into account.
+func resolveEnvAppAndArgs(sub string, args []string) (string, []string, error) {
+	var appFlag string
+	var posArgs []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if (a == "-a" || a == "--app") && i+1 < len(args) {
+			appFlag = args[i+1]
+			i++
+		} else if strings.HasPrefix(a, "--app=") {
+			appFlag = strings.TrimPrefix(a, "--app=")
+		} else if strings.HasPrefix(a, "-a=") {
+			appFlag = strings.TrimPrefix(a, "-a=")
+		} else {
+			posArgs = append(posArgs, a)
+		}
+	}
+
+	if appFlag != "" {
+		return appFlag, posArgs, nil
+	}
+
+	pc, pcErr := config.LoadProject(".")
+	hasLinked := pcErr == nil && pc.AppID != ""
+
+	if hasLinked {
+		switch sub {
+		case "list", "ls":
+			if len(posArgs) == 0 {
+				return pc.AppID, nil, nil
+			}
+			return posArgs[0], posArgs[1:], nil
+		case "set":
+			if len(posArgs) > 0 && strings.Contains(posArgs[0], "=") {
+				return pc.AppID, posArgs, nil
+			}
+			if len(posArgs) > 0 {
+				return posArgs[0], posArgs[1:], nil
+			}
+			return pc.AppID, nil, nil
+		case "unset", "rm", "delete":
+			if len(posArgs) > 0 && posArgs[0] == pc.AppID {
+				return pc.AppID, posArgs[1:], nil
+			}
+			return pc.AppID, posArgs, nil
+		case "get", "reveal":
+			if len(posArgs) > 0 && posArgs[0] == pc.AppID {
+				return pc.AppID, posArgs[1:], nil
+			}
+			return pc.AppID, posArgs, nil
+		}
+	}
+
+	if len(posArgs) == 0 {
+		return "", nil, fmt.Errorf("app_id required (pass --app <id>, specify as argument, or run 'nd link <id>')")
+	}
+	return posArgs[0], posArgs[1:], nil
+}
+
 // RunEnv handles: nd env list [app_id] [--json] | nd env set [app_id] KEY=VALUE ...
 func RunEnv(cl *client.Client, args []string) error {
 	jsonOut, args := extractJSONFlag(args)
@@ -2307,7 +2366,7 @@ func RunEnv(cl *client.Client, args []string) error {
 	sub := args[0]
 	rest := args[1:]
 
-	appID, envArgs, err := resolveAppID(rest)
+	appID, envArgs, err := resolveEnvAppAndArgs(sub, rest)
 	if err != nil {
 		return err
 	}
