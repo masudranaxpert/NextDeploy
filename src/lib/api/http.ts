@@ -9,7 +9,7 @@ export type ApiResult<T = Record<string, unknown>> = {
   error?: string;
   message?: string;
   offlineFallback?: boolean;
-} & (T extends Record<string, unknown> ? Partial<T> : Record<string, unknown>);
+} & (T extends object ? Partial<T> : Record<string, unknown>);
 
 const DEFAULT_HEADERS: Record<string, string> = {
   Accept: 'application/json',

@@ -608,9 +608,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
                   <tr
                     key={v.name}
                     onClick={() => void loadVolumeBrowse(v, '')}
-                    className={`hover:bg-white/[0.03] transition-colors cursor-pointer ${
-                      selectedVolume?.name === v.name ? 'bg-orange-500/[0.05]' : ''
-                    }`}
+                    className="hover:bg-white/[0.03] transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -653,11 +651,7 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
             <div
               key={v.name}
               onClick={() => void loadVolumeBrowse(v, '')}
-              className={`flex flex-col justify-between gap-3 rounded-xl border bg-[#111115]/90 p-4 transition-all cursor-pointer ${
-                selectedVolume?.name === v.name
-                  ? 'border-orange-500/60 ring-1 ring-orange-500/25'
-                  : 'border-white/[0.07] hover:border-white/[0.15]'
-              }`}
+              className="flex flex-col justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 transition-all hover:border-white/[0.15] cursor-pointer"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">

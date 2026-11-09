@@ -246,10 +246,10 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       defaultRichFiles.find((f) => f.type !== 'dir') || {
         path: 'docker-compose.yml',
         name: 'docker-compose.yml',
-        type: 'file',
+        type: 'file' as const,
         sizeBytes: 1024,
         updatedAt: 'Just now',
-        language: 'yaml',
+        language: 'yaml' as const,
         content: '',
       }
     );
@@ -850,6 +850,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           ...app.files,
           {
             ...selectedFile,
+            type: 'file' as const,
             content: nextContent,
             sizeBytes: new Blob([nextContent]).size,
             updatedAt: 'Just now',

@@ -237,6 +237,7 @@ export interface DockerImageItem {
 export interface DockerVolumeItem {
   name: string;
   appSlug: string;
+  appName?: string;
   mountPoint: string;
   driver: string;
   sizeMB: number;

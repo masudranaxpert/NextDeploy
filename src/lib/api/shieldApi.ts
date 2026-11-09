@@ -1,5 +1,5 @@
 import { requestJson } from './http';
-import { CreateShieldNodeResponse, ShieldNodesResponse, TestShieldNodeResponse } from '../../types/shield';
+import { CreateShieldNodeResponse, ShieldNode, ShieldNodesResponse, TestShieldNodeResponse } from '../../types/shield';
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',

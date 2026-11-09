@@ -2,6 +2,19 @@ import { OwnerContext } from './components/ui/OwnerBadge';
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { lazyRetry } from './lib/lazyRetry';
 import {
+  parseInitialRoute,
+  buildRoutePath,
+  hasLoggedInCookie,
+  clearLoggedInCookie,
+} from './lib/routes';
+import {
+  mapRawAppToStack,
+  mapMigrateExports,
+} from './lib/appStackMapper';
+import { buildNavGroups, ADMIN_ONLY_NAV } from './components/layout/navItems';
+import { AppSidebar } from './components/layout/AppSidebar';
+import { AppHeader } from './components/layout/AppHeader';
+import {
   Activity,
   Archive,
   ArrowLeftRight,
@@ -58,8 +71,8 @@ import { PageSkeleton, DashboardSkeleton } from './components/skeletons/PageSkel
 // Each screen is its own chunk with instant .preload() capability on hover.
 const OverviewDashboard = lazyRetry(() => import('./features/overview/OverviewDashboard').then((m) => ({ default: m.OverviewDashboard })));
 const AuthView = lazyRetry(() => import('./features/auth/AuthView').then((m) => ({ default: m.AuthView })));
-const CommandPaletteModal = lazyRetry(() => import('./components/ui/Primitives').then((m) => ({ default: m.CommandPaletteModal })));
-const DeployNewAppModal = lazyRetry(() => import('./components/ui/Primitives').then((m) => ({ default: m.DeployNewAppModal })));
+const CommandPaletteModal = lazyRetry(() => import('./components/modals/CommandPaletteModal').then((m) => ({ default: m.CommandPaletteModal })));
+const DeployNewAppModal = lazyRetry(() => import('./components/modals/DeployNewAppModal').then((m) => ({ default: m.DeployNewAppModal })));
 const AppWorkspace = lazyRetry(() => import('./features/workspace/AppWorkspace').then((m) => ({ default: m.AppWorkspace })));
 const ContainersView = lazyRetry(() => import('./features/docker/ContainersView').then((m) => ({ default: m.ContainersView })));
 const ImagesView = lazyRetry(() => import('./features/docker/ImagesView').then((m) => ({ default: m.ImagesView })));
@@ -146,17 +159,6 @@ const prefetchRoute = (nav: NavigationSection) => {
   }
 };
 
-const hasLoggedInCookie = (): boolean => {
-  if (typeof document === 'undefined') return false;
-  return /(?:^|;\s*)nd_logged_in=1(?:\s*;|$)/.test(document.cookie);
-};
-
-const clearLoggedInCookie = () => {
-  if (typeof document !== 'undefined') {
-    document.cookie = 'nd_logged_in=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax';
-  }
-};
-
 // Start downloading the code of the page in the address bar right away
 if (typeof window !== 'undefined') {
   const path = window.location.pathname;
@@ -177,119 +179,7 @@ if (typeof window !== 'undefined') {
   else if (path === '/login' || path === '/setup') void import('./features/auth/AuthView');
 }
 
-
-
-function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  if (!Array.isArray(raw)) return [];
-  return raw.map((me: any) => {
-    const id = String(me.id ?? me.ID ?? '');
-    const token = me.token ?? me.Token ?? '';
-    const rawApps = me.apps ?? me.AppIDsJSON ?? [];
-    let selectedApps: string[] = [];
-    if (Array.isArray(rawApps)) {
-      selectedApps = rawApps.map(String);
-    } else if (typeof rawApps === 'string') {
-      try {
-        const parsed = JSON.parse(rawApps);
-        selectedApps = Array.isArray(parsed) ? parsed.map(String) : rawApps.split(',');
-      } catch {
-        selectedApps = rawApps.split(',').filter(Boolean);
-      }
-    }
-    const sizeBytes = Number(me.size_bytes ?? me.SizeBytes ?? 0);
-    const status = (me.status ?? me.Status ?? 'ready').toLowerCase();
-    const createdAt = me.created_at ?? me.CreatedAt ?? 'Recently';
-    const expiresAt = me.expires_at ?? me.ExpiresAt;
-    const downloadUrl =
-      me.download_url ||
-      (token ? `${origin}/migrate/download/${token}` : '');
-    const migrateCmd =
-      me.migrate_cmd ||
-      (downloadUrl
-        ? `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/migrate.sh | sudo bash -s -- --url "${downloadUrl}"`
-        : '');
-    const logRaw = me.progress_log ?? me.ProgressLog ?? me.log ?? [];
-    const progressLog = Array.isArray(logRaw)
-      ? logRaw
-      : typeof logRaw === 'string'
-      ? logRaw.split('\n').filter(Boolean)
-      : [];
-
-    let expiresIn = '3h';
-    if (expiresAt) {
-      const diffMs = new Date(expiresAt).getTime() - Date.now();
-      const mins = Math.max(0, Math.round(diffMs / (1000 * 60)));
-      expiresIn = mins > 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
-    }
-
-    return {
-      id,
-      createdAt,
-      selectedApps,
-      estimatedSizeMB: Math.round(sizeBytes / (1024 * 1024)),
-      actualSizeMB: Math.round(sizeBytes / (1024 * 1024)),
-      workspaceBytes: 0,
-      volumeBytes: sizeBytes,
-      status: status as any,
-      token,
-      expiresIn,
-      downloadUrl,
-      migrateCmd,
-      progressLog,
-      error: me.error ?? me.Error ?? '',
-    } as MigrationExportBundle;
-  });
-}
-
-
 export default function App() {
-  // Parse route from window.location.pathname on load
-  const parseInitialRoute = (): { nav: NavigationSection; appId: string | null } => {
-    if (typeof window === 'undefined') return { nav: 'overview', appId: null };
-    const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
-    if (!path || path === 'overview') return { nav: 'overview', appId: null };
-
-    // Matches /apps/:id
-    const appMatch = path.match(/^apps\/([^/]+)$/);
-    if (appMatch) {
-      return { nav: 'apps', appId: appMatch[1] };
-    }
-
-    const validNavs: NavigationSection[] = [
-      'overview',
-      'nextdeploy-ai',
-      'monitor',
-      'apps',
-      'containers',
-      'images',
-      'volumes',
-      'terminal',
-      'git',
-      'registries',
-      'backup',
-      'mcp',
-      'cli-sessions',
-      'migrate',
-      'proxy',
-      'proxy-options',
-      'proxy-routes',
-      'shield-proxies',
-      'settings',
-      'audit-logs',
-      'users',
-      'php-sites',
-      'php-instance',
-    ];
-
-    if (path === 'caddy') return { nav: 'proxy', appId: null };
-    if (path === 'copilot') return { nav: 'nextdeploy-ai', appId: null }; // old URL
-    if (validNavs.includes(path as NavigationSection)) {
-      return { nav: path as NavigationSection, appId: null };
-    }
-    return { nav: 'overview', appId: null };
-  };
-
   const initialRoute = parseInitialRoute();
   const [activeNav, setActiveNav] = useState<NavigationSection>(initialRoute.nav);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(initialRoute.appId);
@@ -330,12 +220,7 @@ export default function App() {
   ) => {
     setActiveNav(nav);
     setSelectedAppId(appId);
-    let targetPath = `/${nav}`;
-    if (appId) {
-      targetPath = `/apps/${appId}${tab ? `?tab=${tab}` : ''}`;
-    } else if (nav === 'overview') {
-      targetPath = '/overview';
-    }
+    const targetPath = buildRoutePath(nav, appId, tab);
     if (window.location.pathname + window.location.search !== targetPath) {
       if (replace) {
         window.history.replaceState({ nav, appId, tab }, '', targetPath);
@@ -454,232 +339,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const mapRawAppToStack = (a: any, liveContainers: any[] = [], liveImages: any[] = []): AppStack => {
-    const idNorm = (a.id || '').toLowerCase();
-    const idUnderscore = idNorm.replace(/-/g, '_');
-    const nameNorm = (a.name || '').toLowerCase();
-
-    const appContainers = liveContainers.filter((c: any) => {
-      const cp = (c.ComposeProject || '').toLowerCase();
-      const rawName = String(c.Name || '').toLowerCase().replace(/^\//, '');
-      return (
-        (cp && (
-          cp === idNorm ||
-          cp === idUnderscore ||
-          cp === nameNorm ||
-          cp.startsWith(`${idNorm}_`) ||
-          cp.startsWith(`${idUnderscore}_`) ||
-          cp.startsWith(`${nameNorm}_`) ||
-          cp.startsWith(`${idNorm}-`) ||
-          cp.startsWith(`${idUnderscore}-`) ||
-          cp.startsWith(`${nameNorm}-`)
-        )) ||
-        rawName === `nd-phpr-${idNorm}` ||
-        rawName === `nd-phpr-${idUnderscore}` ||
-        rawName === `nd-phpr-${nameNorm}`
-      );
-    });
-
-    const checkSlotAvailable = (slot: 'blue' | 'green'): boolean => {
-      const prefixes = [`${idNorm}-${slot}`, `${nameNorm}-${slot}`, `${idUnderscore}-${slot}`];
-      const hasContainer = appContainers.some((c: any) => {
-        const cp = (c.ComposeProject || '').toLowerCase();
-        const cname = (c.Name || '').toLowerCase();
-        return prefixes.some((p) => cp === p || cname.startsWith(`${p}-`));
-      });
-      if (hasContainer) return true;
-      return liveImages.some((img: any) => {
-        const tags: string[] = Array.isArray(img.RepoTags) ? img.RepoTags : img.Tags ? [img.Tags] : [];
-        return tags.some((t) => {
-          const tl = String(t || '').toLowerCase();
-          return prefixes.some((p) => tl.startsWith(`${p}-`) || tl.startsWith(`${p}:`) || tl.startsWith(`${p}/`));
-        });
-      });
-    };
-
-    const slotImages = {
-      blue: checkSlotAvailable('blue'),
-      green: checkSlotAvailable('green'),
-    };
-
-    const hasRunningContainer = appContainers.some(
-      (c: any) => (c.State || '').toLowerCase() === 'running'
-    );
-    const latestDeploy = Array.isArray(a.deploy_logs) ? a.deploy_logs[0] : null;
-    const computedStatus: AppStack['status'] = a.php
-      ? a.php.state === 'running'
-        ? 'running'
-        : 'stopped'
-      : hasRunningContainer
-      ? 'running'
-      : latestDeploy && latestDeploy.ok === false
-      ? 'failed'
-      : 'stopped';
-
-    return {
-      id: a.id,
-      php: a.php
-        ? {
-            siteType: a.php.site_type,
-            phpVersion: a.php.php_version || '',
-            rootDir: a.php.root_dir || '',
-            uid: a.php.uid || 0,
-          }
-        : undefined,
-      name: a.name,
-      slug: a.name,
-      description: a.description || '',
-      sourceType: (a.source_type || 'compose') as any,
-      gitRepo: a.git_config?.repo_url || a.git_repo || '',
-      gitBranch: a.git_config?.branch || a.git_branch || 'main',
-      gitCommitSha: a.git_config?.last_commit_sha || a.active_slot || 'main',
-      gitCommitMessage: a.git_config?.last_commit_msg || 'Production build',
-      webhookAutoDeploy: a.git_config?.auto_deploy ?? false,
-      webhookSecret: a.git_config?.webhook_secret,
-      status: computedStatus,
-      activeSlot: a.active_slot,
-      standbySlot: a.standby_slot,
-      pinnedSlot: a.pinned_slot || '',
-      slotImages,
-      primaryDomain: (() => {
-        const doms = Array.isArray(a.domains) ? a.domains : [];
-        const pinned = doms.find((d: any) => d.is_primary);
-        if (pinned?.domain) return pinned.domain;
-        const custom = doms.find(
-          (d: any) =>
-            d.domain &&
-            !String(d.domain).toLowerCase().endsWith('.sslip.io') &&
-            !String(d.domain).toLowerCase().endsWith('.nip.io')
-        );
-        if (custom?.domain) return custom.domain;
-        return doms[0]?.domain || '';
-      })(),
-      preview: a.preview,
-      previewHostBase: a.preview_host_base || '',
-      ports: Array.isArray(a.ports) ? a.ports : [],
-      composeFilePath: 'docker-compose.yml',
-      owner: a.owner_name || '',
-      ownerId: a.owner_id,
-      ownerRole: a.owner_role,
-      updatedAt: a.updated_at || 'Recently',
-      cpuPct: Math.round((a.usage?.cpu_percent || 0) * 100) / 100,
-      memMB: a.usage?.memory_mb || 0,
-      diskMB: a.disk_mb || 0,
-      reqPerMin: 0,
-      composeServices: Array.isArray(a.services) ? a.services : [],
-      services:
-        appContainers.length > 0
-          ? appContainers.map((c: any, sIdx: number) => ({
-              id: c.ID || `svc-${a.id}-${sIdx}`,
-              name: c.Name || `${a.name}_${sIdx}`,
-              service: c.ComposeService || (Array.isArray(a.services) && a.services[sIdx]) || 'app',
-              image: c.Image || `${a.name}:latest`,
-              state: ((c.State || '').toLowerCase() === 'running'
-                ? 'running'
-                : 'exited') as any,
-              uptime: c.Status || 'Active',
-              cpuPct: Math.round((c.cpu_percent || 0) * 100) / 100,
-              memUsedMB: c.memory_mb || 0,
-              memLimitMB: 1024,
-              ports: c.Ports || '',
-            }))
-          : [],
-    domains: Array.isArray(a.domains)
-      ? a.domains.map((d: any) => ({
-          id: String(d.id),
-          domain: d.domain,
-          targetService: d.service,
-          targetPort: d.port,
-          isPrimary: Boolean(d.is_primary),
-          tlsProvider: 'LetsEncrypt' as const,
-          tlsStatus: 'active' as const,
-          forceHttps: d.enable_https ?? true,
-          enableWww: d.enable_www ?? false,
-          serveStatic: d.serve_static ?? false,
-          staticPath: d.static_path,
-          staticUrlPrefix: d.static_url_prefix,
-          serveMedia: d.serve_media ?? false,
-          mediaPath: d.media_path,
-          mediaUrlPrefix: d.media_url_prefix,
-          shield_node_id: d.shield_node_id != null ? Number(d.shield_node_id) : null,
-          gzip: true,
-          createdAt: d.created_at || 'Active',
-        }))
-      : [],
-    files: [], // the real list is loaded from the server when the file manager opens
-    envVars: (a.env_content || '')
-      .split('\n')
-      .filter((l: string) => l.includes('='))
-      .map((l: string, evIdx: number) => {
-        const parts = l.split('=');
-        return {
-          id: `ev-${evIdx}`,
-          key: parts[0].trim(),
-          value: parts.slice(1).join('=').trim(),
-          isSecret: /key|secret|pass|token/i.test(parts[0]),
-        };
-      }),
-    deployments: Array.isArray(a.deploy_logs)
-      ? a.deploy_logs.map((dl: any) => ({
-          id: `dep-${dl.id}`,
-          commitSha: dl.commit_sha || 'latest',
-          commitMessage: dl.action || 'Deploy',
-          branch: 'main',
-          trigger: 'manual-compose' as const,
-          author: 'admin',
-          status: dl.ok ? ('ready' as const) : ('failed' as const),
-          durationSec: 15,
-          startedAt: dl.created_at,
-          slot: dl.slot,
-          rawOutput: dl.output || "",
-          buildSteps: [],
-        }))
-      : [],
-    logs: [],
-    volumes: Array.isArray(a.volumes)
-      ? a.volumes.map((v: string) => ({
-          name: v,
-          mountPath: `/var/lib/${v}`,
-          driver: 'local',
-          sizeMB: 0,
-        }))
-      : [],
-      collaborators: Array.isArray(a.collaborators)
-        ? a.collaborators.map((c: any) => {
-            let perms: string[] = [];
-            try {
-              if (Array.isArray(c.permissions)) perms = c.permissions;
-              else if (typeof c.permissions === 'string' && c.permissions.startsWith('['))
-                perms = JSON.parse(c.permissions);
-              else if (typeof c.Permissions === 'string' && c.Permissions.startsWith('['))
-                perms = JSON.parse(c.Permissions);
-            } catch {
-              perms = [];
-            }
-            return {
-              userId: String(c.user_id || c.UserID || ''),
-              username: c.username || c.Username || `user_${c.user_id || c.UserID}`,
-              email: c.email || '',
-              role: c.role || c.Role || 'viewer',
-              permissions: perms,
-              addedAt: c.created_at || c.CreatedAt || 'Active',
-            };
-          })
-        : [],
-      hasSchedule: Array.isArray(a.backup_schedules) && a.backup_schedules.some((sc: any) => sc.enabled),
-      backupSchedules: Array.isArray(a.backup_schedules)
-        ? a.backup_schedules.map((sc: any) => ({
-            id: sc.id,
-            destinationId: sc.destination_id,
-            cronExpression: sc.cron_schedule || sc.cron_expression || '0 3 * * *',
-            retentionCount: sc.retention_count || 7,
-            backupType: sc.backup_type || 'app',
-            enabled: Boolean(sc.enabled),
-          }))
-        : [],
-    };
-  };
 
   const loadLiveApps = (rawApps: any[], liveContainers: any[] = [], liveImages: any[] = []) => {
     setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages)));
@@ -1405,124 +1064,15 @@ export default function App() {
   );
   const selectedApp = apps.find((a) => a.id === selectedAppId) || null;
 
-  const navGroups: {
-    group: string;
-    items: {
-      id: NavigationSection;
-      label: string;
-      icon: React.ReactNode;
-      badge?: { text: string; tone: 'emerald' | 'violet' | 'count' };
-    }[];
-  }[] = [
-    {
-      group: 'Platform',
-      items: [
-        { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
-        {
-          id: 'nextdeploy-ai',
-          label: 'NextDeploy AI',
-          icon: <Bot className="h-3.5 w-3.5" />,
-          badge: { text: 'ND AI', tone: 'violet' },
-        },
-        {
-          id: 'apps',
-          label: 'Projects',
-          icon: <Layers className="h-3.5 w-3.5" />,
-          badge: { text: String(apps.filter((a) => !a.php).length), tone: 'count' },
-        },
-        { id: 'monitor', label: 'Monitoring', icon: <Activity className="h-3.5 w-3.5" /> },
-      ],
-    },
-    ...(phpEnabled || currentUser?.role === 'admin'
-      ? [
-          {
-            group: 'PHP Hosting',
-            items: [
-              {
-                id: 'php-sites' as NavigationSection,
-                label: 'PHP Sites',
-                icon: <FileCode2 className="h-3.5 w-3.5" />,
-                badge: { text: String(apps.filter((a) => a.php).length), tone: 'count' as const },
-              },
-              ...(currentUser?.role === 'admin'
-                ? [{ id: 'php-instance' as NavigationSection, label: 'Instance', icon: <Server className="h-3.5 w-3.5" /> }]
-                : []),
-            ],
-          },
-        ]
-      : []),
-    {
-      group: 'Docker Engine',
-      items: [
-        { id: 'containers', label: 'Containers', icon: <Box className="h-3.5 w-3.5" /> },
-        { id: 'images', label: 'Images', icon: <Layers className="h-3.5 w-3.5" /> },
-        { id: 'volumes', label: 'Volumes', icon: <HardDrive className="h-3.5 w-3.5" /> },
-        { id: 'terminal', label: 'Host Terminal', icon: <Terminal className="h-3.5 w-3.5" /> },
-      ],
-    },
-    {
-      group: 'Integrations',
-      items: [
-        { id: 'git', label: 'Git Providers', icon: <FolderGit2 className="h-3.5 w-3.5" /> },
-        { id: 'registries', label: 'Registries', icon: <HardDrive className="h-3.5 w-3.5" /> },
-        { id: 'backup', label: 'Backup', icon: <Archive className="h-3.5 w-3.5" /> },
-      ],
-    },
-    {
-      group: 'Automation',
-      items: [
-        {
-          id: 'mcp',
-          label: 'MCP Server',
-          icon: <Cable className="h-3.5 w-3.5" />,
-        },
-        {
-          id: 'cli-sessions',
-          label: 'CLI Sessions',
-          icon: <KeyRound className="h-3.5 w-3.5" />,
-        },
-      ],
-    },
-    {
-      group: 'Caddy',
-      items: [
-        { id: 'proxy', label: 'Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
-        { id: 'proxy-options', label: 'Server Options', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
-        { id: 'proxy-routes', label: 'Routes & Redirects', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
-        { id: 'shield-proxies', label: 'Shield Proxies', icon: <Shield className="h-3.5 w-3.5" /> },
-      ],
-    },
-    {
-      group: 'System',
-      items: [
-        { id: 'migrate', label: 'Migration', icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
-        { id: 'users', label: 'Team & Quotas', icon: <Users className="h-3.5 w-3.5" /> },
-        { id: 'audit-logs', label: 'Audit Trail', icon: <FileText className="h-3.5 w-3.5" /> },
-        { id: 'settings', label: 'Settings', icon: <Settings className="h-3.5 w-3.5" /> },
-      ],
-    },
-  ];
-
-  // Pages that only make sense for (and are only allowed to) administrators.
-  const ADMIN_ONLY_NAV: NavigationSection[] = [
-    'nextdeploy-ai',
-    'monitor',
-    'terminal',
-    'proxy',
-    'proxy-options',
-    'proxy-routes',
-    'shield-proxies',
-    'migrate',
-    'users',
-    'settings',
-    'cli-sessions',
-    'php-instance',
-  ];
   const isAdminUser = currentUser?.role === 'admin';
   isAdminRef.current = isAdminUser;
-  const visibleNavGroups = navGroups
-    .map((g) => ({ ...g, items: g.items.filter((i) => isAdminUser || !ADMIN_ONLY_NAV.includes(i.id)) }))
-    .filter((g) => g.items.length > 0);
+  const visibleNavGroups = React.useMemo(() => {
+    return buildNavGroups({
+      apps,
+      phpEnabled,
+      userRole: currentUser?.role,
+    });
+  }, [apps, phpEnabled, currentUser?.role]);
 
   const currentNavLabel =
     visibleNavGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
@@ -1592,146 +1142,19 @@ export default function App() {
         toastOptions={{ classNames: { toast: "font-sans text-xs max-w-[calc(100vw-32px)]" } }}
       />
 
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-xs lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* Dokploy / shadcn Inset Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 sm:w-68 lg:w-60 xl:w-64 2xl:w-68 shrink-0 flex-col bg-[#09090b] border-r border-white/[0.06] transition-transform duration-200 ease-out lg:sticky lg:top-0 lg:h-screen lg:self-start lg:translate-x-0 ${
-          mobileMenuOpen ? 'translate-x-0 shadow-2xl shadow-black/80' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex h-14 sm:h-14 items-center justify-between px-3.5 pt-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              navigateTo('overview');
-              setMobileMenuOpen(false);
-            }}
-            className="flex flex-1 items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115] px-2.5 py-2 lg:py-1.5 text-left hover:border-white/[0.14] transition-all cursor-pointer active:scale-[0.99]"
-          >
-            <NextDeployLogoMark className="h-7 w-7 shrink-0 rounded-lg shadow-sm" />
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate font-display text-xs sm:text-xs font-semibold text-zinc-100">
-                  NextDeploy
-                </span>
-                <span className="rounded bg-white/[0.06] px-1 py-0.2 font-mono text-[9px] text-zinc-400">
-                  v2.5
-                </span>
-              </div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(false)}
-            aria-label="Close navigation drawer"
-            className="ml-2 flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/90 text-zinc-400 hover:text-white active:bg-zinc-800 transition-colors lg:hidden shrink-0 cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Sidebar Search Trigger */}
-        <div className="px-3.5 pt-2.5 pb-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              setCmdPaletteOpen(true);
-              setMobileMenuOpen(false);
-            }}
-            className="flex h-10 lg:h-8 w-full items-center justify-between rounded-lg border border-white/[0.07] bg-[#111115]/70 px-3 lg:px-2.5 text-[13px] lg:text-xs text-zinc-400 hover:border-white/[0.14] hover:text-zinc-200 transition-colors cursor-pointer active:scale-[0.99]"
-          >
-            <span className="flex items-center gap-2.5">
-              <Search className="h-4 w-4 lg:h-3.5 lg:w-3.5 text-zinc-500" />
-              <span>Quick Jump...</span>
-            </span>
-            <kbd className="rounded border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
-              ⌘K
-            </kbd>
-          </button>
-        </div>
-
-        {/* Navigation Links */}
-        <nav className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar px-3 py-2 space-y-3.5 lg:space-y-4">
-          {visibleNavGroups.map((grp) => (
-            <div key={grp.group} className="space-y-0.5 sm:space-y-0.5">
-              <p className="px-3 lg:px-2.5 pt-1.5 pb-1 text-[11px] lg:text-[10px] font-semibold uppercase tracking-wider text-zinc-400 select-none">
-                {grp.group}
-              </p>
-              {grp.items.map((item) => {
-                const isActive =
-                  (!selectedAppId && activeNav === item.id) ||
-                  (selectedAppId && item.id === (selectedApp?.php ? 'php-sites' : 'apps'));
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onMouseEnter={() => prefetchRoute(item.id)}
-                    onTouchStart={() => prefetchRoute(item.id)}
-                    onClick={() => {
-                      navigateTo(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`relative flex w-full items-center gap-3 lg:gap-2.5 rounded-lg px-3 lg:px-2.5 py-2.5 lg:py-1.5 xl:py-2 text-[13px] lg:text-xs font-medium transition-all cursor-pointer whitespace-nowrap select-none touch-manipulation active:scale-[0.99] ${
-                      isActive
-                        ? 'bg-white/[0.08] text-zinc-100 font-semibold shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]'
-                        : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-                    }`}
-                  >
-                    <span className={isActive ? 'text-orange-400 shrink-0' : 'text-zinc-500 shrink-0'}>
-                      {item.icon}
-                    </span>
-                    <span>{item.label}</span>
-                    {item.badge && (
-                      <span
-                        className={`ml-auto rounded-md px-1.5 py-0.5 font-mono text-[11px] lg:text-[10px] font-medium ${
-                          item.badge.tone === 'emerald'
-                            ? 'bg-emerald-500/12 text-emerald-400 ring-1 ring-emerald-500/25'
-                            : item.badge.tone === 'violet'
-                              ? 'bg-violet-500/12 text-violet-300 ring-1 ring-violet-500/25'
-                              : 'bg-white/[0.06] text-zinc-400'
-                        }`}
-                      >
-                        {item.badge.text}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        {/* User Footer */}
-        <div className="p-3 sm:p-3 shrink-0 border-t border-white/[0.05]">
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-[#111115] px-3 py-2.5 lg:px-2.5 lg:py-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex h-7 w-7 lg:h-6 lg:w-6 shrink-0 items-center justify-center rounded-md bg-orange-500/15 font-mono text-[11px] lg:text-[10px] font-bold text-orange-400 uppercase ring-1 ring-orange-500/30">
-                {(currentUser?.username || 'admin').slice(0, 2).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <span className="block truncate text-[13px] lg:text-xs font-medium text-zinc-200">
-                  {currentUser?.username || 'admin'}
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Sign out of NextDeploy"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900/90 px-3 py-1 text-xs lg:text-[11px] font-medium text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-all cursor-pointer shrink-0 active:scale-95"
-            >
-              <LogOut className="h-3.5 w-3.5 lg:h-3 lg:w-3" />
-              <span>Logout</span>
-            </button>
-          </div>
-        </div>
-      </aside>
+      <AppSidebar
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        activeNav={activeNav}
+        selectedAppId={selectedAppId}
+        selectedApp={selectedApp}
+        visibleNavGroups={visibleNavGroups}
+        navigateTo={navigateTo}
+        prefetchRoute={prefetchRoute}
+        setCmdPaletteOpen={setCmdPaletteOpen}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
 
       {/* shadcn Sidebar-Inset Floating Main Canvas */}
       <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2">
@@ -1740,70 +1163,16 @@ export default function App() {
           <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_60%_50%_at_50%_-15%,rgba(249,115,22,0.07),transparent)]" />
 
           {/* Top Header Bar */}
-          <header className="sticky top-0 z-30 flex h-13 xl:h-14 items-center justify-between gap-4 border-b border-white/[0.06] bg-[#0c0c0f]/85 px-4 sm:px-6 lg:px-8 xl:px-10 backdrop-blur-xl">
-            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400 min-w-0">
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(true)}
-                aria-label="Open navigation menu"
-                className="lg:hidden -ml-1 mr-1 flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer shrink-0"
-              >
-                <Menu className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigateTo('overview');
-                }}
-                className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap py-1.5 px-1 rounded inline-flex items-center min-h-[36px] sm:min-h-0"
-              >
-                NextDeploy
-              </button>
-              <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
-              {selectedApp ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigateTo(selectedApp.php ? 'php-sites' : 'apps');
-                    }}
-                    className="hover:text-zinc-100 transition-colors cursor-pointer whitespace-nowrap py-1.5 px-1 rounded inline-flex items-center min-h-[36px] sm:min-h-0"
-                  >
-                    {selectedApp.php ? 'PHP Sites' : 'Projects'}
-                  </button>
-                  <ChevronRight className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
-                  <span className="font-mono font-semibold text-zinc-100 truncate">
-                    {selectedApp.name}
-                  </span>
-                </>
-              ) : (
-                <span className="font-semibold text-zinc-100 truncate">{currentNavLabel}</span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {isAdminUser && dockerVersion && (
-                <div className="hidden md:flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-[#111115] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
-                  <Server className={`h-3 w-3 ${caddyInfo?.up === false ? 'text-amber-400' : 'text-emerald-400'}`} />
-                  <span>Docker {dockerVersion}</span>
-                  <span className="text-zinc-600">·</span>
-                  <span className={caddyInfo?.up === false ? 'text-amber-400' : 'text-emerald-400'}>
-                    {caddyInfo?.up === false ? 'Caddy down' : 'Caddy'}
-                  </span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setNewAppModalOpen(true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-semibold text-zinc-950 hover:bg-white active:scale-[0.98] shadow-xs transition-all duration-100 ease-out cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Create Project</span>
-                <span className="sm:hidden">New</span>
-              </button>
-            </div>
-          </header>
+          <AppHeader
+            setMobileMenuOpen={setMobileMenuOpen}
+            navigateTo={navigateTo}
+            selectedApp={selectedApp}
+            currentNavLabel={currentNavLabel}
+            isAdminUser={isAdminUser}
+            dockerVersion={dockerVersion}
+            caddyInfo={caddyInfo}
+            setNewAppModalOpen={setNewAppModalOpen}
+          />
 
           {/* Main Viewport */}
           <main

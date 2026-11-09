@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { requestJson } from '../../lib/api/http';
+import { requestJson, type ApiResult } from '../../lib/api/http';
 import type {
   CopilotMessage,
   CopilotStatus,

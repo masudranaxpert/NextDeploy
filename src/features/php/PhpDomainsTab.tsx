@@ -24,7 +24,7 @@ export const PhpDomainsTab: React.FC<{
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
   const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
-  const [copiedDomainId, setCopiedDomainId] = useState<number | null>(null);
+  const [copiedDomainId, setCopiedDomainId] = useState<string | number | null>(null);
 
   useEffect(() => {
     backendApi.listShieldNodes().then((res) => {
