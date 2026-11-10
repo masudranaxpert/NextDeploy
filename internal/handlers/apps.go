@@ -171,7 +171,7 @@ func (p *Panel) SaveAppEnv(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), id); err != nil {
 		return c.Status(fiber.StatusNotFound).SendString("app not found")
 	}
-	content := c.FormValue("env")
+	content := normalizeEnvContent(c.FormValue("env"))
 	if err := p.DB.UpdatePanelEnv(c.UserContext(), id, content); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}

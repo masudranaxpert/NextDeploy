@@ -708,15 +708,40 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// normalizeEnvContent cleans CRLF line endings and strips accidental trailing tabs/spaces
+// on unquoted KEY=VALUE entries while preserving quoted values verbatim.
+func normalizeEnvContent(raw string) string {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			lines[i] = strings.TrimRight(line, "\r")
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := line[idx+1:]
+		if !strings.HasPrefix(val, `"`) && !strings.HasPrefix(val, `'`) {
+			val = strings.TrimRight(strings.TrimLeft(val, "\t"), " \t\r")
+		}
+		lines[i] = key + "=" + val
+	}
+	return strings.Join(lines, "\n")
+}
+
 // syncWorkspaceEnvFromPanel replaces workspaceRoot/.env entirely with panelEnv (DB). It does not read
 // or merge with any existing .env on disk; the database is the only source of truth for this file.
 func (p *Panel) SyncWorkspaceEnvFromPanel(appID, workspaceRoot, panelEnv string) error {
+	cleanEnv := normalizeEnvContent(panelEnv)
 	v, _ := p.envFileMu.LoadOrStore(appID, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
 	dot := p.Store.DotEnvPath(workspaceRoot)
-	return atomicWriteFile(dot, []byte(panelEnv), 0600)
+	return atomicWriteFile(dot, []byte(cleanEnv), 0600)
 }
 
 func (p *Panel) syncWorkspaceEnvFromPanel(appID, workspaceRoot, panelEnv string) error {

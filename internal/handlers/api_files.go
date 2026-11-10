@@ -374,6 +374,9 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed creating directory: " + err.Error()})
 	}
+	if filepath.Base(cleanRel) == ".env" {
+		content = normalizeEnvContent(content)
+	}
 	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed writing file: " + err.Error()})
 	}

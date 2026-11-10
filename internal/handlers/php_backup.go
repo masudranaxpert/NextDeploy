@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -96,6 +97,11 @@ func (p *Panel) phpAfterRestore(ctx context.Context, appID string) string {
 			f.Close()
 			skipped = append(skipped, d.DBName)
 			continue
+		}
+		if cerr := p.PHP.CreateDatabaseOnly(ctx, d.DBName); cerr != nil && !errors.Is(cerr, phphosting.ErrDatabaseExists) {
+			f.Close()
+			log.Printf("restore: create database %s: %v", d.DBName, cerr)
+			return fmt.Sprintf("files restored, but creating database %s failed: %v", d.DBName, cerr)
 		}
 		// the dump is already gzip data, ImportDatabase unpacks it
 		err = p.PHP.ImportDatabase(ctx, d.DBName, f, true)
