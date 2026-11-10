@@ -565,9 +565,10 @@ export const appsAndDockerApi = {
     fd.append('archive', file);
     const res = await fetch(`/api/v1/apps/${encodeURIComponent(appId)}/workspace/archive`, {
       method: 'POST',
+      credentials: 'same-origin',
       body: fd,
     });
-    return res.json();
+    return resultFromResponse(res);
   },
   appLimitsGet: (appId: string) =>
     requestJson<AppLimitsInfo>(`/apps/${encodeURIComponent(appId)}/limits`),

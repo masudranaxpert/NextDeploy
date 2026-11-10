@@ -37,15 +37,18 @@ export const CaddyRoutesView: React.FC = () => {
   const save = async () => {
     if (!form) return;
     setSaving(true);
-    const res = await backendApi.caddyRouteSave(form);
-    setSaving(false);
-    if (!res.ok) {
-      toast.error(res.error || 'Could not save the route');
-      return;
+    try {
+      const res = await backendApi.caddyRouteSave(form);
+      if (!res.ok) {
+        toast.error(res.error || 'Could not save the route');
+        return;
+      }
+      toast.success(form.id ? 'Route updated' : 'Route added');
+      setForm(null);
+      await load();
+    } finally {
+      setSaving(false);
     }
-    toast.success(form.id ? 'Route updated' : 'Route added');
-    setForm(null);
-    await load();
   };
 
   const toggle = async (r: ProxyRoute, enabled: boolean) => {

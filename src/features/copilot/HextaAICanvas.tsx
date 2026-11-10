@@ -334,19 +334,32 @@ export function HextaAICanvas({
 
   const thread = React.useRef<HTMLDivElement>(null)
   const grown = React.useRef(false)
+  const turningTimerRef = React.useRef<number | null>(null)
+  const queuedTimerRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (turningTimerRef.current !== null) window.clearTimeout(turningTimerRef.current)
+      if (queuedTimerRef.current !== null) window.clearTimeout(queuedTimerRef.current)
+    }
+  }, [])
 
   // The file tree shows exactly the directory omp is running in.
   const loadWorkspaceFiles = React.useCallback(async () => {
     setTurning(true)
-    const res = await requestJson<{ files: Array<{ name: string; rel_path: string; is_dir: boolean; size: number }> }>(
-      "/api/v1/copilot/files"
-    )
-    if (res.ok && res.data) {
-      const files = res.data.files || []
-      setTree(buildTreeFromFlatList(files))
-      setFilePaths(files.filter((f) => !f.is_dir).map((f) => f.rel_path))
+    try {
+      const res = await requestJson<{ files: Array<{ name: string; rel_path: string; is_dir: boolean; size: number }> }>(
+        "/api/v1/copilot/files"
+      )
+      if (res.ok && res.data) {
+        const files = res.data.files || []
+        setTree(buildTreeFromFlatList(files))
+        setFilePaths(files.filter((f) => !f.is_dir).map((f) => f.rel_path))
+      }
+    } finally {
+      if (turningTimerRef.current !== null) window.clearTimeout(turningTimerRef.current)
+      turningTimerRef.current = window.setTimeout(() => setTurning(false), 300)
     }
-    window.setTimeout(() => setTurning(false), 300)
   }, [])
 
   React.useEffect(() => {
@@ -441,7 +454,9 @@ export function HextaAICanvas({
     attached: string[]
     displaySnippet: string
   } | null>(null)
-  queuedRef.current = queuedMessage
+  React.useEffect(() => {
+    queuedRef.current = queuedMessage
+  }, [queuedMessage])
 
   // Automatically dispatch queued message when current turn completes
   React.useEffect(() => {
@@ -457,7 +472,8 @@ export function HextaAICanvas({
     const q = queuedRef.current
     setQueuedMessage(null)
     await abort()
-    setTimeout(() => {
+    if (queuedTimerRef.current !== null) window.clearTimeout(queuedTimerRef.current)
+    queuedTimerRef.current = window.setTimeout(() => {
       sendPrompt(q.text, q.attached)
     }, 120)
   }

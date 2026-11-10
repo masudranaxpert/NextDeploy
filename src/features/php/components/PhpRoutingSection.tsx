@@ -219,14 +219,17 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, sav
 
   const saveRoutingOnly = async () => {
     setSavingRouting(true);
-    const res = await backendApi.phpRoutingSave(appId, value);
-    setSavingRouting(false);
-    if (!res.ok) {
-      toast.error(res.error || 'Could not save URL routing rules');
-      return;
+    try {
+      const res = await backendApi.phpRoutingSave(appId, value);
+      if (!res.ok) {
+        toast.error(res.error || 'Could not save URL routing rules');
+        return;
+      }
+      toast.success('Caddy routing rules saved and synced');
+      if (onSaved) await onSaved();
+    } finally {
+      setSavingRouting(false);
     }
-    toast.success('Caddy routing rules saved and synced');
-    if (onSaved) await onSaved();
   };
 
   const editingRule = editorState.index !== null ? rules[editorState.index] ?? null : null;

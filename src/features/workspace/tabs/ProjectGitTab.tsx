@@ -75,38 +75,49 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const loadProviderBranches = async (pid: string, repoFull: string) => {
     if (!pid || !repoFull) return;
     setIsLoadingBranches(true);
-    const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
-    setIsLoadingBranches(false);
-    if (res.ok) {
-      const raw = (res.data as any)?.branches ?? [];
-      const list: string[] = raw
-        .map((b: any) => (typeof b === 'string' ? b : b?.name || ''))
-        .filter(Boolean);
-      setProviderBranches(list);
+    try {
+      const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
+      if (res.ok) {
+        const raw = (res.data as any)?.branches ?? [];
+        const list: string[] = raw
+          .map((b: any) => (typeof b === 'string' ? b : b?.name || ''))
+          .filter(Boolean);
+        setProviderBranches(list);
+      }
+    } finally {
+      setIsLoadingBranches(false);
     }
   };
 
-  const loadProviderRepos = async (pid: string, targetMode?: string) => {
+  const loadProviderRepos = async (
+    pid: string,
+    _targetMode?: string,
+    isCancelled?: () => boolean
+  ) => {
     if (!pid) {
       setProviderRepos([]);
       return;
     }
     setIsLoadingRepos(true);
-    const res = await backendApi.gitProviderRepos(app.id, pid);
-    setIsLoadingRepos(false);
-    if (res.ok) {
-      const repos = res.data?.repos ?? [];
-      setProviderRepos(repos);
-      if (repos.length > 0) {
-        const exists = repos.find(
-          (r) => r.clone_url === repoUrl || r.full_name === selectedRepoFullName
-        );
-        const target = exists || repos[0];
-        setSelectedRepoFullName(target.full_name);
-        setRepoUrl(target.clone_url);
-        setBranch((cur) => (cur && cur !== 'main' ? cur : target.default_branch || 'main'));
-        void loadProviderBranches(pid, target.full_name);
+    try {
+      const res = await backendApi.gitProviderRepos(app.id, pid);
+      if (isCancelled?.()) return;
+      if (res.ok) {
+        const repos = res.data?.repos ?? [];
+        setProviderRepos(repos);
+        if (repos.length > 0) {
+          const exists = repos.find(
+            (r) => r.clone_url === repoUrl || r.full_name === selectedRepoFullName
+          );
+          const target = exists || repos[0];
+          setSelectedRepoFullName(target.full_name);
+          setRepoUrl(target.clone_url);
+          setBranch((cur) => (cur && cur !== 'main' ? cur : target.default_branch || 'main'));
+          void loadProviderBranches(pid, target.full_name);
+        }
       }
+    } finally {
+      if (!isCancelled?.()) setIsLoadingRepos(false);
     }
   };
 
@@ -147,7 +158,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           : matching[0]?.id || '';
         setSelectedProviderId(preferredId);
         if (preferredId) {
-          void loadProviderRepos(preferredId, nextMode);
+          void loadProviderRepos(preferredId, nextMode, () => !live);
         }
       }
     });
@@ -186,9 +197,13 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [forceSyncWarning, setForceSyncWarning] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     if (authMode !== 'public' && selectedProviderId) {
-      void loadProviderRepos(selectedProviderId);
+      void loadProviderRepos(selectedProviderId, undefined, () => cancelled);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [selectedProviderId]);
 
   const handleToggleGitSync = async (nextEnabled: boolean, force = false) => {

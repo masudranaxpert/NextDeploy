@@ -87,27 +87,33 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
 
   const save = async () => {
     setSaving(true);
-    const body: Parameters<typeof backendApi.phpSiteSettings>[1] = { ...form, root_dir: rootDir };
-    if (!isStatic && version !== detail.site.php_version) body.php_version = version;
-    const res = await backendApi.phpSiteSettings(app.id, body);
-    setSaving(false);
-    if (!res.ok) {
-      toast.error(res.error || 'Could not save settings');
-      return;
+    try {
+      const body: Parameters<typeof backendApi.phpSiteSettings>[1] = { ...form, root_dir: rootDir };
+      if (!isStatic && version !== detail.site.php_version) body.php_version = version;
+      const res = await backendApi.phpSiteSettings(app.id, body);
+      if (!res.ok) {
+        toast.error(res.error || 'Could not save settings');
+        return;
+      }
+      toast.success(version !== detail.site.php_version ? `Switched to PHP ${version}` : 'Settings saved');
+      loadedFor.current = '';
+      await reload();
+      await onChanged();
+    } finally {
+      setSaving(false);
     }
-    toast.success(version !== detail.site.php_version ? `Switched to PHP ${version}` : 'Settings saved');
-    loadedFor.current = '';
-    await reload();
-    await onChanged();
   };
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) => {
     setBusy(key);
-    const res = await fn();
-    setBusy('');
-    if (res.ok) toast.success(okMsg);
-    else toast.error(res.error || 'Action failed');
-    await reload();
+    try {
+      const res = await fn();
+      if (res.ok) toast.success(okMsg);
+      else toast.error(res.error || 'Action failed');
+      await reload();
+    } finally {
+      setBusy('');
+    }
   };
 
   const runtimeTone = detail.runtime.state === 'running' ? 'green' : detail.runtime.state === 'none' ? 'zinc' : 'red';

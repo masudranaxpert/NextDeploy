@@ -145,12 +145,17 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
   }, []);
 
   // Hydrate destinations, schedules, and history from Go backend when running on server
-  const fetchBackupsData = async (targetPage = page, targetPerPage = perPage) => {
+  const fetchBackupsData = async (
+    targetPage = page,
+    targetPerPage = perPage,
+    isCancelled?: () => boolean
+  ) => {
     const [destRes, schedRes, histRes] = await Promise.all([
       backendApi.backupDestinationsList(),
       backendApi.backupSchedulesList(app.id),
       backendApi.backupHistoryList(app.id, targetPage, targetPerPage),
     ]);
+    if (isCancelled?.()) return;
 
     const rawDests = destRes.data?.destinations;
     let mappedDests = destinations;
@@ -270,7 +275,11 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
   };
 
   useEffect(() => {
-    void fetchBackupsData(page, perPage);
+    let cancelled = false;
+    void fetchBackupsData(page, perPage, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [app.id, page, perPage]);
 
   // A running backup finishes on the server: follow it until it is done.

@@ -98,13 +98,16 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
 
   const load = useCallback(async () => {
     setBusy(true);
-    const res = await backendApi.phpLogs(app.id, source, lines);
-    setBusy(false);
-    if (res.ok && res.data) {
-      setText(res.data.text);
-      setError('');
-    } else {
-      setError(res.error || 'Could not load logs');
+    try {
+      const res = await backendApi.phpLogs(app.id, source, lines);
+      if (res.ok && res.data) {
+        setText(res.data.text);
+        setError('');
+      } else {
+        setError(res.error || 'Could not load logs');
+      }
+    } finally {
+      setBusy(false);
     }
   }, [app.id, source, lines]);
 

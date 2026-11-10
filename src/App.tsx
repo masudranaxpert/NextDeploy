@@ -1,6 +1,7 @@
 import { OwnerContext } from './components/ui/OwnerBadge';
-import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { lazyRetry } from './lib/lazyRetry';
+import { runWithViewTransition } from './lib/viewTransition';
 import {
   parseInitialRoute,
   buildRoutePath,
@@ -14,34 +15,7 @@ import {
 import { buildNavGroups, ADMIN_ONLY_NAV } from './components/layout/navItems';
 import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
-import {
-  Activity,
-  Archive,
-  ArrowLeftRight,
-  SlidersHorizontal,
-  Box,
-  ChevronRight,
-  Bot,
-  FileCode2,
-  FileText,
-  FolderGit2,
-  Globe,
-  HardDrive,
-  KeyRound,
-  Layers,
-  LayoutGrid,
-  Menu,
-  Plus,
-  Search,
-  Server,
-  Settings,
-  Shield,
-  Cable,
-  Terminal,
-  Users,
-  X,
-  LogOut,
-} from 'lucide-react';
+import { Bot, Box } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
   AppStack,
@@ -218,16 +192,19 @@ export default function App() {
     replace = false,
     tab?: string
   ) => {
-    setActiveNav(nav);
-    setSelectedAppId(appId);
-    const targetPath = buildRoutePath(nav, appId, tab);
-    if (window.location.pathname + window.location.search !== targetPath) {
-      if (replace) {
-        window.history.replaceState({ nav, appId, tab }, '', targetPath);
-      } else {
-        window.history.pushState({ nav, appId, tab }, '', targetPath);
+    prefetchRoute(nav);
+    runWithViewTransition(() => {
+      setActiveNav(nav);
+      setSelectedAppId(appId);
+      const targetPath = buildRoutePath(nav, appId, tab);
+      if (window.location.pathname + window.location.search !== targetPath) {
+        if (replace) {
+          window.history.replaceState({ nav, appId, tab }, '', targetPath);
+        } else {
+          window.history.pushState({ nav, appId, tab }, '', targetPath);
+        }
       }
-    }
+    });
   };
 
   // Handle browser Back / Forward buttons
@@ -277,8 +254,7 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
   React.useEffect(() => {
-    const adminOnly = ['nextdeploy-ai', 'monitor', 'terminal', 'proxy', 'proxy-options', 'proxy-routes', 'shield-proxies', 'migrate', 'users', 'settings', 'cli-sessions', 'php-instance'];
-    if (currentUser && currentUser.role !== 'admin' && !selectedAppId && adminOnly.includes(activeNav)) {
+    if (currentUser && currentUser.role !== 'admin' && !selectedAppId && ADMIN_ONLY_NAV.includes(activeNav)) {
       setActiveNav('overview');
       window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
     }
@@ -757,8 +733,12 @@ export default function App() {
   useEffect(() => {
     const onUnauthorized = () => {
       clearLoggedInCookie();
+      justLoggedInRef.current = false;
       setAuthMode((cur) => cur ?? 'login');
       setIsBootstrapping(false);
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/setup') {
+        window.history.replaceState(null, '', '/login');
+      }
     };
     window.addEventListener('nd:unauthorized', onUnauthorized);
     return () => window.removeEventListener('nd:unauthorized', onUnauthorized);
@@ -845,7 +825,9 @@ export default function App() {
       if (timerId !== undefined) window.clearTimeout(timerId);
       const delay = getInterval();
       if (delay > 0) {
-        timerId = window.setTimeout(tick, delay);
+        timerId = window.setTimeout(() => {
+          void tick();
+        }, delay);
       }
     };
 
@@ -932,26 +914,42 @@ export default function App() {
     return () => window.removeEventListener('nd:invalidate', onInvalidate);
   }, [applyBootstrapData]);
 
+  const bootGenRef = useRef(0);
+  const justLoggedInRef = useRef(false);
+
   // First page data. Only a 401 means "not signed in". A slow or failed request is retried and, if
   // it keeps failing, shown as an error: it must never put a signed-in user on the login page.
   const loadBootstrap = React.useCallback(
-    async (attempt = 0): Promise<void> => {
+    async (attempt = 0, gen = ++bootGenRef.current): Promise<void> => {
       const res = await backendApi.bootstrap();
+      if (gen !== bootGenRef.current) return;
       if (res.status === 401 || res.data?.needs_setup) {
         clearLoggedInCookie();
         setIsBootstrapping(false);
-        setAuthMode(res.data?.needs_setup || window.location.pathname === '/setup' ? 'setup' : 'login');
+        const nextMode = res.data?.needs_setup || window.location.pathname === '/setup' ? 'setup' : 'login';
+        if (justLoggedInRef.current) {
+          justLoggedInRef.current = false;
+          toast.error('Session did not persist after sign-in. Check browser cookies or HTTPS settings.');
+        }
+        setAuthMode(nextMode);
+        const targetPath = nextMode === 'setup' ? '/setup' : '/login';
+        if (window.location.pathname !== targetPath) {
+          window.history.replaceState(null, '', targetPath);
+        }
         return;
       }
       if (!res.ok || !res.data) {
         if (attempt < 4) {
           await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
-          return loadBootstrap(attempt + 1);
+          if (gen !== bootGenRef.current) return;
+          return loadBootstrap(attempt + 1, gen);
         }
+        justLoggedInRef.current = false;
         setIsBootstrapping(false);
         setLoadError(res.error || 'Cannot reach the server');
         return;
       }
+      justLoggedInRef.current = false;
       setLoadError('');
       setAuthMode(null);
       applyBootstrapData(res.data);
@@ -1065,7 +1063,15 @@ export default function App() {
   const selectedApp = apps.find((a) => a.id === selectedAppId) || null;
 
   const isAdminUser = currentUser?.role === 'admin';
-  isAdminRef.current = isAdminUser;
+  useEffect(() => {
+    isAdminRef.current = isAdminUser;
+  }, [isAdminUser]);
+
+  const ownerCtxValue = useMemo(
+    () => ({ viewerId: currentUser ? Number(currentUser.id) : 0, isAdmin: isAdminUser }),
+    [currentUser, isAdminUser]
+  );
+
   const visibleNavGroups = React.useMemo(() => {
     return buildNavGroups({
       apps,
@@ -1094,12 +1100,16 @@ export default function App() {
           <AuthView
             mode={authMode}
             onSuccess={() => {
-              // no page reload: the sign-in screen stays until the data for the new session has
-              // arrived, then the dashboard replaces it (no spinner in between)
-              setSelectedAppId(null);
-              setActiveNav('overview');
-              window.history.replaceState(null, '', '/overview');
-              void loadBootstrap();
+              OverviewDashboard.preload?.();
+              justLoggedInRef.current = true;
+              runWithViewTransition(() => {
+                setSelectedAppId(null);
+                setActiveNav('overview');
+                setLoadError('');
+                setIsBootstrapping(true);
+                setAuthMode(null);
+                window.history.replaceState({ nav: 'overview', appId: null }, '', '/overview');
+              });
             }}
           />
         </Suspense>
@@ -1129,7 +1139,7 @@ export default function App() {
   }
 
   return (
-    <OwnerContext.Provider value={{ viewerId: currentUser ? Number(currentUser.id) : 0, isAdmin: currentUser?.role === 'admin' }}>
+    <OwnerContext.Provider value={ownerCtxValue}>
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex selection:bg-orange-500/30">
       <Toaster
         position="bottom-right"

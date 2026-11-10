@@ -53,21 +53,23 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   });
 
   const toggleHiddenFiles = () => {
-    setShowHiddenFiles((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('nd_show_hidden_files', String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+    const next = !showHiddenFiles;
+    setShowHiddenFiles(next);
+    try {
+      localStorage.setItem('nd_show_hidden_files', String(next));
+    } catch {
+      // ignore
+    }
   };
 
   // Sync real files from server disk into frontend state
-  const syncWorkspaceFilesFromDisk = async (invalidatedPaths?: string[]) => {
+  const syncWorkspaceFilesFromDisk = async (
+    invalidatedPaths?: string[],
+    isCancelled?: () => boolean
+  ) => {
     try {
       const listRes = await backendApi.filesList(app.id, '', true);
+      if (isCancelled?.()) return;
       const res = listRes.data;
       if (Array.isArray(res)) {
         const invalidatedSet = new Set(invalidatedPaths || []);
@@ -126,6 +128,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
             perms[p] = perm;
           }
         });
+        if (isCancelled?.()) return;
         setFilePermissions((prev) => ({ ...prev, ...perms }));
         setLiveFileList(liveNodes);
 
@@ -134,6 +137,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
           if (freshNode) {
             try {
               const fetchRes = await backendApi.fileBlob(app.id, editingFilePath);
+              if (isCancelled?.()) return;
               if (fetchRes.ok && typeof fetchRes.data?.text === 'string') {
                 freshNode.content = fetchRes.data.text;
                 setLiveFileList([...liveNodes]);
@@ -150,7 +154,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   };
 
   useEffect(() => {
-    void syncWorkspaceFilesFromDisk();
+    let cancelled = false;
+    void syncWorkspaceFilesFromDisk(undefined, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [app.id]);
 
   const defaultRichFiles: ComposeFileNode[] = useMemo(() => {
@@ -459,8 +467,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     const isAlreadyLoaded = loadedPathsRef.current.has(filePath) || Boolean(file.content);
     if (!isAlreadyLoaded) {
       setIsFileLoading(true);
-      await fetchFileContent(filePath);
-      setIsFileLoading(false);
+      try {
+        await fetchFileContent(filePath);
+      } finally {
+        setIsFileLoading(false);
+      }
     }
   };
 
@@ -979,8 +990,11 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
               setEditingFilePath(tab);
               if (!loadedPathsRef.current.has(tab)) {
                 setIsFileLoading(true);
-                await fetchFileContent(tab);
-                setIsFileLoading(false);
+                try {
+                  await fetchFileContent(tab);
+                } finally {
+                  setIsFileLoading(false);
+                }
               }
             }}
             onCloseTab={closeEditorTab}

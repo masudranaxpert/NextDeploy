@@ -799,47 +799,55 @@ export function useCopilot() {
         fullPrompt = `${attachedFiles.map((f) => `@${f}`).join(' ')}\n\n${fullPrompt}`;
       }
 
-      const MAX_ATTEMPTS = 3;
-      let res: ApiResult<Record<string, unknown>> | undefined;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        res = await requestJson('/api/v1/copilot/prompt', {
-          method: 'POST',
-          body: JSON.stringify({
-            message: fullPrompt,
-            images: images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
-          }),
-        });
-
-        if (res.ok) {
-          setNotice(null);
-          break;
-        }
-
-        // Auto-retry on transient network drops or proxy hiccups (502, 503, 504)
-        const isNetworkErr = res.error === 'Cannot reach the server' || [502, 503, 504].includes(res.status || 0);
-        if (attempt < MAX_ATTEMPTS && isNetworkErr) {
-          setNotice({
-            level: 'warning',
-            text: `Connecting to server (${attempt}/${MAX_ATTEMPTS})…`,
+      let keepStreaming = false;
+      try {
+        const MAX_ATTEMPTS = 3;
+        let res: ApiResult<Record<string, unknown>> | undefined;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          res = await requestJson('/api/v1/copilot/prompt', {
+            method: 'POST',
+            body: JSON.stringify({
+              message: fullPrompt,
+              images: images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+            }),
           });
-          await new Promise((r) => setTimeout(r, attempt * 600));
-        }
-      }
 
-      if (!res?.ok) {
-        setIsProcessing(false);
-        setNotice({ level: 'error', text: 'Server unreachable. Please try again.' });
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantId
-              ? {
-                  ...msg,
-                  content: `⚠️ **Unable to reach the server** (${res?.error || 'connection failed'}). Please try again.`,
-                  isStreaming: false,
-                }
-              : msg
-          )
-        );
+          if (res.ok) {
+            setNotice(null);
+            break;
+          }
+
+          // Auto-retry on transient network drops or proxy hiccups (502, 503, 504)
+          const isNetworkErr = res.error === 'Cannot reach the server' || [502, 503, 504].includes(res.status || 0);
+          if (attempt < MAX_ATTEMPTS && isNetworkErr) {
+            setNotice({
+              level: 'warning',
+              text: `Connecting to server (${attempt}/${MAX_ATTEMPTS})…`,
+            });
+            await new Promise((r) => setTimeout(r, attempt * 600));
+          }
+        }
+
+        if (res?.ok) {
+          keepStreaming = true;
+        } else {
+          setNotice({ level: 'error', text: 'Server unreachable. Please try again.' });
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantId
+                ? {
+                    ...msg,
+                    content: `⚠️ **Unable to reach the server** (${res?.error || 'connection failed'}). Please try again.`,
+                    isStreaming: false,
+                  }
+                : msg
+            )
+          );
+        }
+      } finally {
+        if (!keepStreaming) {
+          setIsProcessing(false);
+        }
       }
     },
     [isProcessing]

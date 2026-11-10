@@ -128,6 +128,11 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
   const [error, setError] = useState<string | null>(null);
 
   const isSetup = mode === 'setup';
+
+  // Warm the dashboard chunk early so post-login navigation renders immediately.
+  useEffect(() => {
+    void import('../overview/OverviewDashboard');
+  }, []);
   const score = passwordScore(password);
   const strength = score ? STRENGTH[score - 1] : null;
 

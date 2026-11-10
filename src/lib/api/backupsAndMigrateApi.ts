@@ -1,4 +1,4 @@
-import { requestJson, toFormBody } from './http';
+import { requestJson, resultFromResponse, toFormBody } from './http';
 
 export const backupsAndMigrateApi = {
   // Backups & Rclone Destinations (Google Drive OAuth 2.0 + Cloudflare R2)
@@ -354,11 +354,7 @@ export const backupsAndMigrateApi = {
         },
         body: fd,
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
-      if (!res.ok) {
-        return { ok: false, error: data.error || `HTTP ${res.status}` };
-      }
-      return { ok: true, data };
+      return resultFromResponse<{ ok?: boolean; error?: string; message?: string }>(res);
     } catch {
       return { ok: false, error: 'Cannot reach the server' };
     }

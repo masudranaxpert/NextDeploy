@@ -161,9 +161,10 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   const [isBuildLogExpanded, setIsBuildLogExpanded] = useState<boolean | null>(null);
 
   // Refresh current app state from backend bootstrap
-  const refreshAppFromBackend = async () => {
+  const refreshAppFromBackend = async (shouldApply?: () => boolean) => {
     try {
       const bootRes = await backendApi.bootstrap();
+      if (shouldApply && !shouldApply()) return;
       if (!bootRes.ok || !bootRes.data) return;
       const updates = mapBootstrapApp(app, bootRes.data);
       if (updates) {
@@ -197,7 +198,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
         });
         if (wasRunning && !running) {
           wasRunning = false;
-          await refreshAppFromBackend();
+          await refreshAppFromBackend(() => active);
         } else if (running) {
           wasRunning = true;
         }

@@ -78,15 +78,18 @@ export const ProjectLimitsDialog: React.FC<{
 
   const save = useCallback(async () => {
     setSaving(true);
-    const r = await backendApi.appLimitsSet(app.id, memNum, cpuNum);
-    setSaving(false);
-    if (!r.ok) {
-      toast.error(r.error || 'Could not save the limits');
-      return;
+    try {
+      const r = await backendApi.appLimitsSet(app.id, memNum, cpuNum);
+      if (!r.ok) {
+        toast.error(r.error || 'Could not save the limits');
+        return;
+      }
+      toast.success('Limits saved');
+      setSaved(true);
+      onSaved();
+    } finally {
+      setSaving(false);
     }
-    toast.success('Limits saved');
-    setSaved(true);
-    onSaved();
   }, [app.id, memNum, cpuNum, onSaved]);
 
   const redeploy = async () => {

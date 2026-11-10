@@ -139,25 +139,25 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
 
   const loadDestinations = async (silent = false) => {
     if (!silent) setIsRefreshing(true);
-    const res = await backendApi.backupDestinationsList();
-    if (!silent) setIsRefreshing(false);
-    const list = res.data?.destinations;
-    if (!Array.isArray(list)) return;
-    if (list.length === 0) {
-      setDestinations([]);
-      return;
-    }
+    try {
+      const res = await backendApi.backupDestinationsList();
+      const list = res.data?.destinations;
+      if (!Array.isArray(list)) return;
+      if (list.length === 0) {
+        setDestinations([]);
+        return;
+      }
 
-    setDestinations(
-      list.map((d) => {
-        const cfg = parseDestinationConfig(d.Config || d.config);
-        const providerRaw = (d.Provider || d.provider || 'r2').toLowerCase();
-        const isGDrive = providerRaw === 'gdrive';
-        const usedBytes = Number(
-          cfg.storage_used ?? d.storage_used ?? d.usage?.Used ?? 0
-        );
-        const limitBytes = Number(
-          cfg.storage_limit ?? d.storage_limit ?? d.usage?.Total ?? 0
+      setDestinations(
+        list.map((d) => {
+          const cfg = parseDestinationConfig(d.Config || d.config);
+          const providerRaw = (d.Provider || d.provider || 'r2').toLowerCase();
+          const isGDrive = providerRaw === 'gdrive';
+          const usedBytes = Number(
+            cfg.storage_used ?? d.storage_used ?? d.usage?.Used ?? 0
+          );
+          const limitBytes = Number(
+            cfg.storage_limit ?? d.storage_limit ?? d.usage?.Total ?? 0
         );
         const accountId = cfg.account_id || d.account_id || '';
         const bucketName = cfg.bucket || d.bucket || '';
@@ -195,6 +195,9 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
         };
       })
     );
+    } finally {
+      if (!silent) setIsRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -271,95 +274,94 @@ export const BackupsView: React.FC<BackupsViewProps> = ({
   const handleConnectDestination = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    try {
+      if (destProvider === 'gdrive') {
+        const cleanName = destName.trim() || 'Google Drive';
 
-    if (destProvider === 'gdrive') {
-      const cleanName = destName.trim() || 'Google Drive';
+        if (gdriveMode === 'quick') {
+          const codeToUse = extractGoogleCode(gdriveInput);
+          if (!codeToUse) {
+            toast.error('Please authorize and paste the redirected URL or code.');
+            return;
+          }
 
-      if (gdriveMode === 'quick') {
-        const codeToUse = extractGoogleCode(gdriveInput);
-        if (!codeToUse) {
-          toast.error('Please authorize and paste the redirected URL or code.');
-          setIsSubmitting(false);
+          const res = await backendApi.backupGDriveExchangeCode({
+            code: codeToUse,
+            name: cleanName,
+            folder_id: gdriveFolder.trim() || 'nextdeploy',
+            id: editDestId || undefined,
+          });
+
+          if (res.ok) {
+            toast.success(res.data?.message || `Connected Google Drive "${cleanName}"`);
+            setDestModalOpen(false);
+            await loadDestinations(false);
+          } else {
+            toast.error(res.error || 'Google Drive authorization failed. Please check the code.');
+          }
           return;
         }
 
-        const res = await backendApi.backupGDriveExchangeCode({
-          code: codeToUse,
+        // Custom Google Cloud OAuth flow
+        const authRes = await backendApi.backupGDriveAuthUrl(
+          gdriveClientId.trim(),
+          gdriveClientSecret.trim(),
+          cleanName
+        );
+        if (authRes.redirect_url) {
+          setGdriveRedirectUrl(authRes.redirect_url);
+        }
+        if (authRes.ok && authRes.auth_url) {
+          window.location.href = authRes.auth_url;
+          return;
+        }
+
+        const res = await backendApi.backupDestinationCreate({
+          provider: 'gdrive',
           name: cleanName,
-          folder_id: gdriveFolder.trim() || 'nextdeploy',
           id: editDestId || undefined,
+          client_id: gdriveClientId.trim(),
+          client_secret: gdriveClientSecret.trim(),
+          auth_mode: 'custom_oauth',
         });
-        setIsSubmitting(false);
+
+        if (res.ok && res.data?.auth_url) {
+          window.location.href = res.data.auth_url;
+          return;
+        }
 
         if (res.ok) {
-          toast.success(res.data?.message || `Connected Google Drive "${cleanName}"`);
+          toast.success(`Connected Google Drive "${cleanName}"`);
           setDestModalOpen(false);
           await loadDestinations(false);
         } else {
-          toast.error(res.error || 'Google Drive authorization failed. Please check the code.');
+          toast.error(res.error || 'Failed to connect Google Drive destination');
         }
         return;
       }
 
-      // Custom Google Cloud OAuth flow
-      const authRes = await backendApi.backupGDriveAuthUrl(
-        gdriveClientId.trim(),
-        gdriveClientSecret.trim(),
-        cleanName
-      );
-      if (authRes.redirect_url) {
-        setGdriveRedirectUrl(authRes.redirect_url);
-      }
-      if (authRes.ok && authRes.auth_url) {
-        window.location.href = authRes.auth_url;
-        return;
-      }
-
+      const cleanR2Name = destName.trim() || `Cloudflare R2 (${r2Bucket.trim()})`;
       const res = await backendApi.backupDestinationCreate({
-        provider: 'gdrive',
-        name: cleanName,
+        provider: 'r2',
+        name: cleanR2Name,
         id: editDestId || undefined,
-        client_id: gdriveClientId.trim(),
-        client_secret: gdriveClientSecret.trim(),
-        auth_mode: 'custom_oauth',
+        account_id: r2AccountId.trim(),
+        access_key_id: r2AccessKeyId.trim(),
+        secret_access_key: r2SecretAccessKey.trim(),
+        bucket: r2Bucket.trim(),
       });
-      setIsSubmitting(false);
 
-      if (res.ok && res.data?.auth_url) {
-        window.location.href = res.data.auth_url;
+      if (!res.ok && !res.offlineFallback) {
+        toast.error(res.error || 'Failed to connect Cloudflare R2 destination');
         return;
       }
 
-      if (res.ok) {
-        toast.success(`Connected Google Drive "${cleanName}"`);
-        setDestModalOpen(false);
-        await loadDestinations(false);
-      } else {
-        toast.error(res.error || 'Failed to connect Google Drive destination');
-      }
-      return;
+      toast.success(`Connected Cloudflare R2 bucket "${r2Bucket.trim()}"`);
+      setDestModalOpen(false);
+      await loadDestinations(false);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const cleanR2Name = destName.trim() || `Cloudflare R2 (${r2Bucket.trim()})`;
-    const res = await backendApi.backupDestinationCreate({
-      provider: 'r2',
-      name: cleanR2Name,
-      id: editDestId || undefined,
-      account_id: r2AccountId.trim(),
-      access_key_id: r2AccessKeyId.trim(),
-      secret_access_key: r2SecretAccessKey.trim(),
-      bucket: r2Bucket.trim(),
-    });
-    setIsSubmitting(false);
-
-    if (!res.ok && !res.offlineFallback) {
-      toast.error(res.error || 'Failed to connect Cloudflare R2 destination');
-      return;
-    }
-
-    toast.success(`Connected Cloudflare R2 bucket "${r2Bucket.trim()}"`);
-    setDestModalOpen(false);
-    await loadDestinations(false);
   };
 
   const handleDeleteDestination = async (dest: BackupDestination) => {

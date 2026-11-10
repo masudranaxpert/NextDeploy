@@ -27,8 +27,9 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const load = async (isCancelled?: () => boolean) => {
     const res = await backendApi.phpSecurity(app.id);
+    if (isCancelled?.()) return;
     if (!res.ok || !res.data) {
       setError(res.error || 'Could not load the settings');
       return;
@@ -41,31 +42,38 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
   };
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [app.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (error) return <ErrorBlock message={error} onRetry={load} />;
+  if (error) return <ErrorBlock message={error} onRetry={() => void load()} />;
   if (!form) return <LoadingBlock />;
 
   const save = async (extra: { remove_password?: boolean } = {}) => {
     setSaving(true);
-    const res = await backendApi.phpSecuritySave(app.id, {
-      ...form,
-      blocked_ips: fromLines(blocked),
-      allow_only: fromLines(allow),
-      basic_auth_password: password || undefined,
-      ...extra,
-    });
-    setSaving(false);
-    if (!res.ok || !res.data) {
-      toast.error(res.error || 'Could not save');
-      return;
+    try {
+      const res = await backendApi.phpSecuritySave(app.id, {
+        ...form,
+        blocked_ips: fromLines(blocked),
+        allow_only: fromLines(allow),
+        basic_auth_password: password || undefined,
+        ...extra,
+      });
+      if (!res.ok || !res.data) {
+        toast.error(res.error || 'Could not save');
+        return;
+      }
+      toast.success('Protection updated');
+      setPassword('');
+      setForm(res.data.security);
+      setBlocked(toLines(res.data.security.blocked_ips));
+      setAllow(toLines(res.data.security.allow_only));
+    } finally {
+      setSaving(false);
     }
-    toast.success('Protection updated');
-    setPassword('');
-    setForm(res.data.security);
-    setBlocked(toLines(res.data.security.blocked_ips));
-    setAllow(toLines(res.data.security.allow_only));
   };
 
   const set = <K extends keyof PhpSecurity>(k: K, v: PhpSecurity[K]) => setForm({ ...form, [k]: v });

@@ -33,8 +33,13 @@ function Popover({
     [isControlled, open, onOpenChange]
   )
 
+  const contextValue = React.useMemo(
+    () => ({ open, setOpen, triggerRef }),
+    [open]
+  )
+
   return (
-    <PopoverContext.Provider value={{ open, setOpen, triggerRef }}>
+    <PopoverContext.Provider value={contextValue}>
       {children}
     </PopoverContext.Provider>
   )

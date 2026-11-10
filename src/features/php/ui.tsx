@@ -130,7 +130,8 @@ export const Pill: React.FC<{ tone?: 'green' | 'amber' | 'red' | 'zinc' | 'orang
 
 export const CopyField: React.FC<{ label?: string; value: string; secret?: boolean }> = ({ label, value, secret }) => {
   const [done, setDone] = useState(false);
-  const [shown, setShown] = useState(!secret);
+  const [revealed, setRevealed] = useState(false);
+  const shown = !secret || revealed;
   return (
     <div className="space-y-1">
       {label && <div className="text-[11px] font-medium text-zinc-400">{label}</div>}
@@ -139,7 +140,7 @@ export const CopyField: React.FC<{ label?: string; value: string; secret?: boole
           {shown ? value : '•'.repeat(Math.min(value.length, 24))}
         </code>
         {secret && (
-          <GhostButton onClick={() => setShown((s) => !s)} className="!px-2">
+          <GhostButton onClick={() => setRevealed((s) => !s)} className="!px-2">
             {shown ? 'Hide' : 'Show'}
           </GhostButton>
         )}

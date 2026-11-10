@@ -74,12 +74,12 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setSelectedCategory('all');
-      setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    if (!open) return;
+    setQuery('');
+    setSelectedCategory('all');
+    setSelectedIndex(0);
+    const timerId = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timerId);
   }, [open]);
 
   // Build searchable catalog

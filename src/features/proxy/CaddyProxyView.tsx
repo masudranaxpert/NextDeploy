@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   RotateCw,
   HardDrive,
@@ -146,21 +146,35 @@ export const CaddyProxyView: React.FC<{
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const pollTimerRef = useRef<number | null>(null);
 
   const loadCaddyLogs = async () => {
     setIsLoadingLogs(true);
-    const res = await backendApi.caddyLogs(300);
-    setIsLoadingLogs(false);
-    if (res.ok && Array.isArray(res.lines) && res.lines.length > 0) {
-      setLogLines(res.lines);
+    try {
+      const res = await backendApi.caddyLogs(300);
+      if (res.ok && Array.isArray(res.lines) && res.lines.length > 0) {
+        setLogLines(res.lines);
+      }
+    } finally {
+      setIsLoadingLogs(false);
     }
   };
 
   useEffect(() => {
     void loadCaddyLogs();
+    return () => {
+      if (pollTimerRef.current !== null) {
+        window.clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
   }, []);
 
   const pollApplyStatus = () => {
+    if (pollTimerRef.current !== null) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     setApplyBanner({
       active: true,
       done: false,
@@ -168,9 +182,10 @@ export const CaddyProxyView: React.FC<{
       status: 'Applying Root Stack Compose & reloading Caddy proxy...',
     });
     let attempts = 0;
-    const timer = setInterval(async () => {
+    const timer = window.setInterval(async () => {
       attempts += 1;
       const res = await backendApi.panelApplyStatus();
+      if (pollTimerRef.current !== timer) return;
       if (res.ok && res.data) {
         const done = Boolean(res.data.done || res.data.running === false);
         const succeeded = res.data.succeeded !== false;
@@ -183,7 +198,8 @@ export const CaddyProxyView: React.FC<{
             (done ? 'Root stack compose applied.' : 'Updating root stack...'),
         });
         if (done || attempts >= 8) {
-          clearInterval(timer);
+          window.clearInterval(timer);
+          pollTimerRef.current = null;
         }
       } else if (attempts >= 2) {
         setApplyBanner({
@@ -192,9 +208,11 @@ export const CaddyProxyView: React.FC<{
           succeeded: true,
           status: 'Applied successfully.',
         });
-        clearInterval(timer);
+        window.clearInterval(timer);
+        pollTimerRef.current = null;
       }
     }, 1000);
+    pollTimerRef.current = timer;
   };
 
   const handleSavePanelDomain = async (e: React.FormEvent) => {

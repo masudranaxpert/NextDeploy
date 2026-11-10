@@ -87,11 +87,13 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
   }, [bundles, selectedBundleForCmd]);
 
   useEffect(() => {
-    let t: any;
+    let cancelled = false;
+    let t: ReturnType<typeof setInterval> | undefined;
     if (importModalOpen || importBusy) {
       const check = async () => {
         try {
           const res = await backendApi.migrateImportStatus();
+          if (cancelled) return;
           if (res.ok && res.data) {
             setImportStatus(res.data);
             if (!res.data.running && importBusy) {
@@ -110,7 +112,10 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
       void check();
       t = setInterval(check, 2500);
     }
-    return () => clearInterval(t);
+    return () => {
+      cancelled = true;
+      if (t !== undefined) clearInterval(t);
+    };
   }, [importModalOpen, importBusy]);
 
   const handleStartImport = async () => {
@@ -120,26 +125,36 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
         return;
       }
       setImportBusy(true);
-      const res = await backendApi.migrateImportUpload(importFile, importResetPanel);
-      if (!res.ok) {
-        setImportBusy(false);
-        toast.error(res.error || 'Could not start import');
-        return;
+      let started = false;
+      try {
+        const res = await backendApi.migrateImportUpload(importFile, importResetPanel);
+        if (!res.ok) {
+          toast.error(res.error || 'Could not start import');
+          return;
+        }
+        started = true;
+        toast.success('Bundle uploaded. Import job is running...');
+      } finally {
+        if (!started) setImportBusy(false);
       }
-      toast.success('Bundle uploaded. Import job is running...');
     } else {
       if (!importRemoteUrl.trim()) {
         toast.error('Enter a valid remote bundle download URL');
         return;
       }
       setImportBusy(true);
-      const res = await backendApi.migrateImportRemote(importRemoteUrl.trim(), importResetPanel);
-      if (!res.ok) {
-        setImportBusy(false);
-        toast.error(res.error || 'Could not start import');
-        return;
+      let started = false;
+      try {
+        const res = await backendApi.migrateImportRemote(importRemoteUrl.trim(), importResetPanel);
+        if (!res.ok) {
+          toast.error(res.error || 'Could not start import');
+          return;
+        }
+        started = true;
+        toast.success('Downloading remote bundle and importing...');
+      } finally {
+        if (!started) setImportBusy(false);
       }
-      toast.success('Downloading remote bundle and importing...');
     }
   };
 

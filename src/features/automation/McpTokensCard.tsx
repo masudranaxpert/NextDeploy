@@ -60,14 +60,17 @@ export const McpTokensCard: React.FC<{
 
   const create = async () => {
     setBusy(true);
-    const res = await backendApi.createApiToken({ name: name.trim() || 'MCP token', kind: 'mcp', ...scopes });
-    setBusy(false);
-    if (!res.ok || !res.data?.token) {
-      toast.error(res.error || 'Could not create the token');
-      return;
+    try {
+      const res = await backendApi.createApiToken({ name: name.trim() || 'MCP token', kind: 'mcp', ...scopes });
+      if (!res.ok || !res.data?.token) {
+        toast.error(res.error || 'Could not create the token');
+        return;
+      }
+      setCreated(res.data.token);
+      await onChanged();
+    } finally {
+      setBusy(false);
     }
-    setCreated(res.data.token);
-    await onChanged();
   };
 
   const toggle = async (t: McpTokenRow, key: ScopeKey) => {

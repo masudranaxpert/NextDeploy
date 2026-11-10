@@ -140,10 +140,11 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   }, [hasMultiServices, activeServiceObj, appSlug, promptPrefix]);
 
   const effectivePromptRef = useRef(effectivePrompt);
-  effectivePromptRef.current = effectivePrompt;
-
   const activeServiceRef = useRef(activeServiceObj);
-  activeServiceRef.current = activeServiceObj;
+  useEffect(() => {
+    effectivePromptRef.current = effectivePrompt;
+    activeServiceRef.current = activeServiceObj;
+  }, [effectivePrompt, activeServiceObj]);
 
   // Build candidate commands for inline ghost completion
   const candidateCommands = useMemo<string[]>(() => {
@@ -159,7 +160,9 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   }, [hasMultiServices, services]);
 
   const candidateCommandsRef = useRef<string[]>(candidateCommands);
-  candidateCommandsRef.current = candidateCommands;
+  useEffect(() => {
+    candidateCommandsRef.current = candidateCommands;
+  }, [candidateCommands]);
 
   const formatPromptAnsi = (p: string): string => {
     const [userHost, pathPart] = p.split(':');
@@ -320,7 +323,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
       // ignore initial fit error
     }
 
-    setTimeout(() => {
+    const initialRefitTimer = window.setTimeout(() => {
       refit(fitAddon, term);
     }, 30);
 
@@ -482,6 +485,7 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
     }
 
     return () => {
+      window.clearTimeout(initialRefitTimer);
       window.removeEventListener('resize', handleResize);
       resizeObserver?.disconnect();
       if (ws) {
@@ -497,9 +501,10 @@ export const XTermConsole: React.FC<XTermConsoleProps> = ({
   }, [activeServiceObj?.service, activeServiceObj?.name, appSlug]);
 
   useEffect(() => {
-    setTimeout(() => {
+    const expandTimer = window.setTimeout(() => {
       refit(fitAddonRef.current, xtermRef.current);
     }, 50);
+    return () => window.clearTimeout(expandTimer);
   }, [expanded]);
 
   const handleSelectService = (serviceName: string) => {

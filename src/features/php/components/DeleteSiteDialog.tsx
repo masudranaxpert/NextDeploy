@@ -23,18 +23,21 @@ export const DeleteSiteDialog: React.FC<{
   const remove = async () => {
     if (!site) return;
     setBusy(true);
-    const res = await backendApi.deleteApp(site.id);
-    setBusy(false);
-    if (!res.ok) {
-      toast.error(res.error || `Could not delete the ${kind}`);
-      return;
+    try {
+      const res = await backendApi.deleteApp(site.id);
+      if (!res.ok) {
+        toast.error(res.error || `Could not delete the ${kind}`);
+        return;
+      }
+      toast.success(`${site.name} was deleted`);
+      onClose();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nd:invalidate'));
+      }
+      await onDeleted(site.id);
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${site.name} was deleted`);
-    onClose();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('nd:invalidate'));
-    }
-    await onDeleted(site.id);
   };
 
   return (
