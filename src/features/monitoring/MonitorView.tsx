@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   X,
-  ArrowDownWideNarrow,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
@@ -86,7 +85,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
 
   const pinnedSet = useMemo(() => new Set(pinnedApps), [pinnedApps]);
   const memScaleMB = hostMemMB && hostMemMB > 0 ? hostMemMB : 4096;
-  const cpuScalePct = Math.max((hostCPUs || 1) * 100, 100);
+  const cpuScalePct = 100;
 
   const filteredMonitorApps = useMemo(
     () =>
@@ -135,30 +134,6 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
       return a.name.localeCompare(b.name);
     });
   }, [filteredMonitorApps, pinnedSet, sortBy, memScaleMB, cpuScalePct]);
-
-  const totals = useMemo(() => {
-    let running = 0;
-    let stopped = 0;
-    let cpuSum = 0;
-    let memSum = 0;
-    let diskSum = 0;
-    for (const app of filteredMonitorApps) {
-      if (isAppStopped(app)) stopped++;
-      else {
-        running++;
-        cpuSum += app.cpuPct || 0;
-        memSum += app.memMB || 0;
-      }
-      diskSum += app.diskMB || 0;
-    }
-    return {
-      running,
-      stopped,
-      cpuSum: Math.round(cpuSum * 100) / 100,
-      memSum,
-      diskSum,
-    };
-  }, [filteredMonitorApps]);
 
   const latest = telemetry[telemetry.length - 1] || {
     cpu: 23,
@@ -388,90 +363,70 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
       )}
 
       <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
-        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/[0.07] bg-[#09090b]/40 px-4 py-2.5">
-          <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] bg-[#09090b]/40 px-4 py-2.5">
+          <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-zinc-200">Project Resource Usage</span>
-            <span className="font-mono text-[11px] text-zinc-500">
+            <span className="font-mono text-[11px] tabular-nums text-zinc-500">
               ({sortedApps.length} of {apps.length})
             </span>
-            <div className="hidden sm:flex items-center gap-1.5 font-mono text-[11px]">
-              <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300 tabular-nums">
-                {totals.running} active
-              </span>
-              {totals.stopped > 0 && (
-                <span className="rounded border border-rose-500/20 bg-rose-500/10 px-1.5 py-0.5 text-rose-300 tabular-nums">
-                  {totals.stopped} stopped
-                </span>
-              )}
-              <span className="rounded border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-zinc-300 tabular-nums">
-                {totals.cpuSum}% CPU · {totals.memSum >= 1024 ? `${(totals.memSum / 1024).toFixed(2)} GB` : `${totals.memSum} MB`} RAM · {formatDiskMB(totals.diskSum)}
-              </span>
-            </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-              <ArrowDownWideNarrow className="ml-1.5 mr-1 h-3 w-3 text-zinc-500" />
-              {(
-                [
-                  { id: 'usage', label: 'Top Load' },
-                  { id: 'cpu', label: 'CPU' },
-                  { id: 'memory', label: 'RAM' },
-                  { id: 'disk', label: 'Disk' },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setSortBy(opt.id)}
-                  className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
-                    sortBy === opt.id
-                      ? 'bg-orange-500/15 text-orange-300'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
-              {(['all', 'running', 'building', 'stopped'] as const).map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setMonitorStatusFilter(st)}
-                  className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize transition-colors cursor-pointer ${
-                    monitorStatusFilter === st
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-[#09090b] p-0.5">
+            {(['all', 'running', 'building', 'stopped'] as const).map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setMonitorStatusFilter(st)}
+                className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize transition-colors duration-150 cursor-pointer ${
+                  monitorStatusFilter === st
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+          <table className="w-full min-w-[640px] table-fixed text-left text-xs">
             <thead>
               <tr className="border-b border-white/[0.07] bg-[#09090b]/60 text-zinc-400">
-                <th className="w-[34%] px-4 py-2.5 font-medium">Project</th>
-                <th className="w-[16%] px-4 py-2.5 font-medium">Status</th>
-                <th className="w-[17%] px-4 py-2.5 font-medium text-right">
-                  <button type="button" onClick={() => setSortBy('cpu')} className="hover:text-zinc-200 cursor-pointer">
+                <th className="w-[34%] px-4 py-2.5 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setSortBy('usage')}
+                    title="Sort active projects by highest combined load"
+                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'usage' ? 'text-zinc-200' : 'hover:text-zinc-200'}`}
+                  >
+                    Project
+                  </button>
+                </th>
+                <th className="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">
+                  <button
+                    type="button"
+                    onClick={() => setSortBy((s) => (s === 'cpu' ? 'usage' : 'cpu'))}
+                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'cpu' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                  >
                     CPU {sortBy === 'cpu' ? '↓' : ''}
                   </button>
                 </th>
-                <th className="w-[18%] px-4 py-2.5 font-medium text-right">
-                  <button type="button" onClick={() => setSortBy('memory')} className="hover:text-zinc-200 cursor-pointer">
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">
+                  <button
+                    type="button"
+                    onClick={() => setSortBy((s) => (s === 'memory' ? 'usage' : 'memory'))}
+                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'memory' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                  >
                     Memory {sortBy === 'memory' ? '↓' : ''}
                   </button>
                 </th>
-                <th className="w-[15%] px-4 py-2.5 font-medium text-right">
-                  <button type="button" onClick={() => setSortBy('disk')} className="hover:text-zinc-200 cursor-pointer">
+                <th className="w-[16%] px-4 py-2.5 font-medium text-right">
+                  <button
+                    type="button"
+                    onClick={() => setSortBy((s) => (s === 'disk' ? 'usage' : 'disk'))}
+                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'disk' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                  >
                     Disk {sortBy === 'disk' ? '↓' : ''}
                   </button>
                 </th>
@@ -488,17 +443,11 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                 sortedApps.map((app) => {
                   const isPinned = pinnedSet.has(app.slug);
                   const stopped = isAppStopped(app);
-                  const cpuFill = Math.min(100, Math.max(0, app.cpuPct || 0));
-                  const memFill = Math.min(100, Math.max(0, ((app.memMB || 0) / memScaleMB) * 100));
-                  const cpuTone =
-                    cpuFill >= 75 ? 'bg-rose-400' : cpuFill >= 35 ? 'bg-amber-400' : 'bg-emerald-400';
-                  const memTone =
-                    memFill >= 50 ? 'bg-rose-400' : memFill >= 20 ? 'bg-amber-400' : 'bg-sky-400';
                   return (
                     <tr
                       key={app.id}
                       onClick={() => onSelectApp?.(app.id)}
-                      className={`transition-colors hover:bg-white/[0.03] ${
+                      className={`transition-colors duration-150 hover:bg-white/[0.03] ${
                         onSelectApp ? 'cursor-pointer' : ''
                       } ${stopped ? 'opacity-60' : ''}`}
                     >
@@ -511,7 +460,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                               togglePin(app.slug);
                             }}
                             aria-label={isPinned ? `Unpin ${app.name}` : `Pin ${app.name}`}
-                            className={`cursor-pointer ${
+                            className={`transition-colors duration-150 cursor-pointer ${
                               isPinned ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-300'
                             }`}
                           >
@@ -539,30 +488,10 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                         <StatusBadge status={app.status} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                        <div className="inline-flex flex-col items-end gap-1">
-                          <span>{app.cpuPct}%</span>
-                          {!stopped && (
-                            <span className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.06]">
-                              <span
-                                className={`block h-full rounded-full transition-all ${cpuTone}`}
-                                style={{ width: `${cpuFill > 0 ? Math.max(cpuFill, 4) : 0}%` }}
-                              />
-                            </span>
-                          )}
-                        </div>
+                        {app.cpuPct}%
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                        <div className="inline-flex flex-col items-end gap-1">
-                          <span>{app.memMB} MB</span>
-                          {!stopped && (
-                            <span className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.06]">
-                              <span
-                                className={`block h-full rounded-full transition-all ${memTone}`}
-                                style={{ width: `${app.memMB > 0 ? Math.max(memFill, 4) : 0}%` }}
-                              />
-                            </span>
-                          )}
-                        </div>
+                        {app.memMB} MB
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-400">
                         {formatDiskMB(app.diskMB)}

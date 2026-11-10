@@ -544,6 +544,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			"memory_used_mb":     quotaMemUsed,
 			"max_cpus":           u.MaxCPUs,
 			"cpu_used_cores":     quotaCPUUsed,
+			"host_cpus":          sys.NumCPU,
 			"max_storage_mb":     u.MaxStorageMB,
 			"storage_used_mb":    usedStorage / (1024 * 1024),
 			"storage_used_bytes": usedStorage,

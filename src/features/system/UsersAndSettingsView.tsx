@@ -64,10 +64,14 @@ const UsageFigure: React.FC<{ used: number; max: number; fmt: (n: number) => str
   );
 };
 
-/** CPU as a percentage of the user's limit (100% = all the cores they are allowed). */
-const CpuFigure: React.FC<{ used: number; cores: number }> = ({ used, cores }) => {
-  if (!(cores > 0)) return <span className="text-zinc-200">{used.toFixed(2)} cores <span className="text-zinc-500">/ unlimited</span></span>;
-  const p = (used / cores) * 100;
+/** CPU on a strict 0%-100% scale of the user's core limit (or host cores when unlimited). */
+const CpuFigure: React.FC<{ used: number; cores: number; hostCPUs?: number }> = ({ used, cores, hostCPUs }) => {
+  if (!(cores > 0)) {
+    const denom = hostCPUs && hostCPUs > 0 ? hostCPUs : 1;
+    const p = Math.min(100, (used / denom) * 100);
+    return <span className="text-zinc-200">{p < 10 ? p.toFixed(2) : p.toFixed(1)}% <span className="text-zinc-500">/ unlimited</span></span>;
+  }
+  const p = Math.min(100, (used / cores) * 100);
   const tone = p >= 90 ? 'text-red-400' : p >= 70 ? 'text-amber-400' : 'text-zinc-200';
   return (
     <span className={tone}>
@@ -772,7 +776,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
                             <div className="text-zinc-500">
                               Using{' '}
                               <UsageFigure used={u.memUsedMB ?? 0} max={ramMb} fmt={fmtMb} /> RAM ·{' '}
-                              <CpuFigure used={u.cpuUsedCores ?? 0} cores={u.cpuQuotaCores} /> CPU
+                              <CpuFigure used={u.cpuUsedCores ?? 0} cores={u.cpuQuotaCores} hostCPUs={host?.cpus} /> CPU
                             </div>
                             <div className="text-zinc-500" title={u.storageBreakdown ? `files ${fmtBytes(u.storageBreakdown.files)} · databases ${fmtBytes(u.storageBreakdown.databases)} · volumes ${fmtBytes(u.storageBreakdown.volumes)}` : undefined}>
                               Disk <UsageFigure used={(u.storageUsedBytes ?? 0) / (1024 * 1024)} max={diskMb} fmt={fmtMb} />

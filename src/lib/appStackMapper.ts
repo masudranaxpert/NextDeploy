@@ -1,4 +1,5 @@
 import { AppStack, MigrationExportBundle } from '../types/nextdeploy';
+import { normalizeCpuPct } from './resourceUtils';
 
 export function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -66,7 +67,8 @@ export function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
 export function mapRawAppToStack(
   a: any,
   liveContainers: any[] = [],
-  liveImages: any[] = []
+  liveImages: any[] = [],
+  cpuCapacityCores = 1
 ): AppStack {
   const idNorm = (a.id || '').toLowerCase();
   const idUnderscore = idNorm.replace(/-/g, '_');
@@ -175,7 +177,7 @@ export function mapRawAppToStack(
     ownerId: a.owner_id,
     ownerRole: a.owner_role,
     updatedAt: a.updated_at || 'Recently',
-    cpuPct: Math.round((a.usage?.cpu_percent || 0) * 100) / 100,
+    cpuPct: normalizeCpuPct(a.usage?.cpu_percent || 0, cpuCapacityCores),
     memMB: a.usage?.memory_mb || 0,
     diskMB: a.disk_mb || 0,
     reqPerMin: 0,

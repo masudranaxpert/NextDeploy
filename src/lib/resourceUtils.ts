@@ -36,6 +36,13 @@ export function formatDiskMB(diskMB: number): string {
   return `${(diskMB / 1024).toFixed(2)} GB`;
 }
 
+export function normalizeCpuPct(rawSingleCorePct: number, capacityCores = 1): number {
+  const raw = Number(rawSingleCorePct) || 0;
+  if (raw <= 0) return 0;
+  const div = capacityCores > 0 ? capacityCores : 1;
+  return Math.round(Math.min(100, raw / div) * 100) / 100;
+}
+
 function decimalsForStep(step: number): number {
   const s = String(step);
   const dot = s.indexOf('.');

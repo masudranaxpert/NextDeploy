@@ -2,6 +2,7 @@ import { OwnerContext } from './components/ui/OwnerBadge';
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { lazyRetry } from './lib/lazyRetry';
 import { runWithViewTransition } from './lib/viewTransition';
+import { normalizeCpuPct } from './lib/resourceUtils';
 import {
   parseInitialRoute,
   buildRoutePath,
@@ -316,8 +317,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const loadLiveApps = (rawApps: any[], liveContainers: any[] = [], liveImages: any[] = []) => {
-    setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages)));
+  const cpuCapacityRef = useRef<number>(1);
+  const loadLiveApps = (
+    rawApps: any[],
+    liveContainers: any[] = [],
+    liveImages: any[] = [],
+    cpuCapacityCores = cpuCapacityRef.current
+  ) => {
+    setApps(rawApps.map((a) => mapRawAppToStack(a, liveContainers, liveImages, cpuCapacityCores)));
   };
 
   const applyLiveMetrics = React.useCallback(
@@ -330,23 +337,31 @@ export default function App() {
       if (!data || typeof data !== 'object') return;
       if (data.sys) {
         setSys(data.sys);
+        if (isAdminRef.current && Number(data.sys.NumCPU) > 0) {
+          cpuCapacityRef.current = Number(data.sys.NumCPU);
+        }
       }
       if (Array.isArray(data.history) && data.history.length > 0) {
         setTelemetry(data.history);
       }
+      const capCores = cpuCapacityRef.current || 1;
       if (Array.isArray(data.containers) && data.containers.length > 0) {
         const usageMap = new Map<string, { cpu_percent: number; memory_mb: number }>();
         data.containers.forEach((c) => {
           if (c?.id) {
-            usageMap.set(c.id, { cpu_percent: c.cpu_percent || 0, memory_mb: c.memory_mb || 0 });
+            usageMap.set(c.id, {
+              cpu_percent: normalizeCpuPct(c.cpu_percent || 0, capCores),
+              memory_mb: c.memory_mb || 0,
+            });
           }
         });
         setLiveContainers((prev) =>
           prev.map((c) => {
+            const rawId = c.ID || c.id || '';
             const u =
-              usageMap.get(c.id) ||
-              (c.id && c.id.length >= 12 ? usageMap.get(c.id.slice(0, 12)) : undefined);
-            return u ? { ...c, cpuPct: u.cpu_percent, memUsedMB: u.memory_mb } : c;
+              usageMap.get(rawId) ||
+              (rawId.length >= 12 ? usageMap.get(rawId.slice(0, 12)) : undefined);
+            return u ? { ...c, cpu_percent: u.cpu_percent, cpuPct: u.cpu_percent, memUsedMB: u.memory_mb, memory_mb: u.memory_mb } : c;
           })
         );
       }
@@ -356,7 +371,7 @@ export default function App() {
           prev.map((app) => {
             const u = appsUsage[app.id];
             if (!u) return app;
-            const cpuPct = Math.round((u.cpu_percent || 0) * 100) / 100;
+            const cpuPct = normalizeCpuPct(u.cpu_percent || 0, capCores);
             const memMB = u.memory_mb || 0;
             if (app.cpuPct === cpuPct && app.memMB === memMB) return app;
             return { ...app, cpuPct, memMB };
@@ -386,9 +401,21 @@ export default function App() {
     setPhpEnabled(Boolean((data as any).php?.enabled));
     setMcpEnabled(Boolean((data as any).mcp_enabled));
     setApiTokens(Array.isArray((data as any).api_tokens) ? (data as any).api_tokens : []);
-    setMyQuota((data as any).quota && !(data as any).quota.unlimited ? (data as any).quota : null);
+    const quotaObj = (data as any).quota;
+    setMyQuota(quotaObj && !quotaObj.unlimited ? quotaObj : null);
 
-    const liveContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
+    const isAdminRole = (data.user?.role || currentUser?.role) === 'admin';
+    const cpuCap =
+      !isAdminRole && quotaObj?.max_cpus > 0
+        ? Number(quotaObj.max_cpus)
+        : Number(data.sys?.NumCPU) || Number(quotaObj?.host_cpus) || cpuCapacityRef.current || 1;
+    cpuCapacityRef.current = cpuCap;
+
+    const rawContainers: any[] = Array.isArray(data.containers) ? data.containers : [];
+    const liveContainers: any[] = rawContainers.map((c: any) => ({
+      ...c,
+      cpu_percent: normalizeCpuPct(c?.cpu_percent || 0, cpuCap),
+    }));
     const liveImages: any[] = Array.isArray(data.images) ? data.images : [];
 
     setLiveContainers(liveContainers);
@@ -400,7 +427,7 @@ export default function App() {
           try { sessionStorage.setItem(`nd_php_app_${a.id || a.ID}`, '1'); } catch {}
         }
       });
-      loadLiveApps(data.apps, liveContainers, liveImages);
+      loadLiveApps(data.apps, liveContainers, liveImages, cpuCap);
     }
 
     // 2. Live Docker Images with Live Container Usage
@@ -1225,7 +1252,7 @@ export default function App() {
                 quota={myQuota}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();
-                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                  if (r.ok && r.data) applyBootstrapData(r.data);
                 }}
                 onUpdateApp={(updated) =>
                   setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
@@ -1308,7 +1335,7 @@ export default function App() {
                 onCreateApp={() => setNewAppModalOpen(true)}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();
-                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                  if (r.ok && r.data) applyBootstrapData(r.data);
                 }}
               />
             ) : activeNav === 'php-sites' ? (
@@ -1324,7 +1351,7 @@ export default function App() {
                 }}
                 onRefresh={async () => {
                   const r = await backendApi.bootstrap();
-                  if (r.ok && r.data?.apps) loadLiveApps(r.data.apps, (r.data as any).containers || [], (r.data as any).images || []);
+                  if (r.ok && r.data) applyBootstrapData(r.data);
                 }}
                 onGoInstance={() => navigateTo('php-instance')}
               />

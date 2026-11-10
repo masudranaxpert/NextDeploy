@@ -141,10 +141,16 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
           },
           {
             label: 'CPU',
-            value: quota.max_cpus > 0 ? fmtPct((quota.cpu_used_cores / quota.max_cpus) * 100) : `${quota.cpu_used_cores.toFixed(2)} cores`,
+            value:
+              quota.max_cpus > 0
+                ? fmtPct(Math.min(100, (quota.cpu_used_cores / quota.max_cpus) * 100))
+                : fmtPct(Math.min(100, ((quota.cpu_used_cores / Math.max(1, (quota as any).host_cpus || numCPU || 1)) * 100))),
             limit: quota.max_cpus > 0 ? `of ${quota.max_cpus} ${quota.max_cpus === 1 ? 'core' : 'cores'}` : 'no limit',
-            p: pct(quota.cpu_used_cores, quota.max_cpus),
-            tooltip: quota.max_cpus > 0 ? `${quota.cpu_used_cores.toFixed(2)} cores in use` : undefined,
+            p:
+              quota.max_cpus > 0
+                ? pct(quota.cpu_used_cores, quota.max_cpus)
+                : pct(quota.cpu_used_cores, Math.max(1, (quota as any).host_cpus || numCPU || 1)),
+            tooltip: quota.max_cpus > 0 ? `${quota.cpu_used_cores.toFixed(2)} / ${quota.max_cpus} cores in use` : undefined,
           },
           {
             label: 'Storage',
