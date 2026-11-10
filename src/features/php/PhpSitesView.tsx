@@ -157,7 +157,7 @@ const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onD
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
             <input
               className={`${inputCls} pl-8 pr-8`}
-              placeholder="Search by site name, domain, or owner username (e.g. fmxbd)..."
+              placeholder="Search sites, domains, or owner..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
