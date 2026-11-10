@@ -101,6 +101,7 @@ export interface PhpRoutingRule {
   status?: number;
   enabled: boolean;
   unless_exists?: boolean;
+  require_target_file?: boolean;
   preserve_query?: boolean;
   note?: string;
 }

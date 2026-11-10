@@ -144,6 +144,33 @@ RewriteRule ^go/(.+)$ /redir.php?to=$0 [QSA,L]
 			t.Errorf("expected $0 capture and PreserveQuery=true: %+v", got.Rules[2])
 		}
 	})
+
+	t.Run("catch-all extensionless php and REQUEST_FILENAME.php -f never rewrites .php endpoints", func(t *testing.T) {
+		in := `
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}\.php -f
+RewriteRule ^(.+)$ $1.php [L,QSA]
+
+RewriteCond %{REQUEST_URI} !\.php$
+RewriteRule ^(.*)$ $1.php [L]
+`
+		got := conv.Parse(in, ".htaccess")
+		if len(got.Rules) != 2 {
+			t.Fatalf("expected 2 rules, got %d (%+v)", len(got.Rules), got.Rules)
+		}
+		if got.Rules[0].Pattern != `^/([^.]+)$` || !got.Rules[0].UnlessFile || !got.Rules[0].RequireTargetFile || !got.Rules[0].PreserveQuery {
+			t.Errorf("rule 0 mismatch: %+v", got.Rules[0])
+		}
+		if got.Rules[1].Pattern != `^/([^.]+)$` || !got.Rules[1].UnlessFile {
+			t.Errorf("rule 1 mismatch: %+v", got.Rules[1])
+		}
+		for _, d := range got.Diagnostics {
+			if d.Severity == SeverityWarning {
+				t.Errorf("unexpected warning for recognized .php -f / !.php condition: %+v", d)
+			}
+		}
+	})
 }
 
 func TestConverterScanDir(t *testing.T) {

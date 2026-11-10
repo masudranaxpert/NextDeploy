@@ -17,6 +17,7 @@ var (
 	redirectCodeRe    = regexp.MustCompile(`^30[1278]$`)
 	filesBlockStartRe = regexp.MustCompile(`(?i)^<\s*(filesmatch|files)\s+(~\s+)?(.+?)\s*>$`)
 	ifModuleStartRe   = regexp.MustCompile(`(?i)^<\s*ifmodule\s+(.+?)\s*>$`)
+	catchAllPhpPatRe  = regexp.MustCompile(`^((?:\(\?i\))?\^.*/)\(\.(?:\*|\+)\)(?:/\?)?\$$`)
 )
 
 type rewriteCond struct {
@@ -297,17 +298,7 @@ func (c *Converter) convertRewriteRule(
 	}
 	pattern, matchType := buildScopedPattern(effectiveBase, rawPat, upperFlags["NC"])
 
-	var condNotes []string
-	unlessFile := false
-	for _, cd := range conds {
-		t := strings.TrimSpace(cd.test)
-		lowP := strings.ToLower(strings.TrimSpace(cd.pattern))
-		if (t == "%{REQUEST_FILENAME}" || strings.Contains(strings.ToUpper(t), "REQUEST_FILENAME")) && (lowP == "!-f" || lowP == "!-d" || lowP == "!-l") {
-			unlessFile = true
-			continue
-		}
-		condNotes = append(condNotes, fmt.Sprintf("RewriteCond %s %s", cd.test, cd.pattern))
-	}
+	unlessFile, requireTargetPHP, condNotes := analyzeRewriteConds(conds)
 	warnNote := ""
 	if len(condNotes) > 0 {
 		warnNote = fmt.Sprintf("imported without Apache condition (%s); verify if rule should only match conditionally", strings.Join(condNotes, "; "))
@@ -369,16 +360,60 @@ func (c *Converter) convertRewriteRule(
 	if upperFlags["QSD"] && !strings.Contains(target, "?") {
 		target += "?"
 	}
+	if matchType == "regex" {
+		tightPat, tightened := tightenExtensionlessPhpPattern(pattern, target)
+		if tightened {
+			pattern = tightPat
+			unlessFile = true
+		}
+	}
 	return &caddy.RoutingRule{
-		Kind:          "rewrite",
-		MatchType:     matchType,
-		Pattern:       pattern,
-		Target:        target,
-		Enabled:       true,
-		UnlessFile:    unlessFile,
-		PreserveQuery: upperFlags["QSA"],
-		Note:          "Imported from " + fileRelPath,
+		Kind:              "rewrite",
+		MatchType:         matchType,
+		Pattern:           pattern,
+		Target:            target,
+		Enabled:           true,
+		UnlessFile:        unlessFile,
+		RequireTargetFile: requireTargetPHP,
+		PreserveQuery:     upperFlags["QSA"],
+		Note:              "Imported from " + fileRelPath,
 	}, warnNote, SeverityConverted
+}
+
+func analyzeRewriteConds(conds []rewriteCond) (unlessFile, requireTargetPHP bool, unhandled []string) {
+	for _, cd := range conds {
+		upTest := strings.ToUpper(strings.TrimSpace(cd.test))
+		lowPat := strings.ToLower(strings.TrimSpace(cd.pattern))
+		switch {
+		case upTest == "%{REQUEST_FILENAME}" && (lowPat == "!-f" || lowPat == "!-d" || lowPat == "!-l" || lowPat == "!-s"):
+			unlessFile = true
+		case (upTest == "%{REQUEST_FILENAME}.PHP" || upTest == "%{REQUEST_FILENAME}\\.PHP") && (lowPat == "-f" || lowPat == "-s"):
+			requireTargetPHP = true
+			unlessFile = true
+		case (upTest == "%{REQUEST_URI}" || upTest == "%{THE_REQUEST}" || upTest == "%{REQUEST_FILENAME}") &&
+			(strings.Contains(lowPat, "!.php") || strings.Contains(lowPat, "!\\.php")):
+			unlessFile = true
+		case strings.Contains(upTest, "REQUEST_FILENAME") && (lowPat == "!-f" || lowPat == "!-d" || lowPat == "!-l"):
+			unlessFile = true
+		default:
+			unhandled = append(unhandled, fmt.Sprintf("RewriteCond %s %s", cd.test, cd.pattern))
+		}
+	}
+	return unlessFile, requireTargetPHP, unhandled
+}
+
+// tightenExtensionlessPhpPattern narrows catch-all ^/(.+)$ or ^/(.*)$ -> /$1.php rules
+// so requests with file extensions (such as /api_r2.php or .css/.js) or bare "/" are not rewritten to /*.php.
+func tightenExtensionlessPhpPattern(pattern, target string) (string, bool) {
+	targetPath := strings.ToLower(strings.SplitN(target, "?", 2)[0])
+	if !strings.HasSuffix(targetPath, "$1.php") {
+		return pattern, false
+	}
+	m := catchAllPhpPatRe.FindStringSubmatch(pattern)
+	if m == nil {
+		return pattern, false
+	}
+	return m[1] + "([^.]+)$", true
 }
 
 func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath string) (*caddy.RoutingRule, string) {

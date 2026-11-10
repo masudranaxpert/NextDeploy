@@ -142,10 +142,10 @@ func TestSiteRoutingValidationAndLabels(t *testing.T) {
 		}
 	}
 
-	// Verify UnlessFile (!-f) and PreserveQuery ([QSA]) + $0 expansion + normal PHP defaults
+	// Verify UnlessFile (!-f), RequireTargetFile (.php -f), PreserveQuery ([QSA]), and $0 expansion
 	ext := SiteRouting{
 		Rules: []RoutingRule{
-			{ID: "e1", Kind: "rewrite", MatchType: "regex", Pattern: `^/([^.]+)$`, Target: "/$1.php?src=$0", UnlessFile: true, PreserveQuery: true, Enabled: true},
+			{ID: "e1", Kind: "rewrite", MatchType: "regex", Pattern: `^/([^.]+)$`, Target: "/$1.php?src=$0", UnlessFile: true, RequireTargetFile: true, PreserveQuery: true, Enabled: true},
 		},
 	}
 	if err := ValidateRouting(&ext, false); err != nil {
@@ -154,6 +154,9 @@ func TestSiteRoutingValidationAndLabels(t *testing.T) {
 	el := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "php.test", EnableHTTPS: true}}, "/srv/htdocs", "/run/php.sock", SiteSecurity{}, ext)
 	if el["caddy.@ndrule0.not.file"] != "{path} {path}/" {
 		t.Errorf("expected not.file guard, got %q", el["caddy.@ndrule0.not.file"])
+	}
+	if el["caddy.@ndrule0.file.try_files"] != "{path}.php" {
+		t.Errorf("expected file.try_files guard, got %q", el["caddy.@ndrule0.file.try_files"])
 	}
 	if el["caddy.route.000_rewrite"] != "@ndrule0 /{re.ndr0.1}.php?src={re.ndr0.0}&{query}" {
 		t.Errorf("unexpected rewrite label: %q", el["caddy.route.000_rewrite"])

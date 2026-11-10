@@ -24,10 +24,11 @@ type RoutingRule struct {
 	Pattern       string `json:"pattern"`                  // path or Go RE2 regex
 	Target        string `json:"target"`                   // destination path (rewrite) or path/URL (redir)
 	Status        int    `json:"status"`                   // 301/302/307/308 (redir) or 403/404/410 (block)
-	Enabled       bool   `json:"enabled"`
-	UnlessFile    bool   `json:"unless_exists,omitempty"`  // true when Apache RewriteCond !-f / !-d applies
-	PreserveQuery bool   `json:"preserve_query,omitempty"` // true for Apache [QSA] when target contains ?
-	Note          string `json:"note,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	UnlessFile        bool   `json:"unless_exists,omitempty"`       // true when Apache RewriteCond !-f / !-d applies
+	RequireTargetFile bool   `json:"require_target_file,omitempty"` // true when Apache RewriteCond %{REQUEST_FILENAME}.php -f applies
+	PreserveQuery     bool   `json:"preserve_query,omitempty"`      // true for Apache [QSA] when target contains ?
+	Note              string `json:"note,omitempty"`
 }
 
 // SiteRouting stores a PHP or static site's custom fallback strategy and ordered routing rules.
@@ -215,6 +216,10 @@ func (r SiteRouting) appendLabels(labels map[string]string, prefix string, _ boo
 		}
 		if rule.UnlessFile && rule.Kind == "rewrite" {
 			labels[prefix+"."+mName+".not.file"] = "{path} {path}/"
+		}
+		if rule.RequireTargetFile && rule.Kind == "rewrite" &&
+			strings.HasSuffix(strings.ToLower(strings.SplitN(rule.Target, "?", 2)[0]), ".php") {
+			labels[prefix+"."+mName+".file.try_files"] = "{path}.php"
 		}
 
 		expandTarget := func(t string) string {

@@ -91,6 +91,7 @@ const serializeRouting = (r?: PhpSiteRouting) =>
       status: rule.status || 0,
       enabled: Boolean(rule.enabled),
       unless_exists: Boolean(rule.unless_exists),
+      require_target_file: Boolean(rule.require_target_file),
       preserve_query: Boolean(rule.preserve_query),
       note: rule.note || '',
     })),
@@ -394,10 +395,13 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, sav
                           </>
                         )}
                       </div>
-                      {(rule.note || rule.unless_exists || rule.preserve_query) && (
+                      {(rule.note || rule.unless_exists || rule.require_target_file || rule.preserve_query) && (
                         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
                           {rule.kind === 'rewrite' && rule.unless_exists && (
                             <span className="font-mono text-[10px] text-zinc-300">!-f</span>
+                          )}
+                          {rule.kind === 'rewrite' && rule.require_target_file && (
+                            <span className="font-mono text-[10px] text-zinc-300">.php -f</span>
                           )}
                           {rule.kind !== 'block' && rule.preserve_query && (
                             <span className="font-mono text-[10px] text-zinc-300">QSA</span>

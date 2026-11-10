@@ -213,6 +213,11 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
                             !-f
                           </span>
                         )}
+                        {r.require_target_file && (
+                          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                            .php -f
+                          </span>
+                        )}
                         {r.preserve_query && (
                           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
                             QSA

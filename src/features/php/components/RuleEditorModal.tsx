@@ -195,6 +195,13 @@ export const RuleEditorModal: React.FC<Props> = ({ open, initialRule, presets = 
                 label="Skip if file exists (!-f)"
               />
             )}
+            {draft.kind === 'rewrite' && (
+              <ShadcnSwitch
+                checked={Boolean(draft.require_target_file)}
+                onChange={(next) => patch({ require_target_file: next })}
+                label="Require .php file exists"
+              />
+            )}
             <ShadcnSwitch
               checked={Boolean(draft.preserve_query)}
               onChange={(next) => patch({ preserve_query: next })}
