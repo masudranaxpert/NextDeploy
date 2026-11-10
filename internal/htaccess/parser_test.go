@@ -171,6 +171,38 @@ RewriteRule ^(.*)$ $1.php [L]
 			}
 		}
 	})
+
+	t.Run("FilesMatch leading anchors and subfolder deny from all convert accurately", func(t *testing.T) {
+		rootFM := `<FilesMatch "^(config\.php|database\.sql|\.env|\.git)">
+  Require all denied
+</FilesMatch>`
+		gotRoot := conv.Parse(rootFM, ".htaccess")
+		if len(gotRoot.Rules) != 1 || gotRoot.Rules[0].Kind != "block" {
+			t.Fatalf("expected 1 block rule, got %+v", gotRoot.Rules)
+		}
+		if !strings.HasPrefix(gotRoot.Rules[0].Pattern, `(^|/)`) {
+			t.Errorf("root FilesMatch must match /config.php paths, got %q", gotRoot.Rules[0].Pattern)
+		}
+
+		subFM := `<FilesMatch "\.(json|log)$|^error_log$">
+  Deny from all
+</FilesMatch>`
+		gotAdmin := conv.Parse(subFM, "admin/.htaccess")
+		if len(gotAdmin.Rules) != 1 || gotAdmin.Rules[0].Pattern != `^/admin/(?:.*/)?(?:\.(json|log)$|error_log$)` {
+			t.Errorf("admin FilesMatch pattern = %+v", gotAdmin.Rules)
+		}
+
+		subDeny := `<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Deny from all
+</IfModule>`
+		gotCache := conv.Parse(subDeny, "cache/.htaccess")
+		if len(gotCache.Rules) != 1 || gotCache.Rules[0].Kind != "block" || gotCache.Rules[0].MatchType != "prefix" || gotCache.Rules[0].Pattern != "/cache/*" {
+			t.Errorf("cache deny all rules = %+v", gotCache.Rules)
+		}
+	})
 }
 
 func TestConverterScanDir(t *testing.T) {

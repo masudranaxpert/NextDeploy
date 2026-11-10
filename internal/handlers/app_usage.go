@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"panel/internal/db"
 	"panel/internal/dockerapi"
+	"panel/internal/dockerx"
 	"panel/internal/phphosting"
 )
 
@@ -17,20 +21,34 @@ type appUsage struct {
 	CPUPercent float64 `json:"cpu_percent"` // 100 = one full core
 }
 
+type poolProcSample struct {
+	rssKB   int64
+	jiffies uint64
+}
+
+type poolTickSnapshot struct {
+	jiffies   uint64
+	sampledAt time.Time
+}
+
 const (
 	usageSampleEvery = 10 * time.Second
 	usageWindow      = 6 // samples kept: the last minute
 	usageIdleAfter   = 3 * time.Minute
+
+	phpPoolProcScript = `for d in /proc/[0-9]*; do cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$cmd" in "php-fpm: pool "*) pool=${cmd#php-fpm: pool }; pool=${pool%% *}; st=$(cat "$d/stat" 2>/dev/null) || continue; st=${st#*) }; set -- $st; rss=$(awk "/^VmRSS:/{print \$2; exit}" "$d/status" 2>/dev/null); echo "$pool ${rss:-0} $((${12:-0}+${13:-0}))";; esac; done`
 )
 
 // A single one-second CPU reading of a lightly used site is nearly always 0, so the panel keeps
 // the last minute of readings and reports their average. Sampling only runs while the panel is
 // being looked at.
 var usageSampler struct {
-	mu      sync.Mutex
-	hist    [][]dockerapi.ContainerUsageRow
-	touched time.Time
-	started bool
+	mu            sync.Mutex
+	hist          [][]dockerapi.ContainerUsageRow
+	phpPools      map[string]map[string]appUsage
+	prevPoolTicks map[string]poolTickSnapshot
+	touched       time.Time
+	started       bool
 }
 
 func touchUsageSampler() {
@@ -56,6 +74,7 @@ func (p *Panel) startUsageSampler() {
 			if active {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				rows, _ := dockerapi.ListContainerUsageMatching(ctx, func(string, string) bool { return true })
+				samplePHPPools(ctx, rows)
 				cancel()
 				usageSampler.mu.Lock()
 				usageSampler.hist = append(usageSampler.hist, rows)
@@ -69,6 +88,91 @@ func (p *Panel) startUsageSampler() {
 	}()
 }
 
+func isPHPRuntimeContainer(cleanName string) bool {
+	return strings.HasPrefix(cleanName, "nd-php") &&
+		!strings.HasPrefix(cleanName, "nd-phpr-") &&
+		cleanName != phphosting.MySQLContainer &&
+		!strings.HasPrefix(cleanName, "nd-phpmyadmin")
+}
+
+func parsePHPPoolProcOutput(raw string) map[string]poolProcSample {
+	out := make(map[string]poolProcSample)
+	for _, line := range strings.Split(raw, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pool := fields[0]
+		if !strings.HasPrefix(pool, "site-") {
+			continue
+		}
+		rssKB, err1 := strconv.ParseInt(fields[1], 10, 64)
+		jiffies, err2 := strconv.ParseUint(fields[2], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		cur := out[pool]
+		cur.rssKB += rssKB
+		cur.jiffies += jiffies
+		out[pool] = cur
+	}
+	return out
+}
+
+func samplePHPPools(ctx context.Context, rows []dockerapi.ContainerUsageRow) {
+	seen := map[string]bool{}
+	for _, r := range rows {
+		cleanName := strings.TrimPrefix(r.Name, "/")
+		if !isPHPRuntimeContainer(cleanName) || seen[cleanName] {
+			continue
+		}
+		seen[cleanName] = true
+		res := dockerx.DockerExec(ctx, cleanName, phpPoolProcScript)
+		if !res.OK && strings.TrimSpace(res.Output) == "" {
+			continue
+		}
+		parsed := parsePHPPoolProcOutput(res.Output)
+		now := time.Now()
+
+		usageSampler.mu.Lock()
+		if usageSampler.phpPools == nil {
+			usageSampler.phpPools = make(map[string]map[string]appUsage)
+		}
+		if usageSampler.prevPoolTicks == nil {
+			usageSampler.prevPoolTicks = make(map[string]poolTickSnapshot)
+		}
+		poolStats := make(map[string]appUsage, len(parsed))
+		for pool, s := range parsed {
+			tickKey := cleanName + "\x00" + pool
+			var cpuPct float64
+			if prev, ok := usageSampler.prevPoolTicks[tickKey]; ok {
+				elapsed := now.Sub(prev.sampledAt).Seconds()
+				if elapsed > 0.5 && s.jiffies >= prev.jiffies {
+					// Linux USER_HZ is 100 jiffies/s, so deltaJiffies / elapsedSec equals % of 1 core.
+					cpuPct = math.Round((float64(s.jiffies-prev.jiffies)/elapsed)*100) / 100
+				}
+			}
+			usageSampler.prevPoolTicks[tickKey] = poolTickSnapshot{jiffies: s.jiffies, sampledAt: now}
+			poolStats[pool] = appUsage{
+				MemoryMB:   s.rssKB / 1024,
+				CPUPercent: cpuPct,
+			}
+		}
+		usageSampler.phpPools[cleanName] = poolStats
+		usageSampler.mu.Unlock()
+	}
+}
+
+func phpContainerPoolUsage(containerName string) (map[string]appUsage, bool) {
+	usageSampler.mu.Lock()
+	defer usageSampler.mu.Unlock()
+	if usageSampler.phpPools == nil {
+		return nil, false
+	}
+	m, ok := usageSampler.phpPools[containerName]
+	return m, ok
+}
+
 // usageRows is every container's usage with CPU averaged over the recent samples (memory is the
 // latest). Before any sample exists it reads Docker once, directly.
 func (p *Panel) usageRows(ctx context.Context) []dockerapi.ContainerUsageRow {
@@ -79,6 +183,12 @@ func (p *Panel) usageRows(ctx context.Context) []dockerapi.ContainerUsageRow {
 	usageSampler.mu.Unlock()
 	if len(hist) == 0 {
 		rows, _ := dockerapi.ListContainerUsageMatching(ctx, func(string, string) bool { return true })
+		samplePHPPools(ctx, rows)
+		usageSampler.mu.Lock()
+		if len(usageSampler.hist) == 0 && len(rows) > 0 {
+			usageSampler.hist = [][]dockerapi.ContainerUsageRow{rows}
+		}
+		usageSampler.mu.Unlock()
 		return rows
 	}
 	latest := hist[len(hist)-1]
@@ -131,31 +241,50 @@ func (p *Panel) usageForApp(ctx context.Context, app db.App, byProject map[strin
 	if p.DB.IsPHPSite(ctx, app.ID) {
 		site, err := p.DB.GetPHPSite(ctx, app.ID)
 		if err == nil {
+			if phphosting.SettingsFor(site).Stopped {
+				return appUsage{}
+			}
 			rows := p.usageRows(ctx)
 			routeTarget := phphosting.RouteContainer(app.ID)
 			runtimeTarget := phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion)
 
-			peerSites := 1
-			if allSites, sErr := p.DB.ListPHPSites(ctx); sErr == nil {
-				cnt := 0
-				for _, s := range allSites {
-					if s.OwnerID == site.OwnerID && s.PHPVersion == site.PHPVersion {
-						cnt++
-					}
-				}
-				if cnt > 1 {
-					peerSites = cnt
+			for _, r := range rows {
+				if strings.TrimPrefix(r.Name, "/") == routeTarget {
+					out.MemoryMB += int64(r.MemUsage / (1024 * 1024))
+					out.CPUPercent += r.CPUPercent
+					break
 				}
 			}
 
-			for _, r := range rows {
-				cleanName := strings.TrimPrefix(r.Name, "/")
-				if cleanName == routeTarget {
-					out.MemoryMB += int64(r.MemUsage / (1024 * 1024))
-					out.CPUPercent += r.CPUPercent
-				} else if cleanName == runtimeTarget {
-					out.MemoryMB += int64(r.MemUsage / (1024 * 1024)) / int64(peerSites)
-					out.CPUPercent += r.CPUPercent / float64(peerSites)
+			if site.SiteType != phphosting.SiteTypeStatic {
+				poolMap, hasPoolStats := phpContainerPoolUsage(runtimeTarget)
+				if hasPoolStats {
+					if pu, ok := poolMap[fmt.Sprintf("site-%d", site.UID)]; ok {
+						out.MemoryMB += pu.MemoryMB
+						out.CPUPercent += pu.CPUPercent
+					}
+					return out
+				}
+
+				activePeers := 1
+				if allSites, sErr := p.DB.ListPHPSites(ctx); sErr == nil {
+					cnt := 0
+					for _, s := range allSites {
+						if s.OwnerID == site.OwnerID && s.PHPVersion == site.PHPVersion &&
+							s.SiteType != phphosting.SiteTypeStatic && !phphosting.SettingsFor(s).Stopped {
+							cnt++
+						}
+					}
+					if cnt > 1 {
+						activePeers = cnt
+					}
+				}
+				for _, r := range rows {
+					if strings.TrimPrefix(r.Name, "/") == runtimeTarget {
+						out.MemoryMB += int64(r.MemUsage/(1024*1024)) / int64(activePeers)
+						out.CPUPercent += r.CPUPercent / float64(activePeers)
+						break
+					}
 				}
 			}
 		}

@@ -52,6 +52,7 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 	lines := joinLineContinuations(content)
 	var conds []rewriteCond
 	var stack []blockFrame
+	subfolderDenied := false
 
 	inInactiveBlock := func() bool {
 		for _, f := range stack {
@@ -242,9 +243,30 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 			conds = nil
 			addDiag(lineNo, SeverityWarning, args[0], "ignored: configure PHP limits and ini directives in the NextDeploy PHP Settings tab")
 
-		case "header", "expiresactive", "expiresbytype", "addoutputfilterbytype", "options", "deny", "allow", "require", "authtype", "authname", "authuserfile":
+		case "header", "expiresactive", "expiresbytype", "addoutputfilterbytype", "options", "allow", "authtype", "authname", "authuserfile":
 			conds = nil
 			addDiag(lineNo, SeverityWarning, args[0], "Apache server/security directive ignored; configure equivalents in NextDeploy Site Security or Caddy")
+
+		case "deny", "require":
+			conds = nil
+			isDenyAll := (dir == "deny" && len(args) >= 3 && strings.EqualFold(args[1], "from") && strings.EqualFold(args[2], "all")) ||
+				(dir == "require" && len(args) >= 3 && strings.EqualFold(args[1], "all") && strings.EqualFold(args[2], "denied"))
+			if isDenyAll && basePrefix != "" {
+				if !subfolderDenied {
+					subfolderDenied = true
+					addRule(lineNo, args[0], caddy.RoutingRule{
+						ID:        fmt.Sprintf("ht-%d", len(res.Rules)+1),
+						Kind:      "block",
+						MatchType: "prefix",
+						Pattern:   strings.TrimSuffix(basePrefix, "/") + "/*",
+						Status:    403,
+						Enabled:   true,
+						Note:      fmt.Sprintf("Imported from %s", fileRelPath),
+					})
+				}
+			} else {
+				addDiag(lineNo, SeverityWarning, args[0], "Apache server/security directive ignored; configure equivalents in NextDeploy Site Security or Caddy")
+			}
 
 		default:
 			conds = nil
@@ -549,12 +571,24 @@ func buildScopedPattern(basePrefix, rawPat string, nocase bool) (string, string)
 }
 
 func scopeFileRegex(basePrefix, fileRegex string) string {
-	if basePrefix == "" {
-		return fileRegex
+	// Apache <FilesMatch> runs against bare filenames (without leading /), whereas Caddy path_regexp runs against full /URI paths.
+	rewriteBranchAnchors := func(re string, prefix string) string {
+		parts := strings.Split(re, "|")
+		for i, p := range parts {
+			if strings.HasPrefix(p, "^") && !strings.HasPrefix(p, "^/") {
+				parts[i] = prefix + strings.TrimPrefix(p, "^")
+			}
+		}
+		return strings.Join(parts, "|")
 	}
-	clean := strings.TrimPrefix(fileRegex, "^")
+
+	if basePrefix == "" {
+		return rewriteBranchAnchors(fileRegex, `(^|/)`)
+	}
+	clean := rewriteBranchAnchors(fileRegex, "")
 	clean = strings.TrimPrefix(clean, "/")
-	return "^" + regexp.QuoteMeta(strings.TrimSuffix(basePrefix, "/")) + "/(.*/)?" + clean
+	quotedBase := regexp.QuoteMeta(strings.TrimSuffix(basePrefix, "/"))
+	return "^" + quotedBase + "/(?:.*/)?(?:" + clean + ")"
 }
 
 func globToRegex(glob string) string {
