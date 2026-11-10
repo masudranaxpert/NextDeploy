@@ -1601,7 +1601,17 @@ func TestMCP_AppCreate_And_DeployFeatures(t *testing.T) {
 	}
 
 	close(blockCh)
-	time.Sleep(250 * time.Millisecond)
+	waitDeadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(waitDeadline) {
+		run := p.GetDeployRun(newAppID)
+		run.Mu.Lock()
+		running := run.Running
+		run.Mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// 4. app_get with include_health:true
 	appGetParams, _ := json.Marshal(CallToolParams{
