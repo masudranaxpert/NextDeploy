@@ -193,7 +193,10 @@ func (r SiteRouting) appendLabels(labels map[string]string, prefix string, _ boo
 		if rule.Pattern == "" || hasUnsafeLabelChars(rule.Pattern) {
 			continue
 		}
-		mName := "@nd_rule_" + strconv.Itoa(idx)
+		// Never use a trailing _<digits> suffix (e.g. @nd_rule_0): caddy-docker-proxy strips
+		// _<digits> as an isolation suffix from directive keys, turning @nd_rule_0 into @nd_rule
+		// while leaving the @nd_rule_0 reference in route labels intact.
+		mName := "@ndrule" + strconv.Itoa(idx)
 		regName := "ndr" + strconv.Itoa(idx)
 		switch rule.MatchType {
 		case "exact":

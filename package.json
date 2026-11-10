@@ -1,7 +1,7 @@
 {
   "name": "nextdeploy",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.6.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/masudranaxpert/NextDeploy.git"

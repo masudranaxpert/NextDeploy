@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -98,14 +99,14 @@ func TestSiteRoutingValidationAndLabels(t *testing.T) {
 	l := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "app.test", EnableHTTPS: true}}, "/srv/htdocs", "/run/app.sock", SiteSecurity{}, r)
 
 	want := map[string]string{
-		"caddy.@nd_rule_0.path_regexp": `ndr0 ^/(.+)\.php$`,
-		"caddy.route.000_respond":      "@nd_rule_0 404",
-		"caddy.@nd_rule_1.path_regexp": `ndr1 ^/profile/([-\w]+)/([-\w]+)$`,
-		"caddy.route.001_rewrite":      "@nd_rule_1 /profile.php?id={re.ndr1.1}&action={re.ndr1.2}",
-		"caddy.@nd_rule_2.path":        "/old-docs /old-docs/*",
-		"caddy.route.002_redir":        "@nd_rule_2 https://docs.example.com 301",
-		"caddy.route.003_rewrite":      "@wp_cache {http.matchers.file.relative}",
-		"caddy.php_fastcgi.try_files":  "{path} {path}/index.php =404",
+		"caddy.@ndrule0.path_regexp": `ndr0 ^/(.+)\.php$`,
+		"caddy.route.000_respond":    "@ndrule0 404",
+		"caddy.@ndrule1.path_regexp": `ndr1 ^/profile/([-\w]+)/([-\w]+)$`,
+		"caddy.route.001_rewrite":    "@ndrule1 /profile.php?id={re.ndr1.1}&action={re.ndr1.2}",
+		"caddy.@ndrule2.path":        "/old-docs /old-docs/*",
+		"caddy.route.002_redir":      "@ndrule2 https://docs.example.com 301",
+		"caddy.route.003_rewrite":    "@wp_cache {http.matchers.file.relative}",
+		"caddy.php_fastcgi.try_files": "{path} {path}/index.php =404",
 	}
 	for k, v := range want {
 		if l[k] != v {
@@ -151,10 +152,38 @@ func TestSiteRoutingValidationAndLabels(t *testing.T) {
 		t.Fatalf("ext validate: %v", err)
 	}
 	el := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "php.test", EnableHTTPS: true}}, "/srv/htdocs", "/run/php.sock", SiteSecurity{}, ext)
-	if el["caddy.@nd_rule_0.not.file"] != "{path} {path}/" {
-		t.Errorf("expected not.file guard, got %q", el["caddy.@nd_rule_0.not.file"])
+	if el["caddy.@ndrule0.not.file"] != "{path} {path}/" {
+		t.Errorf("expected not.file guard, got %q", el["caddy.@ndrule0.not.file"])
 	}
-	if el["caddy.route.000_rewrite"] != "@nd_rule_0 /{re.ndr0.1}.php?src={re.ndr0.0}&{query}" {
+	if el["caddy.route.000_rewrite"] != "@ndrule0 /{re.ndr0.1}.php?src={re.ndr0.0}&{query}" {
 		t.Errorf("unexpected rewrite label: %q", el["caddy.route.000_rewrite"])
+	}
+}
+
+func TestNamedMatcherLabelsSurviveCaddyDockerProxyParser(t *testing.T) {
+	// Exact labelParserRegex from lucaslorentz/caddy-docker-proxy caddyfile/fromlabels.go.
+	cdpLabelRe := regexp.MustCompile(`^(?:(.+)\.)?(?:(\d+)_)?([^.]+?)(?:_(\d+))?$`)
+	routing := SiteRouting{
+		FallbackMode:  FallbackCustom,
+		FallbackEntry: "/index.php",
+		Rules: []RoutingRule{
+			{ID: "r0", Kind: "rewrite", MatchType: "regex", Pattern: `^/flixbd/(.+)$`, Target: "/instant.php?flixbd=$1", Enabled: true},
+			{ID: "r1", Kind: "block", MatchType: "prefix", Pattern: "/.git/", Status: 404, Enabled: true},
+			{ID: "r2", Kind: "redir", MatchType: "exact", Pattern: "/old", Target: "/new", Status: 301, Enabled: true},
+		},
+	}
+	sec := SiteSecurity{BlockedIPs: []string{"1.2.3.4"}, BlockUploadPHP: true, BlockXMLRPC: true, BlockScanners: true}
+	labels := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "jdownload.net", EnableHTTPS: true}}, "/srv/htdocs", "/run/php.sock", sec, routing)
+
+	for labelKey := range labels {
+		for _, seg := range strings.Split(labelKey, ".") {
+			if !strings.HasPrefix(seg, "@") {
+				continue
+			}
+			m := cdpLabelRe.FindStringSubmatch(seg)
+			if m == nil || m[3] != seg {
+				t.Fatalf("caddy-docker-proxy would alter matcher %q in label %q (parsed name %q)", seg, labelKey, m[3])
+			}
+		}
 	}
 }

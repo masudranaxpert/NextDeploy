@@ -72,7 +72,7 @@ nd php rules rm my-site 1
 | :--- | :--- | :--- |
 | `RewriteRule` (`$0`–`$9`) | `route.%03d_rewrite` + `path_regexp` (`{re.ndrN.$1}`) | Subfolder `.htaccess` paths and relative targets are automatically prefixed |
 | `[NC]` | Prepends `(?i)` Go RE2 flag | Case-insensitive regex matching |
-| `RewriteCond %{REQUEST_FILENAME} !-f` / `!-d` | `unless_exists: true` → `@nd_rule_N.not.file {path} {path}/` | Prevents rules from breaking existing `.css`/`.js`/images |
+| `RewriteCond %{REQUEST_FILENAME} !-f` / `!-d` | `unless_exists: true` → `@ndruleN.not.file {path} {path}/` | Prevents rules from breaking existing `.css`/`.js`/images |
 | `[QSA]` | `preserve_query: true` → appends `&{query}` | Only needed when target includes `?`; Caddy preserves query strings otherwise |
 | `[R=301|302|307|308]` / `Redirect` / `RedirectMatch` | `route.%03d_redir` | External HTTPS enforced automatically by Caddy |
 | `[F]` / `[G]` / `<Files ~ ...>` / `<FilesMatch>` deny | `route.%03d_respond` (`403` / `404` / `410`) | Security rules evaluate inside `route` before `@wp_cache` and `php_fastcgi` |
