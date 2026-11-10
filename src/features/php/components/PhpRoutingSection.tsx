@@ -1,12 +1,71 @@
-import React, { Suspense, lazy, useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, Route, ShieldAlert, Trash2, Wand2 } from 'lucide-react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, BookOpen, Pencil, Plus, Route, Search, Trash2, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi } from '../../../lib/backendApi';
 import type { PhpRoutingRule, PhpSiteRouting } from '../../../lib/api/phpApi';
 import { Card, Field, GhostButton, Pill, PrimaryButton, inputCls, selectCls } from '../ui';
+import type { RulePresetItem } from './RuleEditorModal';
+
+const RULE_PRESETS: RulePresetItem[] = [
+  {
+    key: 'hide-php',
+    label: 'Hide .php extension',
+    rule: {
+      kind: 'rewrite',
+      match_type: 'regex',
+      pattern: '^/([^./]+)$',
+      target: '/$1.php',
+      status: 0,
+      enabled: true,
+      unless_exists: true,
+      preserve_query: true,
+      note: 'Hide .php extension',
+    },
+  },
+  {
+    key: 'block-dot',
+    label: 'Block dot-dirs',
+    rule: {
+      kind: 'block',
+      match_type: 'prefix',
+      pattern: '/.git/',
+      target: '',
+      status: 404,
+      enabled: true,
+      unless_exists: false,
+      preserve_query: false,
+      note: 'Hide VCS',
+    },
+  },
+  {
+    key: 'redir-301',
+    label: '301 Redirect',
+    rule: {
+      kind: 'redir',
+      match_type: 'exact',
+      pattern: '/old-path',
+      target: '/new-path',
+      status: 301,
+      enabled: true,
+      unless_exists: false,
+      preserve_query: true,
+      note: '301 redirect',
+    },
+  },
+];
+
+const makeRuleId = () => `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 const HtaccessImportModal = lazy(() =>
   import('./HtaccessImportModal').then((m) => ({ default: m.HtaccessImportModal }))
+);
+
+const RoutingGuideModal = lazy(() =>
+  import('./RoutingGuideModal').then((m) => ({ default: m.RoutingGuideModal }))
+);
+
+const RuleEditorModal = lazy(() =>
+  import('./RuleEditorModal').then((m) => ({ default: m.RuleEditorModal }))
 );
 
 interface Props {
@@ -17,34 +76,50 @@ interface Props {
   onSaved?: () => void | Promise<void>;
 }
 
-const makeRuleId = () => `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+const KIND_BADGE: Record<PhpRoutingRule['kind'], string> = {
+  rewrite: 'border-white/[0.12] bg-white/[0.04] text-zinc-200',
+  redir: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
+  block: 'border-red-500/30 bg-red-500/10 text-red-300',
+};
 
-const DEFAULT_RULE = (): PhpRoutingRule => ({
-  id: makeRuleId(),
-  kind: 'rewrite',
-  match_type: 'prefix',
-  pattern: '/api/',
-  target: '/api.php',
-  status: 0,
-  enabled: true,
-  note: '',
-});
+const iconBtnCls =
+  'rounded p-1.5 text-zinc-400 transition hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-30 disabled:pointer-events-none cursor-pointer';
 
 export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onChange, onSaved }) => {
   const [importOpen, setImportOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [editorState, setEditorState] = useState<{ open: boolean; index: number | null }>({
+    open: false,
+    index: null,
+  });
+  const [searchQuery, setSearchQuery] = useState('');
   const [savingRouting, setSavingRouting] = useState(false);
 
   const rules = value.rules ?? [];
   const fallbackMode = value.fallback_mode || 'default';
+  const activeCount = rules.filter((r) => r.enabled).length;
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const isFiltering = trimmedQuery.length > 0;
+
+  const visibleEntries = useMemo(() => {
+    const mapped = rules.map((rule, idx) => ({ rule, idx }));
+    if (!trimmedQuery) return mapped;
+    return mapped.filter(({ rule }) =>
+      [rule.pattern, rule.target || '', rule.note || '', rule.kind, rule.match_type]
+        .join(' ')
+        .toLowerCase()
+        .includes(trimmedQuery)
+    );
+  }, [rules, trimmedQuery]);
 
   const setRouting = (updater: (prev: PhpSiteRouting) => PhpSiteRouting) => {
     onChange(updater(value));
   };
 
-  const updateRule = (idx: number, patch: Partial<PhpRoutingRule>) => {
+  const toggleEnabled = (idx: number, enabled: boolean) => {
     setRouting((prev) => ({
       ...prev,
-      rules: (prev.rules ?? []).map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+      rules: (prev.rules ?? []).map((r, i) => (i === idx ? { ...r, enabled } : r)),
     }));
   };
 
@@ -66,11 +141,28 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
     }));
   };
 
-  const addPreset = (preset: PhpRoutingRule) => {
+  const addPreset = (preset: Omit<PhpRoutingRule, 'id'>) => {
     setRouting((prev) => ({
       ...prev,
       rules: [...(prev.rules ?? []), { ...preset, id: makeRuleId() }],
     }));
+  };
+
+  const handleRuleSave = (saved: PhpRoutingRule) => {
+    const withId: PhpRoutingRule = { ...saved, id: saved.id || makeRuleId() };
+    const targetIdx = editorState.index;
+    setRouting((prev) => {
+      const existing = prev.rules ?? [];
+      if (targetIdx === null) {
+        return { ...prev, rules: [...existing, withId] };
+      }
+      return {
+        ...prev,
+        rules: existing.map((r, i) => (i === targetIdx ? withId : r)),
+      };
+    });
+    setEditorState({ open: false, index: null });
+    toast.success(targetIdx === null ? 'Rule added. Click "Save rules" to sync.' : 'Rule updated. Click "Save rules" to sync.');
   };
 
   const handleImportApply = (
@@ -112,12 +204,17 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
     if (onSaved) await onSaved();
   };
 
+  const editingRule = editorState.index !== null ? rules[editorState.index] ?? null : null;
+
   return (
     <Card
-      title="URL Routing & .htaccess Converter"
-      description="Native Caddy rewrites, redirects, and path blocking. WordPress permalinks and Laravel front-controllers already work without extra rules."
+      title="URL Routing"
+      description="Native Caddy rewrites, redirects, and path blocking. WordPress and Laravel work by default."
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          <GhostButton onClick={() => setGuideOpen(true)}>
+            <BookOpen className="h-3.5 w-3.5 text-zinc-300" /> Guide
+          </GhostButton>
           <GhostButton onClick={() => setImportOpen(true)}>
             <Wand2 className="h-3.5 w-3.5 text-orange-400" /> Import .htaccess
           </GhostButton>
@@ -129,11 +226,9 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
     >
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Missing File Fallback (try_files)"
-            hint="Default preserves index.php fallback so WordPress/Laravel work out of the box."
-          >
+          <Field label="Missing file fallback">
             <select
+              aria-label="Missing file fallback"
               className={selectCls}
               value={fallbackMode}
               onChange={(e) => {
@@ -146,16 +241,17 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
               }}
             >
               <option value="default">
-                {isStatic ? 'Standard 404 (Static default)' : 'Front-controller index.php (WP / Laravel default)'}
+                {isStatic ? 'Standard 404 (Static default)' : 'Front-controller index.php (WP / Laravel)'}
               </option>
               <option value="strict_404">Strict 404 for missing files (=404)</option>
-              <option value="custom">Custom entry file (e.g. app.php or index.html SPA)</option>
+              <option value="custom">Custom entry file (e.g. app.php or index.html)</option>
             </select>
           </Field>
 
           {fallbackMode === 'custom' && (
-            <Field label="Custom Fallback Entry File" hint="Relative path inside document root">
+            <Field label="Custom entry file">
               <input
+                aria-label="Custom fallback entry file"
                 className={inputCls}
                 value={value.fallback_entry || ''}
                 onChange={(e) => setRouting((prev) => ({ ...prev, fallback_entry: e.target.value }))}
@@ -165,240 +261,176 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] pt-4">
           <div className="flex items-center gap-2">
             <Route className="h-4 w-4 text-zinc-400" />
-            <span className="text-xs font-medium text-zinc-200">Ordered Rules</span>
-            <Pill tone="zinc">{rules.filter((r) => r.enabled).length} active</Pill>
+            <span className="text-xs font-medium text-zinc-100">Ordered Rules</span>
+            <Pill tone="zinc">
+              {activeCount === rules.length ? `${activeCount} active` : `${activeCount} / ${rules.length} active`}
+            </Pill>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() =>
-                addPreset({
-                  id: '',
-                  kind: 'rewrite',
-                  match_type: 'regex',
-                  pattern: '^/([^.]+)$',
-                  target: '/$1.php',
-                  enabled: true,
-                  unless_exists: true,
-                  preserve_query: true,
-                  note: 'Hide .php extension',
-                })
-              }
-              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.07] cursor-pointer"
-            >
-              + Hide .php extension
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                addPreset({
-                  id: '',
-                  kind: 'block',
-                  match_type: 'prefix',
-                  pattern: '/.git/',
-                  status: 404,
-                  enabled: true,
-                  note: 'Hide VCS',
-                })
-              }
-              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.07] cursor-pointer"
-            >
-              + Block dot-dirs
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                addPreset({
-                  id: '',
-                  kind: 'redir',
-                  match_type: 'exact',
-                  pattern: '/old-path',
-                  target: '/new-path',
-                  status: 301,
-                  enabled: true,
-                  note: '301 SEO Redirect',
-                })
-              }
-              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.07] cursor-pointer"
-            >
-              + 301 Redirect
-            </button>
-            <button
-              type="button"
-              onClick={() => addPreset(DEFAULT_RULE())}
-              className="inline-flex items-center gap-1 rounded-md border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[11px] font-medium text-orange-300 transition hover:bg-orange-500/20 cursor-pointer"
-            >
-              <Plus className="h-3 w-3" /> Add Rule
-            </button>
-          </div>
+          <GhostButton onClick={() => setEditorState({ open: true, index: null })}>
+            <Plus className="h-3.5 w-3.5" /> Add rule
+          </GhostButton>
         </div>
 
+        {rules.length > 5 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="search"
+              aria-label="Filter routing rules"
+              className={`${inputCls} pl-8 pr-8`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Filter ${rules.length} rules by pattern, target, or note...`}
+            />
+            {isFiltering && (
+              <button
+                type="button"
+                aria-label="Clear filter"
+                onClick={() => setSearchQuery('')}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
         {rules.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-white/[0.08] bg-[#09090b]/60 px-4 py-6 text-center text-xs text-zinc-500">
-            No custom rules configured. Click <span className="text-zinc-300">Import .htaccess</span> to scan{' '}
-            <code className="font-mono text-zinc-400">htdocs/</code> automatically, or add a rule above.
+          <div className="rounded-lg border border-dashed border-white/[0.12] bg-[#09090b] px-4 py-6 text-center">
+            <p className="text-xs text-zinc-300">
+              No custom rules configured. Import from <code className="font-mono text-zinc-100">htdocs/</code> or start with a preset:
+            </p>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              {RULE_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  onClick={() => addPreset(preset.rule)}
+                  className="rounded-md border border-white/[0.12] bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200 transition hover:bg-white/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer"
+                >
+                  + {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : visibleEntries.length === 0 ? (
+          <div className="rounded-lg border border-white/[0.1] bg-[#09090b] px-4 py-6 text-center text-xs text-zinc-300">
+            No rules match &ldquo;{searchQuery}&rdquo;.
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {rules.map((rule, idx) => (
-              <div
-                key={rule.id || idx}
-                className={`rounded-lg border p-3 transition ${
-                  rule.enabled ? 'border-white/[0.08] bg-[#09090b]' : 'border-white/[0.04] bg-[#09090b]/40 opacity-60'
-                }`}
-              >
-                <div className="grid gap-2.5 sm:grid-cols-12 sm:items-center">
-                  <div className="sm:col-span-2">
-                    <select
-                      className={selectCls}
-                      value={rule.kind}
-                      onChange={(e) => {
-                        const kind = e.target.value as PhpRoutingRule['kind'];
-                        updateRule(idx, {
-                          kind,
-                          status: kind === 'redir' ? 301 : kind === 'block' ? 404 : 0,
-                          target: kind === 'block' ? '' : rule.target || '/index.php',
-                        });
-                      }}
+          <div className="max-h-[380px] divide-y divide-white/[0.07] overflow-y-auto rounded-lg border border-white/[0.1] bg-[#09090b]">
+            {visibleEntries.map(({ rule, idx }) => {
+              const kindLabel =
+                rule.kind === 'redir'
+                  ? `Redirect ${rule.status || 301}`
+                  : rule.kind === 'block'
+                    ? `Block ${rule.status || 404}`
+                    : 'Rewrite';
+
+              return (
+                <div
+                  key={rule.id || idx}
+                  className={`flex items-center justify-between gap-3 px-3 py-2.5 transition hover:bg-white/[0.025] ${
+                    rule.enabled ? '' : 'opacity-55'
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <span className="w-7 shrink-0 font-mono text-[11px] text-zinc-400">#{idx + 1}</span>
+                    <span
+                      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[rule.kind]}`}
                     >
-                      <option value="rewrite">Rewrite</option>
-                      <option value="redir">Redirect</option>
-                      <option value="block">Block</option>
-                    </select>
-                  </div>
+                      {kindLabel}
+                    </span>
+                    <span className="hidden shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300 sm:inline">
+                      {rule.match_type}
+                    </span>
 
-                  <div className="sm:col-span-2">
-                    <select
-                      className={selectCls}
-                      value={rule.match_type}
-                      onChange={(e) => updateRule(idx, { match_type: e.target.value as PhpRoutingRule['match_type'] })}
-                    >
-                      <option value="exact">Exact path</option>
-                      <option value="prefix">Prefix *</option>
-                      <option value="regex">Regex (RE2)</option>
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-3">
-                    <input
-                      className={inputCls}
-                      value={rule.pattern}
-                      onChange={(e) => updateRule(idx, { pattern: e.target.value })}
-                      placeholder={rule.match_type === 'regex' ? '^blog/(.*)$' : '/old-path'}
-                    />
-                  </div>
-
-                  <div className="sm:col-span-3">
-                    {rule.kind === 'block' ? (
-                      <select
-                        className={selectCls}
-                        value={rule.status || 404}
-                        onChange={(e) => updateRule(idx, { status: Number(e.target.value) })}
-                      >
-                        <option value={404}>HTTP 404 Not Found</option>
-                        <option value={403}>HTTP 403 Forbidden</option>
-                        <option value={410}>HTTP 410 Gone</option>
-                      </select>
-                    ) : (
-                      <div className="flex gap-1.5">
-                        <input
-                          className={inputCls}
-                          value={rule.target || ''}
-                          onChange={(e) => updateRule(idx, { target: e.target.value })}
-                          placeholder={rule.kind === 'rewrite' ? '/post.php?slug=$1' : '/new-path'}
-                        />
-                        {rule.kind === 'redir' && (
-                          <select
-                            className={`${selectCls} w-20 shrink-0`}
-                            value={rule.status || 301}
-                            onChange={(e) => updateRule(idx, { status: Number(e.target.value) })}
-                          >
-                            <option value={301}>301</option>
-                            <option value={302}>302</option>
-                            <option value={307}>307</option>
-                            <option value={308}>308</option>
-                          </select>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 font-mono text-xs">
+                        <span className="truncate text-zinc-100" title={rule.pattern}>
+                          {rule.pattern}
+                        </span>
+                        {rule.kind !== 'block' && (
+                          <>
+                            <span aria-hidden="true" className="shrink-0 text-zinc-400">
+                              &rarr;
+                            </span>
+                            <span className="truncate text-orange-300" title={rule.target || ''}>
+                              {rule.target}
+                            </span>
+                          </>
                         )}
                       </div>
-                    )}
+                      {(rule.note || rule.unless_exists || rule.preserve_query) && (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+                          {rule.kind === 'rewrite' && rule.unless_exists && (
+                            <span className="font-mono text-[10px] text-zinc-300">!-f</span>
+                          )}
+                          {rule.kind !== 'block' && rule.preserve_query && (
+                            <span className="font-mono text-[10px] text-zinc-300">QSA</span>
+                          )}
+                          {rule.note && <span className="truncate">{rule.note}</span>}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-1 sm:col-span-2">
+                  <div className="flex shrink-0 items-center gap-0.5">
                     <input
                       type="checkbox"
+                      aria-label={`Enable rule ${idx + 1}`}
                       checked={rule.enabled}
-                      onChange={(e) => updateRule(idx, { enabled: e.target.checked })}
-                      title="Enable rule"
-                      className="mr-1 h-4 w-4 accent-orange-500 cursor-pointer"
+                      onChange={(e) => toggleEnabled(idx, e.target.checked)}
+                      title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                      className="mr-1.5 h-4 w-4 accent-orange-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer"
                     />
                     <button
                       type="button"
+                      aria-label={`Edit rule ${idx + 1}`}
+                      onClick={() => setEditorState({ open: true, index: idx })}
+                      title="Edit rule"
+                      className={iconBtnCls}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move rule ${idx + 1} up`}
                       onClick={() => moveRule(idx, -1)}
-                      disabled={idx === 0}
-                      title="Move up"
-                      className="rounded p-1 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-30 cursor-pointer"
+                      disabled={isFiltering || idx === 0}
+                      title={isFiltering ? 'Clear filter to reorder' : 'Move up'}
+                      className={iconBtnCls}
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
+                      aria-label={`Move rule ${idx + 1} down`}
                       onClick={() => moveRule(idx, 1)}
-                      disabled={idx === rules.length - 1}
-                      title="Move down"
-                      className="rounded p-1 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-30 cursor-pointer"
+                      disabled={isFiltering || idx === rules.length - 1}
+                      title={isFiltering ? 'Clear filter to reorder' : 'Move down'}
+                      className={iconBtnCls}
                     >
                       <ArrowDown className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
+                      aria-label={`Delete rule ${idx + 1}`}
                       onClick={() => removeRule(idx)}
                       title="Delete rule"
-                      className="rounded p-1 text-zinc-400 hover:bg-rose-500/10 hover:text-rose-400 cursor-pointer"
+                      className="rounded p-1.5 text-zinc-400 transition hover:bg-rose-500/10 hover:text-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
-                {rule.kind !== 'block' && (
-                  <div className="mt-2 flex flex-wrap items-center gap-4 border-t border-white/[0.05] pt-2 text-[11px] text-zinc-400">
-                    {rule.kind === 'rewrite' && (
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer hover:text-zinc-200">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(rule.unless_exists)}
-                          onChange={(e) => updateRule(idx, { unless_exists: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-orange-500 cursor-pointer"
-                        />
-                        <span>Skip if file exists (!-f)</span>
-                      </label>
-                    )}
-                    <label className="inline-flex items-center gap-1.5 cursor-pointer hover:text-zinc-200">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(rule.preserve_query)}
-                        onChange={(e) => updateRule(idx, { preserve_query: e.target.checked })}
-                        className="h-3.5 w-3.5 accent-orange-500 cursor-pointer"
-                      />
-                      <span>Preserve query string (QSA)</span>
-                    </label>
-                    {rule.note && <span className="ml-auto text-[10px] text-zinc-500">{rule.note}</span>}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
-
-        <div className="flex items-start gap-2 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[11px] text-zinc-400">
-          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
-          <span>
-            Regex rules use Go RE2 syntax with capture groups <code className="font-mono text-zinc-300">$1</code>,{' '}
-            <code className="font-mono text-zinc-300">$2</code>. Rules evaluate top-to-bottom inside Caddy before fast-path caching.
-          </span>
-        </div>
       </div>
 
       {importOpen && (
@@ -408,6 +440,25 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
             open={importOpen}
             onClose={() => setImportOpen(false)}
             onApply={handleImportApply}
+          />
+        </Suspense>
+      )}
+
+      {guideOpen && (
+        <Suspense fallback={null}>
+          <RoutingGuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
+        </Suspense>
+      )}
+
+      {editorState.open && (
+        <Suspense fallback={null}>
+          <RuleEditorModal
+            key={editorState.index !== null ? `edit-${editingRule?.id || editorState.index}` : 'new'}
+            open={editorState.open}
+            initialRule={editingRule}
+            presets={RULE_PRESETS}
+            onClose={() => setEditorState({ open: false, index: null })}
+            onSave={handleRuleSave}
           />
         </Suspense>
       )}

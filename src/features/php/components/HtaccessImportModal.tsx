@@ -184,7 +184,7 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
 
             {result.rules.length > 0 && (
               <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
                   Generated Caddy Rules ({result.rules.length})
                 </div>
                 <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
