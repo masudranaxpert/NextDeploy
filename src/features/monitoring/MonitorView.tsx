@@ -396,8 +396,7 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setSortBy('usage')}
-                    title="Sort active projects by highest combined load"
-                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'usage' ? 'text-zinc-200' : 'hover:text-zinc-200'}`}
+                    className="hover:text-zinc-200 transition-colors cursor-pointer"
                   >
                     Project
                   </button>
@@ -407,27 +406,27 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setSortBy((s) => (s === 'cpu' ? 'usage' : 'cpu'))}
-                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'cpu' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                    className="hover:text-zinc-200 transition-colors cursor-pointer"
                   >
-                    CPU {sortBy === 'cpu' ? '↓' : ''}
+                    CPU{sortBy === 'cpu' ? ' ↓' : ''}
                   </button>
                 </th>
                 <th className="w-[16%] px-4 py-2.5 font-medium text-right">
                   <button
                     type="button"
                     onClick={() => setSortBy((s) => (s === 'memory' ? 'usage' : 'memory'))}
-                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'memory' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                    className="hover:text-zinc-200 transition-colors cursor-pointer"
                   >
-                    Memory {sortBy === 'memory' ? '↓' : ''}
+                    Memory{sortBy === 'memory' ? ' ↓' : ''}
                   </button>
                 </th>
                 <th className="w-[16%] px-4 py-2.5 font-medium text-right">
                   <button
                     type="button"
                     onClick={() => setSortBy((s) => (s === 'disk' ? 'usage' : 'disk'))}
-                    className={`transition-colors duration-150 cursor-pointer ${sortBy === 'disk' ? 'text-zinc-100' : 'hover:text-zinc-200'}`}
+                    className="hover:text-zinc-200 transition-colors cursor-pointer"
                   >
-                    Disk {sortBy === 'disk' ? '↓' : ''}
+                    Disk{sortBy === 'disk' ? ' ↓' : ''}
                   </button>
                 </th>
               </tr>
@@ -442,14 +441,13 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
               ) : (
                 sortedApps.map((app) => {
                   const isPinned = pinnedSet.has(app.slug);
-                  const stopped = isAppStopped(app);
                   return (
                     <tr
                       key={app.id}
                       onClick={() => onSelectApp?.(app.id)}
-                      className={`transition-colors duration-150 hover:bg-white/[0.03] ${
+                      className={`hover:bg-white/[0.03] transition-colors ${
                         onSelectApp ? 'cursor-pointer' : ''
-                      } ${stopped ? 'opacity-60' : ''}`}
+                      }`}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5 min-w-0">
