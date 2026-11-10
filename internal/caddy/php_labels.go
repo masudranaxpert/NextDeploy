@@ -13,6 +13,11 @@ import (
 // from disk. root is the document root as Caddy sees it; socket is the PHP-FPM unix socket
 // path as Caddy sees it ("" for static sites).
 func PHPSiteLabels(domains []db.AppDomain, root, socket string, sec SiteSecurity) map[string]string {
+	return PHPSiteLabelsWithRouting(domains, root, socket, sec, SiteRouting{})
+}
+
+// PHPSiteLabelsWithRouting builds caddy-docker-proxy labels including per-site routing & fallback rules.
+func PHPSiteLabelsWithRouting(domains []db.AppDomain, root, socket string, sec SiteSecurity, routing SiteRouting) map[string]string {
 	out := map[string]string{}
 	domains = sortedDomains(domains)
 	for i, d := range domains {
@@ -20,12 +25,12 @@ func PHPSiteLabels(domains []db.AppDomain, root, socket string, sec SiteSecurity
 		if len(domains) > 1 {
 			prefix = "caddy_" + strconv.Itoa(i)
 		}
-		appendPHPSiteLabels(out, prefix, d, root, socket, sec)
+		appendPHPSiteLabels(out, prefix, d, root, socket, sec, routing)
 	}
 	return out
 }
 
-func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain, root, socket string, sec SiteSecurity) {
+func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain, root, socket string, sec SiteSecurity, routing SiteRouting) {
 	domain := cleanQuotedValue(d.Domain)
 	if domain == "" {
 		return
@@ -59,6 +64,7 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 	labels[prefix+".@hidden.path_regexp"] = `(^|/)\.(git|svn|hg|env|nextdeploy-db|ht[a-z]*)(/|$|\.)`
 	labels[prefix+".respond_0"] = "@hidden 404"
 	sec.appendLabels(labels, prefix)
+	hasCustomRules := routing.appendLabels(labels, prefix, socket != "")
 	if socket != "" {
 		// Auto-serve WordPress static HTML disk cache (WP Fastest Cache, WP Super Cache,
 		// Cache Enabler, WP Rocket) directly via Caddy file_server in <1ms without touching PHP or DB.
@@ -68,14 +74,32 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 		labels[prefix+".@wp_cache.2_not.method"] = "POST"
 		labels[prefix+".@wp_cache.3_not.expression"] = "{query} != ''"
 		labels[prefix+".@wp_cache.file.try_files"] = "/wp-content/cache/all{path}/index.html /wp-content/cache/supercache/{host}{uri}/index-https.html /wp-content/cache/supercache/{host}{uri}/index.html /wp-content/cache/cache-enabler/{host}{uri}/https-index.html /wp-content/cache/cache-enabler/{host}{uri}/index.html /wp-content/cache/wp-rocket/{host}{uri}/index-https.html /wp-content/cache/wp-rocket/{host}{uri}/index.html"
-		labels[prefix+".rewrite"] = "@wp_cache {http.matchers.file.relative}"
+		if hasCustomRules {
+			// Run WP cache lookup inside route after user-defined block/redir/rewrite rules.
+			labels[fmt.Sprintf("%s.route.%03d_rewrite", prefix, routing.enabledCount())] = "@wp_cache {http.matchers.file.relative}"
+		} else {
+			labels[prefix+".rewrite"] = "@wp_cache {http.matchers.file.relative}"
+		}
 
 		labels[prefix+".php_fastcgi"] = "unix/" + socket
 		labels[prefix+".php_fastcgi.dial_timeout"] = "5s"
 		labels[prefix+".php_fastcgi.read_timeout"] = "120s"
 		labels[prefix+".php_fastcgi.write_timeout"] = "120s"
+		switch routing.FallbackMode {
+		case FallbackStrict404:
+			labels[prefix+".php_fastcgi.try_files"] = "{path} {path}/index.php =404"
+		case FallbackCustom:
+			if entry := strings.TrimPrefix(strings.TrimSpace(routing.FallbackEntry), "/"); entry != "" {
+				labels[prefix+".php_fastcgi.try_files"] = "{path} {path}/index.php /" + entry
+			}
+		}
 		if d.ShieldNodeID != nil || d.EnableHTTPS {
 			labels[prefix+".php_fastcgi.env"] = "HTTPS on"
+		}
+	} else if routing.FallbackMode == FallbackCustom {
+		if entry := strings.TrimPrefix(strings.TrimSpace(routing.FallbackEntry), "/"); entry != "" {
+			labels[prefix+".@nd_spa.not.file"] = `{{""}}`
+			labels[prefix+".rewrite_fallback"] = "@nd_spa /" + entry
 		}
 	}
 	labels[prefix+".file_server.precompressed"] = "gzip zstd"

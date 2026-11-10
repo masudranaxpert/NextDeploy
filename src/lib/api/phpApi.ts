@@ -92,6 +92,47 @@ export interface PhpInstanceData {
   user_limits: Array<{ user_id: number; username: string; role: string; max_databases: number; max_cron_jobs: number }>;
 }
 
+export interface PhpRoutingRule {
+  id: string;
+  kind: 'rewrite' | 'redir' | 'block';
+  match_type: 'exact' | 'prefix' | 'regex';
+  pattern: string;
+  target?: string;
+  status?: number;
+  enabled: boolean;
+  unless_exists?: boolean;
+  preserve_query?: boolean;
+  note?: string;
+}
+
+export interface PhpSiteRouting {
+  fallback_mode?: '' | 'default' | 'strict_404' | 'custom';
+  fallback_entry?: string;
+  rules?: PhpRoutingRule[];
+}
+
+export interface HtaccessDiagnostic {
+  file: string;
+  line: number;
+  severity: 'converted' | 'info' | 'warning' | 'unknown';
+  directive: string;
+  message: string;
+}
+
+export interface HtaccessConvertResult {
+  rules: PhpRoutingRule[];
+  fallback_mode?: '' | 'default' | 'strict_404' | 'custom';
+  fallback_entry?: string;
+  diagnostics: HtaccessDiagnostic[];
+  files_scanned?: number;
+  files?: string[];
+  summary?: {
+    converted: number;
+    skipped: number;
+    warnings: number;
+  };
+}
+
 export interface PhpSettings {
   memory_limit: string;
   max_execution_time: number;
@@ -104,6 +145,8 @@ export interface PhpSettings {
   allow_shell_functions?: boolean;
   disable_functions?: string;
   additional: string;
+  stopped?: boolean;
+  routing?: PhpSiteRouting;
 }
 
 export interface PhpStatusData {
@@ -245,6 +288,32 @@ export const phpApi = {
   phpSiteSettings: (appId: string, body: Partial<PhpSettings> & { php_version?: string; root_dir?: string }) =>
     requestJson(site(appId, '/settings'), json(body)),
   phpSiteRestart: (appId: string) => requestJson(site(appId, '/restart'), { method: 'POST' }),
+  phpSiteStop: async (appId: string) => {
+    const res = await requestJson<{ ok: boolean; status: string }>(site(appId, '/stop'), { method: 'POST' });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  phpSiteStart: async (appId: string) => {
+    const res = await requestJson<{ ok: boolean; status: string }>(site(appId, '/start'), { method: 'POST' });
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  phpRoutingGet: (appId: string) => requestJson<{ ok: boolean; routing: PhpSiteRouting; stopped: boolean }>(site(appId, '/routing')),
+  phpRoutingSave: async (appId: string, routing: PhpSiteRouting) => {
+    const res = await requestJson<{ ok: boolean; routing: PhpSiteRouting }>(site(appId, '/routing'), json(routing));
+    if (res?.ok) notifyMutation();
+    return res;
+  },
+  phpConvertHtaccess: (appId: string, content: string, filePath = '.htaccess') =>
+    requestJson<{ ok: boolean; result: HtaccessConvertResult }>(site(appId, '/routing/convert-htaccess'), json({ content, file_path: filePath })),
+  phpScanHtaccess: async (appId: string, opts?: { apply?: boolean; mode?: 'replace' | 'append' }) => {
+    const res = await requestJson<{ ok: boolean; result: HtaccessConvertResult; routing?: PhpSiteRouting }>(
+      site(appId, '/routing/scan-htaccess'),
+      json({ apply: Boolean(opts?.apply), mode: opts?.mode || 'replace' })
+    );
+    if (res?.ok && opts?.apply) notifyMutation();
+    return res;
+  },
   phpFixPermissions: (appId: string) => requestJson(site(appId, '/fix-permissions'), { method: 'POST' }),
   phpProvision: (appId: string, consume = false) =>
     requestJson<{ ok: boolean; provision: PhpProvision | null }>(site(appId, `/provision${consume ? '?consume=1' : ''}`)),

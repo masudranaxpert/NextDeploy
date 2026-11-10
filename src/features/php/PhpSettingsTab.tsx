@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Copy, FolderOpen, KeyRound, RotateCw, ShieldCheck, Trash2, Zap } from 'lucide-react';
+import { Check, Copy, FolderOpen, KeyRound, Power, PowerOff, RotateCw, ShieldCheck, Trash2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
@@ -25,6 +25,7 @@ import {
 } from './ui';
 import { PhpVersionSelect } from './PhpVersionSelect';
 import { WordPressOptimizationModal } from './WordPressOptimizationModal';
+import { PhpRoutingSection } from './components/PhpRoutingSection';
 
 const fmtTime = (s: number) => (s >= 60 ? `${s / 60} min` : `${s} s`);
 
@@ -363,8 +364,61 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         )}
       </Card>
 
+      <PhpRoutingSection
+        appId={app.id}
+        isStatic={isStatic}
+        value={form.routing || {}}
+        onChange={(routing) => setForm((prev) => (prev ? { ...prev, routing } : prev))}
+        onSaved={async () => {
+          loadedFor.current = '';
+          await reload();
+          await onChanged();
+        }}
+      />
+
       <Card title="Maintenance & Operations">
         <div className="divide-y divide-white/[0.05]">
+          <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-zinc-100">
+                {detail.settings?.stopped || detail.runtime.state === 'stopped' ? 'Start Site' : 'Stop Site'}
+              </div>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {detail.settings?.stopped || detail.runtime.state === 'stopped'
+                  ? 'Site is offline — start to restore its Caddy route and PHP-FPM pool'
+                  : 'Take this site offline by removing its Caddy route and freeing its PHP-FPM pool'}
+              </p>
+            </div>
+            <GhostButton
+              busy={busy === 'power'}
+              onClick={() =>
+                run(
+                  'power',
+                  async () => {
+                    const stopped = Boolean(detail.settings?.stopped || detail.runtime.state === 'stopped');
+                    const r = stopped ? await backendApi.phpSiteStart(app.id) : await backendApi.phpSiteStop(app.id);
+                    if (r.ok) {
+                      loadedFor.current = '';
+                      await onChanged();
+                    }
+                    return r;
+                  },
+                  detail.settings?.stopped || detail.runtime.state === 'stopped' ? 'Site started' : 'Site stopped'
+                )
+              }
+              className="shrink-0"
+            >
+              {detail.settings?.stopped || detail.runtime.state === 'stopped' ? (
+                <>
+                  <Power className="h-3.5 w-3.5 text-emerald-400" /> Start
+                </>
+              ) : (
+                <>
+                  <PowerOff className="h-3.5 w-3.5 text-amber-400" /> Stop
+                </>
+              )}
+            </GhostButton>
+          </div>
           {!isStatic && (
             <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
               <div className="min-w-0">
@@ -379,9 +433,9 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
           <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
             <div className="min-w-0">
               <div className="text-sm font-medium text-zinc-100">Repair file permissions</div>
-              <p className="mt-0.5 text-xs text-zinc-500">Reset directories to 755 and files to 644</p>
+              <p className="mt-0.5 text-xs text-zinc-500">Reset directories to 755 (775 for tmp/uploads) and files to 644 under site UID</p>
             </div>
-            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File ownership repaired')} className="shrink-0">
+            <GhostButton busy={busy === 'perm'} onClick={() => run('perm', () => backendApi.phpFixPermissions(app.id), 'File permissions & ownership repaired')} className="shrink-0">
               <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" /> Repair
             </GhostButton>
           </div>

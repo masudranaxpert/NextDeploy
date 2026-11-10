@@ -132,6 +132,10 @@ func (h *Handler) CallTool(ctx context.Context, u db.User, params CallToolParams
 		return h.handleGitPull(ctx, u, params.Arguments)
 	case "git_sync":
 		return h.handleGitSync(ctx, u, params.Arguments)
+	case "php_routing":
+		return h.handlePHPRouting(ctx, u, params.Arguments)
+	case "php_power":
+		return h.handlePHPPower(ctx, u, params.Arguments)
 
 	// Backward compatibility aliases for merged tools
 	case "redeploy":
@@ -1535,6 +1539,9 @@ func (h *Handler) handleRestart(ctx context.Context, u db.User, args map[string]
 	if err != nil {
 		return errorResult(err)
 	}
+	if service == "" && h.p.DB.IsPHPSite(ctx, appID) {
+		return h.handlePHPPower(ctx, u, map[string]interface{}{"app_id": appID, "action": "restart"})
+	}
 	if service != "" {
 		if recreate {
 			composeFiles := h.p.EffectiveComposePaths(ctx, app, appID)
@@ -1571,6 +1578,9 @@ func (h *Handler) handleStop(ctx context.Context, u db.User, args map[string]int
 	app, err := h.hasAppAccess(ctx, u, appID, db.CollabRoleDeveloper)
 	if err != nil {
 		return errorResult(err)
+	}
+	if service == "" && h.p.DB.IsPHPSite(ctx, appID) {
+		return h.handlePHPPower(ctx, u, map[string]interface{}{"app_id": appID, "action": "stop"})
 	}
 	if service != "" {
 		project := h.p.ActiveComposeProjectName(ctx, app, appID)

@@ -63,7 +63,7 @@ _nd_completions() {
             return 0
             ;;
         php)
-            COMPREPLY=( $(compgen -W "list create info set restart fix-perms pma db cron" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "list create info set stop start restart rules import-manifest fix-perms pma db cron" -- ${cur}) )
             return 0
             ;;
         db)

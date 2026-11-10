@@ -38,8 +38,16 @@ func RunPHP(cl *client.Client, args []string) error {
 		return runPHPInfo(cl, rest)
 	case "set", "config":
 		return runPHPSet(cl, rest)
+	case "stop":
+		return runPHPPower(cl, rest, "stop")
+	case "start":
+		return runPHPPower(cl, rest, "start")
 	case "restart":
 		return runPHPRestart(cl, rest)
+	case "rules", "routing":
+		return runPHPRules(cl, rest)
+	case "import-manifest", "import":
+		return runPHPImportManifest(cl, rest)
 	case "fix-perms", "perms":
 		return runPHPFixPerms(cl, rest)
 	case "pma", "phpmyadmin":
@@ -58,11 +66,15 @@ func printPHPHelp() {
 	fmt.Println("\nManage PHP hosting, WordPress sites, MariaDB databases, and crons.")
 	fmt.Println("\nCommands:")
 	fmt.Println("  list, ls                     List all PHP and WordPress sites")
-	fmt.Println("  create <name> [flags]        Create a new PHP or WordPress site")
-	fmt.Println("  info [app_id]                Show PHP site configuration and status")
-	fmt.Println("  set [app_id] [flags]         Configure PHP version, memory, and limits")
-	fmt.Println("  restart [app_id]             Restart PHP runtime container for site")
-	fmt.Println("  fix-perms [app_id]           Fix file ownership and permissions in htdocs")
+	fmt.Println("  create <name> [domain] [flags] Create a new PHP, WordPress, or static site")
+	fmt.Println("  info [app_id]                  Show PHP site configuration and status")
+	fmt.Println("  set [app_id] [flags]           Configure PHP version, memory, and limits")
+	fmt.Println("  stop [app_id]                  Stop PHP/static site (takes route offline)")
+	fmt.Println("  start [app_id]                 Start a stopped PHP/static site")
+	fmt.Println("  restart [app_id]               Restart PHP runtime container for site")
+	fmt.Println("  rules <subcommand>             Manage Caddy URL routing rules & .htaccess import")
+	fmt.Println("  import-manifest <file.json>    Batch provision PHP sites, domains, DBs & rules")
+	fmt.Println("  fix-perms [app_id]             Fix file ownership and permissions in htdocs")
 	fmt.Println("  pma [app_id]                 Open phpMyAdmin in browser with one-click SSO")
 	fmt.Println("  db <subcommand>              Manage MariaDB databases and database users")
 	fmt.Println("  cron <subcommand>            Manage PHP scheduled cron jobs")
@@ -112,54 +124,87 @@ func runPHPList(cl *client.Client, args []string) error {
 }
 
 func runPHPCreate(cl *client.Client, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: nd php create <name> [--version 8.3] [--type php|wordpress|static] [--title ...] [--admin-user ...] [--admin-email ...]")
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		return fmt.Errorf("usage: nd php create <name> [domain] [--domain <d>] [--no-default-domain] [--version 8.3] [--type php|wordpress|static] [--db [dbname]] [--title ...] [--admin-user ...] [--admin-email ...]")
 	}
 
 	name := args[0]
+	domain := ""
+	noDefaultDomain := false
+	createDB := false
+	dbName := ""
 	version := "8.3"
 	siteType := "php"
 	title := ""
 	adminUser := ""
 	adminEmail := ""
 
-	for i := 1; i < len(args); i++ {
+	startIdx := 1
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") && strings.Contains(args[1], ".") {
+		domain = args[1]
+		startIdx = 2
+	}
+
+	for i := startIdx; i < len(args); i++ {
 		a := args[i]
-		if (a == "-v" || a == "--version") && i+1 < len(args) {
+		switch {
+		case (a == "-d" || a == "--domain") && i+1 < len(args):
+			domain = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--domain="):
+			domain = strings.TrimPrefix(a, "--domain=")
+		case a == "--no-default-domain":
+			noDefaultDomain = true
+		case a == "--db":
+			createDB = true
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				dbName = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "--db="):
+			createDB = true
+			dbName = strings.TrimPrefix(a, "--db=")
+		case (a == "-v" || a == "--version" || a == "--php") && i+1 < len(args):
 			version = args[i+1]
 			i++
-		} else if strings.HasPrefix(a, "--version=") {
+		case strings.HasPrefix(a, "--version="):
 			version = strings.TrimPrefix(a, "--version=")
-		} else if (a == "-t" || a == "--type") && i+1 < len(args) {
+		case strings.HasPrefix(a, "--php="):
+			version = strings.TrimPrefix(a, "--php=")
+		case (a == "-t" || a == "--type") && i+1 < len(args):
 			siteType = args[i+1]
 			i++
-		} else if strings.HasPrefix(a, "--type=") {
+		case strings.HasPrefix(a, "--type="):
 			siteType = strings.TrimPrefix(a, "--type=")
-		} else if a == "--title" && i+1 < len(args) {
+		case a == "--title" && i+1 < len(args):
 			title = args[i+1]
 			i++
-		} else if strings.HasPrefix(a, "--title=") {
+		case strings.HasPrefix(a, "--title="):
 			title = strings.TrimPrefix(a, "--title=")
-		} else if a == "--admin-user" && i+1 < len(args) {
+		case a == "--admin-user" && i+1 < len(args):
 			adminUser = args[i+1]
 			i++
-		} else if strings.HasPrefix(a, "--admin-user=") {
+		case strings.HasPrefix(a, "--admin-user="):
 			adminUser = strings.TrimPrefix(a, "--admin-user=")
-		} else if a == "--admin-email" && i+1 < len(args) {
+		case a == "--admin-email" && i+1 < len(args):
 			adminEmail = args[i+1]
 			i++
-		} else if strings.HasPrefix(a, "--admin-email=") {
+		case strings.HasPrefix(a, "--admin-email="):
 			adminEmail = strings.TrimPrefix(a, "--admin-email=")
 		}
 	}
 
-	payload := map[string]string{
-		"name":           name,
-		"php_version":    version,
-		"type":           siteType,
-		"title":          title,
-		"wp_admin_user":  adminUser,
-		"wp_admin_email": adminEmail,
+	payload := map[string]any{
+		"name":              name,
+		"php_version":       version,
+		"type":              siteType,
+		"domain":            domain,
+		"no_default_domain": noDefaultDomain,
+		"create_db":         createDB,
+		"db_name":           dbName,
+		"title":             title,
+		"wp_admin_user":     adminUser,
+		"wp_admin_email":    adminEmail,
 	}
 
 	data, status, err := cl.Do("POST", "/api/v1/php/sites", payload)
@@ -171,13 +216,28 @@ func runPHPCreate(cl *client.Client, args []string) error {
 	}
 
 	var resp struct {
-		AppID string `json:"app_id"`
-		Name  string `json:"name"`
+		ID         string `json:"id"`
+		AppID      string `json:"app_id"`
+		Name       string `json:"name"`
+		Domain     string `json:"domain"`
+		DBName     string `json:"db_name"`
+		DBUser     string `json:"db_user"`
+		DBPassword string `json:"db_password"`
 	}
 	_ = json.Unmarshal(data, &resp)
+	appID := resp.AppID
+	if appID == "" {
+		appID = resp.ID
+	}
 
-	ui.Success("PHP site %s (%s) created successfully", ui.Bold(name), ui.Cyan(resp.AppID))
-	fmt.Printf("Files root: htdocs/\nOpen shell: nd shell %s\nUpload code: nd push %s\n", resp.AppID, resp.AppID)
+	ui.Success("PHP site %s (%s) created successfully", ui.Bold(name), ui.Cyan(appID))
+	if resp.Domain != "" {
+		fmt.Printf("Domain:      https://%s\n", resp.Domain)
+	}
+	if resp.DBName != "" {
+		fmt.Printf("Database:    %s (user: %s, pass: %s)\n", resp.DBName, resp.DBUser, resp.DBPassword)
+	}
+	fmt.Printf("Files root:  htdocs/\nOpen shell:  nd shell %s\nUpload code: nd push %s\n", appID, appID)
 	return nil
 }
 
@@ -358,14 +418,15 @@ func runPHPDB(cl *client.Client, args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println("Usage: nd php db <subcommand> [args...]")
 		fmt.Println("\nManage MariaDB databases and users:")
-		fmt.Println("  list [app_id]                           List databases for site")
-		fmt.Println("  create [app_id] <dbname>                Create a new database")
-		fmt.Println("  rm [app_id] <dbid>                      Delete a database")
-		fmt.Println("  export [app_id] <dbid> [file.sql]       Export SQL dump of database")
-		fmt.Println("  import [app_id] <dbid> <file.sql>       Import SQL dump into database")
-		fmt.Println("  user list [app_id]                      List database users")
-		fmt.Println("  user create [app_id] <user> [password]  Create database user")
-		fmt.Println("  user rm [app_id] <uid>                  Delete database user")
+		fmt.Println("  list [app_id]                                    List databases for site")
+		fmt.Println("  create [app_id] <dbname> [--user u] [--password pw] Create a database (and optional granted user)")
+		fmt.Println("  grant [app_id] <user_or_id> <db_or_id> [--access all|read] Grant MariaDB privileges")
+		fmt.Println("  rm [app_id] <dbid>                               Delete a database")
+		fmt.Println("  export [app_id] <dbid> [file.sql]                Export SQL dump of database")
+		fmt.Println("  import [app_id] <dbid> <file.sql>                Import SQL dump into database")
+		fmt.Println("  user list [app_id]                               List database users")
+		fmt.Println("  user create [app_id] <user> [password] [--db id] Create database user")
+		fmt.Println("  user rm [app_id] <uid>                           Delete database user")
 		return nil
 	}
 
@@ -404,13 +465,33 @@ func runPHPDB(cl *client.Client, args []string) error {
 
 	case "create":
 		if len(rest) == 0 {
-			return fmt.Errorf("usage: nd php db create [app_id] <dbname>")
+			return fmt.Errorf("usage: nd php db create [app_id] <dbname> [--user <u>] [--password <pw>] [--access all|read]")
 		}
 		appID, rem, err := resolveAppID(rest)
 		if err != nil || len(rem) == 0 {
 			return fmt.Errorf("database name required: nd php db create [app_id] <dbname>")
 		}
 		dbName := rem[0]
+		userName, userPass, access := "", "", "all"
+		for i := 1; i < len(rem); i++ {
+			a := rem[i]
+			if (a == "--user" || a == "-u") && i+1 < len(rem) {
+				userName = rem[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--user=") {
+				userName = strings.TrimPrefix(a, "--user=")
+			} else if (a == "--password" || a == "-p") && i+1 < len(rem) {
+				userPass = rem[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--password=") {
+				userPass = strings.TrimPrefix(a, "--password=")
+			} else if a == "--access" && i+1 < len(rem) {
+				access = rem[i+1]
+				i++
+			} else if strings.HasPrefix(a, "--access=") {
+				access = strings.TrimPrefix(a, "--access=")
+			}
+		}
 		data, status, err := cl.Do("POST", "/api/v1/php/sites/"+appID+"/databases", map[string]string{"name": dbName})
 		if err != nil {
 			return err
@@ -418,8 +499,54 @@ func runPHPDB(cl *client.Client, args []string) error {
 		if status >= 400 {
 			return fmt.Errorf("failed to create database: %s", client.JSONError(data))
 		}
-		ui.Success("Created database %s for site %s", dbName, appID)
+		var dbResp struct {
+			ID     int64  `json:"id"`
+			DBName string `json:"db_name"`
+		}
+		_ = json.Unmarshal(data, &dbResp)
+		fullDBName := dbResp.DBName
+		if fullDBName == "" {
+			fullDBName = dbName
+		}
+		ui.Success("Created database %s (#%d) for site %s", fullDBName, dbResp.ID, appID)
+		if userName != "" {
+			uPayload := map[string]any{
+				"name":     userName,
+				"password": userPass,
+				"grants":   []map[string]any{{"db_id": dbResp.ID, "access": access}},
+			}
+			uData, uStatus, uErr := cl.Do("POST", "/api/v1/php/sites/"+appID+"/db-users", uPayload)
+			if uErr != nil {
+				return uErr
+			}
+			if uStatus >= 400 {
+				return fmt.Errorf("database created, but failed creating/granting user %q: %s", userName, client.JSONError(uData))
+			}
+			var uResp struct {
+				User     string `json:"user"`
+				Password string `json:"password"`
+			}
+			_ = json.Unmarshal(uData, &uResp)
+			ui.Success("Created & granted user %s (%s) with password: %s", ui.Bold(uResp.User), access, ui.Cyan(uResp.Password))
+		}
 		return nil
+
+	case "grant":
+		appID, rem, err := resolveAppID(rest)
+		if err != nil || len(rem) < 2 {
+			return fmt.Errorf("usage: nd php db grant [app_id] <user_or_id> <db_or_id> [--access all|read]")
+		}
+		userRef, dbRef := rem[0], rem[1]
+		access := "all"
+		for i := 2; i < len(rem); i++ {
+			if rem[i] == "--access" && i+1 < len(rem) {
+				access = rem[i+1]
+				i++
+			} else if strings.HasPrefix(rem[i], "--access=") {
+				access = strings.TrimPrefix(rem[i], "--access=")
+			}
+		}
+		return grantPHPDBAccess(cl, appID, userRef, dbRef, access)
 
 	case "rm", "delete":
 		appID, rem, err := resolveAppID(rest)
@@ -538,8 +665,9 @@ func runPHPDBUser(cl *client.Client, args []string) error {
 			return fmt.Errorf("error: %s", client.JSONError(data))
 		}
 		var users []struct {
-			ID     int64  `json:"id"`
-			DBUser string `json:"db_user"`
+			ID       int64  `json:"id"`
+			UserName string `json:"user_name"`
+			DBUser   string `json:"db_user"`
 		}
 		_ = json.Unmarshal(data, &users)
 		if len(users) == 0 {
@@ -549,21 +677,41 @@ func runPHPDBUser(cl *client.Client, args []string) error {
 		fmt.Printf("%-6s %-24s\n", "ID", "USERNAME")
 		fmt.Println(strings.Repeat("─", 32))
 		for _, u := range users {
-			fmt.Printf("%-6d %-24s\n", u.ID, u.DBUser)
+			name := u.UserName
+			if name == "" {
+				name = u.DBUser
+			}
+			fmt.Printf("%-6d %-24s\n", u.ID, name)
 		}
 		return nil
 
 	case "create":
 		appID, rem, err := resolveAppID(rest)
 		if err != nil || len(rem) == 0 {
-			return fmt.Errorf("username required: nd php db user create [app_id] <username> [password]")
+			return fmt.Errorf("username required: nd php db user create [app_id] <username> [password] [--db <db_or_id>] [--access all|read]")
 		}
 		username := rem[0]
 		password := ""
-		if len(rem) > 1 {
-			password = rem[1]
+		dbRef := ""
+		access := "all"
+		for i := 1; i < len(rem); i++ {
+			a := rem[i]
+			switch {
+			case a == "--db" && i+1 < len(rem):
+				dbRef = rem[i+1]
+				i++
+			case strings.HasPrefix(a, "--db="):
+				dbRef = strings.TrimPrefix(a, "--db=")
+			case a == "--access" && i+1 < len(rem):
+				access = rem[i+1]
+				i++
+			case strings.HasPrefix(a, "--access="):
+				access = strings.TrimPrefix(a, "--access=")
+			case !strings.HasPrefix(a, "-") && password == "":
+				password = a
+			}
 		}
-		payload := map[string]string{
+		payload := map[string]any{
 			"name":     username,
 			"password": password,
 		}
@@ -575,11 +723,15 @@ func runPHPDBUser(cl *client.Client, args []string) error {
 			return fmt.Errorf("failed to create user: %s", client.JSONError(data))
 		}
 		var resp struct {
+			ID       int64  `json:"id"`
 			User     string `json:"user"`
 			Password string `json:"password"`
 		}
 		_ = json.Unmarshal(data, &resp)
 		ui.Success("Created database user %s with password: %s", ui.Bold(resp.User), ui.Cyan(resp.Password))
+		if dbRef != "" {
+			return grantPHPDBAccess(cl, appID, strconv.FormatInt(resp.ID, 10), dbRef, access)
+		}
 		return nil
 
 	case "rm", "delete":
@@ -659,12 +811,41 @@ func runPHPCron(cl *client.Client, args []string) error {
 		return nil
 
 	case "add":
-		appID, rem, err := resolveAppID(rest)
-		if err != nil || len(rem) < 2 {
-			return fmt.Errorf("schedule and command required: nd php cron add [app_id] \"*/15 * * * *\" \"php artisan schedule:run\"")
+		var sched, cmdStr string
+		var pos []string
+		for i := 0; i < len(rest); i++ {
+			a := rest[i]
+			switch {
+			case (a == "--schedule" || a == "-s") && i+1 < len(rest):
+				sched = rest[i+1]
+				i++
+			case strings.HasPrefix(a, "--schedule="):
+				sched = strings.TrimPrefix(a, "--schedule=")
+			case (a == "--command" || a == "-c") && i+1 < len(rest):
+				cmdStr = rest[i+1]
+				i++
+			case strings.HasPrefix(a, "--command="):
+				cmdStr = strings.TrimPrefix(a, "--command=")
+			default:
+				pos = append(pos, a)
+			}
 		}
-		sched := rem[0]
-		cmdStr := rem[1]
+		appID, rem, err := resolveRoutingAppID(pos, func(s string) bool {
+			return strings.HasPrefix(s, "@") || len(strings.Fields(s)) == 5
+		})
+		if err != nil {
+			return err
+		}
+		if sched == "" && len(rem) > 0 {
+			sched = rem[0]
+			rem = rem[1:]
+		}
+		if cmdStr == "" && len(rem) > 0 {
+			cmdStr = rem[0]
+		}
+		if strings.TrimSpace(sched) == "" || strings.TrimSpace(cmdStr) == "" {
+			return fmt.Errorf("schedule and command required: nd php cron add [app_id] --schedule \"*/15 * * * *\" --command \"php artisan schedule:run\"")
+		}
 		payload := map[string]string{
 			"schedule": sched,
 			"command":  cmdStr,

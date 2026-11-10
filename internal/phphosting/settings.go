@@ -7,21 +7,25 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"panel/internal/caddy"
 )
 
 // SiteSettings are the per-site PHP knobs shown on the Settings tab.
 type SiteSettings struct {
-	MemoryLimit       string `json:"memory_limit"`       // e.g. 256M
-	MaxExecutionTime  int    `json:"max_execution_time"` // seconds
-	MaxInputTime      int    `json:"max_input_time"`     // seconds
-	MaxInputVars      int    `json:"max_input_vars"`
-	PostMaxSize       string `json:"post_max_size"`       // e.g. 64M
-	UploadMaxFilesize string `json:"upload_max_filesize"` // e.g. 64M
-	MaxChildren         int    `json:"max_children"`
-	ProcessManager      string `json:"process_manager"`       // dynamic (default) or ondemand
-	AllowShellFunctions bool   `json:"allow_shell_functions"`  // false: dangerous exec functions disabled by default
-	DisableFunctions    string `json:"disable_functions"`      // custom disabled functions list (empty = use default)
-	Additional          string `json:"additional"`            // extra php.ini directives, one per line
+	MemoryLimit         string            `json:"memory_limit"`       // e.g. 256M
+	MaxExecutionTime    int               `json:"max_execution_time"` // seconds
+	MaxInputTime        int               `json:"max_input_time"`     // seconds
+	MaxInputVars        int               `json:"max_input_vars"`
+	PostMaxSize         string            `json:"post_max_size"`       // e.g. 64M
+	UploadMaxFilesize   string            `json:"upload_max_filesize"` // e.g. 64M
+	MaxChildren         int               `json:"max_children"`
+	ProcessManager      string            `json:"process_manager"`       // dynamic (default) or ondemand
+	AllowShellFunctions bool              `json:"allow_shell_functions"` // false: dangerous exec functions disabled by default
+	DisableFunctions    string            `json:"disable_functions"`     // custom disabled functions list (empty = use default)
+	Additional          string            `json:"additional"`            // extra php.ini directives, one per line
+	Stopped             bool              `json:"stopped,omitempty"`
+	Routing             caddy.SiteRouting `json:"routing,omitempty"`
 }
 
 var (
@@ -211,6 +215,16 @@ func (s SiteSettings) Validate(c Ceilings) error {
 		return err
 	}
 	return nil
+}
+
+// ValidateForSite validates PHP settings together with site-specific routing rules.
+func (s *SiteSettings) ValidateForSite(c Ceilings, isStatic bool) error {
+	if !isStatic {
+		if err := s.Validate(c); err != nil {
+			return err
+		}
+	}
+	return caddy.ValidateRouting(&s.Routing, isStatic)
 }
 
 var directiveKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.]{0,63}$`)

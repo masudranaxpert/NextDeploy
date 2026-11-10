@@ -82,6 +82,7 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("group = %d", sp.UID)
 	w("listen = /run/php/%s.sock", sp.AppID)
 	w("listen.mode = 0660")
+	w("security.limit_extensions = .php")
 	if s.ProcessManager == "ondemand" {
 		w("pm = ondemand")
 		w("pm.max_children = %d", s.MaxChildren)
@@ -122,6 +123,7 @@ func RenderPool(sp PoolSpec) (string, error) {
 	w("php_admin_value[session.save_path] = %s", tmp)
 	w("php_admin_flag[opcache.validate_permission] = on")
 	w("php_admin_flag[opcache.validate_root] = on")
+	w("php_admin_value[cgi.fix_pathinfo] = 1")
 	if !s.AllowShellFunctions {
 		dis := strings.TrimSpace(s.DisableFunctions)
 		if dis == "" {

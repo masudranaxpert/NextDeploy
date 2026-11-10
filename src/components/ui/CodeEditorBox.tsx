@@ -33,6 +33,7 @@ export type SupportedEditorLanguage =
   | 'rust'
   | 'php'
   | 'sql'
+  | 'apache'
   | 'markdown';
 
 interface CodeEditorBoxProps {
@@ -59,7 +60,8 @@ export function detectLanguageFromFilename(
 ): SupportedEditorLanguage {
   const base = (filename.split('/').pop() || filename).toLowerCase();
   if (base === 'dockerfile' || base.endsWith('.dockerfile')) return 'dockerfile';
-  if (base === 'caddyfile' || base.endsWith('.conf') || base === 'nginx.conf') return 'nginx';
+  if (base === '.htaccess' || base.endsWith('.htaccess') || base === '.htpasswd') return 'apache';
+  if (base === 'caddyfile' || base.endsWith('.caddy') || base.endsWith('.conf') || base === 'nginx.conf') return 'nginx';
   if (base.startsWith('.env') || base.endsWith('.env')) return 'env';
   if (base.endsWith('.py') || base === 'requirements.txt' || base === 'pipfile') return 'python';
   if (base.endsWith('.go') || base === 'go.mod' || base === 'go.sum') return 'go';
@@ -286,8 +288,8 @@ export const DevFileIcon: React.FC<{ filename: string; className?: string }> = (
     );
   }
 
-  // Caddyfile / Nginx (.conf)
-  if (base === 'caddyfile' || base.endsWith('.conf')) {
+  // Caddyfile / Nginx (.conf) / Apache (.htaccess)
+  if (base === 'caddyfile' || base.endsWith('.caddy') || base.endsWith('.conf') || base === '.htaccess' || base.endsWith('.htaccess')) {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={`${className} shrink-0`} aria-hidden="true">
         <polygon points="12,2.5 20.2,7.2 20.2,16.8 12,21.5 3.8,16.8 3.8,7.2" fill="#14B8A6" fillOpacity="0.2" stroke="#2DD4BF" strokeWidth="1.6" />
@@ -588,11 +590,173 @@ function renderSourceCodeTokens(line: string): React.ReactNode {
 
 const highlightCache = new Map<string, React.ReactNode>();
 
-function cachedHighlightedLine(line: string, lang: SupportedEditorLanguage): React.ReactNode {
-  const key = lang + '\u0000' + line;
+type MultiLineBlockState = 'normal' | 'triple-double' | 'triple-single' | 'block-comment';
+
+const BLOCK_COMMENT_LANGS = new Set<SupportedEditorLanguage>([
+  'typescript',
+  'javascript',
+  'go',
+  'rust',
+  'php',
+  'sql',
+]);
+
+/**
+ * Computes the multi-line comment / docstring state entering each line so Python
+ * triple-quoted strings (""" / ''') and C-style block comments highlight across lines.
+ */
+function computeLineStartStates(lines: string[], lang: SupportedEditorLanguage): MultiLineBlockState[] {
+  const states: MultiLineBlockState[] = new Array(lines.length).fill('normal');
+  const trackPython = lang === 'python';
+  const trackBlockComment = BLOCK_COMMENT_LANGS.has(lang);
+  if (!trackPython && !trackBlockComment) return states;
+
+  let state: MultiLineBlockState = 'normal';
+  for (let row = 0; row < lines.length; row++) {
+    states[row] = state;
+    const line = lines[row];
+    const len = line.length;
+    if (len > 2000) continue;
+
+    let i = 0;
+    while (i < len) {
+      if (state === 'triple-double') {
+        if (line[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (line.startsWith('"""', i)) {
+          state = 'normal';
+          i += 3;
+          continue;
+        }
+        i++;
+      } else if (state === 'triple-single') {
+        if (line[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (line.startsWith("'''", i)) {
+          state = 'normal';
+          i += 3;
+          continue;
+        }
+        i++;
+      } else if (state === 'block-comment') {
+        const closeIdx = line.indexOf('*/', i);
+        if (closeIdx === -1) break;
+        state = 'normal';
+        i = closeIdx + 2;
+      } else if (trackPython) {
+        if (line[i] === '#') break;
+        if (line.startsWith('"""', i)) {
+          state = 'triple-double';
+          i += 3;
+          continue;
+        }
+        if (line.startsWith("'''", i)) {
+          state = 'triple-single';
+          i += 3;
+          continue;
+        }
+        if (line[i] === '"' || line[i] === "'") {
+          const q = line[i];
+          i++;
+          while (i < len) {
+            if (line[i] === '\\') {
+              i += 2;
+              continue;
+            }
+            if (line[i] === q) {
+              i++;
+              break;
+            }
+            i++;
+          }
+          continue;
+        }
+        i++;
+      } else {
+        // C-style block comments
+        if (line.startsWith('//', i) || (lang === 'sql' && line.startsWith('--', i))) break;
+        if (line.startsWith('/*', i)) {
+          state = 'block-comment';
+          i += 2;
+          continue;
+        }
+        if (line[i] === '"' || line[i] === "'" || line[i] === '`') {
+          const q = line[i];
+          i++;
+          while (i < len) {
+            if (line[i] === '\\') {
+              i += 2;
+              continue;
+            }
+            if (line[i] === q) {
+              i++;
+              break;
+            }
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+    }
+  }
+  return states;
+}
+
+function findClosingTripleQuote(line: string, startIdx: number, delim: '"""' | "'''"): number {
+  let i = startIdx;
+  while (i < line.length) {
+    if (line[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (line.startsWith(delim, i)) return i;
+    i++;
+  }
+  return -1;
+}
+
+function findInlineCommentStart(line: string, lang: SupportedEditorLanguage): number {
+  const hashLang = lang === 'python' || lang === 'sh' || lang === 'nginx' || lang === 'apache';
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (hashLang && ch === '#') {
+      if (lang === 'python' && line.startsWith('#[', i)) continue;
+      return i;
+    }
+    if (!hashLang && ch === '/' && line[i + 1] === '/') {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function cachedHighlightedLine(
+  line: string,
+  lang: SupportedEditorLanguage,
+  blockState: MultiLineBlockState
+): React.ReactNode {
+  const key = lang + '\u0000' + blockState + '\u0000' + line;
   let node = highlightCache.get(key);
   if (node === undefined) {
-    node = renderHighlightedLine(line, lang);
+    node = renderHighlightedLine(line, lang, blockState);
     // ponytail: whole-cache clear at 4k lines — repeated lines (blank, braces) recompute once, fine.
     // For 5k+ line files the remaining cost is React reconciling all rows; visible-viewport
     // virtualization (needs wrap-mode handling) is the next step if that ever feels slow.
@@ -605,15 +769,17 @@ function cachedHighlightedLine(line: string, lang: SupportedEditorLanguage): Rea
 const HighlightedLineRow = React.memo(function HighlightedLineRow({
   content,
   lang,
+  blockState,
   active,
 }: {
   content: string;
   lang: SupportedEditorLanguage;
+  blockState: MultiLineBlockState;
   active: boolean;
 }) {
   return (
     <div className={active ? 'bg-white/[0.03] -mx-4 px-4' : undefined}>
-      {cachedHighlightedLine(content, lang)}
+      {cachedHighlightedLine(content, lang, blockState)}
     </div>
   );
 });
@@ -630,12 +796,49 @@ const GutterRow = React.memo(function GutterRow({ n, active }: { n: number; acti
  * Lightweight, zero-dependency syntax highlighter for Compose YAML, Dockerfile, ENV, JSON, Shell, Nginx/Caddy,
  * plus full polyglot support for TypeScript, JavaScript, Python, Go, Rust, PHP, and SQL.
  */
-function renderHighlightedLine(line: string, lang: SupportedEditorLanguage): React.ReactNode {
+function renderHighlightedLine(
+  line: string,
+  lang: SupportedEditorLanguage,
+  blockState: MultiLineBlockState = 'normal'
+): React.ReactNode {
   if (!line) return '\u00A0';
 
   // Performance guard (VS Code stops rendering a line after 10k chars for the same reason):
   // tokenizing a minified bundle/SVG line would create thousands of spans.
   if (line.length > 2000) return <span className="text-zinc-300">{line}</span>;
+
+  // Continuation of multi-line Python triple-quoted comment/docstring (""" or ''')
+  if (lang === 'python' && (blockState === 'triple-double' || blockState === 'triple-single')) {
+    const delim = blockState === 'triple-double' ? '"""' : "'''";
+    const closeIdx = findClosingTripleQuote(line, 0, delim);
+    if (closeIdx === -1) {
+      return <span className="text-zinc-500 italic">{line}</span>;
+    }
+    const end = closeIdx + 3;
+    const after = line.slice(end);
+    return (
+      <>
+        <span className="text-zinc-500 italic">{line.slice(0, end)}</span>
+        {after ? renderHighlightedLine(after, lang, 'normal') : null}
+      </>
+    );
+  }
+
+  // Continuation of C-style multi-line /* ... */ comment
+  if (blockState === 'block-comment') {
+    const closeIdx = line.indexOf('*/');
+    if (closeIdx === -1) {
+      return <span className="text-zinc-500 italic">{line}</span>;
+    }
+    const end = closeIdx + 2;
+    const after = line.slice(end);
+    return (
+      <>
+        <span className="text-zinc-500 italic">{line.slice(0, end)}</span>
+        {after ? renderHighlightedLine(after, lang, 'normal') : null}
+      </>
+    );
+  }
 
   const trimmed = line.trimStart();
 
@@ -651,6 +854,113 @@ function renderHighlightedLine(line: string, lang: SupportedEditorLanguage): Rea
     (lang === 'sql' && trimmed.startsWith('--'))
   ) {
     return <span className="text-zinc-500 italic">{line}</span>;
+  }
+
+  // Python inline or opening triple-quoted comment/docstring ("""...""" or '''...''')
+  if (lang === 'python' && (line.includes('"""') || line.includes("'''"))) {
+    const segs: React.ReactNode[] = [];
+    let i = 0;
+    let bufStart = 0;
+    while (i < line.length) {
+      if (line[i] === '#') {
+        if (i > bufStart) segs.push(renderSourceCodeTokens(line.slice(bufStart, i)));
+        segs.push(
+          <span key={`py-c-${i}`} className="text-zinc-500 italic">
+            {line.slice(i)}
+          </span>
+        );
+        bufStart = line.length;
+        break;
+      }
+      const delim = line.startsWith('"""', i) ? '"""' : line.startsWith("'''", i) ? "'''" : null;
+      if (delim) {
+        if (i > bufStart) segs.push(renderSourceCodeTokens(line.slice(bufStart, i)));
+        const closeIdx = findClosingTripleQuote(line, i + 3, delim);
+        if (closeIdx === -1) {
+          segs.push(
+            <span key={`py-tq-${i}`} className="text-zinc-500 italic">
+              {line.slice(i)}
+            </span>
+          );
+          bufStart = line.length;
+          break;
+        }
+        const end = closeIdx + 3;
+        segs.push(
+          <span key={`py-tq-${i}`} className="text-zinc-500 italic">
+            {line.slice(i, end)}
+          </span>
+        );
+        i = end;
+        bufStart = i;
+        continue;
+      }
+      if (line[i] === '"' || line[i] === "'") {
+        const q = line[i];
+        i++;
+        while (i < line.length) {
+          if (line[i] === '\\') {
+            i += 2;
+            continue;
+          }
+          if (line[i] === q) {
+            i++;
+            break;
+          }
+          i++;
+        }
+        continue;
+      }
+      i++;
+    }
+    if (bufStart < line.length) {
+      segs.push(renderSourceCodeTokens(line.slice(bufStart)));
+    }
+    return <>{segs}</>;
+  }
+
+  // Apache .htaccess syntax highlighting
+  if (lang === 'apache') {
+    if (trimmed.startsWith('<')) {
+      return <span className="text-pink-400 font-medium">{line}</span>;
+    }
+    const dirMatch = line.match(
+      /^(\s*)(RewriteEngine|RewriteBase|RewriteCond|RewriteRule|RewriteOptions|RedirectPermanent|RedirectTemp|RedirectMatch|Redirect|DirectoryIndex|ErrorDocument|FilesMatch|Files|Require|Deny|Allow|Order|Options|Header|php_value|php_flag)\b(.*)$/i
+    );
+    if (dirMatch) {
+      const [, indent, dir, rest] = dirMatch;
+      return (
+        <>
+          {indent}
+          <span className="text-purple-400 font-semibold">{dir}</span>
+          <span>
+            {rest.split(/(\[[^\]]+\]|%\{[^}]+\}|\$[0-9]|%[0-9])/g).map((part, idx) => {
+              if (!part) return null;
+              if (part.startsWith('[') && part.endsWith(']')) {
+                return (
+                  <span key={idx} className="text-amber-300 font-medium">
+                    {part}
+                  </span>
+                );
+              }
+              if (part.startsWith('%{') || /^\$[0-9]$/.test(part) || /^%[0-9]$/.test(part)) {
+                return (
+                  <span key={idx} className="text-orange-300 font-medium">
+                    {part}
+                  </span>
+                );
+              }
+              return (
+                <span key={idx} className="text-emerald-300">
+                  {part}
+                </span>
+              );
+            })}
+          </span>
+        </>
+      );
+    }
+    return <span className="text-zinc-300">{renderSourceCodeTokens(line)}</span>;
   }
 
   // PHP opening tag
@@ -750,10 +1060,7 @@ function renderHighlightedLine(line: string, lang: SupportedEditorLanguage): Rea
   }
 
   // Polyglot Source Code (TypeScript, JavaScript, Python, Go, Rust, PHP, SQL, Shell, Nginx/Caddy)
-  const commentIdx =
-    lang === 'python' || lang === 'sh' || lang === 'nginx'
-      ? line.indexOf(' #')
-      : line.indexOf('//');
+  const commentIdx = findInlineCommentStart(line, lang);
 
   if (commentIdx !== -1) {
     const codePart = line.slice(0, commentIdx);
@@ -795,7 +1102,11 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const effectiveLanguage = detectLanguageFromFilename(filename, language);
-  const lines = value.split('\n');
+  const lines = useMemo(() => value.split('\n'), [value]);
+  const lineStartStates = useMemo(
+    () => computeLineStartStates(lines, effectiveLanguage),
+    [lines, effectiveLanguage]
+  );
   const lineCount = Math.max(lines.length, 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Blob construction is the expensive part; only on content change
   const sizeBytes = useMemo(() => new Blob([value]).size, [value]);
@@ -1004,6 +1315,7 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
                     key={idx}
                     content={ln}
                     lang={effectiveLanguage}
+                    blockState={lineStartStates[idx] || 'normal'}
                     active={cursorLine === idx + 1}
                   />
                 ))}

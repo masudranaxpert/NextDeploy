@@ -46,9 +46,20 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 
 	name := RuntimeContainer(ownerID, version)
 	dir := m.runtimeDir(ownerID, version)
-	sites, err := m.DB.ListPHPSitesForRuntime(ctx, ownerID, version)
+	allSites, err := m.DB.ListPHPSitesForRuntime(ctx, ownerID, version)
 	if err != nil {
 		return err
+	}
+	sites := make([]db.PHPSite, 0, len(allSites))
+	runDir := filepath.Join(dir, "run")
+	poolsDir := filepath.Join(dir, "pools")
+	for _, s := range allSites {
+		if SettingsFor(s).Stopped {
+			_ = os.Remove(filepath.Join(runDir, s.AppID+".sock"))
+			_ = os.Remove(filepath.Join(poolsDir, s.AppID+".conf"))
+			continue
+		}
+		sites = append(sites, s)
 	}
 	if len(sites) == 0 {
 		removeContainer(ctx, name)
@@ -77,8 +88,6 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 		return err
 	}
 
-	poolsDir := filepath.Join(dir, "pools")
-	runDir := filepath.Join(dir, "run")
 	for _, d := range []string{poolsDir, runDir} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return err
@@ -230,7 +239,8 @@ func (m *Manager) SiteLabels(ctx context.Context, site db.PHPSite) map[string]st
 	if site.SiteType != SiteTypeStatic {
 		socket = SocketPath(site.OwnerID, site.PHPVersion, site.AppID)
 	}
-	return caddy.PHPSiteLabels(domains, DocRoot(site.AppID, site.RootDir), socket, m.siteSecurity(ctx, site.AppID))
+	settings := SettingsFor(site)
+	return caddy.PHPSiteLabelsWithRouting(domains, DocRoot(site.AppID, site.RootDir), socket, m.siteSecurity(ctx, site.AppID), settings.Routing)
 }
 
 // SyncRoutes (re)creates the label-carrying holder container of a site. Only this site's
@@ -243,14 +253,59 @@ func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
 	}
 	name := RouteContainer(appID)
 	labels := m.SiteLabels(ctx, site)
-	if owner, err := m.DB.GetUserByID(ctx, site.OwnerID); err == nil && owner.Status == db.UserStatusSuspended {
+	if SettingsFor(site).Stopped {
+		labels = nil
+	} else if owner, err := m.DB.GetUserByID(ctx, site.OwnerID); err == nil && owner.Status == db.UserStatusSuspended {
 		labels = nil // suspended account: take the site offline
 	}
 	if len(labels) == 0 {
-		removeContainer(ctx, name)
+		if inspectContainer(ctx, name).Exists {
+			m.RemoveHolder(ctx, name)
+		}
 		return nil
 	}
 	return m.PublishHolder(ctx, name, labels, map[string]string{"nd.php": "route", "nd.php.app": appID})
+}
+
+// StopSite marks a PHP/static site as stopped, removes its Caddy route holder, and
+// removes its PHP-FPM pool without disrupting sibling active sites on the same runtime.
+func (m *Manager) StopSite(ctx context.Context, appID string) error {
+	site, err := m.DB.GetPHPSite(ctx, appID)
+	if err != nil {
+		return err
+	}
+	s := SettingsFor(site)
+	if !s.Stopped {
+		s.Stopped = true
+		site.SettingsJSON = s.JSON()
+		if err := m.DB.UpdatePHPSite(ctx, site); err != nil {
+			return err
+		}
+	}
+	if err := m.SyncRoutes(ctx, appID); err != nil {
+		return err
+	}
+	if site.SiteType != SiteTypeStatic && site.PHPVersion != "" {
+		return m.EnsureRuntime(ctx, site.OwnerID, site.PHPVersion)
+	}
+	return nil
+}
+
+// StartSite clears a site's stopped flag and brings its PHP-FPM pool and Caddy routes online.
+func (m *Manager) StartSite(ctx context.Context, appID string) error {
+	site, err := m.DB.GetPHPSite(ctx, appID)
+	if err != nil {
+		return err
+	}
+	s := SettingsFor(site)
+	if s.Stopped {
+		s.Stopped = false
+		site.SettingsJSON = s.JSON()
+		if err := m.DB.UpdatePHPSite(ctx, site); err != nil {
+			return err
+		}
+	}
+	return m.SyncSite(ctx, appID)
 }
 
 // PublishHolder (re)creates a tiny container whose only job is to carry Caddy labels. Nothing

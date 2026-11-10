@@ -13,6 +13,7 @@ import (
 
 	"panel/internal/agent/omprpc"
 	"panel/internal/db"
+	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
 )
 
@@ -70,6 +71,8 @@ func (m *Manager) coreHostTools() []omprpc.HostTool {
 		m.toolRemoveDomain(),
 		m.toolDiagnosePerformance(),
 		m.toolUpdatePHPConfig(),
+		m.toolManagePHPRouting(),
+		m.toolSetPHPSitePower(),
 		m.toolRestartSite(),
 		m.toolGetSiteLogs(),
 		m.toolCheckEdgeShield(),
@@ -159,6 +162,7 @@ func (m *Manager) toolGetSiteDetails() omprpc.HostTool {
 			}
 
 			domains, _ := m.DB.ListAppDomains(ctx, site.AppID)
+			parsedSettings := phphosting.SettingsFor(site)
 			res := map[string]any{
 				"app_id":        site.AppID,
 				"owner_id":      site.OwnerID,
@@ -167,6 +171,8 @@ func (m *Manager) toolGetSiteDetails() omprpc.HostTool {
 				"php_version":   site.PHPVersion,
 				"root_dir":      site.RootDir,
 				"settings":      site.SettingsJSON,
+				"stopped":       parsedSettings.Stopped,
+				"routing":       parsedSettings.Routing,
 				"domains":       domains,
 				"workspace_dir": filepath.Join(m.Root, site.AppID),
 			}

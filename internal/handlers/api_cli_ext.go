@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,6 +63,12 @@ func (p *Panel) APIPHPSitesList(c *fiber.Ctx) error {
 		for _, d := range domains {
 			dNames = append(dNames, d.Domain)
 		}
+		siteStatus := a.Status
+		if phphosting.SettingsFor(site).Stopped {
+			siteStatus = "stopped"
+		} else if siteStatus == "" {
+			siteStatus = "running"
+		}
 		out = append(out, phpSiteItem{
 			AppID:      site.AppID,
 			Name:       a.Name,
@@ -73,7 +78,7 @@ func (p *Panel) APIPHPSitesList(c *fiber.Ctx) error {
 			Domains:    dNames,
 			CreatedAt:  a.CreatedAt.Format(time.RFC3339),
 			UID:        site.UID,
-			Status:     a.Status,
+			Status:     siteStatus,
 		})
 	}
 	if out == nil {
@@ -103,11 +108,15 @@ func (p *Panel) APIPHPSiteGet(c *fiber.Ctx) error {
 
 	dbs, _ := p.DB.ListPHPDatabases(ctx, site.AppID)
 	dbUsers, _ := p.DB.ListPHPDBUsers(ctx, site.AppID)
+	grants, _ := p.DB.ListPHPGrants(ctx, site.AppID)
 	crons, _ := p.DB.ListPHPCronJobs(ctx, site.AppID)
 
-	var settings phphosting.SiteSettings
-	if site.SettingsJSON != "" {
-		_ = json.Unmarshal([]byte(site.SettingsJSON), &settings)
+	settings := phphosting.SettingsFor(site)
+	siteStatus := app.Status
+	if settings.Stopped {
+		siteStatus = "stopped"
+	} else if siteStatus == "" {
+		siteStatus = "running"
 	}
 
 	return c.JSON(fiber.Map{
@@ -119,10 +128,13 @@ func (p *Panel) APIPHPSiteGet(c *fiber.Ctx) error {
 		"root_dir":    site.RootDir,
 		"domains":     dNames,
 		"uid":         site.UID,
-		"status":      app.Status,
+		"status":      siteStatus,
+		"stopped":     settings.Stopped,
 		"settings":    settings,
+		"routing":     settings.Routing,
 		"databases":   dbs,
 		"db_users":    dbUsers,
+		"grants":      grants,
 		"crons":       crons,
 	})
 }

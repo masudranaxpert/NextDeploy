@@ -269,17 +269,20 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
 
   const toggleStopOrStart = async () => {
     const isStopped = app.status === 'stopped';
-    const action = isStopped ? 'up' : 'down';
     toast.info(`${isStopped ? 'Starting' : 'Stopping'} ${app.name}...`);
-    const res = await backendApi.composeAction(app.id, action);
+    const res = app.php
+      ? isStopped
+        ? await backendApi.phpSiteStart(app.id)
+        : await backendApi.phpSiteStop(app.id)
+      : await backendApi.composeAction(app.id, isStopped ? 'up' : 'down');
     if (!res.ok) {
       toast.error(res.error || `Failed to ${isStopped ? 'start' : 'stop'} ${app.name}`);
       return;
     }
-    toast.success(isStopped ? `Starting ${app.name}...` : `Stopping ${app.name}...`);
+    toast.success(isStopped ? `Started ${app.name}` : `Stopped ${app.name}`);
     setTimeout(() => {
       void refreshAppFromBackend();
-    }, 1500);
+    }, app.php ? 400 : 1500);
   };
 
   // Logs Explorer State & Realtime Streaming

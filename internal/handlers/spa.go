@@ -299,16 +299,15 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 
 			var phpInfo *phpAppInfo
 			if s, ok := phpByApp[app.ID]; ok {
-				state := "none"
-				if s.SiteType == "static" {
-					state = "stopped"
-					if phpRunning[phphosting.RouteContainer(s.AppID)] {
+				state := "stopped"
+				if !phphosting.SettingsFor(s).Stopped {
+					if s.SiteType == phphosting.SiteTypeStatic {
+						if phpRunning[phphosting.RouteContainer(s.AppID)] {
+							state = "running"
+						}
+					} else if phpRunning[phphosting.RuntimeContainer(s.OwnerID, s.PHPVersion)] {
 						state = "running"
 					}
-				} else if phpRunning[phphosting.RuntimeContainer(s.OwnerID, s.PHPVersion)] {
-					state = "running"
-				} else {
-					state = "stopped"
 				}
 				phpInfo = &phpAppInfo{SiteType: s.SiteType, PHPVersion: s.PHPVersion, RootDir: s.RootDir, UID: s.UID, State: state}
 			}

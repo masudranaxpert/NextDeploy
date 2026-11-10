@@ -2988,6 +2988,9 @@ func RunStop(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
+	if err := checkMCPToolError(body, "stop failed"); err != nil {
+		return err
+	}
 
 	if service != "" {
 		fmt.Printf("✓ %s service %s stopped.\n", appID, ui.Cyan(service))
@@ -3017,6 +3020,9 @@ func RunDown(cl *client.Client, args []string) error {
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+	if err := checkMCPToolError(body, "down failed"); err != nil {
+		return err
 	}
 
 	fmt.Printf("✓ %s containers stopped and removed.\n", appID)
@@ -3068,20 +3074,8 @@ func RunRestart(cl *client.Client, args []string) error {
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
-	var restartResp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if json.Unmarshal(body, &restartResp) == nil && restartResp.Result.IsError {
-		msg := "restart failed"
-		if len(restartResp.Result.Content) > 0 {
-			msg = strings.TrimSpace(restartResp.Result.Content[0].Text)
-		}
-		return fmt.Errorf("%s", msg)
+	if err := checkMCPToolError(body, "restart failed"); err != nil {
+		return err
 	}
 
 	actionStr := "restarted"
@@ -3093,6 +3087,26 @@ func RunRestart(cl *client.Client, args []string) error {
 		fmt.Printf("✓ %s service %s %s.\n", appID, ui.Cyan(service), actionStr)
 	} else {
 		fmt.Printf("✓ %s %s.\n", appID, actionStr)
+	}
+	return nil
+}
+
+// checkMCPToolError inspects an MCP JSON-RPC CallTool response and returns an error if isError is set.
+func checkMCPToolError(body []byte, fallback string) error {
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(body, &resp) == nil && resp.Result.IsError {
+		msg := fallback
+		if len(resp.Result.Content) > 0 && strings.TrimSpace(resp.Result.Content[0].Text) != "" {
+			msg = strings.TrimSpace(resp.Result.Content[0].Text)
+		}
+		return fmt.Errorf("%s", msg)
 	}
 	return nil
 }
@@ -3148,15 +3162,19 @@ Execution & Shell:
   nd server-shell                    Open interactive admin TTY root terminal on host VPS
 
 PHP & Database Hosting:
-  nd php list                        List all PHP hosting sites
-  nd php create <name> <domain>      Create a new PHP site (supports --php, --type, --db)
+  nd php list                        List all PHP and WordPress sites
+  nd php create <name> [domain] [flags] Create a PHP/WordPress/static site (--domain, --no-default-domain, --db)
   nd php info [app_id]               Show PHP runtime, extensions, docroot, and pool status
   nd php set [app_id] [flags]        Update PHP version, upload limits, memory, extensions
+  nd php stop [app_id]               Stop a PHP or static site (removes Caddy route & frees pool)
+  nd php start [app_id]              Start a stopped PHP or static site and restore Caddy route
   nd php restart [app_id]            Restart PHP-FPM runtime container
-  nd php fix-perms [app_id]          Fix file permissions and ownership for web server
+  nd php rules list|scan|fallback|add|import|export|rm  Manage Caddy routing rules & batch .htaccess
+  nd php import-manifest <file.json> Batch provision sites, custom domains, DBs & routing
+  nd php fix-perms [app_id]          Repair file ownership & POSIX permissions (755/775/644)
   nd php pma [app_id]                Generate one-click auto-login SSO URL for phpMyAdmin
-  nd php db list|create|user|grant   Manage MariaDB databases and users
-  nd php cron list|add|rm            Manage scheduled cron jobs for PHP sites
+  nd php db list|create|grant|user   Manage MariaDB databases, users & privileges
+  nd php cron list|add|rm|run        Manage scheduled cron jobs (--schedule/--command or positional)
 
 Volumes & Storage:
   nd volume list [app_id]            List persistent Docker volumes and disk sizes

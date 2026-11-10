@@ -38,19 +38,34 @@ const defaultStaticIndex = `<!doctype html>
 <h1>It works 🎉</h1><p>Upload your files to <code>htdocs/</code> with the File Manager.</p></body></html>
 `
 
-// phpSiteFor loads the app + php site behind a request that already passed
-// AppAccessMiddleware (routes live under /apps/:id/php).
-func (p *Panel) phpSiteFor(c *fiber.Ctx) (db.App, db.PHPSite, error) {
+// phpSiteWithRole loads the app + php site and enforces collaborator RBAC.
+func (p *Panel) phpSiteWithRole(c *fiber.Ctx, requiredRole string) (db.App, db.PHPSite, error) {
 	ctx := c.UserContext()
 	app, err := p.DB.GetApp(ctx, c.Params("id"))
 	if err != nil {
 		return db.App{}, db.PHPSite{}, phpJSONErr(c, 404, "app not found")
+	}
+	if u, ok := currentUser(c); ok {
+		if allowed, _ := p.CanAccessApp(ctx, u.ID, u.Role, app.ID, requiredRole); !allowed {
+			return db.App{}, db.PHPSite{}, phpJSONErr(c, 403, "forbidden: "+requiredRole+" access required")
+		}
+	} else {
+		return db.App{}, db.PHPSite{}, phpJSONErr(c, 401, "unauthorized")
 	}
 	site, err := p.DB.GetPHPSite(ctx, app.ID)
 	if err != nil {
 		return db.App{}, db.PHPSite{}, phpJSONErr(c, 404, "this app is not a PHP site")
 	}
 	return app, site, nil
+}
+
+// phpSiteFor loads the app + php site and checks viewer access for GET or developer access for mutations.
+func (p *Panel) phpSiteFor(c *fiber.Ctx) (db.App, db.PHPSite, error) {
+	role := db.CollabRoleViewer
+	if c.Method() != fiber.MethodGet && c.Method() != fiber.MethodHead {
+		role = db.CollabRoleDeveloper
+	}
+	return p.phpSiteWithRole(c, role)
 }
 
 // phpOwner returns the app owner: quotas always apply to the owner, not the caller.
@@ -77,12 +92,16 @@ func phpCeilings(ctx context.Context, u db.User) phphosting.Ceilings {
 // ---- create ----
 
 type phpCreateBody struct {
-	Name         string `json:"name"`
-	Type         string `json:"type"` // php | wordpress | static
-	PHPVersion   string `json:"php_version"`
-	Title        string `json:"title"`
-	WPAdminUser  string `json:"wp_admin_user"`
-	WPAdminEmail string `json:"wp_admin_email"`
+	Name            string `json:"name"`
+	Type            string `json:"type"` // php | wordpress | static
+	PHPVersion      string `json:"php_version"`
+	Domain          string `json:"domain"`
+	NoDefaultDomain bool   `json:"no_default_domain"`
+	CreateDB        bool   `json:"create_db"`
+	DBName          string `json:"db_name"`
+	Title           string `json:"title"`
+	WPAdminUser     string `json:"wp_admin_user"`
+	WPAdminEmail    string `json:"wp_admin_email"`
 }
 
 // POST /api/php/sites
@@ -114,6 +133,22 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 		return phpJSONErr(c, 500, err.Error())
 	} else if exists {
 		return phpJSONErr(c, 400, "an app with this name already exists")
+	}
+	customDomain := strings.ToLower(caddy.CleanQuotedValue(body.Domain))
+	if customDomain != "" && !phphosting.ValidHost(customDomain) {
+		return phpJSONErr(c, 400, "invalid domain name")
+	}
+	wantAutoDB := (body.CreateDB || strings.TrimSpace(body.DBName) != "") && body.Type == phphosting.SiteTypePHP
+	if wantAutoDB {
+		if !p.PHP.MySQLStatus(ctx).Ready {
+			return phpJSONErr(c, 400, "the database server is not running. Ask an administrator to enable it in PHP Hosting → Instance.")
+		}
+		if err := quota.CheckDatabaseSlot(ctx, p.DB, u); err != nil {
+			return phpJSONErr(c, 400, err.Error())
+		}
+		if dn := strings.ToLower(strings.TrimSpace(body.DBName)); dn != "" && !validDBInput(dn) {
+			return phpJSONErr(c, 400, "invalid db_name: start with a letter and use lowercase letters, numbers, or underscores (max 24 chars)")
+		}
 	}
 
 	version := ""
@@ -212,7 +247,17 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 
 	domain := ""
 	targetIP, targetShieldID := p.ResolveUserPublicIP(ctx, &u)
-	if targetIP != "" {
+	if customDomain != "" {
+		domain = customDomain
+		if _, err := p.DB.CreateAppDomain(ctx, db.AppDomain{
+			AppID: id, Domain: domain, Service: "php", Port: 80, IsPrimary: true,
+			EnableHTTPS: true, RouteRulesJSON: "[]",
+			ShieldNodeID: targetShieldID,
+		}); err != nil {
+			rollback()
+			return phpJSONErr(c, 400, "could not attach domain: "+err.Error())
+		}
+	} else if !body.NoDefaultDomain && targetIP != "" {
 		domain = caddy.FormatWildcardDomain(id, targetIP, "sslip.io")
 		if _, err := p.DB.CreateAppDomain(ctx, db.AppDomain{
 			AppID: id, Domain: domain, Service: "php", Port: 80, IsPrimary: true,
@@ -231,7 +276,36 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 	}
 	p.RecordAuditLog(c, "php_site_create", "app", id, "Created "+body.Type+" site "+slug)
 
-	resp := fiber.Map{"ok": true, "id": id, "name": slug, "site_type": body.Type, "php_version": version, "domain": domain}
+	resp := fiber.Map{"ok": true, "id": id, "app_id": id, "name": slug, "site_type": body.Type, "php_version": version, "domain": domain}
+	if wantAutoDB {
+		shortName := strings.ToLower(strings.TrimSpace(body.DBName))
+		if shortName == "" {
+			shortName = "db_" + randomAppSuffix()
+		}
+		dbName := dbPrefix(u) + shortName
+		dbPass := phphosting.RandomPassword(24)
+		if err := p.PHP.CreateDatabase(ctx, dbName, dbName, dbPass, id); err != nil {
+			rollback()
+			return phpJSONErr(c, 500, "database creation failed: "+err.Error())
+		}
+		dbID, err := p.DB.CreatePHPDatabase(ctx, db.PHPDatabase{AppID: id, DBName: dbName})
+		if err != nil {
+			_ = p.PHP.DropDatabase(ctx, dbName, dbName)
+			rollback()
+			return phpJSONErr(c, 500, "database record failed: "+err.Error())
+		}
+		uid, err := p.DB.CreatePHPDBUser(ctx, id, dbName)
+		if err != nil {
+			_ = p.PHP.DropDatabase(ctx, dbName, dbName)
+			_ = p.DB.DeletePHPDatabase(ctx, dbID)
+			rollback()
+			return phpJSONErr(c, 500, "database user record failed: "+err.Error())
+		}
+		_ = p.DB.ReplacePHPUserGrants(ctx, uid, []db.PHPDBGrant{{DBID: dbID, Access: "all"}})
+		resp["db_name"] = dbName
+		resp["db_user"] = dbName
+		resp["db_password"] = dbPass
+	}
 	if body.Type == phphosting.SiteTypeWordPress {
 		url := "http://localhost"
 		if domain != "" {
@@ -347,13 +421,28 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 	}
 
 	runtime := fiber.Map{"container": "", "state": "none"}
-	if site.SiteType != phphosting.SiteTypeStatic {
+	if site.SiteType == phphosting.SiteTypeStatic {
+		routeName := phphosting.RouteContainer(app.ID)
+		state := "stopped"
+		if !settings.Stopped {
+			for _, ct := range p.PHP.ListContainers(ctx) {
+				if ct.Name == routeName && ct.State == "running" {
+					state = "running"
+					break
+				}
+			}
+		}
+		runtime = fiber.Map{"container": routeName, "state": state}
+	} else {
 		name := phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion)
 		state := "missing"
 		for _, ct := range p.PHP.ListContainers(ctx) {
 			if ct.Name == name {
 				state = ct.State
 			}
+		}
+		if settings.Stopped {
+			state = "stopped"
 		}
 		runtime = fiber.Map{"container": name, "state": state}
 	}
@@ -429,19 +518,20 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 // ---- settings ----
 
 type phpSettingsBody struct {
-	PHPVersion        *string `json:"php_version"`
-	RootDir           *string `json:"root_dir"`
-	MemoryLimit       *string `json:"memory_limit"`
-	MaxExecutionTime  *int    `json:"max_execution_time"`
-	MaxInputTime      *int    `json:"max_input_time"`
-	MaxInputVars      *int    `json:"max_input_vars"`
-	PostMaxSize       *string `json:"post_max_size"`
-	UploadMaxFilesize *string `json:"upload_max_filesize"`
-	MaxChildren       *int    `json:"max_children"`
-	ProcessManager      *string `json:"process_manager"`
-	AllowShellFunctions *bool   `json:"allow_shell_functions"`
-	DisableFunctions    *string `json:"disable_functions"`
-	Additional          *string `json:"additional"`
+	PHPVersion          *string            `json:"php_version"`
+	RootDir             *string            `json:"root_dir"`
+	MemoryLimit         *string            `json:"memory_limit"`
+	MaxExecutionTime    *int               `json:"max_execution_time"`
+	MaxInputTime        *int               `json:"max_input_time"`
+	MaxInputVars        *int               `json:"max_input_vars"`
+	PostMaxSize         *string            `json:"post_max_size"`
+	UploadMaxFilesize   *string            `json:"upload_max_filesize"`
+	MaxChildren         *int               `json:"max_children"`
+	ProcessManager      *string            `json:"process_manager"`
+	AllowShellFunctions *bool              `json:"allow_shell_functions"`
+	DisableFunctions    *string            `json:"disable_functions"`
+	Additional          *string            `json:"additional"`
+	Routing             *caddy.SiteRouting `json:"routing"`
 }
 
 // POST /apps/:id/php/settings
@@ -493,7 +583,10 @@ func (p *Panel) PHPSiteSettings(c *fiber.Ctx) error {
 	if body.Additional != nil {
 		s.Additional = *body.Additional
 	}
-	if err := s.Validate(phpCeilings(ctx, owner)); err != nil {
+	if body.Routing != nil {
+		s.Routing = *body.Routing
+	}
+	if err := s.ValidateForSite(phpCeilings(ctx, owner), site.SiteType == phphosting.SiteTypeStatic); err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
 	rootChanged := false
@@ -528,7 +621,11 @@ func (p *Panel) PHPSiteSettings(c *fiber.Ctx) error {
 	if rootChanged && versionChange != "" {
 		_ = p.PHP.SyncRoutes(sctx, app.ID)
 	}
-	p.RecordAuditLog(c, "php_site_settings", "app", app.ID, "Updated PHP settings")
+	if body.Routing != nil {
+		p.RecordAuditLog(c, "php_routing_rules", "app", app.ID, fmt.Sprintf("Updated URL routing rules (%d rules, fallback=%s)", len(s.Routing.Rules), s.Routing.FallbackMode))
+	} else {
+		p.RecordAuditLog(c, "php_site_settings", "app", app.ID, "Updated PHP settings")
+	}
 	return c.JSON(fiber.Map{"ok": true})
 }
 
@@ -541,12 +638,20 @@ func (p *Panel) PHPSiteRestart(c *fiber.Ctx) error {
 	if site.SiteType == phphosting.SiteTypeStatic {
 		return phpJSONErr(c, 400, "static sites have no PHP runtime")
 	}
+	if phphosting.SettingsFor(site).Stopped {
+		if err := p.PHP.StartSite(c.UserContext(), site.AppID); err != nil {
+			return phpJSONErr(c, 500, err.Error())
+		}
+		p.RecordAuditLog(c, "php_site_start", "app", site.AppID, "Started PHP site via restart")
+		return c.JSON(fiber.Map{"ok": true})
+	}
 	if err := p.PHP.RestartContainer(c.UserContext(), phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion)); err != nil {
 		// not running at all: recreate it
 		if e2 := p.PHP.SyncSite(c.UserContext(), site.AppID); e2 != nil {
 			return phpJSONErr(c, 500, e2.Error())
 		}
 	}
+	p.RecordAuditLog(c, "php_site_restart", "app", site.AppID, "Restarted PHP-FPM runtime")
 	return c.JSON(fiber.Map{"ok": true})
 }
 
@@ -556,7 +661,13 @@ func (p *Panel) PHPSiteFixPermissions(c *fiber.Ctx) error {
 	if site.AppID == "" {
 		return err
 	}
-	p.PHP.FixOwnership(site)
+	if p.PHP == nil {
+		return phpJSONErr(c, 500, "PHP hosting manager not initialized")
+	}
+	if err := p.PHP.RepairPermissions(site); err != nil {
+		return phpJSONErr(c, 500, "failed to repair permissions: "+err.Error())
+	}
+	p.RecordAuditLog(c, "php_fix_permissions", "app", site.AppID, "Repaired file ownership and permissions")
 	return c.JSON(fiber.Map{"ok": true})
 }
 

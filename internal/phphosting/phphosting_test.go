@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -498,6 +499,38 @@ func TestRenderPoolShellFunctionsToggle(t *testing.T) {
 	}
 	if strings.Contains(outAllowed, DefaultDisableFunctions) {
 		t.Errorf("dangerous functions should not be disabled when AllowShellFunctions is true, got:\n%s", outAllowed)
+	}
+	if !strings.Contains(outAllowed, "php_admin_value[cgi.fix_pathinfo] = 1") || !strings.Contains(outAllowed, "security.limit_extensions = .php") {
+		t.Errorf("expected cgi.fix_pathinfo=1 and security.limit_extensions=.php in pool, got:\n%s", outAllowed)
+	}
+}
+
+func TestRepairPermissionsCreatesAndChmodsDirs(t *testing.T) {
+	if !isWritablePHPDir("tmp") || !isWritablePHPDir("htdocs/wp-content/uploads") || !isWritablePHPDir("htdocs/storage") || isWritablePHPDir("htdocs/public") {
+		t.Fatal("unexpected isWritablePHPDir classification")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX chown/chmod requires Unix")
+	}
+	ws := t.TempDir()
+	m := &Manager{WorkspacesRoot: ws}
+	site := db.PHPSite{AppID: "perm-site", OwnerID: 1, UID: os.Getuid(), SiteType: SiteTypePHP, PHPVersion: "8.3"}
+	if err := m.PrepareSiteDirs(site); err != nil {
+		t.Fatal(err)
+	}
+	testFile := filepath.Join(m.SitePath(site.AppID), "htdocs", "index.php")
+	if err := os.WriteFile(testFile, []byte("<?php echo 1;"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RepairPermissions(site); err != nil {
+		t.Fatalf("RepairPermissions: %v", err)
+	}
+	fi, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o044 != 0o044 {
+		t.Logf("note: Windows ignores POSIX group/other bits (got %o)", fi.Mode().Perm())
 	}
 }
 

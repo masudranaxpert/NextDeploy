@@ -420,6 +420,9 @@ func (m *Manager) FixOwnership(site db.PHPSite) {
 			if err != nil {
 				return nil
 			}
+			if e.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
 			if info, err := e.Info(); err == nil {
 				if !ownedBy(info, site.UID) {
 					_ = os.Lchown(p, site.UID, site.UID)
@@ -428,6 +431,85 @@ func (m *Manager) FixOwnership(site db.PHPSite) {
 			return nil
 		})
 	}
+}
+
+// isWritablePHPDir returns true for cache, upload, log, and temp directories where FPM needs group/write bits.
+func isWritablePHPDir(relSlash string) bool {
+	low := strings.ToLower(relSlash)
+	return low == "tmp" || low == "logs" ||
+		strings.HasPrefix(low, "tmp/") || strings.HasPrefix(low, "logs/") ||
+		strings.Contains(low, "/wp-content/uploads") || strings.Contains(low, "/wp-content/cache") ||
+		strings.HasPrefix(low, "htdocs/storage") || strings.HasPrefix(low, "htdocs/bootstrap/cache") ||
+		strings.HasSuffix(low, "/cache") || strings.HasSuffix(low, "/uploads")
+}
+
+// RepairPermissions resets file ownership to site.UID and resets POSIX modes (755/775 dirs, 644/664 files).
+func (m *Manager) RepairPermissions(site db.PHPSite) error {
+	m.SweepSymlinks(site.AppID)
+	if err := m.PrepareSiteDirs(site); err != nil {
+		return err
+	}
+	base := m.SitePath(site.AppID)
+	var firstErr error
+	recordErr := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	for _, d := range []string{"htdocs", "logs", "tmp"} {
+		root := filepath.Join(base, d)
+		_ = filepath.WalkDir(root, func(p string, e os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				recordErr(walkErr)
+				return nil
+			}
+			if e.Type()&os.ModeSymlink != 0 {
+				if e.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, rerr := filepath.Rel(base, p)
+			if rerr != nil {
+				rel = d
+			}
+			relSlash := filepath.ToSlash(rel)
+
+			info, ierr := e.Info()
+			if ierr != nil {
+				recordErr(ierr)
+				return nil
+			}
+			if !ownedBy(info, site.UID) {
+				if err := os.Lchown(p, site.UID, site.UID); err != nil && !os.IsPermission(err) {
+					recordErr(err)
+				}
+			}
+
+			var wantMode os.FileMode
+			if e.IsDir() {
+				wantMode = 0755
+				if isWritablePHPDir(relSlash) {
+					wantMode = 0775
+				}
+			} else {
+				wantMode = 0644
+				if d == "tmp" || d == "logs" {
+					wantMode = 0664
+				} else if info.Mode().Perm()&0100 != 0 && (strings.HasSuffix(strings.ToLower(p), ".sh") || filepath.Base(p) == "artisan") {
+					wantMode = 0755
+				}
+			}
+			if info.Mode().Perm() != wantMode {
+				if err := os.Chmod(p, wantMode); err != nil && !os.IsPermission(err) {
+					recordErr(err)
+				}
+			}
+			return nil
+		})
+	}
+	return firstErr
 }
 
 // DebounceFixOwnership schedules FixOwnership shortly after the last call.

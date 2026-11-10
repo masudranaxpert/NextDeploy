@@ -182,7 +182,13 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
           <ActionMenu
             items={[
               {
-                label: app.status === 'stopped' ? 'Start Compose Stack' : 'Stop Compose Stack',
+                label: app.php
+                  ? app.status === 'stopped'
+                    ? 'Start Site'
+                    : 'Stop Site'
+                  : app.status === 'stopped'
+                  ? 'Start Compose Stack'
+                  : 'Stop Compose Stack',
                 icon:
                   app.status === 'stopped' ? (
                     <Play className="h-3.5 w-3.5" />
@@ -215,7 +221,14 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                 variant: 'danger' as const,
                 onClick: onOpenDelete,
               },
-            ].filter((it) => !app.php || it.label === 'Copy Project ID' || it.label === 'Delete Project')}
+            ].filter(
+              (it) =>
+                !app.php ||
+                it.label === 'Start Site' ||
+                it.label === 'Stop Site' ||
+                it.label === 'Copy Project ID' ||
+                it.label === 'Delete Project'
+            )}
           />
         </div>
       </div>

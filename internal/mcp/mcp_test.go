@@ -103,8 +103,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolsListResult, got %T", resp.Result)
 	}
-	if len(listRes.Tools) != 29 {
-		t.Errorf("expected 29 tools with full perms, got %d", len(listRes.Tools))
+	if len(listRes.Tools) != 31 {
+		t.Errorf("expected 31 tools with full perms, got %d", len(listRes.Tools))
 	}
 
 	// Verify required tool names exist
@@ -117,7 +117,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"workspace_manifest", "file_read", "file_write", "file_delete",
 		"file_patch", "file_search", "workspace_apply", "env_list", "env_reveal", "env_set", "env_unset", "compose_get",
 		"deploy", "restart", "stop", "deploy_status", "container_logs", "deploy_log_tail",
-		"container_exec", "server_exec", "git_pull", "git_sync",
+		"container_exec", "server_exec", "git_pull", "git_sync", "php_routing", "php_power",
 	}
 	for _, name := range expectedTools {
 		if !toolSet[name] {
@@ -154,11 +154,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// No-permission token hides restricted tools (25 tools).
+	// No-permission token hides restricted tools (27 tools).
 	noPermResp := srv.ProcessRPC(context.Background(), user, req)
 	noPermList := noPermResp.Result.(ToolsListResult)
-	if len(noPermList.Tools) != 25 {
-		t.Errorf("expected 25 tools with no perms, got %d", len(noPermList.Tools))
+	if len(noPermList.Tools) != 27 {
+		t.Errorf("expected 27 tools with no perms, got %d", len(noPermList.Tools))
 	}
 	for _, tool := range noPermList.Tools {
 		if tool.Name == "env_reveal" || tool.Name == "server_exec" || tool.Name == "container_exec" || tool.Name == "app_delete" {
@@ -166,13 +166,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		}
 	}
 
-	// Token with only AllowContainerExec sees container_exec but NOT server_exec, env_reveal, or app_delete (26 tools).
+	// Token with only AllowContainerExec sees container_exec but NOT server_exec, env_reveal, or app_delete (28 tools).
 	containerOnlyTok := db.APIToken{ID: 2, AllowContainerExec: true}
 	containerOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, containerOnlyTok)
 	containerResp := srv.ProcessRPC(containerOnlyCtx, user, req)
 	containerList := containerResp.Result.(ToolsListResult)
-	if len(containerList.Tools) != 26 {
-		t.Errorf("expected 26 tools with container-only perms, got %d", len(containerList.Tools))
+	if len(containerList.Tools) != 28 {
+		t.Errorf("expected 28 tools with container-only perms, got %d", len(containerList.Tools))
 	}
 	hasContainerExec := false
 	for _, tool := range containerList.Tools {
@@ -187,13 +187,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected container_exec to be present for AllowContainerExec token")
 	}
 
-	// Token with only AllowServerExec sees server_exec but NOT container_exec, env_reveal, or app_delete (26 tools).
+	// Token with only AllowServerExec sees server_exec but NOT container_exec, env_reveal, or app_delete (28 tools).
 	serverOnlyTok := db.APIToken{ID: 3, AllowServerExec: true}
 	serverOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, serverOnlyTok)
 	serverResp := srv.ProcessRPC(serverOnlyCtx, user, req)
 	serverList := serverResp.Result.(ToolsListResult)
-	if len(serverList.Tools) != 26 {
-		t.Errorf("expected 26 tools with server-only perms, got %d", len(serverList.Tools))
+	if len(serverList.Tools) != 28 {
+		t.Errorf("expected 28 tools with server-only perms, got %d", len(serverList.Tools))
 	}
 	hasServerExec := false
 	for _, tool := range serverList.Tools {
@@ -208,13 +208,13 @@ func TestMCP_ToolsList(t *testing.T) {
 		t.Errorf("expected server_exec to be present for AllowServerExec token")
 	}
 
-	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (26 tools).
+	// Token with only AllowAppDelete sees app_delete but NOT container_exec, server_exec, or env_reveal (28 tools).
 	appDelOnlyTok := db.APIToken{ID: 4, AllowAppDelete: true}
 	appDelOnlyCtx := context.WithValue(context.Background(), apiTokenContextKey{}, appDelOnlyTok)
 	appDelResp := srv.ProcessRPC(appDelOnlyCtx, user, req)
 	appDelList := appDelResp.Result.(ToolsListResult)
-	if len(appDelList.Tools) != 26 {
-		t.Errorf("expected 26 tools with app-delete-only perms, got %d", len(appDelList.Tools))
+	if len(appDelList.Tools) != 28 {
+		t.Errorf("expected 28 tools with app-delete-only perms, got %d", len(appDelList.Tools))
 	}
 	hasAppDelete := false
 	for _, tool := range appDelList.Tools {
@@ -2177,5 +2177,69 @@ func TestMCP_DomainOperations(t *testing.T) {
 	res6 := srv.ProcessRPC(ctx, user, JSONRPCRequest{JSONRPC: "2.0", ID: 6, Method: "tools/call", Params: listParams})
 	if res6.Result.(CallToolResult).Content[0].Text != "[]" {
 		t.Errorf("expected empty array after delete, got %s", res6.Result.(CallToolResult).Content[0].Text)
+	}
+}
+
+func TestMCP_PHPRoutingAndPowerRBAC(t *testing.T) {
+	p, store, tmpDir, adminUser := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "php-mcp-site"
+	site := db.PHPSite{AppID: appID, OwnerID: adminUser.ID, UID: 10001, PHPVersion: "8.3", SiteType: "php", SettingsJSON: "{}"}
+	if err := store.CreateAppAtomic(ctx, appID, appID, adminUser.ID, 10, &site); err != nil {
+		t.Fatalf("CreateAppAtomic: %v", err)
+	}
+	htdocs := filepath.Join(tmpDir, appID, "htdocs")
+	if err := os.MkdirAll(htdocs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(htdocs, ".htaccess"), []byte("RewriteEngine On\nRewriteRule ^news/(.*)$ /article.php?slug=$1 [L]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Viewer user cannot mutate php_routing or call php_power.
+	viewerID, err := store.CreateUser(ctx, "viewer1", "hash", db.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddCollaborator(ctx, appID, viewerID, db.CollabRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	viewerUser, _ := store.GetUserByID(ctx, viewerID)
+
+	srv := NewServer(p)
+
+	scanApplyParams, _ := json.Marshal(CallToolParams{
+		Name:      "php_routing",
+		Arguments: map[string]interface{}{"app_id": appID, "action": "scan_htaccess", "apply": true},
+	})
+	deniedRes := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: scanApplyParams})
+	if !deniedRes.Result.(CallToolResult).IsError {
+		t.Fatal("expected viewer to be denied scan_htaccess apply=true")
+	}
+
+	powerParams, _ := json.Marshal(CallToolParams{
+		Name:      "php_power",
+		Arguments: map[string]interface{}{"app_id": appID, "action": "stop"},
+	})
+	deniedPower := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: powerParams})
+	if !deniedPower.Result.(CallToolResult).IsError {
+		t.Fatal("expected viewer to be denied php_power")
+	}
+
+	// Admin scans and applies .htaccess rules, then reads back via get.
+	okRes := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{JSONRPC: "2.0", ID: 3, Method: "tools/call", Params: scanApplyParams})
+	if okRes.Result.(CallToolResult).IsError {
+		t.Fatalf("admin scan_htaccess failed: %s", okRes.Result.(CallToolResult).Content[0].Text)
+	}
+	getParams, _ := json.Marshal(CallToolParams{
+		Name:      "php_routing",
+		Arguments: map[string]interface{}{"app_id": appID, "action": "get"},
+	})
+	getRes := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{JSONRPC: "2.0", ID: 4, Method: "tools/call", Params: getParams})
+	if getRes.Result.(CallToolResult).IsError || !strings.Contains(getRes.Result.(CallToolResult).Content[0].Text, "/article.php") {
+		t.Fatalf("expected /article.php in saved routing, got %+v", getRes.Result)
 	}
 }

@@ -1,12 +1,14 @@
 ---
 name: nextdeploy-cli
-description: Operational reference and automation instructions for AI coding assistants using the NextDeploy CLI (nd) to manage application lifecycles, incremental code syncs (nd push), deployments, logs, interactive TTY shells, PHP/WordPress sites, MariaDB databases, Docker volumes, backups, Caddy proxy routes, edge shields, and environment variables.
-version: 2.5.0
+description: Use when managing NextDeploy applications, incremental file syncs (`nd push`), deployments, logs, interactive shells, PHP/WordPress/static sites, Caddy URL routing rules or `.htaccess` conversion, PHP site start/stop lifecycle, MariaDB databases, Docker volumes, backups, proxy routes, or environment variables via the `nd` CLI.
+version: 2.6.0
 ---
 
 # NextDeploy CLI (`nd`) Skill
 
-This skill teaches AI coding assistants (Claude Code, Cursor, Windsurf, Antigravity, Claude Desktop) how to inspect, synchronize, and control remote applications and panel infrastructure via the official NextDeploy CLI (`nd`).
+This skill teaches AI coding assistants how to inspect, synchronize, route, and control remote applications and panel infrastructure via the official NextDeploy CLI (`nd`).
+
+> **Conditional Deep Reference:** When configuring per-site Caddy URL routing rules, translating Apache `.htaccess` files (`RewriteRule`, `RewriteCond !-f`, `[QSA]`, `<Files ~ ...>`), setting `try_files` fallback modes, or troubleshooting normal PHP / WordPress / Laravel routes, read [`references/php-routing-and-htaccess.md`](references/php-routing-and-htaccess.md).
 
 ---
 
@@ -94,7 +96,10 @@ When linked, all commands (`nd push`, `nd pull`, `nd diff`, `nd deploy`, `nd sto
 | **php create** | `nd php create <name> <domain> [flags]` | Create PHP/WordPress site (`--php 8.3`, `--type wordpress`, `--db`) |
 | **php info** | `nd php info [app_id]` | Show PHP runtime, memory limits, docroot, and pool status |
 | **php set** | `nd php set [app_id] [flags]` | Update PHP version, memory limits, and upload limits |
+| **php stop** | `nd php stop [app_id]` | Stop a PHP or static site (removes Caddy route & frees pool) |
+| **php start** | `nd php start [app_id]` | Start a stopped PHP or static site and restore Caddy route |
 | **php restart**| `nd php restart [app_id]` | Restart PHP-FPM runtime container |
+| **php rules** | `nd php rules (list\|scan\|fallback\|add\|rm)` | Manage per-site Caddy URL rewrites/redirects/blocks & auto-convert `.htaccess` |
 | **php fix-perms**| `nd php fix-perms [app_id]` | Fix file ownership and permissions for web server |
 | **php pma** | `nd php pma [app_id]` | Generate one-click SSO auto-login URL for phpMyAdmin |
 | **php db** | `nd php db (list\|create\|user\|grant\|export\|import)` | Manage MariaDB databases, users, and SQL dumps |
@@ -206,8 +211,18 @@ nd php info my-blog
 # Adjust PHP runtime configuration
 nd php set my-blog --memory-limit 512M --upload-max 64M --version 8.4
 
-# Restart PHP-FPM runtime container
+# Stop / start / restart a PHP or static site
+nd php stop my-blog
+nd php start my-blog
 nd php restart my-blog
+
+# Manage per-site Caddy URL routing & .htaccess conversion
+nd php rules list my-blog
+nd php rules scan my-blog --apply --mode append
+nd php rules fallback my-blog strict_404
+nd php rules add my-blog redir prefix /old /new --status 301
+nd php rules add my-blog rewrite regex "^blog/(.*)$" "/post.php?slug=$1"
+nd php rules rm my-blog 1
 
 # Fix permissions in htdocs/ according to site UID
 nd php fix-perms my-blog

@@ -435,5 +435,36 @@ func AllTools() []Tool {
 				Required: []string{"app_id"},
 			},
 		},
+		{
+			Name: "php_routing",
+			Description: "Inspect, auto-convert Apache .htaccess files, or manage per-site Caddy URL routing rules (rewrite, redir, block) and fallback mode (default, strict_404, custom) for a PHP or static site.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id":         {Type: "string", Description: "PHP or static site ID"},
+					"action":         {Type: "string", Description: "get (default), set, scan_htaccess, or convert_htaccess"},
+					"fallback_mode":  {Type: "string", Description: "For action=set: default, strict_404, or custom"},
+					"fallback_entry": {Type: "string", Description: "For fallback_mode=custom: relative entry file e.g. app.php or index.html"},
+					"rules":          {Type: "array", Description: "For action=set: ordered array of rule objects {id, kind, match_type, pattern, target, status, enabled, note}"},
+					"apply":          {Type: "boolean", Description: "For action=scan_htaccess: set true to persist scanned rules onto the site"},
+					"mode":           {Type: "string", Description: "For action=scan_htaccess with apply=true: replace (default) or append"},
+					"content":        {Type: "string", Description: "For action=convert_htaccess: raw .htaccess text to preview"},
+					"file_path":      {Type: "string", Description: "Optional relative path for subfolder .htaccess conversion"},
+				},
+				Required: []string{"app_id"},
+			},
+		},
+		{
+			Name:        "php_power",
+			Description: "Start, stop, or restart a PHP or static site. Stopping takes the site's Caddy route offline and shuts down its PHP-FPM pool.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]ToolProperty{
+					"app_id": {Type: "string", Description: "PHP or static site ID"},
+					"action": {Type: "string", Description: "start, stop, or restart"},
+				},
+				Required: []string{"app_id", "action"},
+			},
+		},
 	}
 }

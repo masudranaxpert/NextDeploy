@@ -81,3 +81,80 @@ func TestNormalizeIPList(t *testing.T) {
 		}
 	}
 }
+
+func TestSiteRoutingValidationAndLabels(t *testing.T) {
+	r := SiteRouting{
+		FallbackMode: FallbackStrict404,
+		Rules: []RoutingRule{
+			{ID: "r1", Kind: "block", MatchType: "regex", Pattern: `^/(.+)\.php$`, Status: 404, Enabled: true},
+			{ID: "r2", Kind: "rewrite", MatchType: "regex", Pattern: `^/profile/([-\w]+)/([-\w]+)$`, Target: "/profile.php?id=$1&action=$2", Enabled: true},
+			{ID: "r3", Kind: "redir", MatchType: "prefix", Pattern: "/old-docs", Target: "https://docs.example.com", Status: 301, Enabled: true},
+			{ID: "r4", Kind: "rewrite", MatchType: "exact", Pattern: "/disabled", Target: "/x.php", Enabled: false},
+		},
+	}
+	if err := ValidateRouting(&r, false); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+	l := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "app.test", EnableHTTPS: true}}, "/srv/htdocs", "/run/app.sock", SiteSecurity{}, r)
+
+	want := map[string]string{
+		"caddy.@nd_rule_0.path_regexp": `ndr0 ^/(.+)\.php$`,
+		"caddy.route.000_respond":      "@nd_rule_0 404",
+		"caddy.@nd_rule_1.path_regexp": `ndr1 ^/profile/([-\w]+)/([-\w]+)$`,
+		"caddy.route.001_rewrite":      "@nd_rule_1 /profile.php?id={re.ndr1.1}&action={re.ndr1.2}",
+		"caddy.@nd_rule_2.path":        "/old-docs /old-docs/*",
+		"caddy.route.002_redir":        "@nd_rule_2 https://docs.example.com 301",
+		"caddy.route.003_rewrite":      "@wp_cache {http.matchers.file.relative}",
+		"caddy.php_fastcgi.try_files":  "{path} {path}/index.php =404",
+	}
+	for k, v := range want {
+		if l[k] != v {
+			t.Errorf("%s = %q, want %q", k, l[k], v)
+		}
+	}
+	if _, ok := l["caddy.rewrite"]; ok {
+		t.Error("top-level caddy.rewrite must be moved inside route when custom rules are enabled")
+	}
+
+	// Static SPA fallback
+	spa := SiteRouting{FallbackMode: FallbackCustom, FallbackEntry: "/index.html"}
+	if err := ValidateRouting(&spa, true); err != nil {
+		t.Fatalf("static spa validate: %v", err)
+	}
+	sl := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "spa.test", EnableHTTPS: true}}, "/srv/htdocs", "", SiteSecurity{}, spa)
+	if sl["caddy.rewrite_fallback"] != "@nd_spa /index.html" {
+		t.Errorf("spa fallback = %q", sl["caddy.rewrite_fallback"])
+	}
+
+	// Security rejections
+	badCases := []SiteRouting{
+		{FallbackMode: FallbackCustom, FallbackEntry: "../etc/passwd"},
+		{Rules: []RoutingRule{{Kind: "rewrite", MatchType: "exact", Pattern: "/a", Target: "http://127.0.0.1:8080", Enabled: true}}},
+		{Rules: []RoutingRule{{Kind: "rewrite", MatchType: "exact", Pattern: "/a", Target: "/.env", Enabled: true}}},
+		{Rules: []RoutingRule{{Kind: "rewrite", MatchType: "regex", Pattern: `^/(unclosed`, Target: "/a.php", Enabled: true}}},
+		{Rules: []RoutingRule{{Kind: "redir", MatchType: "exact", Pattern: "/a", Target: "javascript:alert(1)", Enabled: true}}},
+		{Rules: []RoutingRule{{Kind: "rewrite", MatchType: "exact", Pattern: "/a {bad}", Target: "/a.php", Enabled: true}}},
+	}
+	for idx, bad := range badCases {
+		if err := ValidateRouting(&bad, false); err == nil {
+			t.Errorf("badCase[%d] should have failed validation", idx)
+		}
+	}
+
+	// Verify UnlessFile (!-f) and PreserveQuery ([QSA]) + $0 expansion + normal PHP defaults
+	ext := SiteRouting{
+		Rules: []RoutingRule{
+			{ID: "e1", Kind: "rewrite", MatchType: "regex", Pattern: `^/([^.]+)$`, Target: "/$1.php?src=$0", UnlessFile: true, PreserveQuery: true, Enabled: true},
+		},
+	}
+	if err := ValidateRouting(&ext, false); err != nil {
+		t.Fatalf("ext validate: %v", err)
+	}
+	el := PHPSiteLabelsWithRouting([]db.AppDomain{{Domain: "php.test", EnableHTTPS: true}}, "/srv/htdocs", "/run/php.sock", SiteSecurity{}, ext)
+	if el["caddy.@nd_rule_0.not.file"] != "{path} {path}/" {
+		t.Errorf("expected not.file guard, got %q", el["caddy.@nd_rule_0.not.file"])
+	}
+	if el["caddy.route.000_rewrite"] != "@nd_rule_0 /{re.ndr0.1}.php?src={re.ndr0.0}&{query}" {
+		t.Errorf("unexpected rewrite label: %q", el["caddy.route.000_rewrite"])
+	}
+}

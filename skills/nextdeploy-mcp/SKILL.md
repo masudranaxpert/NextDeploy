@@ -1,12 +1,14 @@
 ---
 name: nextdeploy-mcp
-description: Guide and tool reference for AI coding agents connecting to NextDeploy via Model Context Protocol (MCP). Covers inspecting apps, managing workspace files, editing environment variables, running non-blocking deployments, PHP runtime support, and polling deploy logs.
-version: 2.5.0
+description: Use when interacting with NextDeploy applications over Model Context Protocol (MCP) — inspecting apps, syncing workspace files, editing env vars, deploying, polling logs, running container/host commands, configuring custom domains, managing PHP/static site URL routing rules or `.htaccess` conversion, and starting/stopping PHP sites.
+version: 2.6.0
 ---
 
 # NextDeploy MCP (Model Context Protocol) Skill
 
-This skill teaches AI coding assistants (Claude Code, Cursor, Windsurf, Antigravity, Claude Desktop) how to interact with NextDeploy applications through the native Model Context Protocol server.
+This skill teaches AI coding assistants how to interact with NextDeploy applications through the native Model Context Protocol server.
+
+> **Conditional Deep Reference:** When converting Apache `.htaccess` rules, configuring per-site Caddy rewrites/redirects/blocks (`php_routing`), changing `try_files` fallback modes, or starting/stopping/restarting PHP & static sites (`php_power`), read [`references/php-routing-and-htaccess.md`](references/php-routing-and-htaccess.md) for payload schemas, flag mappings, and RBAC rules.
 
 ---
 
@@ -87,7 +89,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## 3. Tool Reference
 
-The NextDeploy MCP server provides **27 tools** designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
+The NextDeploy MCP server provides **31 tools** (27 base + 4 token-scoped privileged tools) designed for high accuracy and optimized to stay comfortably below Cursor's 40-tool hard limit:
 
 ### Area 1: Application Discovery & Lifecycle
 - **`app_list`**: Lists all applications the user can access.
@@ -175,6 +177,22 @@ All file paths are strictly sandboxed inside the app workspace.
   - *RBAC*: Developer or Admin role required.
 - **`domain_delete`**: Deletes a custom domain mapping by hostname or numeric ID and automatically regenerates and applies the updated Caddy reverse proxy configuration.
   - Arguments: `app_id` (string, required), `domain` (string, required, domain name or stringified ID).
+  - *RBAC*: Developer or Admin role required.
+
+### Area 8: PHP / Static URL Routing, `.htaccess` Converter & Power Lifecycle
+- **`php_routing`**: Inspect, auto-convert Apache `.htaccess` files in `htdocs/`, or configure per-site Caddy routing rules (`rewrite`, `redir`, `block`) and `try_files` fallback modes (`default`, `strict_404`, `custom`). WordPress permalinks and Laravel front-controllers work out of the box without extra rules.
+  - Arguments:
+    - `app_id` (string, required)
+    - `action` (string, default `"get"`): `"get"`, `"set"`, `"scan_htaccess"`, or `"convert_htaccess"`
+    - `fallback_mode` (string, optional for `"set"`): `"default"`, `"strict_404"`, or `"custom"`
+    - `fallback_entry` (string, optional for `fallback_mode: "custom"`): e.g. `"app.php"` or `"index.html"`
+    - `rules` (array, optional for `"set"`): ordered rules `[{id, kind, match_type, pattern, target, status, enabled, note}]` (`kind`: `rewrite|redir|block`; `match_type`: `exact|prefix|regex` RE2)
+    - `apply` (boolean, optional for `"scan_htaccess"`): `true` to persist scanned rules onto the site
+    - `mode` (string, optional for `"scan_htaccess"` with `apply: true`): `"replace"` (default) or `"append"`
+    - `content` / `file_path` (strings, for `"convert_htaccess"`): raw `.htaccess` snippet to preview
+  - *RBAC*: Viewer for `"get"`, `"convert_htaccess"`, or dry-run `"scan_htaccess"`; Developer/Admin for `"set"` or `"scan_htaccess"` with `apply: true`.
+- **`php_power`**: Start, stop, or restart a PHP or static site. Stopping removes its Caddy route (offline) and shuts down its PHP-FPM pool.
+  - Arguments: `app_id` (string, required), `action` (`"start"` | `"stop"` | `"restart"`, required).
   - *RBAC*: Developer or Admin role required.
 
 ---

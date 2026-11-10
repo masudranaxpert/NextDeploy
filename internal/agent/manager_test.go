@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os/exec"
 	"strings"
 	"testing"
@@ -62,6 +63,8 @@ func TestAgentManagerHostToolsRegistration(t *testing.T) {
 		"remove_domain",
 		"diagnose_site_performance",
 		"update_php_config",
+		"manage_php_routing",
+		"php_site_power",
 		"restart_site",
 		"get_site_logs",
 		"check_edge_shield",
@@ -158,5 +161,18 @@ func TestCleanTitle(t *testing.T) {
 	}
 	if got := cleanTitle(strings.Repeat("x", 100)); len([]rune(got)) != 61 {
 		t.Errorf("long title not shortened: %d", len([]rune(got)))
+	}
+}
+
+func TestManagePHPRoutingConvertHtaccess(t *testing.T) {
+	mgr := NewManager(nil, nil, t.TempDir())
+	tool := mgr.toolManagePHPRouting()
+	res, err := tool.Handler(t.Context(), nil, []byte(`{"app_id":"demo","action":"convert_htaccess","content":"RewriteEngine On\nRewriteRule ^blog/(.*)$ /post.php?slug=$1 [L]"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	raw, _ := json.Marshal(res.Content)
+	if !strings.Contains(string(raw), "/post.php") {
+		t.Fatalf("unexpected convert_htaccess output: %s", string(raw))
 	}
 }
