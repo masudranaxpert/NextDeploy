@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowUpRight, ExternalLink, Globe, Trash2 } from 'lucide-react';
 import { AppStack } from '../../../types/nextdeploy';
-import { Pill, StatusDot } from '../ui';
+import { StatusDot } from '../ui';
 import { OwnerBadge } from '../../../components/ui/OwnerBadge';
 import { SiteTypeBadge, SiteTypeIcon } from '../../../components/ui/BrandIcons';
 
@@ -22,7 +22,12 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite, onDelete }
   return (
     <div
       onClick={() => onOpenSite(site.id)}
-      className="group relative flex flex-col justify-between rounded-xl border border-white/[0.08] bg-[#111115] p-4 transition-all duration-150 hover:border-white/[0.18] hover:bg-[#141419] cursor-pointer shadow-xs hover:shadow-md"
+      title={!isRunning ? 'Stopped' : undefined}
+      className={`group relative flex flex-col justify-between rounded-xl border bg-[#111115] p-4 transition-all duration-150 hover:bg-[#141419] cursor-pointer shadow-xs hover:shadow-md ${
+        isRunning
+          ? 'border-white/[0.08] hover:border-white/[0.18]'
+          : 'border-red-500/45 hover:border-red-500/75'
+      }`}
     >
       <div>
         {/* Top Header: Brand Icon, Name, Status, Arrow */}
@@ -37,7 +42,8 @@ export const SiteCard: React.FC<SiteCardProps> = ({ site, onOpenSite, onDelete }
                 <span className="truncate text-sm font-semibold text-zinc-100 group-hover:text-white">
                   {site.name}
                 </span>
-                <StatusDot status={isRunning ? 'running' : 'stopped'} />
+                <StatusDot status={isRunning ? 'running' : 'stopped'} className={isRunning ? '' : '!bg-red-400'} />
+                <span className="sr-only">{isRunning ? 'Running' : 'Stopped'}</span>
                 <OwnerBadge id={site.ownerId} name={site.owner} role={site.ownerRole} />
               </div>
 
