@@ -25,6 +25,7 @@ import { OwnerBadge } from '../../components/ui/OwnerBadge';
 import { backendApi } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { DeleteSiteDialog } from '../php/components/DeleteSiteDialog';
+import { matchesAppSearch, sortStoppedLast } from '../../lib/resourceUtils';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
@@ -61,17 +62,12 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     'all' | 'running' | 'building' | 'stopped'
   >('all');
 
-  const filteredApps = apps.filter((a) => {
-    if (appStatusFilter !== 'all' && a.status !== appStatusFilter) return false;
-    if (
-      appSearch &&
-      !a.name.toLowerCase().includes(appSearch.toLowerCase()) &&
-      !(a.primaryDomain && a.primaryDomain.toLowerCase().includes(appSearch.toLowerCase()))
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const filteredApps = sortStoppedLast(
+    apps.filter((a) => {
+      if (appStatusFilter !== 'all' && a.status !== appStatusFilter) return false;
+      return matchesAppSearch(a, appSearch);
+    })
+  );
 
   const getAppActions = (app: AppStack) => [
     {

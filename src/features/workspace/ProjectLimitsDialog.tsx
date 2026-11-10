@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ShadcnDialog } from '../../components/ui/Primitives';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { backendApi } from '../../lib/backendApi';
+import { snapLimitValue, stepLimitValue } from '../../lib/resourceUtils';
 import type { AppLimitsInfo } from '../../lib/api/appsApi';
 import { AppStack } from '../../types/nextdeploy';
 import { Field, GhostButton, PrimaryButton, inputCls } from '../php/ui';
@@ -77,9 +78,16 @@ export const ProjectLimitsDialog: React.FC<{
               : '';
 
   const save = useCallback(async () => {
+    const mSnap = mem.trim() ? snapLimitValue(mem, 64, capMem || undefined, 0) : { value: '', adjusted: false };
+    const cSnap = cpu.trim() ? snapLimitValue(cpu, 0.25, capCpu || undefined, 0) : { value: '', adjusted: false };
+    const finalMem = mSnap.value === '0' ? 0 : Math.round(Number(mSnap.value) || 0);
+    const finalCpu = cSnap.value === '0' ? 0 : Number(cSnap.value) || 0;
+    if (mSnap.value !== mem) setMem(mSnap.value === '0' ? '' : mSnap.value);
+    if (cSnap.value !== cpu) setCpu(cSnap.value === '0' ? '' : cSnap.value);
+
     setSaving(true);
     try {
-      const r = await backendApi.appLimitsSet(app.id, memNum, cpuNum);
+      const r = await backendApi.appLimitsSet(app.id, finalMem, finalCpu);
       if (!r.ok) {
         toast.error(r.error || 'Could not save the limits');
         return;
@@ -90,7 +98,7 @@ export const ProjectLimitsDialog: React.FC<{
     } finally {
       setSaving(false);
     }
-  }, [app.id, memNum, cpuNum, onSaved]);
+  }, [app.id, mem, cpu, capMem, capCpu, onSaved]);
 
   const redeploy = async () => {
     const r = await backendApi.composeAction(app.id, 'up');
@@ -141,26 +149,46 @@ export const ProjectLimitsDialog: React.FC<{
                 <input
                   type="number"
                   min={0}
-                  max={capMem || undefined}
-                  step={64}
+                  step="any"
                   disabled={!canEdit}
                   className={inputCls}
                   value={mem}
                   placeholder="No limit"
                   onChange={(e) => setMem(e.target.value)}
+                  onBlur={() => {
+                    const { value: next, adjusted } = snapLimitValue(mem, 64, capMem || undefined, 0);
+                    if (next !== mem) setMem(next === '0' ? '' : next);
+                    if (adjusted && next !== '0') toast.info(`Memory snapped to nearest 64 MB step: ${next} MB`);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setMem(stepLimitValue(mem, e.key === 'ArrowUp' ? 1 : -1, 64, capMem || undefined, 0));
+                    }
+                  }}
                 />
               </Field>
               <Field label="CPU (cores)" hint={capCpu ? `up to ${capCpu} cores` : undefined}>
                 <input
                   type="number"
                   min={0}
-                  max={capCpu || undefined}
-                  step={0.25}
+                  step="any"
                   disabled={!canEdit}
                   className={inputCls}
                   value={cpu}
                   placeholder="No limit"
                   onChange={(e) => setCpu(e.target.value)}
+                  onBlur={() => {
+                    const { value: next, adjusted } = snapLimitValue(cpu, 0.25, capCpu || undefined, 0);
+                    if (next !== cpu) setCpu(next === '0' ? '' : next);
+                    if (adjusted && next !== '0') toast.info(`CPU snapped to nearest 0.25 step: ${next} cores`);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setCpu(stepLimitValue(cpu, e.key === 'ArrowUp' ? 1 : -1, 0.25, capCpu || undefined, 0));
+                    }
+                  }}
                 />
               </Field>
             </div>

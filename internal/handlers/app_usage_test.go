@@ -52,3 +52,21 @@ func TestAttributeContainerUsageToPools(t *testing.T) {
 		t.Errorf("unexpected CPU attribution: %+v", got)
 	}
 }
+
+func TestPHPPoolPerPIDWorkerRestartCPU(t *testing.T) {
+	t0 := time.Now()
+	t1 := t0.Add(10 * time.Second)
+	raw0 := "site-20005 101 40000 500\nsite-20005 102 40000 500\n"
+	p0 := parsePHPPoolProcOutput(raw0)
+	prev := map[string]poolTickSnapshot{}
+	attributeContainerUsageToPools(80, 20, p0, prev, "nd-php83-u1", t0)
+
+	// Worker 102 exits and is replaced by brand-new worker 103 with 100 jiffies;
+	// aggregate total drops from 1000 -> 650, yet per-PID tracking still measures +150 ticks = 15% CPU.
+	raw1 := "site-20005 101 40000 550\nsite-20005 103 40000 100\n"
+	p1 := parsePHPPoolProcOutput(raw1)
+	got := attributeContainerUsageToPools(80, 20, p1, prev, "nd-php83-u1", t1)
+	if got["site-20005"].CPUPercent != 15 {
+		t.Fatalf("expected 15%% CPU across worker restart, got %+v", got["site-20005"])
+	}
+}

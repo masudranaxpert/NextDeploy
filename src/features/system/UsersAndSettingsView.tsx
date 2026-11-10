@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuditLogEntry, PanelUser } from '../../types/nextdeploy';
+import { snapLimitValue, stepLimitValue } from '../../lib/resourceUtils';
 import { ShieldNode } from '../../types/shield';
 import {
   ActionMenu,
@@ -83,24 +84,37 @@ const LimitField: React.FC<{
   hint: string;
   step?: string;
   max?: number;
-}> = ({ label, unit, value, onChange, hint, step = '1', max }) => (
-  <label className="block">
-    <span className="mb-1.5 block text-[11px] font-medium text-zinc-300">{label}</span>
-    <div className="relative">
-      <input
-        type="number"
-        min={0}
-        max={max && max > 0 ? max : undefined}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] pl-3 pr-14 font-mono text-xs tabular-nums text-zinc-100 outline-none focus:border-orange-500/50"
-      />
-      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center font-mono text-[11px] text-zinc-500">{unit}</span>
-    </div>
-    <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>
-  </label>
-);
+}> = ({ label, unit, value, onChange, hint, step = '1', max }) => {
+  const numericStep = Number(step) || 1;
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-medium text-zinc-300">{label}</span>
+      <div className="relative">
+        <input
+          type="number"
+          min={0}
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => {
+            const { value: next, adjusted } = snapLimitValue(value, numericStep, max, 0);
+            if (next !== value) onChange(next);
+            if (adjusted) toast.info(`${label} snapped to nearest valid ${numericStep} ${unit} step: ${next} ${unit}`);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              onChange(stepLimitValue(value, e.key === 'ArrowUp' ? 1 : -1, numericStep, max, 0));
+            }
+          }}
+          className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] pl-3 pr-14 font-mono text-xs tabular-nums text-zinc-100 outline-none focus:border-orange-500/50"
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center font-mono text-[11px] text-zinc-500">{unit}</span>
+      </div>
+      <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>
+    </label>
+  );
+};
 
 export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   mode,
@@ -345,12 +359,26 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
     e.preventDefault();
     if (!limitsModalUser) return;
 
-    const maxApps = Math.max(0, parseInt(limitMaxApps, 10) || 0);
-    const maxCpus = Math.max(0, parseFloat(limitMaxCpus) || 0);
-    const maxMemoryMb = Math.max(0, parseInt(limitMaxMemoryMb, 10) || 0);
-    const maxStorageMb = Math.max(0, parseInt(limitMaxStorageMb, 10) || 0);
-    const maxDatabases = Math.max(0, parseInt(limitMaxDatabases, 10) || 0);
-    const bandwidthLimitMbps = Math.max(0, parseInt(limitBandwidthMbps, 10) || 0);
+    const appsSnap = snapLimitValue(limitMaxApps, 1);
+    const cpusSnap = snapLimitValue(limitMaxCpus, 0.5, host?.cpus);
+    const memSnap = snapLimitValue(limitMaxMemoryMb, 256, host?.memoryMB);
+    const storageSnap = snapLimitValue(limitMaxStorageMb, 1024, host?.diskMB);
+    const dbSnap = snapLimitValue(limitMaxDatabases, 1);
+    const bwSnap = snapLimitValue(limitBandwidthMbps, 5);
+
+    if (appsSnap.value !== limitMaxApps) setLimitMaxApps(appsSnap.value);
+    if (cpusSnap.value !== limitMaxCpus) setLimitMaxCpus(cpusSnap.value);
+    if (memSnap.value !== limitMaxMemoryMb) setLimitMaxMemoryMb(memSnap.value);
+    if (storageSnap.value !== limitMaxStorageMb) setLimitMaxStorageMb(storageSnap.value);
+    if (dbSnap.value !== limitMaxDatabases) setLimitMaxDatabases(dbSnap.value);
+    if (bwSnap.value !== limitBandwidthMbps) setLimitBandwidthMbps(bwSnap.value);
+
+    const maxApps = Math.max(0, parseInt(appsSnap.value, 10) || 0);
+    const maxCpus = Math.max(0, parseFloat(cpusSnap.value) || 0);
+    const maxMemoryMb = Math.max(0, parseInt(memSnap.value, 10) || 0);
+    const maxStorageMb = Math.max(0, parseInt(storageSnap.value, 10) || 0);
+    const maxDatabases = Math.max(0, parseInt(dbSnap.value, 10) || 0);
+    const bandwidthLimitMbps = Math.max(0, parseInt(bwSnap.value, 10) || 0);
 
     if (host) {
       const over =
@@ -976,7 +1004,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
           icon={<Sliders className="h-4 w-4 text-orange-400" />}
         >
           {limitsModalUser && (
-            <form onSubmit={handleSaveLimits} className="space-y-5">
+            <form noValidate onSubmit={handleSaveLimits} className="space-y-5">
               {limitsModalUser.role === 'admin' && (
                 <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
                   Administrators are never limited. These values apply if this account is demoted to a standard user.

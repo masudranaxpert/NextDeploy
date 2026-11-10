@@ -321,7 +321,12 @@ export default function App() {
   };
 
   const applyLiveMetrics = React.useCallback(
-    (data: { sys?: any; history?: TelemetryPoint[]; containers?: any[] }) => {
+    (data: {
+      sys?: any;
+      history?: TelemetryPoint[];
+      containers?: any[];
+      apps_usage?: Record<string, { cpu_percent?: number; memory_mb?: number }>;
+    }) => {
       if (!data || typeof data !== 'object') return;
       if (data.sys) {
         setSys(data.sys);
@@ -342,6 +347,19 @@ export default function App() {
               usageMap.get(c.id) ||
               (c.id && c.id.length >= 12 ? usageMap.get(c.id.slice(0, 12)) : undefined);
             return u ? { ...c, cpuPct: u.cpu_percent, memUsedMB: u.memory_mb } : c;
+          })
+        );
+      }
+      if (data.apps_usage && typeof data.apps_usage === 'object') {
+        const appsUsage = data.apps_usage;
+        setApps((prev) =>
+          prev.map((app) => {
+            const u = appsUsage[app.id];
+            if (!u) return app;
+            const cpuPct = Math.round((u.cpu_percent || 0) * 100) / 100;
+            const memMB = u.memory_mb || 0;
+            if (app.cpuPct === cpuPct && app.memMB === memMB) return app;
+            return { ...app, cpuPct, memMB };
           })
         );
       }
@@ -1321,6 +1339,9 @@ export default function App() {
               <MonitorView
                 telemetry={telemetry}
                 apps={apps}
+                hostMemMB={sys?.MemTotalGB ? Math.round(sys.MemTotalGB * 1024) : undefined}
+                hostCPUs={sys?.NumCPU || undefined}
+                onSelectApp={(id) => navigateTo('apps', id)}
                 onStreamTick={appendTelemetryTick}
                 onUpdateTelemetry={setTelemetry}
                 onLiveMetrics={applyLiveMetrics}

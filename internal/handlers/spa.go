@@ -722,5 +722,6 @@ func (p *Panel) MetricsHistory(c *fiber.Ctx) error {
 		"history":    history,
 		"sys":        snap,
 		"containers": usageList,
+		"apps_usage": p.liveAppUsageMap(ctx, u),
 	})
 }

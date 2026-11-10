@@ -289,6 +289,16 @@ func ListContainerUsageForProjects(ctx context.Context, projects map[string]bool
 	})
 }
 
+type cachedContainerStats struct {
+	stats statsJSON
+	cpu   float64
+}
+
+var (
+	prevContainerStatsMu sync.Mutex
+	prevContainerStats   = make(map[string]cachedContainerStats)
+)
+
 func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) bool) ([]ContainerUsageRow, string) {
 	cli, err := apiClient()
 	if err != nil {
@@ -342,7 +352,25 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 			out = append(out, row)
 			continue
 		}
-		row.CPUPercent = math.Round(cpuPercentSingleSample(cur)*100) / 100
+		cpuPct := cpuPercentSingleSample(cur)
+		prevContainerStatsMu.Lock()
+		if cur.PreCPUStats.SystemUsage == 0 {
+			if prev, hasPrev := prevContainerStats[c.ID]; hasPrev {
+				elapsedOK := cur.Read.IsZero() || prev.stats.Read.IsZero() || cur.Read.Sub(prev.stats.Read) >= 400*time.Millisecond
+				if elapsedOK && cur.CPUStats.SystemUsage > prev.stats.CPUStats.SystemUsage && cur.CPUStats.CPUUsage.TotalUsage >= prev.stats.CPUStats.CPUUsage.TotalUsage {
+					cpuPct = cpuPercentBetweenSamples(prev.stats, cur)
+					prevContainerStats[c.ID] = cachedContainerStats{stats: cur, cpu: cpuPct}
+				} else {
+					cpuPct = prev.cpu
+				}
+			} else {
+				prevContainerStats[c.ID] = cachedContainerStats{stats: cur, cpu: 0}
+			}
+		} else {
+			prevContainerStats[c.ID] = cachedContainerStats{stats: cur, cpu: cpuPct}
+		}
+		prevContainerStatsMu.Unlock()
+		row.CPUPercent = math.Round(cpuPct*100) / 100
 		memUsage := memoryUsageLikeDockerCLI(cur)
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit

@@ -22,12 +22,14 @@ type appUsage struct {
 }
 
 type poolProcSample struct {
-	anonKB  int64
-	jiffies uint64
+	anonKB   int64
+	jiffies  uint64
+	pidTicks map[string]uint64
 }
 
 type poolTickSnapshot struct {
 	jiffies   uint64
+	pidTicks  map[string]uint64
 	sampledAt time.Time
 }
 
@@ -36,8 +38,8 @@ const (
 	usageWindow      = 6 // samples kept: the last minute
 	usageIdleAfter   = 3 * time.Minute
 
-	// Reads private heap (RssAnon, avoiding OPcache/shared-lib multi-counting) and CPU ticks per pool.
-	phpPoolProcScript = `for d in /proc/[0-9]*; do cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$cmd" in "php-fpm: pool "*) pool=${cmd#php-fpm: pool }; pool=${pool%% *}; st=$(cat "$d/stat" 2>/dev/null) || continue; st=${st#*) }; set -- $st; mem=$(awk "/^RssAnon:/{a=\$2} /^VmRSS:/{r=\$2} END{print (a>0?a:r)+0}" "$d/status" 2>/dev/null); echo "$pool ${mem:-0} $((${12:-0}+${13:-0}))";; esac; done`
+	// Reads private heap (RssAnon, avoiding OPcache/shared-lib multi-counting), PID, and CPU ticks per pool.
+	phpPoolProcScript = `for d in /proc/[0-9]*; do cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$cmd" in "php-fpm: pool "*) pool=${cmd#php-fpm: pool }; pool=${pool%% *}; st=$(cat "$d/stat" 2>/dev/null) || continue; st=${st#*) }; set -- $st; mem=$(awk "/^RssAnon:/{a=\$2} /^VmRSS:/{r=\$2} END{print (a>0?a:r)+0}" "$d/status" 2>/dev/null); echo "$pool ${d##*/} ${mem:-0} $((${12:-0}+${13:-0}))";; esac; done`
 )
 
 // A single one-second CPU reading of a lightly used site is nearly always 0, so the panel keeps
@@ -47,6 +49,7 @@ var usageSampler struct {
 	mu            sync.Mutex
 	hist          [][]dockerapi.ContainerUsageRow
 	phpPools      map[string]map[string]appUsage
+	phpPoolHist   map[string][]map[string]appUsage
 	prevPoolTicks map[string]poolTickSnapshot
 	touched       time.Time
 	started       bool
@@ -107,14 +110,27 @@ func parsePHPPoolProcOutput(raw string) map[string]poolProcSample {
 		if !strings.HasPrefix(pool, "site-") {
 			continue
 		}
-		anonKB, err1 := strconv.ParseInt(fields[1], 10, 64)
-		jiffies, err2 := strconv.ParseUint(fields[2], 10, 64)
+		var pid string
+		var memStr, tickStr string
+		if len(fields) >= 4 {
+			pid, memStr, tickStr = fields[1], fields[2], fields[3]
+		} else {
+			memStr, tickStr = fields[1], fields[2]
+		}
+		anonKB, err1 := strconv.ParseInt(memStr, 10, 64)
+		jiffies, err2 := strconv.ParseUint(tickStr, 10, 64)
 		if err1 != nil || err2 != nil {
 			continue
 		}
 		cur := out[pool]
 		cur.anonKB += anonKB
 		cur.jiffies += jiffies
+		if pid != "" {
+			if cur.pidTicks == nil {
+				cur.pidTicks = make(map[string]uint64)
+			}
+			cur.pidTicks[pid] = jiffies
+		}
 		out[pool] = cur
 	}
 	return out
@@ -139,14 +155,31 @@ func attributeContainerUsageToPools(
 		tickKey := containerName + "\x00" + pool
 		if prev, ok := prevTicks[tickKey]; ok {
 			elapsed := now.Sub(prev.sampledAt).Seconds()
-			if elapsed > 0.5 && s.jiffies >= prev.jiffies {
+			if elapsed > 0.5 {
+				var deltaJiffies uint64
+				if len(s.pidTicks) > 0 && len(prev.pidTicks) > 0 {
+					for pid, j := range s.pidTicks {
+						if pj, hadPID := prev.pidTicks[pid]; hadPID {
+							if j >= pj {
+								deltaJiffies += j - pj
+							} else {
+								deltaJiffies += j
+							}
+						} else {
+							// Newly spawned worker ran all its accumulated ticks in this interval.
+							deltaJiffies += j
+						}
+					}
+				} else if s.jiffies >= prev.jiffies {
+					deltaJiffies = s.jiffies - prev.jiffies
+				}
 				// Linux USER_HZ is 100 jiffies/s, so deltaJiffies / elapsedSec equals % of 1 core.
-				cpu := float64(s.jiffies-prev.jiffies) / elapsed
+				cpu := float64(deltaJiffies) / elapsed
 				rawCPU[pool] = cpu
 				totalRawCPU += cpu
 			}
 		}
-		prevTicks[tickKey] = poolTickSnapshot{jiffies: s.jiffies, sampledAt: now}
+		prevTicks[tickKey] = poolTickSnapshot{jiffies: s.jiffies, pidTicks: s.pidTicks, sampledAt: now}
 	}
 
 	out := make(map[string]appUsage, len(parsed))
@@ -187,10 +220,13 @@ func samplePHPPools(ctx context.Context, rows []dockerapi.ContainerUsageRow) {
 		if usageSampler.phpPools == nil {
 			usageSampler.phpPools = make(map[string]map[string]appUsage)
 		}
+		if usageSampler.phpPoolHist == nil {
+			usageSampler.phpPoolHist = make(map[string][]map[string]appUsage)
+		}
 		if usageSampler.prevPoolTicks == nil {
 			usageSampler.prevPoolTicks = make(map[string]poolTickSnapshot)
 		}
-		usageSampler.phpPools[cleanName] = attributeContainerUsageToPools(
+		sample := attributeContainerUsageToPools(
 			containerMemMB,
 			r.CPUPercent,
 			parsed,
@@ -198,6 +234,25 @@ func samplePHPPools(ctx context.Context, rows []dockerapi.ContainerUsageRow) {
 			cleanName,
 			now,
 		)
+		hist := append(usageSampler.phpPoolHist[cleanName], sample)
+		if len(hist) > usageWindow {
+			hist = hist[len(hist)-usageWindow:]
+		}
+		usageSampler.phpPoolHist[cleanName] = hist
+		avgPools := make(map[string]appUsage, len(sample))
+		for pool, curUsage := range sample {
+			var sumCPU float64
+			for _, h := range hist {
+				if u, ok := h[pool]; ok {
+					sumCPU += u.CPUPercent
+				}
+			}
+			avgPools[pool] = appUsage{
+				MemoryMB:   curUsage.MemoryMB,
+				CPUPercent: math.Round((sumCPU/float64(len(hist)))*100) / 100,
+			}
+		}
+		usageSampler.phpPools[cleanName] = avgPools
 		usageSampler.mu.Unlock()
 	}
 }
@@ -259,6 +314,22 @@ func (p *Panel) projectUsage(ctx context.Context) map[string]appUsage {
 		u.MemoryMB += int64(r.MemUsage / (1024 * 1024))
 		u.CPUPercent += r.CPUPercent
 		out[r.ComposeProject] = u
+	}
+	return out
+}
+
+// liveAppUsageMap computes live CPU and memory usage for all apps visible to u using the cached sampler.
+func (p *Panel) liveAppUsageMap(ctx context.Context, u db.User) map[string]appUsage {
+	var apps []db.App
+	if u.Role == db.RoleAdmin {
+		apps, _ = p.DB.ListApps(ctx)
+	} else {
+		apps, _ = p.DB.ListAppsForUser(ctx, u.ID)
+	}
+	byProject := p.projectUsage(ctx)
+	out := make(map[string]appUsage, len(apps))
+	for _, a := range apps {
+		out[a.ID] = p.usageForApp(ctx, a, byProject)
 	}
 	return out
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileCode2, LayoutGrid, List, Plus, Search, Server, Settings2 } from 'lucide-react';
+import { FileCode2, LayoutGrid, List, Plus, Search, Server, Settings2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack } from '../../types/nextdeploy';
 import { backendApi } from '../../lib/backendApi';
@@ -10,6 +10,7 @@ import { DeleteSiteDialog } from './components/DeleteSiteDialog';
 import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons';
 import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls, prefetchPhpSite } from './ui';
 import { PhpVersionSelect } from './PhpVersionSelect';
+import { isAppStopped, matchesAppSearch, sortStoppedLast } from '../../lib/resourceUtils';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
@@ -94,7 +95,20 @@ const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onD
     onOpenSite(res.data.id);
   };
 
-  const filtered = sites.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) || (s.primaryDomain || '').toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(
+    () => sortStoppedLast(sites.filter((s) => matchesAppSearch(s, search))),
+    [sites, search]
+  );
+
+  const siteCounts = useMemo(() => {
+    let running = 0;
+    let stopped = 0;
+    for (const s of filtered) {
+      if (isAppStopped(s)) stopped++;
+      else running++;
+    }
+    return { running, stopped };
+  }, [filtered]);
 
   return (
     <div className="space-y-5">
@@ -138,9 +152,37 @@ const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onD
       )}
 
       {sites.length > 0 && (
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-          <input className={`${inputCls} pl-8`} placeholder="Search sites" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+            <input
+              className={`${inputCls} pl-8 pr-8`}
+              placeholder="Search by site name, domain, or owner username (e.g. fmxbd)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                title="Clear search"
+                aria-label="Clear search"
+                className="absolute right-2.5 top-2.5 rounded text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-zinc-500">
+            <span>
+              Showing <span className="text-zinc-300">{filtered.length}</span> of {sites.length} sites
+              {search.trim() ? ` matching "${search.trim()}"` : ''}
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="text-emerald-400">{siteCounts.running} running</span>
+              {siteCounts.stopped > 0 && <span className="text-rose-400">· {siteCounts.stopped} stopped</span>}
+            </span>
+          </div>
         </div>
       )}
 
@@ -152,6 +194,19 @@ const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onD
             <p className="mt-1.5 text-xs text-zinc-400">Create your first site.</p>
           </div>
         )
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-white/[0.08] bg-[#111115]/50 px-6 py-14 text-center">
+          <Search className="h-6 w-6 text-zinc-500" />
+          <h3 className="mt-3 text-sm font-semibold text-zinc-200">No matching sites</h3>
+          <p className="mt-1 text-xs text-zinc-400">No sites, domains, or users match &ldquo;{search.trim()}&rdquo;.</p>
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="mt-3 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+          >
+            Clear search
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
