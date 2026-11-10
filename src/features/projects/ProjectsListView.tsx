@@ -188,7 +188,7 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
               type="text"
               value={appSearch}
               onChange={(e) => setAppSearch(e.target.value)}
-              placeholder="Filter projects..."
+              placeholder="Filter projects, domains, or owner (e.g. fmxbd)..."
               className="h-9 w-full rounded-lg border border-white/[0.08] bg-[#09090b] pl-8 pr-8 text-xs text-zinc-100 placeholder-zinc-500 focus:border-orange-500/60 focus:outline-none transition-colors"
             />
             {appSearch && (

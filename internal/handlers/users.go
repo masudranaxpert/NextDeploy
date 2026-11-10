@@ -621,6 +621,11 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 	for _, a := range p.ownedApps(c.UserContext(), id) {
 		if !p.DB.IsPHPSite(c.UserContext(), a.ID) {
 			_ = p.SyncAppCaddyOverrideCtx(c.UserContext(), a.ID)
+			activeSlot := a.ActiveSlot
+			if activeSlot == "" {
+				activeSlot = "blue"
+			}
+			_, _ = p.SyncAppSlotComposeCtx(c.UserContext(), a.ID, activeSlot, false)
 		}
 	}
 
