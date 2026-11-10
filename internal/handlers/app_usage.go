@@ -22,7 +22,7 @@ type appUsage struct {
 }
 
 type poolProcSample struct {
-	rssKB   int64
+	anonKB  int64
 	jiffies uint64
 }
 
@@ -36,7 +36,8 @@ const (
 	usageWindow      = 6 // samples kept: the last minute
 	usageIdleAfter   = 3 * time.Minute
 
-	phpPoolProcScript = `for d in /proc/[0-9]*; do cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$cmd" in "php-fpm: pool "*) pool=${cmd#php-fpm: pool }; pool=${pool%% *}; st=$(cat "$d/stat" 2>/dev/null) || continue; st=${st#*) }; set -- $st; rss=$(awk "/^VmRSS:/{print \$2; exit}" "$d/status" 2>/dev/null); echo "$pool ${rss:-0} $((${12:-0}+${13:-0}))";; esac; done`
+	// Reads private heap (RssAnon, avoiding OPcache/shared-lib multi-counting) and CPU ticks per pool.
+	phpPoolProcScript = `for d in /proc/[0-9]*; do cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$cmd" in "php-fpm: pool "*) pool=${cmd#php-fpm: pool }; pool=${pool%% *}; st=$(cat "$d/stat" 2>/dev/null) || continue; st=${st#*) }; set -- $st; mem=$(awk "/^RssAnon:/{a=\$2} /^VmRSS:/{r=\$2} END{print (a>0?a:r)+0}" "$d/status" 2>/dev/null); echo "$pool ${mem:-0} $((${12:-0}+${13:-0}))";; esac; done`
 )
 
 // A single one-second CPU reading of a lightly used site is nearly always 0, so the panel keeps
@@ -106,15 +107,62 @@ func parsePHPPoolProcOutput(raw string) map[string]poolProcSample {
 		if !strings.HasPrefix(pool, "site-") {
 			continue
 		}
-		rssKB, err1 := strconv.ParseInt(fields[1], 10, 64)
+		anonKB, err1 := strconv.ParseInt(fields[1], 10, 64)
 		jiffies, err2 := strconv.ParseUint(fields[2], 10, 64)
 		if err1 != nil || err2 != nil {
 			continue
 		}
 		cur := out[pool]
-		cur.rssKB += rssKB
+		cur.anonKB += anonKB
 		cur.jiffies += jiffies
 		out[pool] = cur
+	}
+	return out
+}
+
+// attributeContainerUsageToPools scales per-pool private RssAnon against the container's true
+// cgroup MemUsage (preventing OPcache/CoW double-counting across workers) and caps summed CPU%.
+func attributeContainerUsageToPools(
+	containerMemMB int64,
+	containerCPUPct float64,
+	parsed map[string]poolProcSample,
+	prevTicks map[string]poolTickSnapshot,
+	containerName string,
+	now time.Time,
+) map[string]appUsage {
+	var totalAnonKB int64
+	rawCPU := make(map[string]float64, len(parsed))
+	var totalRawCPU float64
+
+	for pool, s := range parsed {
+		totalAnonKB += s.anonKB
+		tickKey := containerName + "\x00" + pool
+		if prev, ok := prevTicks[tickKey]; ok {
+			elapsed := now.Sub(prev.sampledAt).Seconds()
+			if elapsed > 0.5 && s.jiffies >= prev.jiffies {
+				// Linux USER_HZ is 100 jiffies/s, so deltaJiffies / elapsedSec equals % of 1 core.
+				cpu := float64(s.jiffies-prev.jiffies) / elapsed
+				rawCPU[pool] = cpu
+				totalRawCPU += cpu
+			}
+		}
+		prevTicks[tickKey] = poolTickSnapshot{jiffies: s.jiffies, sampledAt: now}
+	}
+
+	out := make(map[string]appUsage, len(parsed))
+	for pool, s := range parsed {
+		memMB := s.anonKB / 1024
+		if containerMemMB > 0 && totalAnonKB > 0 {
+			memMB = int64(math.Round(float64(containerMemMB) * (float64(s.anonKB) / float64(totalAnonKB))))
+		}
+		cpuPct := rawCPU[pool]
+		if containerCPUPct > 0 && totalRawCPU > containerCPUPct {
+			cpuPct = containerCPUPct * (cpuPct / totalRawCPU)
+		}
+		out[pool] = appUsage{
+			MemoryMB:   memMB,
+			CPUPercent: math.Round(cpuPct*100) / 100,
+		}
 	}
 	return out
 }
@@ -133,6 +181,7 @@ func samplePHPPools(ctx context.Context, rows []dockerapi.ContainerUsageRow) {
 		}
 		parsed := parsePHPPoolProcOutput(res.Output)
 		now := time.Now()
+		containerMemMB := int64(r.MemUsage / (1024 * 1024))
 
 		usageSampler.mu.Lock()
 		if usageSampler.phpPools == nil {
@@ -141,24 +190,14 @@ func samplePHPPools(ctx context.Context, rows []dockerapi.ContainerUsageRow) {
 		if usageSampler.prevPoolTicks == nil {
 			usageSampler.prevPoolTicks = make(map[string]poolTickSnapshot)
 		}
-		poolStats := make(map[string]appUsage, len(parsed))
-		for pool, s := range parsed {
-			tickKey := cleanName + "\x00" + pool
-			var cpuPct float64
-			if prev, ok := usageSampler.prevPoolTicks[tickKey]; ok {
-				elapsed := now.Sub(prev.sampledAt).Seconds()
-				if elapsed > 0.5 && s.jiffies >= prev.jiffies {
-					// Linux USER_HZ is 100 jiffies/s, so deltaJiffies / elapsedSec equals % of 1 core.
-					cpuPct = math.Round((float64(s.jiffies-prev.jiffies)/elapsed)*100) / 100
-				}
-			}
-			usageSampler.prevPoolTicks[tickKey] = poolTickSnapshot{jiffies: s.jiffies, sampledAt: now}
-			poolStats[pool] = appUsage{
-				MemoryMB:   s.rssKB / 1024,
-				CPUPercent: cpuPct,
-			}
-		}
-		usageSampler.phpPools[cleanName] = poolStats
+		usageSampler.phpPools[cleanName] = attributeContainerUsageToPools(
+			containerMemMB,
+			r.CPUPercent,
+			parsed,
+			usageSampler.prevPoolTicks,
+			cleanName,
+			now,
+		)
 		usageSampler.mu.Unlock()
 	}
 }
