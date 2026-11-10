@@ -73,9 +73,28 @@ interface Props {
   appId: string;
   isStatic: boolean;
   value: PhpSiteRouting;
+  savedValue?: PhpSiteRouting;
   onChange: (next: PhpSiteRouting) => void;
   onSaved?: () => void | Promise<void>;
 }
+
+const serializeRouting = (r?: PhpSiteRouting) =>
+  JSON.stringify({
+    fallback_mode: !r?.fallback_mode || r.fallback_mode === 'default' ? '' : r.fallback_mode,
+    fallback_entry: (r?.fallback_entry || '').trim(),
+    rules: (r?.rules ?? []).map((rule) => ({
+      id: rule.id || '',
+      kind: rule.kind,
+      match_type: rule.match_type,
+      pattern: rule.pattern,
+      target: rule.target || '',
+      status: rule.status || 0,
+      enabled: Boolean(rule.enabled),
+      unless_exists: Boolean(rule.unless_exists),
+      preserve_query: Boolean(rule.preserve_query),
+      note: rule.note || '',
+    })),
+  });
 
 const KIND_BADGE: Record<PhpRoutingRule['kind'], string> = {
   rewrite: 'border-white/[0.12] bg-white/[0.04] text-zinc-200',
@@ -86,7 +105,7 @@ const KIND_BADGE: Record<PhpRoutingRule['kind'], string> = {
 const iconBtnCls =
   'rounded p-1.5 text-zinc-400 transition hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-30 disabled:pointer-events-none cursor-pointer';
 
-export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onChange, onSaved }) => {
+export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, savedValue, onChange, onSaved }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [editorState, setEditorState] = useState<{ open: boolean; index: number | null }>({
@@ -101,6 +120,10 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
   const activeCount = rules.filter((r) => r.enabled).length;
   const trimmedQuery = searchQuery.trim().toLowerCase();
   const isFiltering = trimmedQuery.length > 0;
+  const hasChanges = useMemo(
+    () => serializeRouting(value) !== serializeRouting(savedValue),
+    [value, savedValue]
+  );
 
   const visibleEntries = useMemo(() => {
     const mapped = rules.map((rule, idx) => ({ rule, idx }));
@@ -219,9 +242,15 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
           <GhostButton onClick={() => setImportOpen(true)}>
             <Wand2 className="h-3.5 w-3.5 text-orange-400" /> Import .htaccess
           </GhostButton>
-          <PrimaryButton busy={savingRouting} onClick={saveRoutingOnly}>
-            Save rules
-          </PrimaryButton>
+          {hasChanges ? (
+            <PrimaryButton busy={savingRouting} onClick={saveRoutingOnly}>
+              Save rules
+            </PrimaryButton>
+          ) : (
+            <GhostButton disabled className="opacity-50" title="No unsaved routing changes">
+              Save rules
+            </GhostButton>
+          )}
         </div>
       }
     >

@@ -368,6 +368,7 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         appId={app.id}
         isStatic={isStatic}
         value={form.routing || {}}
+        savedValue={detail.settings?.routing}
         onChange={(routing) => setForm((prev) => (prev ? { ...prev, routing } : prev))}
         onSaved={async () => {
           loadedFor.current = '';
