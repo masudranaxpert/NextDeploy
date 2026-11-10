@@ -74,7 +74,7 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
       case 'warning':
         return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />;
       default:
-        return <Info className="h-3.5 w-3.5 shrink-0 text-zinc-500" />;
+        return <Info className="h-3.5 w-3.5 shrink-0 text-zinc-400" />;
     }
   };
 
@@ -92,8 +92,7 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
       onClose={onClose}
       maxWidth="lg"
       icon={<FileCode2 className="h-4 w-4 text-orange-400" />}
-      title="Import & Convert .htaccess"
-      description="Safely convert Apache .htaccess rewrite, redirect, and access rules into native Caddy routing rules."
+      title="Import .htaccess"
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <GhostButton onClick={onClose}>Close</GhostButton>
@@ -101,7 +100,7 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
             <div className="flex items-center gap-2">
               <GhostButton onClick={() => applyWithMode('replace')}>Replace Existing</GhostButton>
               <PrimaryButton onClick={() => applyWithMode('append')}>
-                Append {result.rules.length} Rule{result.rules.length === 1 ? '' : 's'}
+                Add {result.rules.length} Rule{result.rules.length === 1 ? '' : 's'}
               </PrimaryButton>
             </div>
           )}
@@ -109,37 +108,37 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
       }
     >
       <div className="space-y-4">
-        <div className="flex gap-1.5 rounded-lg border border-white/[0.06] bg-[#09090b] p-1">
+        <div className="flex gap-1.5 rounded-lg border border-white/[0.1] bg-[#09090b] p-1">
           <button
             type="button"
             onClick={() => setTab('scan')}
-            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
-              tab === 'scan' ? 'bg-white/[0.08] text-white' : 'text-zinc-400 hover:text-zinc-200'
+            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer ${
+              tab === 'scan' ? 'bg-white/[0.1] text-white' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Auto-Scan htdocs
+            Scan htdocs
           </button>
           <button
             type="button"
             onClick={() => setTab('paste')}
-            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
-              tab === 'paste' ? 'bg-white/[0.08] text-white' : 'text-zinc-400 hover:text-zinc-200'
+            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer ${
+              tab === 'paste' ? 'bg-white/[0.1] text-white' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Paste .htaccess
+            Paste
           </button>
         </div>
 
         {tab === 'scan' ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-white/[0.07] bg-[#09090b] p-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-lg border border-white/[0.1] bg-[#09090b] p-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <div className="text-xs font-medium text-zinc-200">Scan htdocs directory</div>
+              <div className="text-xs font-medium text-zinc-100">Scan htdocs/</div>
               <p className="mt-0.5 text-[11px] text-zinc-400">
-                Scans root &amp; subfolders for .htaccess files. WordPress &amp; Laravel front-controllers are skipped automatically.
+                Finds .htaccess files in root and subfolders.
               </p>
             </div>
             <PrimaryButton busy={isPending} onClick={runScan} className="shrink-0">
-              <ScanSearch className="h-3.5 w-3.5" /> Scan Now
+              <ScanSearch className="h-3.5 w-3.5" /> Scan
             </PrimaryButton>
           </div>
         ) : (
@@ -219,13 +218,13 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
                             QSA
                           </span>
                         )}
-                        {r.note && <span className="ml-auto text-[10px] text-zinc-500">{r.note}</span>}
+                        {r.note && <span className="ml-auto text-[10px] text-zinc-400">{r.note}</span>}
                       </div>
                       <div className="break-all text-zinc-200">
                         <span className="text-orange-300">{r.pattern}</span>
                         {r.target ? (
                           <>
-                            <span className="text-zinc-500"> → </span>
+                            <span className="text-zinc-400"> → </span>
                             <span className="text-emerald-300">{r.target}</span>
                           </>
                         ) : null}
@@ -238,8 +237,8 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
 
             {(result.diagnostics ?? []).length > 0 && (
               <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                  Line Diagnostics
+                <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                  Diagnostics
                 </div>
                 <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
                   {result.diagnostics.map((d, idx) => (
@@ -250,7 +249,7 @@ export const HtaccessImportModal: React.FC<Props> = ({ appId, open, onClose, onA
                       {diagIcon(d.severity)}
                       <div className="min-w-0 flex-1">
                         <div className="text-zinc-300">
-                          <span className="font-mono text-zinc-500">
+                          <span className="font-mono text-zinc-400">
                             {d.file}:{d.line || '-'}
                           </span>{' '}
                           {d.directive && <span className="font-mono text-purple-300">{d.directive}</span>}{' '}

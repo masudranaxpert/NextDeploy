@@ -114,16 +114,18 @@ interface ShadcnSwitchProps {
   checked: boolean;
   onChange: (next: boolean) => void;
   label?: string;
+  ariaLabel?: string;
 }
 
-export const ShadcnSwitch: React.FC<ShadcnSwitchProps> = ({ checked, onChange, label }) => {
+export const ShadcnSwitch: React.FC<ShadcnSwitchProps> = ({ checked, onChange, label, ariaLabel }) => {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel || label}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 cursor-pointer select-none group"
+      className="inline-flex items-center gap-2 rounded-md cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
     >
       <span
         className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${

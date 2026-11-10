@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, BookOpen, Pencil, Plus, Route, Search, Trash2, Wand
 import { toast } from 'sonner';
 import { backendApi } from '../../../lib/backendApi';
 import type { PhpRoutingRule, PhpSiteRouting } from '../../../lib/api/phpApi';
+import { ShadcnSwitch } from '../../../components/ui/Primitives';
 import { Card, Field, GhostButton, Pill, PrimaryButton, inputCls, selectCls } from '../ui';
 import type { RulePresetItem } from './RuleEditorModal';
 
@@ -378,15 +379,14 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, onC
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <input
-                      type="checkbox"
-                      aria-label={`Enable rule ${idx + 1}`}
-                      checked={rule.enabled}
-                      onChange={(e) => toggleEnabled(idx, e.target.checked)}
-                      title={rule.enabled ? 'Disable rule' : 'Enable rule'}
-                      className="mr-1.5 h-4 w-4 accent-orange-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer"
-                    />
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="mr-1 flex items-center" title={rule.enabled ? 'Disable rule' : 'Enable rule'}>
+                      <ShadcnSwitch
+                        checked={rule.enabled}
+                        onChange={(next) => toggleEnabled(idx, next)}
+                        ariaLabel={`Enable rule ${idx + 1}`}
+                      />
+                    </div>
                     <button
                       type="button"
                       aria-label={`Edit rule ${idx + 1}`}

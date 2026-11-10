@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Route } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PhpRoutingRule } from '../../../lib/api/phpApi';
-import { ShadcnDialog } from '../../../components/ui/Primitives';
+import { ShadcnDialog, ShadcnSwitch } from '../../../components/ui/Primitives';
 import { Field, GhostButton, PrimaryButton, inputCls, selectCls } from '../ui';
 
 export interface RulePresetItem {
@@ -187,27 +187,19 @@ export const RuleEditorModal: React.FC<Props> = ({ open, initialRule, presets = 
         )}
 
         {draft.kind !== 'block' && (
-          <div className="flex flex-wrap gap-4 rounded-lg border border-white/[0.1] bg-[#09090b] px-3 py-2.5 text-xs text-zinc-300">
+          <div className="flex flex-wrap items-center gap-5 rounded-lg border border-white/[0.1] bg-[#09090b] px-3 py-2.5">
             {draft.kind === 'rewrite' && (
-              <label className="inline-flex items-center gap-2 cursor-pointer hover:text-white">
-                <input
-                  type="checkbox"
-                  checked={Boolean(draft.unless_exists)}
-                  onChange={(e) => patch({ unless_exists: e.target.checked })}
-                  className="h-3.5 w-3.5 accent-orange-500 cursor-pointer"
-                />
-                <span>Skip if file exists (!-f)</span>
-              </label>
-            )}
-            <label className="inline-flex items-center gap-2 cursor-pointer hover:text-white">
-              <input
-                type="checkbox"
-                checked={Boolean(draft.preserve_query)}
-                onChange={(e) => patch({ preserve_query: e.target.checked })}
-                className="h-3.5 w-3.5 accent-orange-500 cursor-pointer"
+              <ShadcnSwitch
+                checked={Boolean(draft.unless_exists)}
+                onChange={(next) => patch({ unless_exists: next })}
+                label="Skip if file exists (!-f)"
               />
-              <span>Preserve query string (QSA)</span>
-            </label>
+            )}
+            <ShadcnSwitch
+              checked={Boolean(draft.preserve_query)}
+              onChange={(next) => patch({ preserve_query: next })}
+              label="Preserve query string (QSA)"
+            />
           </div>
         )}
 
@@ -223,15 +215,13 @@ export const RuleEditorModal: React.FC<Props> = ({ open, initialRule, presets = 
               />
             </Field>
           </div>
-          <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-[#09090b] px-3 text-xs text-zinc-200 cursor-pointer">
-            <input
-              type="checkbox"
+          <div className="flex h-9 items-center rounded-lg border border-white/[0.1] bg-[#09090b] px-3">
+            <ShadcnSwitch
               checked={draft.enabled}
-              onChange={(e) => patch({ enabled: e.target.checked })}
-              className="h-3.5 w-3.5 accent-orange-500 cursor-pointer"
+              onChange={(next) => patch({ enabled: next })}
+              label="Enabled"
             />
-            <span>Enabled</span>
-          </label>
+          </div>
         </div>
       </form>
     </ShadcnDialog>
