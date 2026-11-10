@@ -592,6 +592,8 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 		}
 	}
 
+	quotaUsageCache.Delete(id)
+
 	// Push the new limits onto the user's cgroup slice so already-running
 	// containers are re-limited immediately (kernel applies it live).
 	if p.UserSliceSupported(c.UserContext()) {
@@ -601,6 +603,24 @@ func (p *Panel) UserChangeLimits(c *fiber.Ctx) error {
 			}
 			SetFlash(c, "Limits saved, but applying the cgroup limit failed: "+serr.Error())
 			return c.Redirect("/users/" + idStr + "/edit")
+		}
+	} else if p.PHP != nil {
+		// On hosts without systemd/cgroupfs v2, recreate PHP runtimes with direct --memory/--cpus flags.
+		if sites, err := p.DB.ListPHPSitesByOwner(c.UserContext(), id); err == nil {
+			seenVer := map[string]bool{}
+			for _, s := range sites {
+				if s.PHPVersion != "" && !seenVer[s.PHPVersion] {
+					seenVer[s.PHPVersion] = true
+					_ = p.PHP.EnsureRuntime(c.UserContext(), id, s.PHPVersion)
+				}
+			}
+		}
+	}
+
+	// Re-sync compose overrides so container-level mem_limit/cpus match the updated account quota.
+	for _, a := range p.ownedApps(c.UserContext(), id) {
+		if !p.DB.IsPHPSite(c.UserContext(), a.ID) {
+			_ = p.SyncAppCaddyOverrideCtx(c.UserContext(), a.ID)
 		}
 	}
 

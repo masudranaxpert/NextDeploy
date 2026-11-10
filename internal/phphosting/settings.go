@@ -217,6 +217,41 @@ func (s SiteSettings) Validate(c Ceilings) error {
 	return nil
 }
 
+// Clamp lowers per-site PHP pool settings that exceed the new owner's ceilings and reports
+// whether any setting changed.
+func (s *SiteSettings) Clamp(c Ceilings) bool {
+	changed := false
+	if c.MemoryMB > 0 && SizeToMB(s.MemoryLimit) > c.MemoryMB {
+		choices := c.MemoryChoices()
+		best := choices[len(choices)-1]
+		if best != s.MemoryLimit {
+			s.MemoryLimit = best
+			changed = true
+		}
+	}
+	if capMB := c.SizeCapMB(); capMB > 0 {
+		choices := c.SizeChoices()
+		best := choices[len(choices)-1]
+		if SizeToMB(s.PostMaxSize) > capMB && s.PostMaxSize != best {
+			s.PostMaxSize = best
+			changed = true
+		}
+		if SizeToMB(s.UploadMaxFilesize) > capMB && s.UploadMaxFilesize != best {
+			s.UploadMaxFilesize = best
+			changed = true
+		}
+	}
+	if SizeToMB(s.PostMaxSize) < SizeToMB(s.UploadMaxFilesize) {
+		s.UploadMaxFilesize = s.PostMaxSize
+		changed = true
+	}
+	if max := c.MaxChildrenFor(); s.MaxChildren > max {
+		s.MaxChildren = max
+		changed = true
+	}
+	return changed
+}
+
 // ValidateForSite validates PHP settings together with site-specific routing rules.
 func (s *SiteSettings) ValidateForSite(c Ceilings, isStatic bool) error {
 	if !isStatic {

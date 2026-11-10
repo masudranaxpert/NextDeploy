@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/dockerapi"
+	"panel/internal/dockerx"
 	"panel/internal/quota"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
@@ -384,6 +386,7 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 		return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
 	}
 
+	oldOwnerID := app.OwnerID
 	if err := p.DB.TransferAppOwnership(ctx, appID, targetUser.ID); err != nil {
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
@@ -394,6 +397,15 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 
 	_ = p.DB.RemoveCollaborator(ctx, appID, targetUser.ID)
 
+	quotaUsageCache.Delete(oldOwnerID)
+	quotaUsageCache.Delete(targetUser.ID)
+
+	if targetUser.Role != db.RoleAdmin {
+		if err := p.EnsureUserSliceLimits(ctx, targetUser.ID, targetUser.MaxMemoryMB, targetUser.MaxCPUs); err != nil {
+			log.Printf("transfer ownership cgroup slice %s -> user %d: %v", appID, targetUser.ID, err)
+		}
+	}
+
 	if p.PHP != nil && p.DB.IsPHPSite(ctx, appID) {
 		// Re-home the PHP runtime so the new owner's quota applies.
 		if err := p.PHP.TransferSite(ctx, appID, targetUser.ID); err != nil {
@@ -402,8 +414,11 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": "ownership changed, but the PHP runtime could not be moved: " + err.Error()})
 			}
 		}
+	} else {
+		p.reconcileTransferredComposeLimits(ctx, app, appID, targetUser)
 	}
 
+	p.InvalidateAfterAppDeployChange(appID)
 	p.RecordAuditLog(c, "transfer_ownership", "app", appID, fmt.Sprintf("Transferred ownership of app %s to %s", appID, newOwnerUsername))
 	if WantsJSON(c) {
 		return c.JSON(fiber.Map{"ok": true})
@@ -414,4 +429,64 @@ func (p *Panel) TransferAppOwnership(c *fiber.Ctx) error {
 		return c.Redirect("/apps")
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s?tab=collaborators", appID))
+}
+
+// reconcileTransferredComposeLimits clamps any existing per-app limit to the new owner's cap,
+// rewrites the merged compose override (mem_limit, cpus, cgroup_parent), and recreates running
+// containers so kernel quotas take effect immediately instead of waiting for the next deploy.
+func (p *Panel) reconcileTransferredComposeLimits(ctx context.Context, app db.App, appID string, newOwner db.User) {
+	if newOwner.Role != db.RoleAdmin {
+		if l, err := p.DB.GetAppLimits(ctx, appID); err == nil && (l.MemoryMB > 0 || l.CPUs > 0) {
+			capMem, capCPU, _ := limitCaps(ctx, newOwner)
+			changed := false
+			if capMem > 0 && l.MemoryMB > capMem {
+				l.MemoryMB = capMem
+				changed = true
+			}
+			if capCPU > 0 && l.CPUs > capCPU {
+				l.CPUs = capCPU
+				changed = true
+			}
+			if changed {
+				_ = p.DB.SetAppLimits(ctx, l)
+				if err := p.EnsureAppSliceLimits(ctx, newOwner.ID, appID, l.MemoryMB, l.CPUs); err != nil {
+					log.Printf("transfer app limits %s: %v", appID, err)
+				}
+			}
+		}
+	}
+	if err := p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
+		log.Printf("transfer override sync %s: %v", appID, err)
+	}
+	activeSlot := app.ActiveSlot
+	if activeSlot == "" {
+		activeSlot = "blue"
+	}
+	if _, err := p.SyncAppSlotComposeCtx(ctx, appID, activeSlot, false); err != nil {
+		log.Printf("transfer slot sync %s: %v", appID, err)
+	}
+
+	projSet := map[string]bool{}
+	for _, proj := range p.composeProjectsForApps(ctx, []db.App{app}) {
+		projSet[proj] = true
+	}
+	rows, _ := dockerapi.ListContainerUsageForProjects(ctx, projSet)
+	hasRunning := false
+	for _, r := range rows {
+		if strings.EqualFold(r.State, "running") {
+			hasRunning = true
+			break
+		}
+	}
+	if !hasRunning {
+		return
+	}
+	project := p.SlotProjectName(app, appID, activeSlot)
+	paths := p.EffectiveComposePathsForSlot(ctx, app, appID, activeSlot)
+	if len(paths) == 0 {
+		return
+	}
+	if _, err := p.StartComposeJob(appID, project, paths, "Apply owner resource limits", dockerx.ComposeUp, ""); err != nil {
+		log.Printf("transfer compose reapply %s: %v", appID, err)
+	}
 }

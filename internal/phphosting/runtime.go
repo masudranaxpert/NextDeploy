@@ -105,7 +105,11 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 		_ = m.PrepareSiteDirs(s)
 	}
 	sort.Strings(ids)
-	want := hashStrings(runtimeSpecVersion, imgID, cgroup, strings.Join(ids, ","))
+	fallbackLimits := ""
+	if cgroup == "" && owner.Role != db.RoleAdmin {
+		fallbackLimits = fmt.Sprintf("%d:%.2f", owner.MaxMemoryMB, owner.MaxCPUs)
+	}
+	want := hashStrings(runtimeSpecVersion, imgID, cgroup, fallbackLimits, strings.Join(ids, ","))
 
 	ci := inspectContainer(ctx, name)
 	if ci.Exists && ci.Running && ci.Labels["nd.php.hash"] == want {
@@ -157,6 +161,13 @@ func (m *Manager) EnsureRuntime(ctx context.Context, ownerID int64, version stri
 	}
 	if cgroup != "" {
 		args = append(args, "--cgroup-parent", cgroup)
+	} else if owner.Role != db.RoleAdmin {
+		if owner.MaxMemoryMB > 0 {
+			args = append(args, "--memory", fmt.Sprintf("%dm", owner.MaxMemoryMB))
+		}
+		if owner.MaxCPUs > 0 {
+			args = append(args, "--cpus", fmt.Sprintf("%.2f", owner.MaxCPUs))
+		}
 	}
 	args = append(args,
 		"-v", m.HostPath(ctx, poolsDir)+":/nd/pools:ro",
@@ -544,8 +555,16 @@ func (m *Manager) TransferSite(ctx context.Context, appID string, newOwnerID int
 	if oldOwner == newOwnerID {
 		return nil
 	}
-	if _, err := m.DB.GetUserByID(ctx, newOwnerID); err != nil {
+	newOwner, err := m.DB.GetUserByID(ctx, newOwnerID)
+	if err != nil {
 		return err
+	}
+	prevSettings := site.SettingsJSON
+	if newOwner.Role != db.RoleAdmin {
+		st := ParseSettings(site.SettingsJSON)
+		if st.Clamp(Ceilings{MemoryMB: newOwner.MaxMemoryMB, StorageMB: newOwner.MaxStorageMB}) {
+			site.SettingsJSON = st.JSON()
+		}
 	}
 	site.OwnerID = newOwnerID
 	if err := m.DB.UpdatePHPSite(ctx, site); err != nil {
@@ -554,11 +573,13 @@ func (m *Manager) TransferSite(ctx context.Context, appID string, newOwnerID int
 	if site.SiteType != SiteTypeStatic {
 		if err := m.EnsureRuntime(ctx, newOwnerID, site.PHPVersion); err != nil {
 			site.OwnerID = oldOwner
+			site.SettingsJSON = prevSettings
 			_ = m.DB.UpdatePHPSite(ctx, site)
-			_ = m.EnsureRuntime(ctx, newOwnerID, site.PHPVersion)
+			_ = m.EnsureRuntime(ctx, oldOwner, site.PHPVersion)
 			return err
 		}
 	}
+	m.SyncSiteDBLimits(ctx, appID)
 	if err := m.SyncRoutes(ctx, appID); err != nil {
 		return err
 	}

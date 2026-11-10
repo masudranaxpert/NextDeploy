@@ -534,4 +534,23 @@ func TestRepairPermissionsCreatesAndChmodsDirs(t *testing.T) {
 	}
 }
 
+func TestSiteSettingsClamp(t *testing.T) {
+	s := SiteSettings{
+		MemoryLimit:       "512M",
+		PostMaxSize:       "256M",
+		UploadMaxFilesize: "256M",
+		MaxChildren:       20,
+		MaxExecutionTime:  60,
+		MaxInputTime:      60,
+		MaxInputVars:      1000,
+	}
+	c := Ceilings{MemoryMB: 256, StorageMB: 1024}
+	if !s.Clamp(c) {
+		t.Fatal("expected Clamp to adjust settings exceeding 256 MB memory")
+	}
+	if err := s.Validate(c); err != nil {
+		t.Fatalf("clamped settings must validate: %v", err)
+	}
+}
+
 

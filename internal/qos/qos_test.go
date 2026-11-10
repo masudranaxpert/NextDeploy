@@ -156,6 +156,15 @@ func TestResolveContainerOwner(t *testing.T) {
 	if uid := resolveContainerOwner(c4, appOwners, appNames); uid != 0 {
 		t.Errorf("expected unrelated container to resolve to 0, got %d", uid)
 	}
+
+	// 5. Shared PHP runtime container carrying explicit owner label
+	c5 := types.Container{
+		Names:  []string{"/nd-php8.3-u7"},
+		Labels: map[string]string{"nd.php": "php", "nd.php.owner": "7"},
+	}
+	if uid := resolveContainerOwner(c5, appOwners, appNames); uid != 7 {
+		t.Errorf("expected PHP runtime container owner 7, got %d", uid)
+	}
 }
 
 func TestDetectWANInterface(t *testing.T) {

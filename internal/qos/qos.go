@@ -11,6 +11,7 @@ import (
 	"panel/internal/runutil"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -375,6 +376,12 @@ func (m *Manager) Reconcile(ctx context.Context, store *db.Store, workspacesRoot
 
 // resolveContainerOwner inspects labels and names of a container to match it to an app owner user ID.
 func resolveContainerOwner(c types.Container, appOwners, appNames map[string]int64) int64 {
+	// 0. Shared PHP-FPM runtime containers carry an explicit owner label (`nd.php.owner`).
+	if ownerStr := strings.TrimSpace(c.Labels["nd.php.owner"]); ownerStr != "" {
+		if uid, err := strconv.ParseInt(ownerStr, 10, 64); err == nil && uid > 0 {
+			return uid
+		}
+	}
 	// 1. Check working directory label (including git checkouts under .nextdeploy/repo)
 	if workDir, ok := c.Labels["com.docker.compose.project.working_dir"]; ok && workDir != "" {
 		normalized := filepath.ToSlash(filepath.Clean(workDir))
