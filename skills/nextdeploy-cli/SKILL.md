@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-cli
 description: Use when managing NextDeploy applications, incremental file syncs (`nd push`), deployments, logs, interactive shells, PHP/WordPress/static sites, Caddy URL routing rules or `.htaccess` conversion, PHP site start/stop lifecycle, MariaDB databases, Docker volumes, backups, proxy routes, or environment variables via the `nd` CLI.
-version: 2.6.0
+version: 2.7.0
 ---
 
 # NextDeploy CLI (`nd`) Skill

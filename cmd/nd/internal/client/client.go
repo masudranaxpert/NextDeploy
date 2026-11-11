@@ -26,7 +26,7 @@ type Client struct {
 
 // New creates a Client from saved config.
 func New(cfg config.Config, sessID string, version ...string) *Client {
-	ver := "2.6.1"
+	ver := "2.7.0"
 	if len(version) > 0 && version[0] != "" {
 		ver = version[0]
 	}

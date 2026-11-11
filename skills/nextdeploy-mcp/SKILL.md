@@ -1,7 +1,7 @@
 ---
 name: nextdeploy-mcp
 description: Use when interacting with NextDeploy applications over Model Context Protocol (MCP) — inspecting apps, syncing workspace files, editing env vars, deploying, polling logs, running container/host commands, configuring custom domains, managing PHP/static site URL routing rules or `.htaccess` conversion, and starting/stopping PHP sites.
-version: 2.6.0
+version: 2.7.0
 ---
 
 # NextDeploy MCP (Model Context Protocol) Skill
