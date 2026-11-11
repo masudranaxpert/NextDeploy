@@ -146,6 +146,7 @@ type AppDomain struct {
 	MediaURLPrefix  string    `json:"media_url_prefix"`
 	RouteRulesJSON     string              `json:"route_rules_json"`
 	ShieldNodeID       *int64              `json:"shield_node_id,omitempty"`
+	TrustedProxy       bool                `json:"trusted_proxy"`
 	PendingOriginApply bool                `json:"pending_origin_apply,omitempty"`
 	EdgeStatus         *ShieldDomainStatus `json:"edge_status,omitempty"`
 	CreatedAt          time.Time           `json:"created_at"`

@@ -124,3 +124,71 @@ func TestRootComposeCarriesAndRemovesOptionLabels(t *testing.T) {
 		t.Errorf("switching back to defaults must remove the labels:\n%s", back)
 	}
 }
+
+func TestGlobalOptionsCombinedShieldAndDirectCloudflare(t *testing.T) {
+	o, err := GlobalOptions{
+		RealIP:           "none",
+		ShieldProxies:    []string{"107.189.6.222"},
+		DirectCloudflare: true,
+	}.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := o.Labels()
+	tp := l["caddy.servers.trusted_proxies"]
+	if !strings.Contains(tp, "173.245.48.0/20") || !strings.Contains(tp, "107.189.6.222") {
+		t.Fatalf("expected combined Cloudflare + Shield ranges, got %q", tp)
+	}
+	if l["caddy.servers.trusted_proxies_strict"] != `{{""}}` {
+		t.Fatalf("expected trusted_proxies_strict when DirectCloudflare=true, got %v", l)
+	}
+	if l["caddy.servers.client_ip_headers"] != "CF-Connecting-IP X-Forwarded-For" {
+		t.Fatalf("expected client_ip_headers when DirectCloudflare=true, got %v", l)
+	}
+
+	// Shield-only without Cloudflare does not set client_ip_headers
+	shieldOnly, err := GlobalOptions{RealIP: "none", ShieldProxies: []string{"107.189.6.222"}}.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sl := shieldOnly.Labels()
+	if sl["caddy.servers.trusted_proxies"] != "static 107.189.6.222" {
+		t.Fatalf("unexpected shield-only trusted_proxies: %v", sl)
+	}
+	if _, ok := sl["caddy.servers.client_ip_headers"]; ok {
+		t.Fatalf("did not expect client_ip_headers for shield-only without CF: %v", sl)
+	}
+}
+
+func TestUntrustedDirectProxyHeaderEnforcement(t *testing.T) {
+	// Direct domain with TrustedProxy=false (default) must strip CF-Connecting-IP and forward {remote_host}
+	directUntrusted := GenerateLabels(db.AppDomain{Domain: "a.example.com", Service: "web", Port: 3000, EnableHTTPS: true})
+	if directUntrusted["caddy.reverse_proxy.header_up_0"] != "X-Real-IP {remote_host}" ||
+		directUntrusted["caddy.reverse_proxy.header_up_1"] != "X-Forwarded-For {remote_host}" ||
+		directUntrusted["caddy.reverse_proxy.header_up_2"] != "-CF-Connecting-IP" {
+		t.Fatalf("expected untrusted direct proxy headers, got %v", directUntrusted)
+	}
+
+	// Direct domain with TrustedProxy=true must NOT overwrite client IP with {remote_host}
+	directTrusted := GenerateLabels(db.AppDomain{Domain: "b.example.com", Service: "web", Port: 3000, EnableHTTPS: true, TrustedProxy: true})
+	if _, ok := directTrusted["caddy.reverse_proxy.header_up_0"]; ok {
+		t.Fatalf("did not expect untrusted header_up overrides when TrustedProxy=true: %v", directTrusted)
+	}
+
+	// Shielded domain must NOT overwrite forwarded headers with {remote_host} (Shield's IP)
+	sid := int64(1)
+	shielded := GenerateLabels(db.AppDomain{Domain: "c.example.com", Service: "web", Port: 3000, ShieldNodeID: &sid})
+	if _, ok := shielded["caddy.reverse_proxy.header_up_0"]; ok {
+		t.Fatalf("did not expect untrusted header_up overrides on shielded domain: %v", shielded)
+	}
+
+	// ProxyRoute: direct untrusted vs direct trusted vs shielded
+	rUntrusted := RouteLabels(db.ProxyRoute{Kind: "proxy", Domain: "r1.example.com", Target: "http://10.0.0.5:8080", EnableHTTPS: true})
+	if rUntrusted["caddy.reverse_proxy.header_up_2"] != "-CF-Connecting-IP" {
+		t.Fatalf("expected untrusted proxy route headers, got %v", rUntrusted)
+	}
+	rTrusted := RouteLabels(db.ProxyRoute{Kind: "proxy", Domain: "r2.example.com", Target: "http://10.0.0.5:8080", EnableHTTPS: true, TrustedProxy: true})
+	if _, ok := rTrusted["caddy.reverse_proxy.header_up_0"]; ok {
+		t.Fatalf("did not expect untrusted header_up on trusted proxy route: %v", rTrusted)
+	}
+}

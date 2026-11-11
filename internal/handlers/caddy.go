@@ -493,6 +493,15 @@ sleep 0.3
 	return c.Redirect("/nextdeploy")
 }
 
+func parseFormBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // POST /apps/:id/domains — create domain
 func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -545,6 +554,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
 		RouteRulesJSON:     "[]",
 		ShieldNodeID:       shieldIDPtr,
+		TrustedProxy:       parseFormBool(c.FormValue("trusted_proxy")),
 		PendingOriginApply: shieldIDPtr != nil,
 	}
 	if d.ShieldNodeID != nil {
@@ -578,6 +588,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	p.syncShieldProxiesToCaddy(c.UserContext())
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
 		p.attachDomainEdgeStatuses(c.UserContext(), doms)
@@ -609,6 +620,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	p.syncShieldProxiesToCaddy(c.UserContext())
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
 		p.attachDomainEdgeStatuses(c.UserContext(), doms)
@@ -685,6 +697,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		MediaURLPrefix:     strings.TrimSpace(c.FormValue("media_url_prefix")),
 		RouteRulesJSON:     "[]",
 		ShieldNodeID:       shieldIDPtr,
+		TrustedProxy:       parseFormBool(c.FormValue("trusted_proxy")),
 		PendingOriginApply: pendingOriginApply,
 	}
 	if d.ShieldNodeID != nil {
@@ -717,6 +730,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if err := p.SyncAndApplyBackground(c.UserContext(), id); err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	p.syncShieldProxiesToCaddy(c.UserContext())
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
 		p.attachDomainEdgeStatuses(c.UserContext(), doms)

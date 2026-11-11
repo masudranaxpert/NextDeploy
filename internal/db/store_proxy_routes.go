@@ -22,6 +22,7 @@ type ProxyRoute struct {
 	Enabled       bool   `json:"enabled"`
 	Note               string              `json:"note"`
 	ShieldNodeID       *int64              `json:"shield_node_id,omitempty"`
+	TrustedProxy       bool                `json:"trusted_proxy"`
 	PendingOriginApply bool                `json:"pending_origin_apply,omitempty"`
 	EdgeStatus         *ShieldDomainStatus `json:"edge_status,omitempty"`
 	CreatedAt          string              `json:"created_at"`
@@ -40,22 +41,23 @@ func (s *Store) migrateProxyRoutes() error {
   skip_tls_verify INTEGER NOT NULL DEFAULT 0,
   enabled INTEGER NOT NULL DEFAULT 1,
   note TEXT NOT NULL DEFAULT '',
+  trusted_proxy INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );`)
 	return err
 }
 
-const proxyRouteCols = `id, kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, COALESCE(pending_origin_apply,0), created_at`
+const proxyRouteCols = `id, kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, COALESCE(trusted_proxy,0), COALESCE(pending_origin_apply,0), created_at`
 
 func scanProxyRoute(sc interface{ Scan(...any) error }) (ProxyRoute, error) {
 	var r ProxyRoute
-	var keep, https, www, skip, en, pending int
+	var keep, https, www, skip, en, tp, pending int
 	var shieldID sql.NullInt64
-	err := sc.Scan(&r.ID, &r.Kind, &r.Domain, &r.Target, &r.RedirectCode, &keep, &https, &www, &skip, &en, &r.Note, &shieldID, &pending, &r.CreatedAt)
+	err := sc.Scan(&r.ID, &r.Kind, &r.Domain, &r.Target, &r.RedirectCode, &keep, &https, &www, &skip, &en, &r.Note, &shieldID, &tp, &pending, &r.CreatedAt)
 	if shieldID.Valid {
 		r.ShieldNodeID = &shieldID.Int64
 	}
-	r.KeepPath, r.EnableHTTPS, r.EnableWWW, r.SkipTLSVerify, r.Enabled, r.PendingOriginApply = keep == 1, https == 1, www == 1, skip == 1, en == 1, pending != 0
+	r.KeepPath, r.EnableHTTPS, r.EnableWWW, r.SkipTLSVerify, r.Enabled, r.TrustedProxy, r.PendingOriginApply = keep == 1, https == 1, www == 1, skip == 1, en == 1, tp != 0, pending != 0
 	return r, err
 }
 
@@ -110,15 +112,15 @@ func (s *Store) SaveProxyRoute(ctx context.Context, r ProxyRoute) (int64, error)
 		return 0
 	}
 	if r.ID == 0 {
-		res, err := s.db.ExecContext(ctx, `INSERT INTO proxy_routes (kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, pending_origin_apply, created_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.PendingOriginApply), time.Now().UTC().Format(time.RFC3339))
+		res, err := s.db.ExecContext(ctx, `INSERT INTO proxy_routes (kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, trusted_proxy, pending_origin_apply, created_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.TrustedProxy), b(r.PendingOriginApply), time.Now().UTC().Format(time.RFC3339))
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE proxy_routes SET kind=?, domain=?, target=?, redirect_code=?, keep_path=?, enable_https=?, enable_www=?, skip_tls_verify=?, enabled=?, note=?, shield_node_id=?, pending_origin_apply=? WHERE id=?`,
-		r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.PendingOriginApply), r.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE proxy_routes SET kind=?, domain=?, target=?, redirect_code=?, keep_path=?, enable_https=?, enable_www=?, skip_tls_verify=?, enabled=?, note=?, shield_node_id=?, trusted_proxy=?, pending_origin_apply=? WHERE id=?`,
+		r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.TrustedProxy), b(r.PendingOriginApply), r.ID)
 	return r.ID, err
 }
 

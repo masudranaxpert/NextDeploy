@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -245,42 +246,63 @@ func TestPhase0SyncShieldProxiesToCaddy(t *testing.T) {
 	if opts.RealIP != "custom" {
 		t.Fatalf("expected RealIP=custom, got %q", opts.RealIP)
 	}
-	if len(opts.TrustedProxies) != 2 || opts.TrustedProxies[0] != "10.99.0.1" || opts.TrustedProxies[1] != "107.189.6.222" {
-		t.Fatalf("unexpected TrustedProxies after add: %v", opts.TrustedProxies)
+	if len(opts.TrustedProxies) != 1 || opts.TrustedProxies[0] != "10.99.0.1" {
+		t.Fatalf("expected custom TrustedProxies preserved untouched, got: %v", opts.TrustedProxies)
+	}
+	if len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "107.189.6.222" {
+		t.Fatalf("unexpected ShieldProxies after add: %v", opts.ShieldProxies)
 	}
 	if applyCalls != 1 {
 		t.Fatalf("expected 1 background compose apply, got %d", applyCalls)
 	}
 	rawCompose, _ := os.ReadFile(composePath)
-	if !bytes.Contains(rawCompose, []byte("107.189.6.222")) {
-		t.Fatalf("expected root compose to contain shield IP, got:\n%s", string(rawCompose))
+	if !bytes.Contains(rawCompose, []byte("107.189.6.222")) || !bytes.Contains(rawCompose, []byte("10.99.0.1")) {
+		t.Fatalf("expected root compose to contain both custom and shield IP, got:\n%s", string(rawCompose))
 	}
 
-	// Update IP of node 1 -> old IP must be pruned, new IP added
+	// Update IP of node 1 -> old IP must be pruned, new IP added in ShieldProxies
 	_ = store.UpdateShieldNode(ctx, &db.ShieldNode{ID: n1, Name: "s1", IP: "107.189.6.223"})
 	p.syncShieldProxiesToCaddy(ctx, "107.189.6.222")
 	opts = p.caddyGlobalOptions(ctx)
-	if len(opts.TrustedProxies) != 2 || opts.TrustedProxies[1] != "107.189.6.223" {
-		t.Fatalf("expected old shield IP pruned and replaced: %v", opts.TrustedProxies)
+	if len(opts.TrustedProxies) != 1 || opts.TrustedProxies[0] != "10.99.0.1" {
+		t.Fatalf("expected custom TrustedProxies preserved: %v", opts.TrustedProxies)
+	}
+	if len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "107.189.6.223" {
+		t.Fatalf("expected old shield IP pruned and replaced: %v", opts.ShieldProxies)
 	}
 
-	// Delete last shield node (len(nodes) == 0) -> shield IP still pruned!
+	// Delete last shield node (len(nodes) == 0) -> ShieldProxies cleared while preserving user proxy
 	_ = store.DeleteShieldNode(ctx, n1)
 	p.syncShieldProxiesToCaddy(ctx, "107.189.6.223")
 	opts = p.caddyGlobalOptions(ctx)
-	if len(opts.TrustedProxies) != 1 || opts.TrustedProxies[0] != "10.99.0.1" {
-		t.Fatalf("expected shield IP pruned when len(nodes)==0 while preserving user proxy: %v", opts.TrustedProxies)
+	if opts.RealIP != "custom" || len(opts.TrustedProxies) != 1 || opts.TrustedProxies[0] != "10.99.0.1" || len(opts.ShieldProxies) != 0 {
+		t.Fatalf("expected ShieldProxies empty while preserving custom user proxy: %+v", opts)
 	}
 
-	// If no user proxy was present, deleting last shield resets RealIP to "none" cleanly
+	// Cloudflare mode + Shield node must NOT clobber RealIP="cloudflare"
+	cfSeed, _ := json.Marshal(caddy.GlobalOptions{Profile: "custom", RealIP: "cloudflare"})
+	_ = store.SetCaddyConfig(ctx, caddyOptionsKey, string(cfSeed))
+	nCF, _ := store.CreateShieldNode(ctx, &db.ShieldNode{Name: "s-cf", IP: "107.189.6.224", Token: "tcf"})
+	p.syncShieldProxiesToCaddy(ctx)
+	opts = p.caddyGlobalOptions(ctx)
+	if opts.RealIP != "cloudflare" || len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "107.189.6.224" {
+		t.Fatalf("expected RealIP=cloudflare preserved alongside ShieldProxies, got %+v", opts)
+	}
+	_ = store.DeleteShieldNode(ctx, nCF)
+
+	// If no user proxy was present, deleting last shield leaves RealIP="none" and Labels() empty
 	_ = store.SetCaddyConfig(ctx, caddyOptionsKey, "")
 	n2, _ := store.CreateShieldNode(ctx, &db.ShieldNode{Name: "s2", IP: "198.51.100.10", Token: "t2"})
 	p.syncShieldProxiesToCaddy(ctx)
+	opts = p.caddyGlobalOptions(ctx)
+	if opts.RealIP != "none" || len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "198.51.100.10" {
+		t.Fatalf("expected RealIP=none and ShieldProxies=[198.51.100.10], got %+v", opts)
+	}
 	_ = store.DeleteShieldNode(ctx, n2)
 	p.syncShieldProxiesToCaddy(ctx, "198.51.100.10")
 	opts = p.caddyGlobalOptions(ctx)
-	if opts.RealIP != "none" || len(opts.TrustedProxies) != 0 {
-		t.Fatalf("expected RealIP=none and empty TrustedProxies after deleting last node, got %+v", opts)
+	if opts.RealIP != "none" || len(opts.TrustedProxies) != 0 || len(opts.ShieldProxies) != 0 || len(opts.Labels()) != 0 {
+		t.Fatalf("expected RealIP=none and empty TrustedProxies/ShieldProxies/Labels after deleting last node, got %+v", opts)
 	}
 }
 
@@ -746,5 +768,112 @@ func TestEdgeShieldSetupAndUninstallWrappers(t *testing.T) {
 		if !strings.Contains(legacyUninstall, mustHave) {
 			t.Fatalf("legacy uninstall.sh missing %q", mustHave)
 		}
+	}
+}
+
+func TestTrustedProxyEndToEndHandlers(t *testing.T) {
+	composePath := setupTempRootCompose(t)
+	wsRoot := t.TempDir()
+	store, err := db.Open(filepath.Join(t.TempDir(), "tp_handlers.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	p := &Panel{
+		DB:                      store,
+		Store:                   workspace.NewStore(wsRoot),
+		WorkspacesRoot:          wsRoot,
+		applyRootStackComposeFn: func(file string, services ...string) {},
+		composeUpNoBuildFn: func(ctx context.Context, dir string, paths []string, project string, logW io.Writer, envFiles []string) dockerx.Result {
+			return dockerx.Result{OK: true}
+		},
+	}
+
+	ctx := context.Background()
+	adminID, _ := store.CreateUser(ctx, "admin", "hash", db.RoleAdmin)
+	sessTok := "tp_admin_sess"
+	_ = store.CreateSession(ctx, sessTok, adminID, time.Now().Add(time.Hour))
+	_ = store.CreateApp(ctx, "app-tp", "app-tp", adminID)
+	_ = os.MkdirAll(p.Store.Path("app-tp"), 0750)
+	_ = os.WriteFile(filepath.Join(p.Store.Path("app-tp"), "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx:alpine\n"), 0640)
+
+	n1, _ := store.CreateShieldNode(ctx, &db.ShieldNode{Name: "s1", IP: "107.189.6.222", Token: "shld_tp_1"})
+
+	app := fiber.New()
+	app.Post("/api/v1/edge/register", p.EdgeRegister)
+	app.Post("/caddy/options", p.RequireAdminMiddleware, p.CaddyOptionsSave)
+	app.Post("/apps/:id/domains", p.RequireAdminMiddleware, p.AppDomainCreate)
+	app.Post("/apps/:id/domains/:did/edit", p.RequireAdminMiddleware, p.AppDomainEdit)
+	app.Post("/apps/:id/domains/:did/delete", p.RequireAdminMiddleware, p.AppDomainDelete)
+
+	// 1. EdgeRegister syncs existing Shield node IP to Origin GlobalOptions.ShieldProxies
+	regBody, _ := json.Marshal(EdgeRegisterRequest{EdgeID: "edge-tp-1", EdgeVersion: "2.6.2", CaddyVersion: "v2.11.2"})
+	req := httptest.NewRequest("POST", "/api/v1/edge/register", bytes.NewReader(regBody))
+	req.Header.Set("Authorization", "Bearer shld_tp_1")
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := app.Test(req, 5000); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("EdgeRegister failed: err=%v status=%v", err, resp)
+	}
+	opts := p.caddyGlobalOptions(ctx)
+	if len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "107.189.6.222" {
+		t.Fatalf("expected EdgeRegister to sync ShieldProxies, got %+v", opts)
+	}
+
+	// 2. AppDomainCreate with trusted_proxy=on on a Direct domain sets DirectCloudflare=true
+	req = httptest.NewRequest("POST", "/apps/app-tp/domains", strings.NewReader("domain=direct-cf.example.com&service=web&port=3000&enable_https=on&trusted_proxy=on"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+sessTok)
+	if resp, err := app.Test(req, 5000); err != nil || resp.StatusCode >= 400 {
+		t.Fatalf("AppDomainCreate failed: err=%v status=%v", err, resp)
+	}
+	opts = p.caddyGlobalOptions(ctx)
+	if !opts.DirectCloudflare {
+		t.Fatalf("expected DirectCloudflare=true after direct trusted_proxy domain create, got %+v", opts)
+	}
+	rawCompose, _ := os.ReadFile(composePath)
+	if !bytes.Contains(rawCompose, []byte("107.189.6.222")) || !bytes.Contains(rawCompose, []byte("173.245.48.0/20")) || !bytes.Contains(rawCompose, []byte("CF-Connecting-IP X-Forwarded-For")) {
+		t.Fatalf("expected compose to carry Shield + Cloudflare + client_ip_headers, got:\n%s", string(rawCompose))
+	}
+
+	// 3. CaddyOptionsSave with real_ip="none" must NOT wipe ShieldProxies or DirectCloudflare
+	saveBody, _ := json.Marshal(map[string]any{"profile": "default", "real_ip": "none", "apply": false})
+	req = httptest.NewRequest("POST", "/caddy/options", bytes.NewReader(saveBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", sessionCookie+"="+sessTok)
+	if resp, err := app.Test(req, 5000); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("CaddyOptionsSave failed: err=%v status=%v", err, resp)
+	}
+	opts = p.caddyGlobalOptions(ctx)
+	if len(opts.ShieldProxies) != 1 || opts.ShieldProxies[0] != "107.189.6.222" || !opts.DirectCloudflare {
+		t.Fatalf("CaddyOptionsSave wiped ShieldProxies or DirectCloudflare: %+v", opts)
+	}
+
+	// 4. AppDomainEdit turning trusted_proxy OFF resets DirectCloudflare=false
+	doms, _ := store.ListAppDomains(ctx, "app-tp")
+	req = httptest.NewRequest("POST", fmt.Sprintf("/apps/app-tp/domains/%d/edit", doms[0].ID), strings.NewReader("domain=direct-cf.example.com&service=web&port=3000&enable_https=on"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+sessTok)
+	if resp, err := app.Test(req, 5000); err != nil || resp.StatusCode >= 400 {
+		t.Fatalf("AppDomainEdit failed: err=%v status=%v", err, resp)
+	}
+	opts = p.caddyGlobalOptions(ctx)
+	if opts.DirectCloudflare {
+		t.Fatalf("expected DirectCloudflare=false after trusted_proxy turned off, got %+v", opts)
+	}
+
+	// 5. BuildEdgeRoutesResponse exposes TrustedProxy and changes ETag when toggled
+	shieldDomID, _ := store.CreateAppDomain(ctx, db.AppDomain{AppID: "app-tp", Domain: "shielded.example.com", Service: "web", Port: 3000, EnableHTTPS: true, ShieldNodeID: &n1})
+	node, _ := store.GetShieldNode(ctx, n1)
+	r1, err := p.BuildEdgeRoutesResponse(ctx, node)
+	if err != nil || len(r1.Routes) != 1 || r1.Routes[0].TrustedProxy {
+		t.Fatalf("expected TrustedProxy=false on BuildEdgeRoutesResponse, got %+v (err=%v)", r1.Routes, err)
+	}
+	sd, _ := store.GetAppDomain(ctx, shieldDomID)
+	sd.TrustedProxy = true
+	_ = store.UpdateAppDomain(ctx, sd)
+	r2, err := p.BuildEdgeRoutesResponse(ctx, node)
+	if err != nil || len(r2.Routes) != 1 || !r2.Routes[0].TrustedProxy || r2.ETag == r1.ETag {
+		t.Fatalf("expected TrustedProxy=true and updated ETag, r1=%s r2=%s routes=%+v (err=%v)", r1.ETag, r2.ETag, r2.Routes, err)
 	}
 }

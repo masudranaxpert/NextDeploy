@@ -135,3 +135,55 @@ func TestShieldDomainStatusUpsertAndIsolation(t *testing.T) {
 		t.Fatalf("unexpected node1 fields: %+v", node1)
 	}
 }
+
+func TestTrustedProxyPersistenceAndDefaultOff(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "trusted_proxy.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	uid, _ := store.CreateUser(ctx, "admin", "hash", RoleAdmin)
+	_ = store.CreateApp(ctx, "app-tp", "app-tp", uid)
+
+	// Default OFF
+	dID, err := store.CreateAppDomain(ctx, AppDomain{AppID: "app-tp", Domain: "off.example.com", Service: "web", Port: 3000})
+	if err != nil {
+		t.Fatalf("CreateAppDomain: %v", err)
+	}
+	d, err := store.GetAppDomain(ctx, dID)
+	if err != nil || d.TrustedProxy {
+		t.Fatalf("expected TrustedProxy=false by default, got %+v (err=%v)", d, err)
+	}
+	d.TrustedProxy = true
+	if err := store.UpdateAppDomain(ctx, d); err != nil {
+		t.Fatalf("UpdateAppDomain: %v", err)
+	}
+	d2, _ := store.GetAppDomain(ctx, dID)
+	if !d2.TrustedProxy {
+		t.Fatalf("expected TrustedProxy=true after update, got %+v", d2)
+	}
+	list, err := store.ListAppDomains(ctx, "app-tp")
+	if err != nil || len(list) != 1 || !list[0].TrustedProxy {
+		t.Fatalf("expected ListAppDomains to include TrustedProxy=true, got %+v (err=%v)", list, err)
+	}
+
+	// ProxyRoute default OFF -> ON -> OFF
+	rID, err := store.SaveProxyRoute(ctx, ProxyRoute{Kind: "proxy", Domain: "r-off.example.com", Target: "http://127.0.0.1:8080", Enabled: true})
+	if err != nil {
+		t.Fatalf("SaveProxyRoute: %v", err)
+	}
+	r, err := store.GetProxyRoute(ctx, rID)
+	if err != nil || r.TrustedProxy {
+		t.Fatalf("expected ProxyRoute.TrustedProxy=false by default, got %+v (err=%v)", r, err)
+	}
+	r.TrustedProxy = true
+	if _, err := store.SaveProxyRoute(ctx, r); err != nil {
+		t.Fatalf("SaveProxyRoute update: %v", err)
+	}
+	r2, _ := store.GetProxyRoute(ctx, rID)
+	if !r2.TrustedProxy {
+		t.Fatalf("expected ProxyRoute.TrustedProxy=true after update, got %+v", r2)
+	}
+}

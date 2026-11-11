@@ -765,15 +765,25 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = path + " " + upstreams
 		labels[base+".stream_close_delay"] = "10m"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, base)
+		}
 		order++
 	}
 	if order == 1 {
-		labels[prefix+".reverse_proxy"] = upstreams
-		labels[prefix+".reverse_proxy.stream_close_delay"] = "10m"
+		rpBase := prefix + ".reverse_proxy"
+		labels[rpBase] = upstreams
+		labels[rpBase+".stream_close_delay"] = "10m"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, rpBase)
+		}
 	} else {
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = upstreams
 		labels[base+".stream_close_delay"] = "10m"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, base)
+		}
 	}
 }
 
