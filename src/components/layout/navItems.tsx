@@ -41,7 +41,6 @@ export const ADMIN_ONLY_NAV: NavigationSection[] = [
   'terminal',
   'proxy',
   'proxy-options',
-  'proxy-routes',
   'shield-proxies',
   'migrate',
   'users',

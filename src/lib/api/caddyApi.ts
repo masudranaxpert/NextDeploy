@@ -24,6 +24,8 @@ export interface CaddyOptions {
 
 export interface ProxyRoute {
   id: number;
+  user_id?: number;
+  username?: string;
   kind: 'proxy' | 'redirect';
   domain: string;
   target: string;

@@ -100,7 +100,7 @@ func (p *Panel) ReconcileProxyRoutes(ctx context.Context) {
 		p.reconcileProxyRoutesFn(ctx)
 		return
 	}
-	routes, err := p.DB.ListProxyRoutes(ctx)
+	routes, err := p.DB.ListProxyRoutes(ctx, nil)
 	if err != nil {
 		return
 	}
@@ -133,7 +133,12 @@ func (p *Panel) ReconcileAllAppSlotCompose(ctx context.Context) {
 // GET /caddy/routes
 func (p *Panel) CaddyRoutesList(c *fiber.Ctx) error {
 	ctx := c.UserContext()
-	routes, err := p.DB.ListProxyRoutes(ctx)
+	u, _ := currentUser(c)
+	var filterUserID *int64
+	if u.Role != db.RoleAdmin {
+		filterUserID = &u.ID
+	}
+	routes, err := p.DB.ListProxyRoutes(ctx, filterUserID)
 	if err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
@@ -144,6 +149,9 @@ func (p *Panel) CaddyRoutesList(c *fiber.Ctx) error {
 // POST /caddy/routes (create) and /caddy/routes/:id (update)
 func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	u, _ := currentUser(c)
+	isAdmin := u.Role == db.RoleAdmin
+
 	var r db.ProxyRoute
 	if err := c.BodyParser(&r); err != nil {
 		return phpJSONErr(c, 400, "invalid body")
@@ -181,6 +189,26 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 		hasExisting = true
 		r.ID = id
 	}
+
+	// Ownership check for existing route
+	if hasExisting {
+		if !isAdmin && existing.UserID != u.ID {
+			return phpJSONErr(c, 403, "you do not have permission to modify this route")
+		}
+		r.UserID = existing.UserID // preserve original owner
+	} else {
+		r.UserID = u.ID
+	}
+
+	// Shield VPS Enforcement for regular users
+	if !isAdmin {
+		dbUser, err := p.DB.GetUserByID(ctx, u.ID)
+		if err == nil && dbUser.DefaultShieldID != nil && *dbUser.DefaultShieldID > 0 {
+			r.ShieldNodeID = dbUser.DefaultShieldID
+			r.EnableHTTPS = true
+		}
+	}
+
 	if r.ShieldNodeID != nil && *r.ShieldNodeID <= 0 {
 		r.ShieldNodeID = nil
 	}
@@ -195,9 +223,21 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 	} else {
 		r.PendingOriginApply = false
 	}
-	if err := caddy.ValidateRoute(&r, phphosting.ValidHost); err != nil {
+
+	// Validate route with SSRF protection for non-admin users
+	if err := caddy.ValidateRouteForUser(&r, phphosting.ValidHost, isAdmin); err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
+
+	// Prevent non-admin users from creating routes on panel_domain or its subdomains
+	panelDomain := strings.ToLower(strings.TrimSpace(p.DB.GetSetting(ctx, "panel_domain")))
+	if panelDomain != "" && (r.Domain == panelDomain || strings.HasSuffix(r.Domain, "."+panelDomain)) {
+		if !isAdmin {
+			return phpJSONErr(c, 403, "cannot create routes under the control panel domain ("+panelDomain+")")
+		}
+	}
+
+	// Domain collision check
 	if who, used := p.DB.DomainInUse(ctx, r.Domain, r.ID); used {
 		return phpJSONErr(c, 409, r.Domain+" is already used by "+who)
 	}
@@ -218,13 +258,14 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 		saved.PendingOriginApply = false
 	}
 	p.syncShieldProxiesToCaddy(ctx)
-	p.RecordAuditLog(c, "caddy_route", "system", saved.Domain, "Saved "+saved.Kind+" route to "+saved.Target)
+	p.RecordAuditLog(c, "caddy_route", u.Username, saved.Domain, "Saved "+saved.Kind+" route to "+saved.Target)
 	return c.JSON(fiber.Map{"ok": true, "route": saved})
 }
 
 // POST /caddy/routes/:id/toggle {"enabled": bool}
 func (p *Panel) CaddyRouteToggle(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	u, _ := currentUser(c)
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return phpJSONErr(c, 400, "invalid id")
@@ -232,6 +273,9 @@ func (p *Panel) CaddyRouteToggle(c *fiber.Ctx) error {
 	r, err := p.DB.GetProxyRoute(ctx, id)
 	if err != nil {
 		return phpJSONErr(c, 404, "route not found")
+	}
+	if u.Role != db.RoleAdmin && r.UserID != u.ID {
+		return phpJSONErr(c, 403, "you do not have permission to modify this route")
 	}
 	var body struct {
 		Enabled bool `json:"enabled"`
@@ -253,6 +297,7 @@ func (p *Panel) CaddyRouteToggle(c *fiber.Ctx) error {
 // POST /caddy/routes/:id/delete
 func (p *Panel) CaddyRouteDelete(c *fiber.Ctx) error {
 	ctx := c.UserContext()
+	u, _ := currentUser(c)
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return phpJSONErr(c, 400, "invalid id")
@@ -261,11 +306,14 @@ func (p *Panel) CaddyRouteDelete(c *fiber.Ctx) error {
 	if err != nil {
 		return phpJSONErr(c, 404, "route not found")
 	}
+	if u.Role != db.RoleAdmin && r.UserID != u.ID {
+		return phpJSONErr(c, 403, "you do not have permission to delete this route")
+	}
 	p.PHP.RemoveHolder(ctx, proxyRouteContainer(id))
 	if err := p.DB.DeleteProxyRoute(ctx, id); err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
 	p.syncShieldProxiesToCaddy(ctx)
-	p.RecordAuditLog(c, "caddy_route", "system", r.Domain, "Deleted route")
+	p.RecordAuditLog(c, "caddy_route", u.Username, r.Domain, "Deleted route")
 	return c.JSON(fiber.Map{"ok": true})
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRightLeft, ExternalLink, Globe, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Waypoints } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, Globe, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, User, Waypoints } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
 import type { ProxyRoute } from '../../lib/api/caddyApi';
@@ -134,6 +134,7 @@ export const CaddyRoutesView: React.FC = () => {
               <thead className="text-[11px] text-zinc-500">
                 <tr>
                   <th className="py-2 pr-4 font-medium">Domain</th>
+                  <th className="py-2 pr-4 font-medium">Owner</th>
                   <th className="py-2 pr-4 font-medium">Type</th>
                   <th className="py-2 pr-4 font-medium">Routing</th>
                   <th className="py-2 pr-4 font-medium">Target</th>
@@ -164,6 +165,16 @@ export const CaddyRoutesView: React.FC = () => {
                         cfFlexibleLoop={cfChecks[r.id]?.cf_flexible_loop}
                         cfHint={cfChecks[r.id]?.cf_hint}
                       />
+                    </td>
+                    <td className="py-2.5 pr-4">
+                      {r.username ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-zinc-850 px-1.5 py-0.5 font-mono text-[11px] text-zinc-300">
+                          <User className="h-3 w-3 text-zinc-500" />
+                          {r.username}
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10.5px] text-zinc-500">Admin</span>
+                      )}
                     </td>
                     <td className="py-2.5 pr-4">
                       {r.kind === 'proxy' ? <Pill tone="violet">proxy</Pill> : <Pill tone="amber">redirect {r.redirect_code}</Pill>}
@@ -284,8 +295,13 @@ export const CaddyRoutesView: React.FC = () => {
                 className={`${inputCls} font-mono`}
                 value={form.target ?? ''}
                 onChange={(e) => set({ target: e.target.value })}
-                placeholder={isProxy ? 'http://10.0.0.5:8080' : 'https://example.com'}
+                placeholder={isProxy ? 'https://backend.example.com or http://203.0.113.10:8080' : 'https://example.com'}
               />
+              {isProxy && (
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Target must be a public domain or public IP. Localhost and internal private networks are blocked for security.
+                </p>
+              )}
             </Field>
             {!isProxy && (
               <div className="grid gap-4 sm:grid-cols-2">
