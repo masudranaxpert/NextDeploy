@@ -102,6 +102,12 @@ func run() int {
 	case "completion":
 		cmd.RunCompletion(rest)
 		return 0
+	case "edge":
+		if err := cmd.RunEdge(rest); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "help", "--help", "-h":
 		cmd.PrintHelp()
 		return 0

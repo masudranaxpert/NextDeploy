@@ -28,10 +28,10 @@ func (p *Panel) previewConfig(ctx context.Context, appID string) PreviewConfig {
 }
 
 // previewHostBase returns the slot-independent preview host; the slot prefix is applied later.
-func previewHostBase(app db.App, cfg PreviewConfig, publicIP string) string {
+func previewHostBase(app db.App, cfg PreviewConfig, publicIP string, panelID ...string) string {
 	switch cfg.Provider {
 	case "sslip.io", "nip.io":
-		return caddy.FormatWildcardDomain(app.Name, publicIP, cfg.Provider)
+		return caddy.FormatWildcardDomain(app.Name, publicIP, cfg.Provider, panelID...)
 	case "custom":
 		return strings.ToLower(strings.TrimSpace(cfg.Base))
 	}
@@ -42,7 +42,13 @@ func previewHostBase(app db.App, cfg PreviewConfig, publicIP string) string {
 func (p *Panel) previewSite(ctx context.Context, app db.App, slot string) *db.AppDomain {
 	cfg := p.previewConfig(ctx, app.ID)
 	targetIP, targetShieldID := p.ResolveAppPublicIP(ctx, app)
-	base := previewHostBase(app, cfg, targetIP)
+	var base string
+	if targetShieldID != nil {
+		pid, _ := p.DB.EnsurePanelID(ctx)
+		base = previewHostBase(app, cfg, targetIP, pid)
+	} else {
+		base = previewHostBase(app, cfg, targetIP)
+	}
 	if base == "" || cfg.Service == "" {
 		return nil
 	}
@@ -89,10 +95,17 @@ func (p *Panel) AppPreviewSave(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 	app, _ := p.DB.GetApp(c.UserContext(), id)
-	targetIP, _ := p.ResolveAppPublicIP(c.UserContext(), app)
+	targetIP, targetShieldID := p.ResolveAppPublicIP(c.UserContext(), app)
+	var hostBase string
+	if targetShieldID != nil {
+		pid, _ := p.DB.EnsurePanelID(c.UserContext())
+		hostBase = previewHostBase(app, cfg, targetIP, pid)
+	} else {
+		hostBase = previewHostBase(app, cfg, targetIP)
+	}
 	return c.JSON(fiber.Map{
 		"ok":        true,
 		"preview":   cfg,
-		"host_base": previewHostBase(app, cfg, targetIP),
+		"host_base": hostBase,
 	})
 }

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -2251,5 +2252,188 @@ func TestMCP_PHPRoutingAndPowerRBAC(t *testing.T) {
 	getRes := srv.ProcessRPC(ctx, viewerUser, JSONRPCRequest{JSONRPC: "2.0", ID: 4, Method: "tools/call", Params: getParams})
 	if getRes.Result.(CallToolResult).IsError || !strings.Contains(getRes.Result.(CallToolResult).Content[0].Text, "/article.php") {
 		t.Fatalf("expected /article.php in saved routing, got %+v", getRes.Result)
+	}
+}
+
+func TestMCP_DomainAddShieldAndDirect(t *testing.T) {
+	p, store, tmpDir, adminUser := setupTestPanel(t)
+	defer store.Close()
+	defer os.RemoveAll(tmpDir)
+
+	ctx := context.Background()
+	appID := "shield-mcp-app"
+	if err := store.CreateApp(ctx, appID, appID, adminUser.ID); err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	appDir := filepath.Join(tmpDir, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx:alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	connectedID, err := store.CreateShieldNode(ctx, &db.ShieldNode{
+		Name:   "Connected Shield",
+		IP:     "198.51.100.10",
+		Token:  "shld_conn_mcp",
+		Status: "connected",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingID, err := store.CreateShieldNode(ctx, &db.ShieldNode{
+		Name:   "Pending Shield",
+		IP:     "198.51.100.11",
+		Token:  "shld_pend_mcp",
+		Status: "pending",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(p)
+
+	// 1. Admin adds domain routed through connected shield node (even if enable_https:false, shield forces https + pending_origin_apply).
+	addShieldParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id":         appID,
+			"domain":         "shielded.example.com",
+			"service":        "web",
+			"port":           80,
+			"enable_https":   false,
+			"shield_node_id": connectedID,
+		},
+	})
+	res1 := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: addShieldParams})
+	res1Obj := res1.Result.(CallToolResult)
+	if res1Obj.IsError {
+		t.Fatalf("domain_add with shield_node_id failed: %s", res1Obj.Content[0].Text)
+	}
+	var out1 map[string]interface{}
+	if err := json.Unmarshal([]byte(res1Obj.Content[0].Text), &out1); err != nil {
+		t.Fatal(err)
+	}
+	if int64(out1["shield_node_id"].(float64)) != connectedID || out1["direct"] != false || out1["enable_https"] != true {
+		t.Fatalf("unexpected shielded domain_add output: %+v", out1)
+	}
+	dom1, err := store.GetAppDomain(ctx, int64(out1["domain_id"].(float64)))
+	if err != nil || dom1.ShieldNodeID == nil || *dom1.ShieldNodeID != connectedID || !dom1.PendingOriginApply {
+		t.Fatalf("expected persisted ShieldNodeID=%d and PendingOriginApply=true, got %+v (err=%v)", connectedID, dom1, err)
+	}
+
+	// 2. Admin adds explicit direct domain.
+	addDirectParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id": appID,
+			"domain": "direct.example.com",
+			"direct": true,
+		},
+	})
+	res2 := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: addDirectParams})
+	res2Obj := res2.Result.(CallToolResult)
+	if res2Obj.IsError {
+		t.Fatalf("domain_add with direct=true failed: %s", res2Obj.Content[0].Text)
+	}
+	var out2 map[string]interface{}
+	_ = json.Unmarshal([]byte(res2Obj.Content[0].Text), &out2)
+	if out2["shield_node_id"] != nil || out2["direct"] != true {
+		t.Fatalf("unexpected direct domain_add output: %+v", out2)
+	}
+
+	// 3. Mutually exclusive direct + shield_node_id -> error.
+	bothParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id":         appID,
+			"domain":         "both.example.com",
+			"shield_node_id": connectedID,
+			"direct":         true,
+		},
+	})
+	if resBoth := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{JSONRPC: "2.0", ID: 3, Method: "tools/call", Params: bothParams}); !resBoth.Result.(CallToolResult).IsError {
+		t.Fatalf("expected error when both direct and shield_node_id are set")
+	}
+
+	// 4. Non-connected or unknown shield node -> error.
+	for idx, sid := range []int64{pendingID, 99999} {
+		badShieldParams, _ := json.Marshal(CallToolParams{
+			Name: "domain_add",
+			Arguments: map[string]interface{}{
+				"app_id":         appID,
+				"domain":         fmt.Sprintf("bad-%d.example.com", idx),
+				"shield_node_id": sid,
+			},
+		})
+		if resBad := srv.ProcessRPC(ctx, adminUser, JSONRPCRequest{JSONRPC: "2.0", ID: 10 + idx, Method: "tools/call", Params: badShieldParams}); !resBad.Result.(CallToolResult).IsError {
+			t.Fatalf("expected error for shield_node_id=%d", sid)
+		}
+	}
+
+	// 5. Non-admin user cannot pick arbitrary shield or bypass assigned shield with direct=true.
+	devID, err := store.CreateUser(ctx, "dev_shield", "hash", db.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecRaw(ctx, `UPDATE users SET default_shield_id = ? WHERE id = ?`, connectedID, devID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddCollaborator(ctx, appID, devID, db.CollabRoleDeveloper); err != nil {
+		t.Fatal(err)
+	}
+	devAppID := "dev-shield-mcp-app"
+	if err := store.CreateApp(ctx, devAppID, devAppID, devID); err != nil {
+		t.Fatal(err)
+	}
+	devAppDir := filepath.Join(tmpDir, devAppID)
+	if err := os.MkdirAll(devAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devAppDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx:alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	devUser, _ := store.GetUserByID(ctx, devID)
+
+	devOtherShieldParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id":         appID,
+			"domain":         "dev-other.example.com",
+			"shield_node_id": pendingID,
+		},
+	})
+	if r := srv.ProcessRPC(ctx, devUser, JSONRPCRequest{JSONRPC: "2.0", ID: 20, Method: "tools/call", Params: devOtherShieldParams}); !r.Result.(CallToolResult).IsError {
+		t.Fatalf("expected non-admin selecting another shield to fail")
+	}
+
+	devAutoShieldParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id": devAppID,
+			"domain": "dev-auto.example.com",
+		},
+	})
+	rAuto := srv.ProcessRPC(ctx, devUser, JSONRPCRequest{JSONRPC: "2.0", ID: 21, Method: "tools/call", Params: devAutoShieldParams})
+	if rAuto.Result.(CallToolResult).IsError {
+		t.Fatalf("expected non-admin app with assigned shield to succeed: %s", rAuto.Result.(CallToolResult).Content[0].Text)
+	}
+	var outAuto map[string]interface{}
+	_ = json.Unmarshal([]byte(rAuto.Result.(CallToolResult).Content[0].Text), &outAuto)
+	if outAuto["shield_node_id"] == nil || int64(outAuto["shield_node_id"].(float64)) != connectedID {
+		t.Fatalf("expected auto-assigned shield_node_id=%d, got %+v", connectedID, outAuto)
+	}
+
+	devBypassParams, _ := json.Marshal(CallToolParams{
+		Name: "domain_add",
+		Arguments: map[string]interface{}{
+			"app_id": devAppID,
+			"domain": "dev-bypass.example.com",
+			"direct": true,
+		},
+	})
+	if r := srv.ProcessRPC(ctx, devUser, JSONRPCRequest{JSONRPC: "2.0", ID: 22, Method: "tools/call", Params: devBypassParams}); !r.Result.(CallToolResult).IsError {
+		t.Fatalf("expected non-admin with assigned shield passing direct=true to fail")
 	}
 }

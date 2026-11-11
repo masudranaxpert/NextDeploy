@@ -40,7 +40,7 @@ func printProxyHelp() {
 	fmt.Println("Usage: nd proxy <command> [args...]")
 	fmt.Println("\nManage Caddy reverse proxy routes and global configuration:")
 	fmt.Println("  list, ls                                     List custom reverse proxy routes")
-	fmt.Println("  add <domain> <upstream> [flags]              Add custom reverse proxy or redirect")
+	fmt.Println("  add <domain> <upstream> [flags]              Add custom reverse proxy or redirect (supports --shield <id>, --direct)")
 	fmt.Println("  rm <route_id>                                Delete a proxy route")
 	fmt.Println("  reload                                       Reload Caddy configuration and routes")
 	fmt.Println("  logs [-n lines]                              View live Caddy proxy server logs")
@@ -100,13 +100,15 @@ func runProxyList(cl *client.Client, args []string) error {
 
 func runProxyAdd(cl *client.Client, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: nd proxy add <domain> <upstream_url> [--type reverse_proxy|redirect] [--strip-path]")
+		return fmt.Errorf("usage: nd proxy add <domain> <upstream_url> [--type reverse_proxy|redirect] [--strip-path] [--shield <node_id> | --direct]")
 	}
 
 	domain := args[0]
 	upstream := args[1]
 	routeType := "proxy"
 	stripPath := false
+	var shieldID *int64
+	direct := false
 
 	for i := 2; i < len(args); i++ {
 		a := args[i]
@@ -117,7 +119,29 @@ func runProxyAdd(cl *client.Client, args []string) error {
 			routeType = strings.TrimPrefix(a, "--type=")
 		} else if a == "--strip-path" {
 			stripPath = true
+		} else if a == "--shield" && i+1 < len(args) {
+			id, err := strconv.ParseInt(strings.TrimSpace(args[i+1]), 10, 64)
+			if err != nil || id <= 0 {
+				return fmt.Errorf("invalid --shield node ID %q: must be a positive integer", args[i+1])
+			}
+			shieldID = &id
+			i++
+		} else if strings.HasPrefix(a, "--shield=") {
+			val := strings.TrimSpace(strings.TrimPrefix(a, "--shield="))
+			id, err := strconv.ParseInt(val, 10, 64)
+			if err != nil || id <= 0 {
+				return fmt.Errorf("invalid --shield node ID %q: must be a positive integer", val)
+			}
+			shieldID = &id
+		} else if a == "--direct" {
+			direct = true
+		} else if strings.HasPrefix(a, "-") {
+			return fmt.Errorf("unknown flag: %s", a)
 		}
+	}
+
+	if shieldID != nil && direct {
+		return fmt.Errorf("cannot specify both --shield and --direct")
 	}
 
 	if routeType == "reverse_proxy" {
@@ -133,6 +157,11 @@ func runProxyAdd(cl *client.Client, args []string) error {
 		"strip_path":   stripPath,
 		"enabled":      true,
 		"enable_https": true,
+	}
+	if shieldID != nil {
+		payload["shield_node_id"] = *shieldID
+	} else if direct {
+		payload["shield_node_id"] = nil
 	}
 
 	data, status, err := cl.Do("POST", "/api/v1/proxy/routes", payload)

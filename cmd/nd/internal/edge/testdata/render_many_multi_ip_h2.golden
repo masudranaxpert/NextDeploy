@@ -1,0 +1,63 @@
+# Managed by nd edge for panel "vps-1" (aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee). DO NOT EDIT. etag=etag-many
+(nd_up_aaaaaaaa) {
+	reverse_proxy https://204.136.10.51:443 https://204.136.10.52:443 {
+		lb_policy first
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-Proto https
+		stream_close_delay 10m
+		flush_interval -1
+		lb_try_duration 5s
+		lb_try_interval 250ms
+		transport http {
+			tls_trust_pool file /etc/caddy/nd/origins/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.pem
+			tls_server_name {host}
+			versions 1.1
+			dial_timeout 10s
+			response_header_timeout 600s
+			keepalive 90s
+			keepalive_idle_conns 256
+			keepalive_idle_conns_per_host 64
+		}
+	}
+}
+
+(nd_up_aaaaaaaa_h2) {
+	reverse_proxy https://204.136.10.51:443 https://204.136.10.52:443 {
+		lb_policy first
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-Proto https
+		stream_close_delay 10m
+		flush_interval -1
+		lb_try_duration 5s
+		lb_try_interval 250ms
+		transport http {
+			tls_trust_pool file /etc/caddy/nd/origins/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.pem
+			tls_server_name {host}
+			versions h2 1.1
+			dial_timeout 10s
+			response_header_timeout 600s
+			keepalive 90s
+			keepalive_idle_conns 256
+			keepalive_idle_conns_per_host 64
+		}
+	}
+}
+
+alpha.example.com, zeta.example.com {
+	import nd_common
+	import nd_up_aaaaaaaa
+}
+
+grpc.example.com {
+	import nd_common
+	request_body {
+		max_size 64MB
+	}
+	import nd_up_aaaaaaaa_h2
+}

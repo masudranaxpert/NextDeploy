@@ -1,0 +1,17 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /src/cmd/nd
+COPY cmd/nd/go.mod cmd/nd/go.sum ./
+RUN go mod download
+COPY cmd/nd/ ./
+RUN CGO_ENABLED=0 go build -o /out/nd .
+
+FROM caddy:2.8-alpine AS caddybin
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates curl
+COPY --from=builder /out/nd /usr/local/bin/nd
+COPY --from=caddybin /usr/bin/caddy /usr/bin/caddy.real
+COPY tests/edge-integration/fixtures/caddy-pebble-shim.sh /usr/bin/caddy
+COPY tests/edge-integration/fixtures/nd-edge-entrypoint.sh /usr/local/bin/nd-edge-entrypoint.sh
+RUN chmod +x /usr/bin/caddy /usr/local/bin/nd-edge-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/nd-edge-entrypoint.sh"]

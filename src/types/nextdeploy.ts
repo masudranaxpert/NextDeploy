@@ -1,3 +1,5 @@
+import type { ShieldDomainStatus } from './shield';
+
 export type NavigationSection =
   | 'overview'
   | 'nextdeploy-ai'
@@ -89,9 +91,12 @@ export interface DomainRoute {
   mediaPath?: string;
   mediaUrlPrefix?: string;
   gzip: boolean;
+  trusted_proxy?: boolean;
   shield_node_id?: number | null;
   shield_node_name?: string;
   shield_node_ip?: string;
+  pending_origin_apply?: boolean;
+  edge_status?: ShieldDomainStatus | null;
   createdAt: string;
 }
 

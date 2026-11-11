@@ -357,6 +357,7 @@ func GenerateSlotLabels(domains []db.AppDomain, hostPorts []HostPortBinding, pre
 			labels[prefix] = siteAddr
 			upstreams := fmt.Sprintf("{{upstreams %d}}", hp.ContainerPort)
 			labels[prefix+".reverse_proxy"] = upstreams
+			labels[prefix+".reverse_proxy.stream_close_delay"] = "10m"
 			labels[prefix+".reverse_proxy.lb_try_duration"] = "5s"
 			labels[prefix+".reverse_proxy.fail_duration"] = "5s"
 		}
@@ -441,19 +442,32 @@ func appendSlotSiteLabels(labels map[string]string, prefix string, d db.AppDomai
 		}
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = path + " " + upstreams
+		labels[base+".stream_close_delay"] = "10m"
 		labels[base+".lb_try_duration"] = "30s"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, base)
+		}
 		order++
 	}
 
 	if order == 1 {
-		labels[prefix+".reverse_proxy"] = upstreams
-		labels[prefix+".reverse_proxy.lb_try_duration"] = "5s"
-		labels[prefix+".reverse_proxy.fail_duration"] = "5s"
+		rpBase := prefix + ".reverse_proxy"
+		labels[rpBase] = upstreams
+		labels[rpBase+".stream_close_delay"] = "10m"
+		labels[rpBase+".lb_try_duration"] = "5s"
+		labels[rpBase+".fail_duration"] = "5s"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, rpBase)
+		}
 	} else {
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = upstreams
+		labels[base+".stream_close_delay"] = "10m"
 		labels[base+".lb_try_duration"] = "5s"
 		labels[base+".fail_duration"] = "5s"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, base)
+		}
 	}
 }
 

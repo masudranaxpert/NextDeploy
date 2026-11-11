@@ -465,6 +465,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        trusted_proxy: payload.trusted_proxy ? 'on' : '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     });
@@ -488,6 +489,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        trusted_proxy: payload.trusted_proxy ? 'on' : '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     });
@@ -531,6 +533,8 @@ export const appsAndDockerApi = {
       domain: string;
       ips: string[];
       cloudflare: boolean;
+      cf_flexible_loop?: boolean;
+      cf_hint?: string;
       internalTLS: boolean;
       error?: string;
     }>(`/apps/${encodeURIComponent(appId)}/domains/${domainId}/dns-check`);
@@ -539,6 +543,8 @@ export const appsAndDockerApi = {
       domain: res.data?.domain,
       ips: res.data?.ips,
       cloudflare: res.data?.cloudflare,
+      cf_flexible_loop: res.data?.cf_flexible_loop,
+      cf_hint: res.data?.cf_hint,
       internalTLS: res.data?.internalTLS,
     };
   },

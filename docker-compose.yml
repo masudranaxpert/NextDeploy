@@ -13,6 +13,7 @@ services:
         labels:
             caddy.auto_https: disable_redirects
             caddy.metrics: '{{""}}'
+            caddy.servers.trusted_proxies: static 10.0.0.1
         networks:
             - nextdeploy
         ports:

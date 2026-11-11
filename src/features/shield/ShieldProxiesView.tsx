@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Shield,
   ShieldCheck,
+  ShieldAlert,
   Copy,
   Check,
   Plus,
@@ -15,25 +16,179 @@ import {
   ArrowLeftRight,
   HelpCircle,
   BookOpen,
-  ArrowUpRight,
   ChevronDown,
   ChevronUp,
-  CheckCircle2,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendApi } from '../../lib/backendApi';
-import { ShieldNode } from '../../types/shield';
+import { backendApi, getPanelId } from '../../lib/backendApi';
+import { RotateShieldTokenResponse, ShieldNode } from '../../types/shield';
 import { copyToClipboard } from '../../lib/clipboard';
-import { ShadcnDialog } from '../../components/ui/Primitives';
+import { ShadcnDialog, ActionMenu, ActionMenuItem } from '../../components/ui/Primitives';
+import { ManageShieldModal } from '../../components/shield/ManageShieldModal';
+import { ShieldDocsModal } from '../../components/shield/ShieldDocsModal';
+import {
+  SHIELD_PREP_COMMAND,
+  buildInstallCommand,
+  buildSetTokenCommand,
+  buildUninstallCommand,
+  getPanelOrigin,
+} from '../../components/shield/shieldCommands';
+
+function formatSyncTime(iso?: string): { short: string; full: string } | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return { short: iso, full: iso };
+  const date = new Date(ms);
+  return {
+    short: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    full: date.toLocaleString(),
+  };
+}
+
+const SYNC_STATE_STYLES: Record<string, { label: string; cls: string; dot: string }> = {
+  ok: {
+    label: 'Sync OK',
+    cls: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400',
+    dot: 'bg-emerald-400',
+  },
+  stale: {
+    label: 'Stale',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  auth_failed: {
+    label: 'Auth Failed',
+    cls: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+    dot: 'bg-rose-400',
+  },
+  outdated: {
+    label: 'Edge Outdated',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  panel_outdated: {
+    label: 'Panel Outdated',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  pending: {
+    label: 'Pending',
+    cls: 'border-zinc-700 bg-zinc-800/70 text-zinc-300',
+    dot: 'bg-zinc-400',
+  },
+  unregistered: {
+    label: 'Unregistered',
+    cls: 'border-zinc-700 bg-zinc-900 text-zinc-400',
+    dot: 'bg-zinc-500',
+  },
+};
+
+const NodeConnectionBadge: React.FC<{ status: ShieldNode['status'] }> = ({ status }) => {
+  if (status === 'connected') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        Connected
+      </span>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        Pending Setup
+      </span>
+    );
+  }
+  if (status === 'unregistered') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-400 ring-1 ring-white/10 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+        Unregistered
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-400 ring-1 ring-rose-500/20 shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+      Offline
+    </span>
+  );
+};
+
+const SyncStateBadge: React.FC<{ syncState?: string; lastError?: string }> = ({ syncState, lastError }) => {
+  const key = (syncState || 'pending').toLowerCase();
+  const style = SYNC_STATE_STYLES[key] || {
+    label: syncState || 'Unknown',
+    cls: 'border-zinc-700 bg-zinc-900 text-zinc-300',
+    dot: 'bg-zinc-400',
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${style.cls}`}
+      title={lastError || undefined}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  );
+};
+
+const NodeStatusReadout: React.FC<{ node: ShieldNode }> = ({ node }) => {
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <NodeConnectionBadge status={node.status} />
+        <SyncStateBadge syncState={node.sync_state} lastError={node.last_error} />
+      </div>
+      {node.last_error && (
+        <span className="text-[11px] text-rose-400/90 max-w-[16rem] truncate" title={node.last_error}>
+          {node.last_error}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const NodeDomainsCell: React.FC<{ node: ShieldNode }> = ({ node }) => {
+  const count = node.assigned_domains || 0;
+  const conflicts = node.conflicts_count || 0;
+  const conflictedHosts = (node.domain_statuses || [])
+    .filter((s) => s.state === 'conflict')
+    .map((s) => `${s.host}${s.detail ? ` (${s.detail})` : ''}`);
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <span className="inline-flex items-center gap-1 rounded-md bg-zinc-800/80 px-2 py-0.5 text-xs font-medium text-zinc-200 border border-zinc-700/60">
+        <Globe className="h-3 w-3 text-cyan-400" />
+        {count} {count === 1 ? 'domain' : 'domains'}
+      </span>
+      {conflicts > 0 ? (
+        <span
+          className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-300"
+          title={conflictedHosts.length > 0 ? `Conflicts: ${conflictedHosts.join(', ')}` : undefined}
+        >
+          <ShieldAlert className="h-3 w-3 shrink-0 text-rose-400" />
+          {conflicts} conflict{conflicts === 1 ? '' : 's'}
+        </span>
+      ) : (
+        <span className="text-[11px] text-zinc-500">0 conflicts</span>
+      )}
+    </div>
+  );
+};
 
 export function ShieldProxiesView() {
   const [nodes, setNodes] = useState<ShieldNode[]>([]);
   const [originIP, setOriginIP] = useState<string>('');
+  const [panelId, setPanelIdState] = useState<string>(() => getPanelId());
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDocsModal, setShowDocsModal] = useState(false);
-  const [showGuide, setShowGuide] = useState(false);
-  const [selectedScriptNode, setSelectedScriptNode] = useState<{ node: ShieldNode; command: string } | null>(null);
+  const [selectedScriptNode, setSelectedScriptNode] = useState<ShieldNode | null>(null);
 
   // Form states
   const [name, setName] = useState('');
@@ -42,9 +197,13 @@ export function ShieldProxiesView() {
   const [testingId, setTestingId] = useState<number | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  // Failover / Reassign modal state
+  // Failover / Reassign / Delete / Rotate modal state
   const [reassignModalNode, setReassignModalNode] = useState<ShieldNode | null>(null);
   const [deleteModalNode, setDeleteModalNode] = useState<ShieldNode | null>(null);
+  const [rotateModalNode, setRotateModalNode] = useState<ShieldNode | null>(null);
+  const [rotateResult, setRotateResult] = useState<RotateShieldTokenResponse | null>(null);
+  const [rotating, setRotating] = useState(false);
+  const [showRotatedToken, setShowRotatedToken] = useState(false);
   const [targetShieldId, setTargetShieldId] = useState<number | null>(null);
   const [reassigning, setReassigning] = useState(false);
 
@@ -54,6 +213,7 @@ export function ShieldProxiesView() {
       if (res.ok) {
         setNodes(res.nodes || []);
         if (res.origin_ip) setOriginIP(res.origin_ip);
+        if (res.panel_id) setPanelIdState(res.panel_id);
       } else {
         toast.error(res.error || 'Failed to load shield nodes');
       }
@@ -87,13 +247,12 @@ export function ShieldProxiesView() {
       const res = await backendApi.createShieldNode(name.trim(), ip.trim());
       if (res.ok && res.node) {
         toast.success(`Shield node '${res.node.name}' added successfully!`);
+        if (res.panel_id) setPanelIdState(res.panel_id);
         setName('');
         setIP('');
         setShowAddModal(false);
         fetchNodes();
-        if (res.setup_command) {
-          setSelectedScriptNode({ node: res.node, command: res.setup_command });
-        }
+        setSelectedScriptNode(res.node);
       } else {
         toast.error(res.error || 'Failed to create shield node');
       }
@@ -101,23 +260,6 @@ export function ShieldProxiesView() {
       toast.error(err.message || 'Failed to create shield node');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleDelete = async (id: number, nodeName: string) => {
-    if (!confirm(`Are you sure you want to delete shield node '${nodeName}'? Any domains assigned to this shield will revert to Direct Origin.`)) {
-      return;
-    }
-    try {
-      const res = await backendApi.deleteShieldNode(id);
-      if (res.ok) {
-        toast.success('Shield node deleted');
-        fetchNodes();
-      } else {
-        toast.error(res.error || 'Failed to delete');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
     }
   };
 
@@ -158,8 +300,70 @@ export function ShieldProxiesView() {
     }
   };
 
+  const handleRotateToken = async () => {
+    if (!rotateModalNode) return;
+    setRotating(true);
+    try {
+      const res = await backendApi.rotateShieldNodeToken(rotateModalNode.id);
+      if (res.ok && res.token) {
+        setRotateResult(res);
+        setShowRotatedToken(false);
+        toast.success(`Rotated token for '${rotateModalNode.name}'. Previous token remains valid for 10 minutes.`);
+        fetchNodes();
+      } else {
+        toast.error(res.error || 'Failed to rotate shield token');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to rotate shield token');
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  const openRotateModal = (node: ShieldNode) => {
+    setRotateModalNode(node);
+    setRotateResult(null);
+    setShowRotatedToken(false);
+  };
+
   const activeCount = nodes.filter((n) => n.status === 'connected').length;
   const totalProtectedDomains = nodes.reduce((acc, n) => acc + (n.assigned_domains || 0), 0);
+  const panelOrigin = getPanelOrigin();
+
+  const buildNodeMenuItems = (node: ShieldNode): ActionMenuItem[] => {
+    const items: ActionMenuItem[] = [
+      {
+        label: 'Commands',
+        icon: <Terminal className="h-3.5 w-3.5 text-emerald-400" />,
+        onClick: () => setSelectedScriptNode(node),
+      },
+      {
+        label: 'Rotate Token',
+        icon: <KeyRound className="h-3.5 w-3.5 text-amber-400" />,
+        onClick: () => openRotateModal(node),
+      },
+    ];
+
+    if (node.assigned_domains > 0) {
+      items.push({
+        label: 'Reassign Domains',
+        icon: <ArrowLeftRight className="h-3.5 w-3.5 text-cyan-400" />,
+        onClick: () => {
+          setReassignModalNode(node);
+          setTargetShieldId(null);
+        },
+      });
+    }
+
+    items.push({
+      label: 'Delete Node',
+      icon: <Trash2 className="h-3.5 w-3.5 text-rose-400" />,
+      variant: 'danger',
+      onClick: () => setDeleteModalNode(node),
+    });
+
+    return items;
+  };
 
   return (
     <div className="space-y-5 sm:space-y-6 max-w-7xl mx-auto">
@@ -189,6 +393,14 @@ export function ShieldProxiesView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowDocsModal(true)}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 min-h-[36px] px-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors cursor-pointer"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            <span>Docs & CLI</span>
+          </button>
           <button
             type="button"
             onClick={fetchNodes}
@@ -250,184 +462,34 @@ export function ShieldProxiesView() {
         </div>
       </div>
 
-      {/* Step-by-Step VPS Setup Guide Card */}
-      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-sm overflow-hidden">
-        <div
-          onClick={() => setShowGuide((prev) => !prev)}
-          className="px-4 py-3 border-b border-zinc-800/80 flex items-center justify-between cursor-pointer hover:bg-zinc-800/30 transition-colors"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400">
-              <Terminal className="h-3.5 w-3.5" />
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
-              Shield VPS Setup
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-400 hidden sm:inline">
-              {showGuide ? 'Collapse' : 'Show Guide'}
-            </span>
-            {showGuide ? (
-              <ChevronUp className="h-4 w-4 text-zinc-400" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-zinc-400" />
-            )}
-          </div>
-        </div>
-
-        {showGuide && (
-          <div className="p-4 sm:p-5 space-y-4">
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              4 quick steps to connect an external Linux VPS as a reverse proxy.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* Step 1 */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-400">
-                      STEP 1
-                    </span>
-                    <span className="text-xs text-zinc-500">Prerequisites</span>
-                  </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Prepare VPS & Ports</h4>
-                  <p className="text-xs text-zinc-400 leading-normal">
-                    Run on your remote VPS as <strong className="text-zinc-200">root</strong>:
-                  </p>
-                </div>
-                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <pre className="overflow-x-auto whitespace-pre pr-7">
-                    apt update && apt install -y curl ufw{'\n'}ufw allow 80/tcp{'\n'}ufw allow 443/tcp
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy('apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp', 'guide-step-1')}
-                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-                    title="Copy commands"
-                  >
-                    {copied === 'guide-step-1' ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 2 */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyan-400">
-                      STEP 2
-                    </span>
-                    <span className="text-xs text-zinc-500">Panel</span>
-                  </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Add Node</h4>
-                  <p className="text-xs text-zinc-400 leading-normal">
-                    Click <strong className="text-zinc-200">+ Add Shield Node</strong> above to enter VPS IP and generate an install token.
-                  </p>
-                </div>
-                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-400 text-center">
-                  Generates an authorized install command
-                </div>
-              </div>
-
-              {/* Step 3 */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-400">
-                      STEP 3
-                    </span>
-                    <span className="text-xs text-zinc-500">Install</span>
-                  </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Run Install Script</h4>
-                  <p className="text-xs text-zinc-400 leading-normal">
-                    Run the node&apos;s installer command as root on the VPS:
-                  </p>
-                </div>
-                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <pre className="overflow-x-auto whitespace-pre pr-8 text-amber-300">
-                    {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/setup.sh?token=YOUR_TOKEN" | bash`}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/setup.sh?token=YOUR_TOKEN" | bash`, 'guide-step-3')}
-                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-                    title="Copy command template"
-                  >
-                    {copied === 'guide-step-3' ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 4 */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3.5 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-400">
-                      STEP 4
-                    </span>
-                    <span className="text-xs text-zinc-500">Verify</span>
-                  </div>
-                  <h4 className="text-xs font-semibold text-zinc-200">Verify & DNS</h4>
-                  <p className="text-xs text-zinc-400 leading-normal">
-                    Node will show <span className="text-emerald-400 font-medium">Connected</span>. Point domain DNS A-Record to the shield IP:
-                  </p>
-                </div>
-                <div className="relative rounded-md border border-zinc-800 bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300">
-                  <pre className="overflow-x-auto whitespace-pre pr-7">
-                    systemctl status caddy
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy('systemctl status caddy', 'guide-step-4')}
-                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-                    title="Copy command"
-                  >
-                    {copied === 'guide-step-4' ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Nodes List Container */}
       <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-sm overflow-hidden">
         <div className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
             Connected Shield VPS
           </h2>
+          {panelId && (
+            <span className="font-mono text-[11px] text-zinc-400 tabular-nums" title={`Panel ID: ${panelId}`}>
+              Panel: {panelId.slice(0, 8)}
+            </span>
+          )}
         </div>
 
         {loading ? (
-          <div className="py-12 text-center text-xs text-zinc-500">
+          <div className="py-12 text-center text-xs text-zinc-400">
             Loading shield nodes...
           </div>
         ) : nodes.length === 0 ? (
           <div className="py-14 text-center px-4">
-            <Shield className="mx-auto h-9 w-9 text-zinc-600 mb-2" />
-            <h3 className="text-sm font-medium text-zinc-300">No Shield Nodes Configured</h3>
-            <p className="mt-1 text-xs text-zinc-500 max-w-sm mx-auto">
+            <Shield className="mx-auto h-9 w-9 text-zinc-500 mb-2" />
+            <h3 className="text-sm font-medium text-zinc-200">No Shield Nodes Configured</h3>
+            <p className="mt-1 text-xs text-zinc-400 max-w-sm mx-auto">
               Add your first remote VPS to reverse-proxy application traffic and mask your server origin IP.
             </p>
             <button
               type="button"
               onClick={() => setShowAddModal(true)}
-              className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-600 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
+              className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-600 text-xs font-medium text-white hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 transition-colors cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Shield Node</span>
@@ -440,54 +502,54 @@ export function ShieldProxiesView() {
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-zinc-800 bg-zinc-950/40 text-xs font-medium text-zinc-400">
                   <tr>
-                    <th className="px-4 py-3">Shield Node</th>
-                    <th className="px-4 py-3">Public IP</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Assigned Domains</th>
-                    <th className="px-4 py-3">Last Heartbeat</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
+                    <th className="px-4 py-3 font-medium">Shield Node</th>
+                    <th className="px-4 py-3 font-medium">Public IP</th>
+                    <th className="px-4 py-3 font-medium">Status & Sync</th>
+                    <th className="px-4 py-3 font-medium">Versions</th>
+                    <th className="px-4 py-3 font-medium">Domains & Conflicts</th>
+                    <th className="px-4 py-3 font-medium">Last Sync</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
                   {nodes.map((node) => {
+                    const syncTime = formatSyncTime(node.last_sync_at || node.last_heartbeat_at);
                     const isConnected = node.status === 'connected';
                     const isPending = node.status === 'pending';
-                    const originScheme = window.location.protocol;
-                    const originHost = window.location.host;
-                    const setupCmd = `curl -sSL "${originScheme}//${originHost}/api/v1/edge/setup.sh?token=${node.token}" | bash`;
 
                     return (
-                      <tr key={node.id} className="hover:bg-zinc-800/30 transition-colors">
-                        <td className="px-4 py-3.5">
+                      <tr key={node.id} className="hover:bg-zinc-800/25 transition-colors">
+                        <td className="px-4 py-3.5 align-middle">
                           <div className="flex items-center gap-2.5">
                             <div
-                              className={`flex h-8 w-8 items-center justify-center rounded-md ${
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                                 isConnected
                                   ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
                                   : isPending
                                   ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
-                                  : 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20'
                               }`}
                             >
                               <Shield className="h-4 w-4" />
                             </div>
-                            <div>
-                              <span className="font-semibold text-zinc-100">{node.name}</span>
-                              <div className="text-xs text-zinc-500 font-mono">
-                                ID: #{node.id}
+                            <div className="min-w-0">
+                              <span className="font-semibold text-zinc-100 block truncate">{node.name}</span>
+                              <div className="text-[11px] text-zinc-400 font-mono tabular-nums">
+                                ID: #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
                               </div>
                             </div>
                           </div>
                         </td>
 
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs text-zinc-300 font-medium">{node.ip}</span>
+                        <td className="px-4 py-3.5 align-middle">
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="font-mono text-xs tabular-nums text-zinc-200 font-medium">{node.ip}</span>
                             <button
                               type="button"
                               onClick={() => handleCopy(node.ip, `ip-${node.id}`)}
+                              aria-label={`Copy public IP ${node.ip}`}
                               title="Copy IP for DNS A-Record"
-                              className="h-7 w-7 rounded flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors cursor-pointer"
+                              className="h-7 w-7 rounded-md flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
                             >
                               {copied === `ip-${node.id}` ? (
                                 <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -498,81 +560,47 @@ export function ShieldProxiesView() {
                           </div>
                         </td>
 
-                        <td className="px-4 py-3.5">
-                          {isConnected ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              Connected
-                            </span>
-                          ) : isPending ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20">
-                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                              Pending Setup
-                            </span>
+                        <td className="px-4 py-3.5 align-middle">
+                          <NodeStatusReadout node={node} />
+                        </td>
+
+                        <td className="px-4 py-3.5 align-middle font-mono tabular-nums text-xs">
+                          <div className="space-y-0.5">
+                            <div className="text-zinc-200">edge: {node.edge_version || <span className="text-zinc-500">—</span>}</div>
+                            <div className="text-[11px] text-zinc-400">caddy: {node.caddy_version || <span className="text-zinc-500">—</span>}</div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3.5 align-middle">
+                          <NodeDomainsCell node={node} />
+                        </td>
+
+                        <td className="px-4 py-3.5 align-middle text-xs tabular-nums text-zinc-400 whitespace-nowrap">
+                          {syncTime ? (
+                            <span title={syncTime.full}>{syncTime.short}</span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-md bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                              Offline
-                            </span>
+                            <span className="text-zinc-600">Awaiting sync</span>
                           )}
                         </td>
 
-                        <td className="px-4 py-3.5">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-zinc-800/80 px-2 py-0.5 text-xs font-medium text-zinc-300">
-                            <Globe className="h-3 w-3 text-zinc-400" />
-                            {node.assigned_domains || 0} domains
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-3.5 text-zinc-400 text-xs">
-                          {node.last_heartbeat_at ? (
-                            <span>{new Date(node.last_heartbeat_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                          ) : (
-                            <span className="text-zinc-600">Awaiting ping</span>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3.5 text-right">
+                        <td className="px-4 py-3.5 align-middle text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            {node.assigned_domains > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReassignModalNode(node);
-                                  setTargetShieldId(null);
-                                }}
-                                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 transition-colors cursor-pointer"
-                                title="Failover / Reassign domains"
-                              >
-                                <ArrowLeftRight className="h-3.5 w-3.5" />
-                                <span>Reassign</span>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setSelectedScriptNode({ node, command: setupCmd })}
-                              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-zinc-700 bg-zinc-800/80 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
-                            >
-                              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-                              <span>Script</span>
-                            </button>
                             <button
                               type="button"
                               onClick={() => handleTest(node)}
                               disabled={testingId === node.id}
-                              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
+                              aria-label={`Test connectivity for ${node.name}`}
+                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-sky-500/30 bg-sky-500/10 text-xs font-medium text-sky-300 hover:bg-sky-500/20 hover:border-sky-500/50 disabled:opacity-50 transition-colors cursor-pointer"
+                              title="Test connectivity"
                             >
-                              <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin' : 'text-cyan-400'}`} />
-                              <span>Test</span>
+                              <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-sky-300' : 'text-sky-400'}`} />
+                              <span>{testingId === node.id ? 'Testing...' : 'Test'}</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteModalNode(node)}
-                              className="h-9 w-9 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
-                              title="Delete Shield Node"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            <ActionMenu
+                              items={buildNodeMenuItems(node)}
+                              ariaLabel={`Actions for ${node.name}`}
+                              triggerClassName="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 transition-colors cursor-pointer"
+                            />
                           </div>
                         </td>
                       </tr>
@@ -582,27 +610,24 @@ export function ShieldProxiesView() {
               </table>
             </div>
 
-            {/* Mobile Cards View (Responsive alternative to wide table) */}
+            {/* Mobile Cards View */}
             <div className="block md:hidden divide-y divide-zinc-800/60">
               {nodes.map((node) => {
+                const syncTime = formatSyncTime(node.last_sync_at || node.last_heartbeat_at);
                 const isConnected = node.status === 'connected';
                 const isPending = node.status === 'pending';
-                const originScheme = window.location.protocol;
-                const originHost = window.location.host;
-                const setupCmd = `curl -sSL "${originScheme}//${originHost}/api/v1/edge/setup.sh?token=${node.token}" | bash`;
 
                 return (
                   <div key={node.id} className="p-4 space-y-3">
-                    {/* Header: Node Name + Status Badge */}
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                             isConnected
                               ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
                               : isPending
                               ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
-                              : 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
+                              : 'bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20'
                           }`}
                         >
                           <Shield className="h-4 w-4" />
@@ -611,39 +636,24 @@ export function ShieldProxiesView() {
                           <span className="font-semibold text-zinc-100 text-sm block truncate">
                             {node.name}
                           </span>
-                          <span className="text-xs text-zinc-500 font-mono">
-                            ID: #{node.id}
+                          <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
+                            #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
                           </span>
                         </div>
                       </div>
-
-                      {isConnected ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          Connected
-                        </span>
-                      ) : isPending ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20 shrink-0">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                          Pending Setup
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400 ring-1 ring-red-500/20 shrink-0">
-                          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                          Offline
-                        </span>
-                      )}
+                      <div className="shrink-0 text-right">
+                        <NodeStatusReadout node={node} />
+                      </div>
                     </div>
 
-                    {/* Meta: IP & Domains */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-800/60">
-                      <div className="flex items-center gap-2">
-                        <span className="text-zinc-500">Public IP:</span>
-                        <code className="font-mono text-zinc-200 font-semibold">{node.ip}</code>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-zinc-950/60 px-3 py-2 rounded-lg border border-zinc-800/60">
+                      <div className="flex items-center gap-1.5">
+                        <code className="font-mono text-zinc-200 tabular-nums">{node.ip}</code>
                         <button
                           type="button"
                           onClick={() => handleCopy(node.ip, `ip-mobile-${node.id}`)}
-                          className="h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer"
+                          aria-label={`Copy public IP ${node.ip}`}
+                          className="h-7 w-7 rounded flex items-center justify-center text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 cursor-pointer"
                         >
                           {copied === `ip-mobile-${node.id}` ? (
                             <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -652,70 +662,35 @@ export function ShieldProxiesView() {
                           )}
                         </button>
                       </div>
-
-                      <span className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-300">
-                        <Globe className="h-3 w-3 text-zinc-400" />
-                        {node.assigned_domains || 0} domains
-                      </span>
+                      <NodeDomainsCell node={node} />
                     </div>
 
-                    {/* Last Heartbeat */}
-                    <div className="flex items-center justify-between text-xs text-zinc-500 px-0.5">
-                      <span>Heartbeat:</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400 font-mono tabular-nums">
                       <span>
-                        {node.last_heartbeat_at
-                          ? new Date(node.last_heartbeat_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                          : 'Awaiting first ping'}
+                        {node.edge_version ? `edge ${node.edge_version}` : 'edge -'}
+                        {node.caddy_version ? ` · caddy ${node.caddy_version}` : ''}
+                      </span>
+                      <span className="font-sans" title={syncTime?.full}>
+                        {syncTime ? `Synced ${syncTime.short}` : 'Awaiting sync'}
                       </span>
                     </div>
 
-                    {/* Actions Grid */}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedScriptNode({ node, command: setupCmd })}
-                        className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-zinc-700 bg-zinc-800 text-xs font-medium text-zinc-200 hover:bg-zinc-700 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-                        <span>Install Script</span>
-                      </button>
-
+                    <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
                         onClick={() => handleTest(node)}
                         disabled={testingId === node.id}
-                        className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
+                        aria-label={`Test connectivity for ${node.name}`}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-sky-500/30 bg-sky-500/10 text-xs font-medium text-sky-300 hover:bg-sky-500/20 disabled:opacity-50 transition-colors cursor-pointer"
                       >
-                        <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin' : 'text-cyan-400'}`} />
-                        <span>Test Ping</span>
+                        <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-sky-300' : 'text-sky-400'}`} />
+                        <span>{testingId === node.id ? 'Testing...' : 'Test'}</span>
                       </button>
-
-                      {node.assigned_domains > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReassignModalNode(node);
-                            setTargetShieldId(null);
-                          }}
-                          className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 transition-colors cursor-pointer"
-                        >
-                          <ArrowLeftRight className="h-3.5 w-3.5" />
-                          <span>Reassign</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setDeleteModalNode(node)}
-                        className={`inline-flex items-center justify-center gap-1.5 h-9 rounded-md border text-xs font-medium transition-colors cursor-pointer ${
-                          node.assigned_domains > 0
-                            ? 'border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                            : 'col-span-2 border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400'
-                        }`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete Node</span>
-                      </button>
+                      <ActionMenu
+                        items={buildNodeMenuItems(node)}
+                        ariaLabel={`Actions for ${node.name}`}
+                        triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 transition-colors cursor-pointer"
+                      />
                     </div>
                   </div>
                 );
@@ -755,167 +730,153 @@ export function ShieldProxiesView() {
       >
         <form id="add-shield-form" onSubmit={handleCreate} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+            <label htmlFor="shield-node-name" className="block text-xs font-medium text-zinc-300 mb-1.5">
               Node Label / Name
             </label>
             <input
+              id="shield-node-name"
               type="text"
               placeholder="e.g. Frankfurt Shield 01"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+              className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white placeholder-zinc-500 focus:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+            <label htmlFor="shield-node-ip" className="block text-xs font-medium text-zinc-300 mb-1.5">
               Shield VPS Public IPv4 Address
             </label>
             <input
+              id="shield-node-ip"
               type="text"
               placeholder="e.g. 198.51.100.25"
               value={ip}
               onChange={(e) => setIP(e.target.value)}
-              className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white placeholder-zinc-600 font-mono focus:border-emerald-500 focus:outline-none"
+              className="w-full h-9 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-xs text-white placeholder-zinc-500 font-mono focus:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
               required
             />
           </div>
         </form>
       </ShadcnDialog>
 
-      {/* Setup Script Modal */}
-      <ShadcnDialog
-        open={Boolean(selectedScriptNode)}
+      {/* Setup / Maintenance / Removal Commands Modal */}
+      <ManageShieldModal
+        node={selectedScriptNode}
+        panelId={panelId}
+        panelOrigin={panelOrigin}
         onClose={() => setSelectedScriptNode(null)}
-        title={selectedScriptNode ? `Connect Shield: ${selectedScriptNode.node.name}` : 'Connect Shield'}
-        description="Run this one-line command via SSH as root on your shield VPS."
-        icon={<Terminal className="h-5 w-5 text-emerald-400" />}
-        maxWidth="lg"
+        onRotateToken={openRotateModal}
+        onDone={fetchNodes}
+      />
+
+      {/* Rotate Token Modal */}
+      <ShadcnDialog
+        open={Boolean(rotateModalNode)}
+        onClose={() => !rotating && setRotateModalNode(null)}
+        title={rotateModalNode ? `Rotate Token: ${rotateModalNode.name}` : 'Rotate Shield Token'}
+        description="Issue a new Shield Bearer token with a 10-minute overlap grace period."
+        icon={<KeyRound className="h-5 w-5 text-amber-400" />}
+        maxWidth="md"
         footer={
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedScriptNode(null);
-              fetchNodes();
-            }}
-            className="h-9 px-4 rounded-md bg-zinc-800 text-xs font-medium text-white hover:bg-zinc-700 transition-colors cursor-pointer"
-          >
-            Done
-          </button>
+          rotateResult ? (
+            <button
+              type="button"
+              onClick={() => setRotateModalNode(null)}
+              className="h-9 px-4 rounded-md bg-zinc-800 text-xs font-medium text-white hover:bg-zinc-700 transition-colors cursor-pointer"
+            >
+              Done
+            </button>
+          ) : (
+            <div className="flex items-center justify-end gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setRotateModalNode(null)}
+                disabled={rotating}
+                className="h-9 px-3.5 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRotateToken()}
+                disabled={rotating}
+                className="h-9 px-4 rounded-md bg-amber-600 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {rotating ? 'Rotating...' : 'Rotate Token'}
+              </button>
+            </div>
+          )
         }
       >
-        {selectedScriptNode && (
+        {rotateModalNode && !rotateResult && (
+          <div className="space-y-3 text-xs text-zinc-300">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-amber-200 leading-relaxed">
+              Rotating generates a new <code className="font-mono text-amber-100">shld_</code> token immediately. The previous token stays valid for <strong>10 minutes</strong> so you can run <code className="font-mono">nd edge set-token --token-stdin</code> on the Shield VPS without dropping sync.
+            </div>
+            <p className="text-zinc-400">
+              After 10 minutes, any Shield still using the old token will enter <span className="text-rose-300 font-medium">Auth Failed</span> state (existing Caddy routes keep serving).
+            </p>
+          </div>
+        )}
+
+        {rotateModalNode && rotateResult && (
           <div className="space-y-4">
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs flex items-center justify-between">
-              <div>
-                <span className="text-zinc-500 block">Target Shield VPS:</span>
-                <span className="font-semibold text-white">{selectedScriptNode.node.name}</span>
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+              New token issued. Previous token expires at{' '}
+              <strong className="font-mono text-white">
+                {rotateResult.token_prev_expires_at
+                  ? new Date(rotateResult.token_prev_expires_at).toLocaleTimeString()
+                  : '10 minutes from now'}
+              </strong>.
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-300 block">New Shield Token</span>
+              <div className="flex items-center gap-1.5">
+                <code className="min-w-0 flex-1 truncate rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-200">
+                  {showRotatedToken ? rotateResult.token : '•'.repeat(28)}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => setShowRotatedToken((v) => !v)}
+                  className="h-8 px-2.5 rounded-md border border-zinc-800 bg-zinc-900 text-xs text-zinc-300 hover:text-white cursor-pointer inline-flex items-center gap-1"
+                >
+                  {showRotatedToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  <span>{showRotatedToken ? 'Hide' : 'Show'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(rotateResult.token || '', 'rotated-token')}
+                  className="h-8 px-2.5 rounded-md border border-zinc-800 bg-zinc-900 text-xs text-zinc-300 hover:text-white cursor-pointer inline-flex items-center gap-1"
+                >
+                  {copied === 'rotated-token' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
               </div>
-              <span className="font-mono text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                {selectedScriptNode.node.ip}
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-300 block">
+                Update Token on Shield VPS (<code className="text-amber-300">--token-stdin</code>):
               </span>
-            </div>
-
-            {/* Step 1: VPS Prep */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-zinc-300">1. Install Prerequisites (on VPS as root):</span>
-                <span className="text-zinc-500 text-[11px]">Ubuntu / Debian</span>
-              </div>
-              <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
-                <pre className="overflow-x-auto whitespace-pre pr-8">
-                  apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp
+              <div className="relative rounded-lg border border-amber-500/30 bg-zinc-950 p-3 font-mono text-xs">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-amber-200">
+                  {buildSetTokenCommand(panelId, rotateResult.token || '')}
                 </pre>
                 <button
                   type="button"
-                  onClick={() => handleCopy('apt update && apt install -y curl ufw && ufw allow 80/tcp && ufw allow 443/tcp', 'modal-prep-cmd')}
-                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
-                  title="Copy command"
+                  onClick={() => handleCopy(buildSetTokenCommand(panelId, rotateResult.token || ''), 'rotated-set-token-cmd')}
+                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-amber-500/40 bg-amber-500/10 flex items-center justify-center text-amber-300 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                  title="Copy set-token command"
                 >
-                  {copied === 'modal-prep-cmd' ? (
+                  {copied === 'rotated-set-token-cmd' ? (
                     <Check className="h-3.5 w-3.5 text-emerald-400" />
                   ) : (
                     <Copy className="h-3.5 w-3.5" />
                   )}
                 </button>
               </div>
-            </div>
-
-            {/* Step 2: Installer */}
-            <div className="space-y-1.5">
-              <span className="font-semibold text-zinc-300 text-xs block">2. Run Automated NextDeploy Shield Installer:</span>
-              <div className="relative rounded-lg border border-emerald-500/30 bg-zinc-950 p-3 font-mono text-xs">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-emerald-300">
-                  {selectedScriptNode.command}
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(selectedScriptNode.command, 'script-cmd')}
-                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
-                  title="Copy installer command"
-                >
-                  {copied === 'script-cmd' ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Step 3: Verification */}
-            <div className="space-y-1.5">
-              <span className="font-semibold text-zinc-300 text-xs block">3. Verify Service Status:</span>
-              <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
-                <pre className="overflow-x-auto whitespace-pre pr-8">
-                  systemctl status caddy
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => handleCopy('systemctl status caddy', 'modal-verify-cmd')}
-                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
-                  title="Copy command"
-                >
-                  {copied === 'modal-verify-cmd' ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Step 4: Uninstaller & Cleanup */}
-            <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
-              <span className="font-semibold text-zinc-400 text-xs block">Uninstall & Restore Original Node (If unlinking):</span>
-              <div className="relative rounded-lg border border-white/[0.08] bg-zinc-950 p-2.5 font-mono text-xs">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-zinc-400">
-                  {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${selectedScriptNode.node.token}" | bash`}
-                </pre>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${selectedScriptNode.node.token}" | bash`, 'modal-uninstall-cmd')}
-                  className="absolute right-2 top-2 h-7 w-7 rounded-md border border-white/[0.08] bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
-                  title="Copy uninstall command"
-                >
-                  {copied === 'modal-uninstall-cmd' ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
-              <div className="font-semibold text-white flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                Automatic Verification:
-              </div>
-              <p className="text-zinc-300 leading-relaxed text-xs">
-                As soon as the script completes on your VPS, Caddy will ping NextDeploy origin. This node will automatically turn green <strong className="text-emerald-400">Connected</strong> within 15–30 seconds.
-              </p>
             </div>
           </div>
         )}
@@ -963,16 +924,17 @@ export function ShieldProxiesView() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-zinc-300">
+              <label htmlFor="reassign-target-shield" className="block text-xs font-medium text-zinc-300">
                 New Destination
               </label>
               <select
+                id="reassign-target-shield"
                 value={targetShieldId === null ? 'direct' : targetShieldId}
                 onChange={(e) => {
                   const val = e.target.value;
                   setTargetShieldId(val === 'direct' ? null : Number(val));
                 }}
-                className="w-full h-8.5 rounded-lg border border-white/[0.08] bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-cyan-500 focus:outline-none cursor-pointer"
+                className="w-full h-9 rounded-lg border border-white/[0.08] bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 cursor-pointer"
               >
                 <option value="direct">Direct Origin (Server IP)</option>
                 {nodes
@@ -1005,15 +967,15 @@ export function ShieldProxiesView() {
 
             <div className="space-y-2">
               <span className="font-semibold text-zinc-200 text-xs block">
-                1. Run Uninstaller on your VPS (Optional, to clean up Caddy & restore original VPS):
+                1. Remove Panel / Uninstall on your VPS (Optional, keeps other panels intact unless <code className="text-zinc-100">--all</code>):
               </span>
               <div className="relative rounded-lg border border-white/[0.08] bg-zinc-950 p-2.5 font-mono text-xs">
                 <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-8 text-zinc-300">
-                  {`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${deleteModalNode.token}" | bash`}
+                  {`${buildUninstallCommand(panelId)}\n# Or full removal:\nnd edge uninstall --all`}
                 </pre>
                 <button
                   type="button"
-                  onClick={() => handleCopy(`curl -sSL "${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : ''}/api/v1/edge/uninstall.sh?token=${deleteModalNode.token}" | bash`, 'del-uninstall-cmd')}
+                  onClick={() => handleCopy(buildUninstallCommand(panelId), 'del-uninstall-cmd')}
                   className="absolute right-2 top-2 h-7 w-7 rounded-md border border-white/[0.08] bg-zinc-900 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white cursor-pointer transition-colors"
                   title="Copy uninstall command"
                 >
@@ -1025,7 +987,7 @@ export function ShieldProxiesView() {
                 </button>
               </div>
               <p className="text-[11px] text-zinc-400">
-                This uninstaller removes the NextDeploy Caddy configuration and stops the proxy daemon on your VPS.
+                Removes this panel&apos;s Caddy routes and origin CA from the Shield VPS without exposing tokens in shell history or URLs.
               </p>
             </div>
 
@@ -1063,76 +1025,12 @@ export function ShieldProxiesView() {
         )}
       </ShadcnDialog>
 
-      {/* How Shield Nodes Work (Architecture Docs) Modal */}
-      <ShadcnDialog
+      {/* Shield Documentation & CLI Reference Modal */}
+      <ShieldDocsModal
         open={showDocsModal}
         onClose={() => setShowDocsModal(false)}
-        title="Shield Node Architecture & Guide"
-        description="Understanding edge reverse-proxying, origin masking, and on-demand TLS."
-        icon={<BookOpen className="h-5 w-5 text-emerald-400" />}
-        maxWidth="lg"
-        footer={
-          <button
-            type="button"
-            onClick={() => setShowDocsModal(false)}
-            className="h-9 px-4 rounded-md bg-zinc-800 text-xs font-medium text-white hover:bg-zinc-700 transition-colors cursor-pointer"
-          >
-            Close Guide
-          </button>
-        }
-      >
-        <div className="space-y-4 text-xs text-zinc-300">
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 space-y-1.5">
-            <h4 className="font-semibold text-white flex items-center gap-1.5">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              1. Origin IP Masking & DDoS Protection
-            </h4>
-            <p className="text-zinc-400 leading-relaxed">
-              When a shield node is assigned to a project domain, public DNS records point exclusively to the shield node&apos;s public IP. Your central NextDeploy server IP remains completely unadvertised, protecting it against targeted attacks, IP blacklisting, and direct port scans.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 space-y-1.5">
-            <h4 className="font-semibold text-white flex items-center gap-1.5">
-              <Lock className="h-4 w-4 text-cyan-400" />
-              2. Automatic On-Demand TLS
-            </h4>
-            <p className="text-zinc-400 leading-relaxed">
-              Each shield node runs an autonomous Caddy instance configured with On-Demand TLS. When an HTTPS request arrives for any customer domain mapped to that shield node, Caddy validates the domain against your NextDeploy origin via an internal ask endpoint (<code className="text-zinc-200">/api/v1/edge/ask</code>), issues a Let&apos;s Encrypt certificate on the fly, and terminates TLS at the edge.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 space-y-1.5">
-            <h4 className="font-semibold text-white flex items-center gap-1.5">
-              <Terminal className="h-4 w-4 text-amber-400" />
-              3. Zero Maintenance Setup
-            </h4>
-            <p className="text-zinc-400 leading-relaxed">
-              Provisioning a new shield requires only a single <code className="text-zinc-200">curl | bash</code> command on any fresh Debian or Ubuntu VPS. The installer sets up Caddy, provisions a systemd service, and establishes periodic heartbeat pings back to your NextDeploy dashboard.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 space-y-1.5">
-            <h4 className="font-semibold text-white flex items-center gap-1.5">
-              <Globe className="h-4 w-4 text-emerald-400" />
-              4. DNS Configuration
-            </h4>
-            <p className="text-zinc-400 leading-relaxed">
-              In your DNS provider (e.g. Cloudflare, Namecheap, Route53), configure an <strong>A Record</strong> pointing your domain (<code className="text-zinc-200">example.com</code>) to the <strong>Shield Public IP</strong>. If using Cloudflare, you can set proxy status to &quot;DNS Only&quot; (Grey Cloud) to let Caddy issue edge certificates directly.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 space-y-1.5">
-            <h4 className="font-semibold text-white flex items-center gap-1.5">
-              <ArrowLeftRight className="h-4 w-4 text-cyan-400" />
-              5. 1-Click Standby Failover
-            </h4>
-            <p className="text-zinc-400 leading-relaxed">
-              If an edge VPS experiences an upstream provider outage, open the <strong>Reassign</strong> dialog to immediately migrate all assigned domains to another standby shield node or revert to direct origin routing.
-            </p>
-          </div>
-        </div>
-      </ShadcnDialog>
+        panelOrigin={panelOrigin}
+      />
     </div>
   );
 }

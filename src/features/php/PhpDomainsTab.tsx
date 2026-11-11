@@ -1,13 +1,15 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { Check, Copy, ExternalLink, Globe, Plus, ShieldCheck, Star, Trash2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Globe, Pencil, Plus, RefreshCw, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppStack } from '../../types/nextdeploy';
+import { AppStack, DomainRoute } from '../../types/nextdeploy';
 import { ShieldNode } from '../../types/shield';
-import { backendApi, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
+import { backendApi, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp, getPanelId } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
-import { ShadcnSelect } from '../../components/ui/Primitives';
-import { Card, EmptyState, Pill, PrimaryButton, inputCls } from './ui';
+import { ShadcnDialog, ShadcnSelect } from '../../components/ui/Primitives';
+import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../components/shield/EdgeDomainStatusBadge';
+import { TrustedProxyBadge, TrustedProxyToggle } from '../../components/shield/TrustedProxyControl';
+import { Card, EmptyState, Field, GhostButton, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
@@ -20,11 +22,48 @@ export const PhpDomainsTab: React.FC<{
   const [domain, setDomain] = useState('');
   const [https, setHttps] = useState(true);
   const [www, setWww] = useState(false);
+  const [trustedProxy, setTrustedProxy] = useState(false);
+  const [editingDomain, setEditingDomain] = useState<{
+    id: string;
+    domain: string;
+    forceHttps: boolean;
+    enableWww: boolean;
+    trustedProxy: boolean;
+    shieldNodeId: number | null;
+  } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const cachedShield = getCachedShieldNodes();
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
   const [shieldNodeId, setShieldNodeId] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
   const [copiedDomainId, setCopiedDomainId] = useState<string | number | null>(null);
+  const [dnsLoadingId, setDnsLoadingId] = useState<string | null>(null);
+  const [dnsResults, setDnsResults] = useState<
+    Record<string, { cloudflare: boolean; cf_flexible_loop?: boolean; cf_hint?: string; ips: string[]; ok: boolean; error?: string }>
+  >({});
+
+  const checkDns = async (id: string, domainName: string) => {
+    setDnsLoadingId(id);
+    try {
+      const res = await backendApi.domainDnsCheck(app.id, id);
+      setDnsResults((prev) => ({
+        ...prev,
+        [id]: {
+          cloudflare: Boolean(res?.cloudflare),
+          cf_flexible_loop: Boolean(res?.cf_flexible_loop),
+          cf_hint: res?.cf_hint || '',
+          ips: Array.isArray(res?.ips) ? res.ips : [],
+          ok: res?.ok !== false,
+          error: res?.error,
+        },
+      }));
+      toast.success(`DNS checked for ${domainName}`);
+    } catch (err: any) {
+      toast.error(err?.message || 'DNS verification failed');
+    } finally {
+      setDnsLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     backendApi.listShieldNodes().then((res) => {
@@ -55,6 +94,7 @@ export const PhpDomainsTab: React.FC<{
       port: 80,
       enable_https: https,
       enable_www: www,
+      trusted_proxy: trustedProxy,
       shield_node_id: targetShieldId,
       is_primary: app.domains.length === 0 || undefined,
     });
@@ -64,6 +104,8 @@ export const PhpDomainsTab: React.FC<{
       return;
     }
     setDomain('');
+    const addedTrustedProxy = trustedProxy;
+    setTrustedProxy(false);
     if (onUpdateApp && res.id) {
       const createdDomain = {
         id: String(res.id),
@@ -75,6 +117,7 @@ export const PhpDomainsTab: React.FC<{
         tlsStatus: 'active' as const,
         forceHttps: https,
         enableWww: www,
+        trusted_proxy: addedTrustedProxy,
         shield_node_id: targetShieldId,
         gzip: true,
         createdAt: 'Just now',
@@ -129,6 +172,63 @@ export const PhpDomainsTab: React.FC<{
     await onChanged();
   };
 
+  const openEdit = (d: DomainRoute) => {
+    setEditingDomain({
+      id: d.id,
+      domain: d.domain,
+      forceHttps: d.forceHttps !== false,
+      enableWww: Boolean(d.enableWww),
+      trustedProxy: Boolean(d.trusted_proxy),
+      shieldNodeId: d.shield_node_id ?? null,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingDomain) return;
+    const nextDomain = editingDomain.domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!DOMAIN_RE.test(nextDomain)) {
+      toast.error('Enter a valid domain such as example.com');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await backendApi.domainEdit(app.id, editingDomain.id, {
+        domain: nextDomain,
+        service: 'php',
+        port: 80,
+        enable_https: editingDomain.forceHttps,
+        enable_www: editingDomain.enableWww,
+        trusted_proxy: editingDomain.trustedProxy,
+        shield_node_id: editingDomain.shieldNodeId,
+      });
+      if (!res.ok) {
+        toast.error(res.error || 'Could not update the domain');
+        return;
+      }
+      if (onUpdateApp) {
+        onUpdateApp({
+          ...app,
+          domains: app.domains.map((dom) =>
+            dom.id === editingDomain.id
+              ? {
+                  ...dom,
+                  domain: nextDomain,
+                  forceHttps: editingDomain.forceHttps,
+                  enableWww: editingDomain.enableWww,
+                  trusted_proxy: editingDomain.trustedProxy,
+                }
+              : dom
+          ),
+        });
+      }
+      toast.success(`Updated ${nextDomain}`);
+      setEditingDomain(null);
+      await onChanged();
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <Card
@@ -138,18 +238,19 @@ export const PhpDomainsTab: React.FC<{
             {(() => {
               const matchedShield = shieldNodes.find((s) => s.id === shieldNodeId);
               const activeIp = matchedShield?.ip || getServerPublicIp();
+              const panelIdArg = shieldNodeId ? getPanelId() : undefined;
               return (
                 <>
                   <button
                     type="button"
-                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'sslip.io', activeIp))}
+                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'sslip.io', activeIp, panelIdArg))}
                     className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
                   >
                     + sslip.io
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'nip.io', activeIp))}
+                    onClick={() => setDomain(formatWildcardDomain(app.slug, 'nip.io', activeIp, panelIdArg))}
                     className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
                   >
                     + nip.io
@@ -182,7 +283,7 @@ export const PhpDomainsTab: React.FC<{
                     setShieldNodeId(nextId);
                     const matched = shieldNodes.find((s) => s.id === nextId);
                     const nextIp = matched?.ip || getServerPublicIp();
-                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug));
+                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug, nextId ? getPanelId() : undefined));
                   }}
                   options={[
                     { value: '', label: 'Direct Origin (Server IP)' },
@@ -218,7 +319,7 @@ export const PhpDomainsTab: React.FC<{
             </PrimaryButton>
           </div>
 
-          <div className="flex items-center gap-5 text-xs text-zinc-300">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-300">
             <label className="inline-flex cursor-pointer items-center gap-2 select-none">
               <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} className="accent-orange-500 rounded" />
               <span>HTTPS</span>
@@ -227,6 +328,7 @@ export const PhpDomainsTab: React.FC<{
               <input type="checkbox" checked={www} onChange={(e) => setWww(e.target.checked)} className="accent-orange-500 rounded" />
               <span>Include www</span>
             </label>
+            <TrustedProxyToggle variant="inline" checked={trustedProxy} onChange={setTrustedProxy} />
           </div>
         </div>
 
@@ -244,7 +346,7 @@ export const PhpDomainsTab: React.FC<{
               <Plus className="h-3.5 w-3.5" /> Add
             </PrimaryButton>
           </div>
-          <div className="flex flex-wrap items-center gap-5 text-xs text-zinc-300">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-300">
             <label className="inline-flex cursor-pointer items-center gap-2">
               <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} className="accent-orange-500" />
               HTTPS
@@ -254,6 +356,7 @@ export const PhpDomainsTab: React.FC<{
               Include www
             </label>
           </div>
+          <TrustedProxyToggle checked={trustedProxy} onChange={setTrustedProxy} />
 
           {/* Edge Shield Proxy Route Selector (Admin Only) */}
           {isAdmin && shieldNodes.length > 0 && (
@@ -273,7 +376,7 @@ export const PhpDomainsTab: React.FC<{
                     setShieldNodeId(nextId);
                     const matched = shieldNodes.find((s) => s.id === nextId);
                     const nextIp = matched?.ip || getServerPublicIp();
-                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug));
+                    setDomain((prev) => updateDomainWithIp(prev, nextIp, app.slug, nextId ? getPanelId() : undefined));
                   }}
                   options={[
                     { value: '', label: 'Direct Origin (Server IP)' },
@@ -315,6 +418,28 @@ export const PhpDomainsTab: React.FC<{
             {app.domains.map((d) => {
               const matchedShield = d.shield_node_id ? shieldNodes.find((s) => s.id === d.shield_node_id) : null;
               const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
+              const shieldIp = matchedShield?.ip || d.shield_node_ip;
+              const dns = dnsResults[d.id];
+              const edgeBadge = (
+                <EdgeDomainStatusBadge
+                  shieldNodeId={d.shield_node_id}
+                  shieldIp={shieldIp}
+                  edgeStatus={d.edge_status}
+                  pendingOriginApply={d.pending_origin_apply}
+                />
+              );
+              const dnsBtn = (
+                <button
+                  type="button"
+                  onClick={() => void checkDns(d.id, d.domain)}
+                  disabled={dnsLoadingId === d.id}
+                  title="Verify DNS & check Cloudflare SSL mode"
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3 w-3 ${dnsLoadingId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'}`} />
+                  <span>DNS</span>
+                </button>
+              );
 
               const renderRouteSelect = (containerCls = 'w-full') => {
                 if (!isAdmin) return null;
@@ -351,6 +476,7 @@ export const PhpDomainsTab: React.FC<{
                           port: 80,
                           enable_https: d.forceHttps,
                           enable_www: d.enableWww,
+                          trusted_proxy: d.trusted_proxy,
                           shield_node_id: newId,
                         });
                         setBusy('');
@@ -409,38 +535,42 @@ export const PhpDomainsTab: React.FC<{
                       >
                         {d.domain}
                       </a>
-                      <a
-                        href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
-                        title="Open in new tab"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await copyToClipboard(d.domain);
-                          if (ok) {
-                            setCopiedDomainId(d.id);
-                            setTimeout(() => setCopiedDomainId((cur) => (cur === d.id ? null : cur)), 1500);
-                          }
-                        }}
-                        className={`shrink-0 transition-colors cursor-pointer ${
-                          copiedDomainId === d.id ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                        title={copiedDomainId === d.id ? 'Copied!' : 'Copy domain'}
-                      >
-                        {copiedDomainId === d.id ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-400 animate-in zoom-in-75 duration-150" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0 pl-1.5">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await copyToClipboard(d.domain);
+                            if (ok) {
+                              setCopiedDomainId(d.id);
+                              setTimeout(() => setCopiedDomainId((cur) => (cur === d.id ? null : cur)), 1500);
+                            }
+                          }}
+                          className={`inline-flex h-5.5 w-5.5 items-center justify-center rounded-md border transition-all cursor-pointer shadow-xs active:scale-95 ${
+                            copiedDomainId === d.id
+                              ? 'border-emerald-400 bg-emerald-500/35 text-emerald-100'
+                              : 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30 hover:border-emerald-400/60 hover:text-emerald-100'
+                          }`}
+                          title={copiedDomainId === d.id ? 'Copied!' : 'Copy domain'}
+                        >
+                          {copiedDomainId === d.id ? (
+                            <Check className="h-3 w-3 text-emerald-300 animate-in zoom-in-75 duration-150" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </button>
+                        <a
+                          href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-5.5 w-5.5 items-center justify-center rounded-md border border-cyan-500/35 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400/60 hover:text-cyan-100 transition-all cursor-pointer shadow-xs active:scale-95"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
 
                       {/* Badges inline next to domain name */}
-                      <div className="flex items-center gap-1.5 shrink-0 pl-1">
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0 pl-1">
                         <span
                           className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
                             d.forceHttps
@@ -463,12 +593,26 @@ export const PhpDomainsTab: React.FC<{
                             +www
                           </span>
                         )}
+
+                        {edgeBadge}
+                        <TrustedProxyBadge enabled={d.trusted_proxy} />
                       </div>
                     </div>
 
                     {/* Right: Route Select + Actions */}
                     <div className="flex items-center gap-2 shrink-0">
                       {renderRouteSelect('w-48 lg:w-56')}
+                      {dnsBtn}
+
+                      <button
+                        type="button"
+                        onClick={() => openEdit(d)}
+                        title="Edit domain"
+                        aria-label={`Edit ${d.domain}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
 
                       {!d.isPrimary && (
                         <button
@@ -575,9 +719,22 @@ export const PhpDomainsTab: React.FC<{
                             +www
                           </span>
                         )}
+
+                        {edgeBadge}
+                        <TrustedProxyBadge enabled={d.trusted_proxy} />
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {dnsBtn}
+                        <button
+                          type="button"
+                          onClick={() => openEdit(d)}
+                          title="Edit domain"
+                          aria-label={`Edit ${d.domain}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors cursor-pointer"
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
                         {!d.isPrimary && (
                           <button
                             type="button"
@@ -614,12 +771,95 @@ export const PhpDomainsTab: React.FC<{
                     {/* Line 3: Route Selector (Admin Only) */}
                     {renderRouteSelect('w-full pt-0.5')}
                   </div>
+
+                  {dns && (
+                    <div className="mt-2 pt-2 border-t border-white/[0.06] flex flex-wrap items-center gap-2.5 text-[11px] text-zinc-400">
+                      <span>
+                        {dns.cloudflare
+                          ? 'Cloudflare Proxy Detected'
+                          : dns.ok
+                          ? 'DNS Verified'
+                          : 'DNS Issue'}
+                      </span>
+                      <span>
+                        IPs:{' '}
+                        <code className="font-mono text-zinc-200 tabular-nums">
+                          {dns.ips.length > 0 ? dns.ips.join(', ') : 'None'}
+                        </code>
+                      </span>
+                      {dns.error && <span className="text-rose-400 font-mono">{dns.error}</span>}
+                    </div>
+                  )}
+
+                  <EdgeDomainHints
+                    shieldNodeId={d.shield_node_id}
+                    edgeStatus={d.edge_status}
+                    isCloudflareProxied={dns?.cloudflare}
+                    cfFlexibleLoop={dns?.cf_flexible_loop}
+                    cfHint={dns?.cf_hint}
+                  />
                 </div>
               );
             })}
           </div>
         )}
       </Card>
+
+      <ShadcnDialog
+        open={editingDomain !== null}
+        onClose={() => !savingEdit && setEditingDomain(null)}
+        title="Edit domain"
+        icon={<Globe className="h-4 w-4" />}
+        maxWidth="md"
+        footer={
+          <>
+            <GhostButton onClick={() => setEditingDomain(null)} disabled={savingEdit}>
+              Cancel
+            </GhostButton>
+            <PrimaryButton busy={savingEdit} onClick={saveEdit} disabled={!editingDomain?.domain.trim()}>
+              Save
+            </PrimaryButton>
+          </>
+        }
+      >
+        {editingDomain && (
+          <div className="space-y-4">
+            <Field label="Domain">
+              <input
+                className={`${inputCls} font-mono`}
+                value={editingDomain.domain}
+                onChange={(e) => setEditingDomain({ ...editingDomain, domain: e.target.value })}
+                placeholder="example.com"
+                autoFocus
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-300">
+              <label className="inline-flex cursor-pointer items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={editingDomain.forceHttps}
+                  onChange={(e) => setEditingDomain({ ...editingDomain, forceHttps: e.target.checked })}
+                  className="accent-orange-500 rounded"
+                />
+                <span>HTTPS</span>
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={editingDomain.enableWww}
+                  onChange={(e) => setEditingDomain({ ...editingDomain, enableWww: e.target.checked })}
+                  className="accent-orange-500 rounded"
+                />
+                <span>Include www</span>
+              </label>
+            </div>
+            <TrustedProxyToggle
+              checked={editingDomain.trustedProxy}
+              onChange={(next) => setEditingDomain({ ...editingDomain, trustedProxy: next })}
+            />
+          </div>
+        )}
+      </ShadcnDialog>
     </div>
   );
 };

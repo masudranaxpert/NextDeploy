@@ -1,0 +1,23 @@
+{
+  "impeccable": {
+    "PostToolUse": [
+      {
+        "matcher": "edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./hooks/impeccable-hook.mjs post",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./hooks/impeccable-hook.mjs stop",
+        "timeout": 30
+      }
+    ]
+  }
+}

@@ -163,6 +163,7 @@ export interface DomainFormPayload {
   serve_media?: boolean;
   media_path?: string;
   media_url_prefix?: string;
+  trusted_proxy?: boolean;
   shield_node_id?: number | null;
 }
 
@@ -330,6 +331,7 @@ export interface BootstrapData {
     config?: Record<string, string>;
   };
   mcp_enabled?: boolean;
+  panel_id?: string;
   public_ip?: string;
   origin_ip?: string;
   shield_nodes?: Array<any>;
@@ -337,6 +339,26 @@ export interface BootstrapData {
 }
 
 let cachedServerPublicIp = '';
+let cachedPanelId = '';
+
+export function setPanelId(panelId?: string): void {
+  if (panelId && panelId.trim()) {
+    cachedPanelId = panelId.trim();
+  }
+}
+
+export function getPanelId(): string {
+  return cachedPanelId;
+}
+
+export function shortPanelId(panelId?: string): string {
+  if (!panelId) return '';
+  return panelId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 6);
+}
 
 export function setServerPublicIp(ip?: string): void {
   if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip.trim())) {
@@ -360,19 +382,22 @@ export function getServerPublicIp(): string {
 export function formatWildcardDomain(
   slug: string,
   provider: 'sslip.io' | 'nip.io' = 'sslip.io',
-  ipOverride?: string
+  ipOverride?: string,
+  panelId?: string
 ): string {
-  let cleanSlug =
+  const cleanSlug =
     slug
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, '-')
       .replace(/^-|-$/g, '') || 'app';
-  if (/[0-9]$/.test(cleanSlug)) {
-    cleanSlug = `${cleanSlug}-app`;
+  const pid6 = shortPanelId(panelId);
+  let prefix = pid6 ? `${cleanSlug}-${pid6}` : cleanSlug;
+  if (/[0-9]$/.test(prefix)) {
+    prefix = `${prefix}-app`;
   }
   const dashedIp = (ipOverride || getServerPublicIp()).replace(/\./g, '-');
-  return `${cleanSlug}-${dashedIp}.${provider}`;
+  return `${prefix}-${dashedIp}.${provider}`;
 }
 
 export function formatSlotPreviewDomain(
@@ -394,7 +419,8 @@ export function formatSlotPreviewDomain(
 export function updateDomainWithIp(
   currentDomain: string,
   ip: string,
-  slug?: string
+  slug?: string,
+  panelId?: string
 ): string {
   if (!currentDomain) return currentDomain;
   const dashed = ip.replace(/\./g, '-');
@@ -402,15 +428,31 @@ export function updateDomainWithIp(
     /^(?:(.+?)[.-])?(\d{1,3}[.-]\d{1,3}[.-]\d{1,3}[.-]\d{1,3})\.(sslip\.io|nip\.io)$/i
   );
   if (match) {
-    const prefix = match[1] ? `${match[1]}-` : '';
+    let prefix = match[1] || '';
+    const pid6 = shortPanelId(panelId);
+    if (pid6 && slug) {
+      const cleanSlug =
+        slug
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, '-')
+          .replace(/^-|-$/g, '') || 'app';
+      if (prefix === cleanSlug || prefix === `${cleanSlug}-app`) {
+        prefix = `${cleanSlug}-${pid6}`;
+        if (/[0-9]$/.test(prefix)) {
+          prefix = `${prefix}-app`;
+        }
+      }
+    }
+    const finalPrefix = prefix ? `${prefix}-` : '';
     const provider = (match[3]?.toLowerCase() === 'nip.io' ? 'nip.io' : 'sslip.io') as 'sslip.io' | 'nip.io';
-    return `${prefix}${dashed}.${provider}`;
+    return `${finalPrefix}${dashed}.${provider}`;
   }
   if (currentDomain.endsWith('.sslip.io')) {
-    return formatWildcardDomain(slug || 'app', 'sslip.io', ip);
+    return formatWildcardDomain(slug || 'app', 'sslip.io', ip, panelId);
   }
   if (currentDomain.endsWith('.nip.io')) {
-    return formatWildcardDomain(slug || 'app', 'nip.io', ip);
+    return formatWildcardDomain(slug || 'app', 'nip.io', ip, panelId);
   }
   return currentDomain;
 }

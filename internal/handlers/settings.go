@@ -633,6 +633,10 @@ func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...
 	if len(services) == 0 {
 		return
 	}
+	if p.applyRootStackComposeFn != nil {
+		p.applyRootStackComposeFn(composeFile, services...)
+		return
+	}
 	composeFile = filepath.Clean(composeFile)
 
 	// Avoid running a redundant root compose apply if the file was recently checked and unchanged

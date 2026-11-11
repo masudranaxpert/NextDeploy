@@ -1,6 +1,9 @@
 package db
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(`
@@ -689,6 +692,9 @@ CREATE TABLE IF NOT EXISTS allocated_ports (
 		return err
 	}
 	if err := s.migrateShieldNodes(); err != nil {
+		return err
+	}
+	if _, err := s.EnsurePanelID(context.Background()); err != nil {
 		return err
 	}
 

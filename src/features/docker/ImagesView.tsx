@@ -17,6 +17,14 @@ import { DockerImageItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { copyToClipboard } from '../../lib/clipboard';
 
+function formatImageSize(sizeMB: number): string {
+  if (!sizeMB || sizeMB <= 0) return '0 MB';
+  if (sizeMB >= 1000) {
+    return `${(sizeMB / 1024).toFixed(2)} GB`;
+  }
+  return `${sizeMB.toFixed(1)} MB`;
+}
+
 interface ImagesViewProps {
   images: DockerImageItem[];
   onDeleteImage: (id: string) => void;
@@ -229,7 +237,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                     </td>
 
                     <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-200">
-                      {img.sizeMB.toFixed(1)} MB
+                      {formatImageSize(img.sizeMB)}
                     </td>
 
                     <td className="px-3 py-3 text-right">
@@ -355,7 +363,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
               </div>
               <div className="rounded-lg border border-white/[0.07] bg-[#09090b] p-2.5">
                 <span className="font-sans text-[10px] uppercase text-zinc-500">Size</span>
-                <div className="mt-1 text-orange-400">{inspectedImage.sizeMB.toFixed(1)} MB</div>
+                <div className="mt-1 text-orange-400">{formatImageSize(inspectedImage.sizeMB)}</div>
               </div>
             </div>
 
@@ -374,7 +382,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
               <div className="flex justify-between text-[11px] text-zinc-300">
                 <span>COPY --from=builder /app/dist /app</span>
                 <span className="text-zinc-500">
-                  {Math.max(12, inspectedImage.sizeMB - 12).toFixed(1)} MB
+                  {formatImageSize(Math.max(12, inspectedImage.sizeMB - 12))}
                 </span>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { requestJson } from './http';
 import { notifyMutation } from '../dataSync';
+import type { ShieldDomainStatus } from '../../types/shield';
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',
@@ -17,10 +18,14 @@ export interface CaddyOptions {
   real_ip: 'none' | 'cloudflare' | 'custom';
   trusted_proxies: string[];
   trusted_strict: boolean;
+  shield_proxies?: string[];
+  direct_cloudflare?: boolean;
 }
 
 export interface ProxyRoute {
   id: number;
+  user_id?: number;
+  username?: string;
   kind: 'proxy' | 'redirect';
   domain: string;
   target: string;
@@ -29,8 +34,12 @@ export interface ProxyRoute {
   enable_https: boolean;
   enable_www: boolean;
   skip_tls_verify: boolean;
+  trusted_proxy?: boolean;
   enabled: boolean;
   note: string;
+  shield_node_id?: number | null;
+  pending_origin_apply?: boolean;
+  edge_status?: ShieldDomainStatus | null;
   created_at: string;
 }
 

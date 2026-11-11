@@ -430,27 +430,29 @@ func (h *Handler) handleDomainList(ctx context.Context, u db.User, args map[stri
 	}
 
 	type domainItem struct {
-		ID          int64  `json:"id"`
-		AppID       string `json:"app_id"`
-		Domain      string `json:"domain"`
-		Service     string `json:"service"`
-		Port        int    `json:"port"`
-		EnableHTTPS bool   `json:"enable_https"`
-		EnableWWW   bool   `json:"enable_www"`
-		CreatedAt   string `json:"created_at"`
+		ID           int64  `json:"id"`
+		AppID        string `json:"app_id"`
+		Domain       string `json:"domain"`
+		Service      string `json:"service"`
+		Port         int    `json:"port"`
+		EnableHTTPS  bool   `json:"enable_https"`
+		EnableWWW    bool   `json:"enable_www"`
+		ShieldNodeID *int64 `json:"shield_node_id,omitempty"`
+		CreatedAt    string `json:"created_at"`
 	}
 
 	out := make([]domainItem, 0, len(domains))
 	for _, d := range domains {
 		out = append(out, domainItem{
-			ID:          d.ID,
-			AppID:       d.AppID,
-			Domain:      d.Domain,
-			Service:     d.Service,
-			Port:        d.Port,
-			EnableHTTPS: d.EnableHTTPS,
-			EnableWWW:   d.EnableWWW,
-			CreatedAt:   d.CreatedAt.Format(time.RFC3339),
+			ID:           d.ID,
+			AppID:        d.AppID,
+			Domain:       d.Domain,
+			Service:      d.Service,
+			Port:         d.Port,
+			EnableHTTPS:  d.EnableHTTPS,
+			EnableWWW:    d.EnableWWW,
+			ShieldNodeID: d.ShieldNodeID,
+			CreatedAt:    d.CreatedAt.Format(time.RFC3339),
 		})
 	}
 	return jsonResult(out)
@@ -499,6 +501,47 @@ func (h *Handler) handleDomainAdd(ctx context.Context, u db.User, args map[strin
 		}
 	}
 
+	direct := getBoolArg(args, "direct")
+	reqShieldID, hasShieldArg, err := parseOptionalPositiveInt64Arg(args, "shield_node_id")
+	if err != nil {
+		return errorResult(err)
+	}
+	if direct && hasShieldArg && reqShieldID > 0 {
+		return errorResult(errors.New("direct and shield_node_id are mutually exclusive"))
+	}
+
+	var shieldIDPtr *int64
+	if u.Role == db.RoleAdmin {
+		if !direct && hasShieldArg && reqShieldID > 0 {
+			shieldIDPtr = &reqShieldID
+		}
+	} else {
+		assigned := h.p.ResolveAppShield(ctx, app)
+		if hasShieldArg && reqShieldID > 0 {
+			if assigned == nil || assigned.ID != reqShieldID {
+				return errorResult(errors.New("admin privileges required to select a custom shield node"))
+			}
+			shieldIDPtr = &reqShieldID
+		} else if direct {
+			if assigned != nil {
+				return errorResult(errors.New("admin privileges required to bypass assigned shield node"))
+			}
+		} else if assigned != nil {
+			shieldIDPtr = &assigned.ID
+		}
+	}
+
+	if shieldIDPtr != nil {
+		node, err := h.p.DB.GetShieldNode(ctx, *shieldIDPtr)
+		if err != nil || node == nil {
+			return errorResult(fmt.Errorf("shield node %d not found", *shieldIDPtr))
+		}
+		if node.Status != "connected" {
+			return errorResult(fmt.Errorf("shield node '%s' is %s; only connected nodes can route traffic", node.Name, node.Status))
+		}
+		enableHTTPS = true
+	}
+
 	existing, _ := h.p.DB.ListAppDomains(ctx, app.ID)
 	for _, ex := range existing {
 		if strings.EqualFold(ex.Domain, domain) {
@@ -507,13 +550,15 @@ func (h *Handler) handleDomainAdd(ctx context.Context, u db.User, args map[strin
 	}
 
 	d := db.AppDomain{
-		AppID:          app.ID,
-		Domain:         domain,
-		Service:        service,
-		Port:           port,
-		EnableHTTPS:    enableHTTPS,
-		EnableWWW:      enableWWW,
-		RouteRulesJSON: "[]",
+		AppID:              app.ID,
+		Domain:             domain,
+		Service:            service,
+		Port:               port,
+		EnableHTTPS:        enableHTTPS,
+		EnableWWW:          enableWWW,
+		RouteRulesJSON:     "[]",
+		ShieldNodeID:       shieldIDPtr,
+		PendingOriginApply: shieldIDPtr != nil,
 	}
 
 	domainID, err := h.p.DB.CreateAppDomain(ctx, d)
@@ -540,15 +585,17 @@ func (h *Handler) handleDomainAdd(ctx context.Context, u db.User, args map[strin
 	}()
 
 	return jsonResult(map[string]interface{}{
-		"ok":           true,
-		"message":      fmt.Sprintf("Domain %s mapped to service %s:%d (HTTPS: %t, WWW: %t)", domain, service, port, enableHTTPS, enableWWW),
-		"domain_id":    domainID,
-		"app_id":       app.ID,
-		"domain":       domain,
-		"service":      service,
-		"port":         port,
-		"enable_https": enableHTTPS,
-		"enable_www":   enableWWW,
+		"ok":             true,
+		"message":        fmt.Sprintf("Domain %s mapped to service %s:%d (HTTPS: %t, WWW: %t)", domain, service, port, enableHTTPS, enableWWW),
+		"domain_id":      domainID,
+		"app_id":         app.ID,
+		"domain":         domain,
+		"service":        service,
+		"port":           port,
+		"enable_https":   enableHTTPS,
+		"enable_www":     enableWWW,
+		"shield_node_id": shieldIDPtr,
+		"direct":         shieldIDPtr == nil,
 	})
 }
 
@@ -2722,6 +2769,45 @@ func getIntArg(args map[string]interface{}, key string, def int) int {
 		}
 	}
 	return def
+}
+
+func parseOptionalPositiveInt64Arg(args map[string]interface{}, key string) (int64, bool, error) {
+	if args == nil {
+		return 0, false, nil
+	}
+	raw, exists := args[key]
+	if !exists || raw == nil {
+		return 0, false, nil
+	}
+	switch v := raw.(type) {
+	case int:
+		if v < 0 {
+			return 0, true, fmt.Errorf("invalid %s: must be non-negative", key)
+		}
+		return int64(v), true, nil
+	case int64:
+		if v < 0 {
+			return 0, true, fmt.Errorf("invalid %s: must be non-negative", key)
+		}
+		return v, true, nil
+	case float64:
+		if v < 0 || float64(int64(v)) != v {
+			return 0, true, fmt.Errorf("invalid %s: must be a non-negative integer", key)
+		}
+		return int64(v), true, nil
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" || strings.EqualFold(s, "direct") || strings.EqualFold(s, "none") {
+			return 0, false, nil
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n < 0 {
+			return 0, true, fmt.Errorf("invalid %s %q", key, v)
+		}
+		return n, true, nil
+	default:
+		return 0, true, fmt.Errorf("invalid %s type", key)
+	}
 }
 
 func parseDotEnv(s string) map[string]string {

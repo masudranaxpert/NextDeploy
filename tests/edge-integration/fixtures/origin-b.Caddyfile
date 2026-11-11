@@ -1,0 +1,16 @@
+{
+	auto_https disable_redirects
+	admin 0.0.0.0:2019
+	servers {
+		trusted_proxies static 172.30.0.0/16 127.0.0.1/32
+	}
+}
+
+https:// {
+	tls internal {
+		on_demand
+	}
+	reverse_proxy origin-b:8080 {
+		stream_close_delay 10m
+	}
+}

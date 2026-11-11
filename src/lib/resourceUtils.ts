@@ -32,6 +32,11 @@ export function matchesAppSearch(app: AppStack, rawQuery: string): boolean {
 
 export function formatDiskMB(diskMB: number): string {
   if (!diskMB || diskMB <= 0) return '0 MB';
+  if (diskMB < 1) {
+    const kb = Math.round(diskMB * 1024);
+    return kb > 0 ? `${kb} KB` : '< 1 KB';
+  }
+  if (diskMB < 10) return `${diskMB.toFixed(1)} MB`;
   if (diskMB < 1024) return `${Math.round(diskMB)} MB`;
   return `${(diskMB / 1024).toFixed(2)} GB`;
 }

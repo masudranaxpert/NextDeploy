@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -63,6 +64,14 @@ type Panel struct {
 	diskUsageFn func(ctx context.Context) (int64, error) // test hook for host free disk check
 	loginFails  map[string]loginFailEntry
 
+	edgeRateMu              sync.Mutex
+	edgeRateMap             map[string]*edgeRateWindow
+	applyRootStackComposeFn func(composeFile string, services ...string)
+	composeUpNoBuildFn      func(ctx context.Context, dir string, paths []string, project string, logW io.Writer, envFiles []string) dockerx.Result
+	reconcileProxyRoutesFn  func(ctx context.Context)
+	originIPFn              func(ctx context.Context) string
+	originCAFn              func(ctx context.Context) (string, string, string)
+
 	monitorCache monitorCache
 
 	// PHP hosting module (PHP sites, databases, cron). Nil until initialised in main.
@@ -70,6 +79,11 @@ type Panel struct {
 
 	// AI Copilot module (omp RPC harness).
 	Copilot *agent.Manager
+}
+
+type edgeRateWindow struct {
+	count       int
+	windowStart time.Time
 }
 
 func (p *Panel) MarkSetupComplete() {
