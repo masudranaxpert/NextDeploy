@@ -441,7 +441,8 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 	// Validate candidate Caddyfile BEFORE replacing live Caddyfile (restore backup on failure).
 	fmt.Fprintln(ops.stdout, "==> [5/10] Validating Caddyfile...")
 	var backupPath string
-	if plan.HasUserSites || plan.LegacyStripped || len(bytes.TrimSpace(existingCaddyfileBytes)) > 0 {
+	alreadyManaged := strings.Contains(string(existingCaddyfileBytes), edge.ManagedStartMarker)
+	if !alreadyManaged && (plan.HasUserSites || plan.LegacyStripped || len(bytes.TrimSpace(existingCaddyfileBytes)) > 0) {
 		if !bytes.Equal(bytes.TrimSpace(existingCaddyfileBytes), bytes.TrimSpace([]byte(plan.Content))) {
 			backupPath = fmt.Sprintf("%s.nd-backup.%s", ops.paths.Caddyfile, ops.now().Format("20060102T150405Z"))
 			if err := edge.WriteFileAtomic(backupPath, existingCaddyfileBytes, 0o644); err != nil {
@@ -457,7 +458,7 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 	}
 	if valOut, valErr := ops.caddy.Validate(ctx, valTmp); valErr != nil {
 		_ = os.Remove(valTmp)
-		if backupPath != "" {
+		if len(existingCaddyfileBytes) > 0 {
 			_ = edge.WriteFileAtomic(ops.paths.Caddyfile, existingCaddyfileBytes, 0o644)
 		}
 		return fmt.Errorf("caddy validate failed: %w\n%s", valErr, valOut)
@@ -468,7 +469,7 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 		return err
 	}
 	if valOut, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr != nil {
-		if backupPath != "" {
+		if len(existingCaddyfileBytes) > 0 {
 			_ = edge.WriteFileAtomic(ops.paths.Caddyfile, existingCaddyfileBytes, 0o644)
 		}
 		return fmt.Errorf("caddy validate failed on %s: %w\n%s", ops.paths.Caddyfile, valErr, valOut)
@@ -2342,12 +2343,20 @@ func runEdgeUninstall(ops *edgeOps, args []string) error {
 	restoredBackup := findLatestCaddyfileBackup(ops.paths.Caddyfile)
 	if restoredBackup != "" {
 		if b, err := os.ReadFile(restoredBackup); err == nil {
-			if err := edge.WriteFileAtomic(ops.paths.Caddyfile, b, 0o644); err != nil {
-				return err
-			}
+			cleanBackup, _ := stripManagedRegion(string(b))
 			_ = os.Remove(restoredBackup)
-			if _, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr == nil {
-				_, _ = ops.runCmd(ctx, "systemctl", "reload", "caddy")
+			if hasNonCommentCaddyContent(strings.TrimSpace(cleanBackup)) {
+				if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(strings.TrimLeft(cleanBackup, "\r\n")), 0o644); err != nil {
+					return err
+				}
+				if _, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr == nil {
+					_, _ = ops.runCmd(ctx, "systemctl", "reload", "caddy")
+				}
+			} else {
+				_ = os.Remove(ops.paths.Caddyfile)
+				if caddyInstalledByND {
+					_, _ = ops.runCmd(ctx, "systemctl", "disable", "--now", "caddy")
+				}
 			}
 		}
 	} else if raw, err := os.ReadFile(ops.paths.Caddyfile); err == nil {

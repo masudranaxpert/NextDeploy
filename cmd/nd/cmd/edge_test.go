@@ -390,20 +390,33 @@ func TestEdgeInstallAddRemoveDoctorUpgradeUninstall(t *testing.T) {
 		t.Fatalf("expected systemd unit file at %s: %v", ops.unitPath, err)
 	}
 
-	// 3. Idempotent re-run preserves edge_id (E-INST-4)
+	// 3. Idempotent re-run with changed --acme-email preserves edge_id (E-INST-4)
+	// and MUST NOT overwrite or create a second Caddyfile.nd-backup.* containing managed markers.
 	origEdgeID := cfg.EdgeID
+	ops.now = func() time.Time { return time.Date(2026, 11, 11, 6, 5, 0, 0, time.UTC) }
 	ops.stdin = strings.NewReader("shld_secret123\n")
 	if err := runEdgeWithOps(ops, []string{
 		"install",
 		"--panel-url", panelSrv.URL,
 		"--token-stdin",
 		"--insecure-http",
+		"--acme-email", "ops2@example.com",
 	}); err != nil {
 		t.Fatalf("idempotent re-install failed: %v", err)
 	}
 	cfg2, _ := edge.LoadConfig(ops.paths.ConfigFile)
 	if cfg2.EdgeID != origEdgeID {
 		t.Fatalf("edge_id changed on idempotent re-install: %q != %q", cfg2.EdgeID, origEdgeID)
+	}
+	caddyDirEntries, _ := os.ReadDir(filepath.Dir(ops.paths.Caddyfile))
+	backupCount := 0
+	for _, e := range caddyDirEntries {
+		if strings.HasPrefix(e.Name(), "Caddyfile.nd-backup.") {
+			backupCount++
+		}
+	}
+	if backupCount != 1 {
+		t.Fatalf("expected exactly 1 original Caddyfile backup across idempotent re-install, got %d", backupCount)
 	}
 
 	// 4. add-panel aborts without saving when /routes fails (§4.2)
