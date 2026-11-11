@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -506,5 +507,244 @@ func TestPhase0PendingOriginApplyEOrigin6(t *testing.T) {
 	}
 	if dom.PendingOriginApply {
 		t.Fatalf("expected pending_origin_apply=false after compose apply completed")
+	}
+}
+
+func readRespBody(t *testing.T, body io.ReadCloser) string {
+	t.Helper()
+	defer body.Close()
+	b, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(b)
+}
+
+func TestEdgeShieldSetupAndUninstallWrappers(t *testing.T) {
+	setupTempRootCompose(t)
+	store, err := db.Open(filepath.Join(t.TempDir(), "wrappers.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	p := &Panel{
+		DB:                      store,
+		applyRootStackComposeFn: func(file string, services ...string) {},
+	}
+	app := fiber.New()
+	app.Get("/api/v1/edge/setup.sh", p.GetEdgeShieldSetupScript)
+	app.Get("/api/v1/edge/uninstall.sh", p.GetEdgeShieldUninstallScript)
+	app.Post("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.CreateShieldNode)
+	app.Get("/api/v1/shield-nodes", p.RequireAdminMiddleware, p.ListShieldNodes)
+
+	ctx := context.Background()
+	panelID, err := store.EnsurePanelID(ctx)
+	if err != nil || panelID == "" {
+		t.Fatalf("EnsurePanelID failed: id=%q err=%v", panelID, err)
+	}
+
+	adminID, _ := store.CreateUser(ctx, "admin", "hash", db.RoleAdmin)
+	sessTok := "adm_sess_wrap"
+	_ = store.CreateSession(ctx, sessTok, adminID, time.Now().Add(time.Hour))
+
+	// 1. CreateShieldNode returns setup_command, upgrade_command, uninstall_command, and panel_id.
+	createBody, _ := json.Marshal(map[string]string{
+		"name": "SG Shield",
+		"ip":   "107.189.6.222",
+	})
+	req := httptest.NewRequest("POST", "http://panel.example.com:8443/api/v1/shield-nodes", bytes.NewReader(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Cookie", sessionCookie+"="+sessTok)
+	resp, err := app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("CreateShieldNode failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	var createRes struct {
+		OK               bool          `json:"ok"`
+		PanelID          string        `json:"panel_id"`
+		Node             db.ShieldNode `json:"node"`
+		SetupCommand     string        `json:"setup_command"`
+		UpgradeCommand   string        `json:"upgrade_command"`
+		UninstallCommand string        `json:"uninstall_command"`
+	}
+	if err := json.Unmarshal([]byte(readRespBody(t, resp.Body)), &createRes); err != nil {
+		t.Fatalf("decode CreateShieldNode: %v", err)
+	}
+	if !createRes.OK || createRes.PanelID != panelID || createRes.Node.Token == "" {
+		t.Fatalf("unexpected CreateShieldNode response: %+v", createRes)
+	}
+	wantSetup := `curl -sSL "https://panel.example.com:8443/api/v1/edge/setup.sh?token=` + createRes.Node.Token + `" | bash`
+	wantUninstall := `curl -sSL "https://panel.example.com:8443/api/v1/edge/uninstall.sh?token=` + createRes.Node.Token + `" | bash`
+	if createRes.SetupCommand != wantSetup {
+		t.Fatalf("setup_command mismatch:\n got: %s\nwant: %s", createRes.SetupCommand, wantSetup)
+	}
+	if createRes.UpgradeCommand != "nd edge upgrade" {
+		t.Fatalf("expected upgrade_command 'nd edge upgrade', got %q", createRes.UpgradeCommand)
+	}
+	if createRes.UninstallCommand != wantUninstall {
+		t.Fatalf("uninstall_command mismatch:\n got: %s\nwant: %s", createRes.UninstallCommand, wantUninstall)
+	}
+
+	tok := createRes.Node.Token
+
+	// 2. Auth validation for setup.sh and uninstall.sh.
+	for _, path := range []string{"/api/v1/edge/setup.sh", "/api/v1/edge/uninstall.sh"} {
+		req = httptest.NewRequest("GET", path, nil)
+		resp, _ = app.Test(req)
+		if resp.StatusCode != 400 {
+			t.Fatalf("expected 400 without token on %s, got %d", path, resp.StatusCode)
+		}
+		req = httptest.NewRequest("GET", path+"?token=wrong_tok", nil)
+		resp, _ = app.Test(req)
+		if resp.StatusCode != 401 {
+			t.Fatalf("expected 401 with invalid token on %s, got %d", path, resp.StatusCode)
+		}
+	}
+
+	// 3. Default setup.sh over HTTPS: wrapper checks OS/arch, ND_DOWNLOAD_URL, uses --token-stdin + heredoc, no raw token in CLI flags.
+	req = httptest.NewRequest("GET", "https://panel.example.com:8443/api/v1/edge/setup.sh?token="+tok, nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err = app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("default setup.sh failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	if resp.Header.Get("Deprecation") != "" {
+		t.Fatalf("default setup.sh should not set Deprecation header, got %q", resp.Header.Get("Deprecation"))
+	}
+	setupScript := readRespBody(t, resp.Body)
+	for _, mustHave := range []string{
+		"#!/usr/bin/env bash",
+		"ND_DOWNLOAD_URL",
+		`BINARY="nd-${OS}-${ARCH}"`,
+		"releases/latest/download/${BINARY}",
+		`"$ND_BIN" edge install --panel-url 'https://panel.example.com:8443' --token-stdin <<'EOF'`,
+		"\n" + tok + "\nEOF\n",
+	} {
+		if !strings.Contains(setupScript, mustHave) {
+			t.Fatalf("default setup.sh missing %q\nscript:\n%s", mustHave, setupScript)
+		}
+	}
+	if strings.Contains(setupScript, "--insecure-http") {
+		t.Fatalf("HTTPS setup.sh should not pass --insecure-http by default")
+	}
+	for _, line := range strings.Split(setupScript, "\n") {
+		if strings.Contains(line, "edge install") && strings.Contains(line, tok) {
+			t.Fatalf("raw token leaked in nd edge install CLI line: %s", line)
+		}
+	}
+	if strings.Contains(setupScript, "on_demand_tls") {
+		t.Fatalf("default setup.sh must not emit legacy on_demand_tls catch-all")
+	}
+
+	// 4. Default setup.sh over HTTP automatically passes --insecure-http, and optional query params map cleanly.
+	sha := strings.Repeat("a", 64)
+	q := "token=" + tok + "&adopt=1&acme_email=ops@example.com&force=1&insecure_http=1&dns_gate=off&panel_ca_sha256=" + sha
+	req = httptest.NewRequest("GET", "http://127.0.0.1:8080/api/v1/edge/setup.sh?"+q, nil)
+	resp, err = app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("setup.sh with options failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	optScript := readRespBody(t, resp.Body)
+	for _, flag := range []string{
+		"--panel-url 'http://127.0.0.1:8080'",
+		"--token-stdin",
+		"--adopt-existing",
+		"--acme-email 'ops@example.com'",
+		"--insecure-http",
+		"--force",
+		"--panel-ca-sha256 '" + sha + "'",
+		"--dns-gate off",
+	} {
+		if !strings.Contains(optScript, flag) {
+			t.Fatalf("setup.sh with options missing %q\nscript:\n%s", flag, optScript)
+		}
+	}
+	if strings.Count(optScript, "--insecure-http") != 1 {
+		t.Fatalf("expected --insecure-http once, got count=%d", strings.Count(optScript, "--insecure-http"))
+	}
+
+	// 4b. Auto --insecure-http when scheme == http even without insecure_http=1.
+	req = httptest.NewRequest("GET", "http://127.0.0.1:8080/api/v1/edge/setup.sh?token="+tok, nil)
+	resp, _ = app.Test(req, 5000)
+	httpAutoScript := readRespBody(t, resp.Body)
+	if !strings.Contains(httpAutoScript, "--insecure-http") {
+		t.Fatalf("expected HTTP setup.sh to pass --insecure-http automatically")
+	}
+
+	// 4c. Reject unsafe query param injection attempts.
+	for _, bad := range []string{
+		"acme_email=bad;rm+-rf+/",
+		"panel_ca_sha256=nothex",
+		"dns_gate=invalid",
+	} {
+		req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/setup.sh?token="+tok+"&"+bad, nil)
+		resp, _ = app.Test(req, 5000)
+		if resp.StatusCode != 400 {
+			t.Fatalf("expected 400 for invalid query %q, got %d", bad, resp.StatusCode)
+		}
+	}
+
+	// 5. ?legacy=1 setup.sh fallback emits legacy Caddy catch-all + Deprecation header & comment.
+	req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/setup.sh?token="+tok+"&legacy=1", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err = app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("legacy setup.sh failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	if resp.Header.Get("Deprecation") != "true" {
+		t.Fatalf("expected Deprecation: true on ?legacy=1 setup.sh")
+	}
+	legacySetup := readRespBody(t, resp.Body)
+	for _, mustHave := range []string{"# DEPRECATED:", "on_demand_tls", "NextDeploy Edge Shield Catch-all"} {
+		if !strings.Contains(legacySetup, mustHave) {
+			t.Fatalf("legacy setup.sh missing %q", mustHave)
+		}
+	}
+
+	// 6. Default uninstall.sh wraps `nd edge remove-panel <panel_id>`, supports ?purge_certs=1 and ?all=1.
+	req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/uninstall.sh?token="+tok, nil)
+	resp, err = app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("default uninstall.sh failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	if resp.Header.Get("Deprecation") != "" {
+		t.Fatalf("default uninstall.sh should not set Deprecation header")
+	}
+	uninstallScript := readRespBody(t, resp.Body)
+	if !strings.Contains(uninstallScript, `"$ND_BIN" edge remove-panel '`+panelID+`'`) {
+		t.Fatalf("default uninstall.sh missing nd edge remove-panel:\n%s", uninstallScript)
+	}
+	if strings.Contains(uninstallScript, tok) {
+		t.Fatalf("uninstall.sh must not expose raw token in script")
+	}
+
+	req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/uninstall.sh?token="+tok+"&purge_certs=1", nil)
+	resp, _ = app.Test(req, 5000)
+	if body := readRespBody(t, resp.Body); !strings.Contains(body, `"$ND_BIN" edge remove-panel '`+panelID+`' --purge-certs`) {
+		t.Fatalf("expected --purge-certs on uninstall.sh, got:\n%s", body)
+	}
+
+	req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/uninstall.sh?token="+tok+"&all=1", nil)
+	resp, _ = app.Test(req, 5000)
+	if body := readRespBody(t, resp.Body); !strings.Contains(body, `"$ND_BIN" edge uninstall --all`) {
+		t.Fatalf("expected nd edge uninstall --all on ?all=1, got:\n%s", body)
+	}
+
+	// 7. ?legacy=1 uninstall.sh fallback emits legacy Caddy uninstaller + Deprecation header & comment.
+	req = httptest.NewRequest("GET", "https://panel.example.com/api/v1/edge/uninstall.sh?token="+tok+"&legacy=1", nil)
+	resp, err = app.Test(req, 5000)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("legacy uninstall.sh failed: err=%v status=%d", err, resp.StatusCode)
+	}
+	if resp.Header.Get("Deprecation") != "true" {
+		t.Fatalf("expected Deprecation: true on ?legacy=1 uninstall.sh")
+	}
+	legacyUninstall := readRespBody(t, resp.Body)
+	for _, mustHave := range []string{"# DEPRECATED:", "Caddyfile.backup.*", "action=uninstall"} {
+		if !strings.Contains(legacyUninstall, mustHave) {
+			t.Fatalf("legacy uninstall.sh missing %q", mustHave)
+		}
 	}
 }

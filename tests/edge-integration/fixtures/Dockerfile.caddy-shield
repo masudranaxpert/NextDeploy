@@ -1,0 +1,7 @@
+FROM caddy:2.8-alpine
+RUN apk add --no-cache ca-certificates curl
+RUN mv /usr/bin/caddy /usr/bin/caddy.real
+COPY tests/edge-integration/fixtures/caddy-pebble-shim.sh /usr/bin/caddy
+COPY tests/edge-integration/fixtures/shield-caddy-entrypoint.sh /usr/local/bin/shield-caddy-entrypoint.sh
+RUN chmod +x /usr/bin/caddy /usr/local/bin/shield-caddy-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/shield-caddy-entrypoint.sh"]

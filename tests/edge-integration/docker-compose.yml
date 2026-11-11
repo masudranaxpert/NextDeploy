@@ -1,0 +1,188 @@
+networks:
+  edge_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+volumes:
+  caddy_etc:
+  caddy_data:
+  nd_edge_etc:
+  nd_edge_var:
+  pebble_certs:
+  origin_a_data:
+  origin_b_data:
+
+services:
+  pebble-challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    command: ["-defaultIPv4", "172.30.0.10", "-defaultIPv6", "", "-dns01", ":8053", "-http01", ":5002", "-https01", ":5001"]
+    ports:
+      - "18055:8055"
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.53
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: ["-config", "/test/config/pebble-config.json", "-dnsserver", "172.30.0.53:8053", "-strict"]
+    environment:
+      - PEBBLE_VA_NOSLEEP=1
+      - PEBBLE_WFE_NONCEREJECT=0
+    volumes:
+      - ./fixtures/pebble-config.json:/test/config/pebble-config.json:ro
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+    depends_on:
+      - pebble-challtestsrv
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.50
+
+  origin-a:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/origin/Dockerfile
+    environment:
+      - ORIGIN_NAME=origin-a
+      - LISTEN_ADDR=:8080
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.20
+
+  origin-a-caddy:
+    image: caddy:2.8-alpine
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./fixtures/origin-a.Caddyfile:/etc/caddy/Caddyfile:ro
+      - origin_a_data:/data
+    depends_on:
+      - origin-a
+    ports:
+      - "12021:2019"
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.21
+
+  origin-b:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/origin/Dockerfile
+    environment:
+      - ORIGIN_NAME=origin-b
+      - LISTEN_ADDR=:8080
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.30
+
+  origin-b-caddy:
+    image: caddy:2.8-alpine
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./fixtures/origin-b.Caddyfile:/etc/caddy/Caddyfile:ro
+      - origin_b_data:/data
+    depends_on:
+      - origin-b
+    ports:
+      - "12022:2019"
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.31
+
+  panel-a:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/fakepanel/Dockerfile
+    environment:
+      - LISTEN_ADDR=:8080
+      - PANEL_ID=11111111-1111-4111-8111-111111111111
+      - PANEL_NAME=panel-a
+      - SHIELD_NODE_ID=1
+      - SHIELD_TOKEN=shld_panel_a_token
+      - SHIELD_IP=172.30.0.10
+      - ORIGIN_IPS=172.30.0.21
+      - ORIGIN_PORT=443
+      - ORIGIN_CA_FILE=/origin-a-data/caddy/pki/authorities/local/root.crt
+      - POLL_INTERVAL_SEC=3
+    volumes:
+      - origin_a_data:/origin-a-data:ro
+    ports:
+      - "18081:8080"
+    depends_on:
+      - origin-a-caddy
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.41
+
+  panel-b:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/fakepanel/Dockerfile
+    environment:
+      - LISTEN_ADDR=:8080
+      - PANEL_ID=22222222-2222-4222-8222-222222222222
+      - PANEL_NAME=panel-b
+      - SHIELD_NODE_ID=1
+      - SHIELD_TOKEN=shld_panel_b_token
+      - SHIELD_IP=172.30.0.10
+      - ORIGIN_IPS=172.30.0.31
+      - ORIGIN_PORT=443
+      - ORIGIN_CA_FILE=/origin-b-data/caddy/pki/authorities/local/root.crt
+      - POLL_INTERVAL_SEC=3
+    volumes:
+      - origin_b_data:/origin-b-data:ro
+    ports:
+      - "18082:8080"
+    depends_on:
+      - origin-b-caddy
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.42
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/fixtures/Dockerfile.caddy-shield
+    environment:
+      - PEBBLE_ACME_CA=https://pebble:14000/dir
+      - PEBBLE_ACME_CA_ROOT=/etc/pebble/pebble-root.pem
+      - XDG_DATA_HOME=/var/lib/caddy/.local/share
+    volumes:
+      - caddy_etc:/etc/caddy
+      - caddy_data:/var/lib/caddy/.local/share/caddy
+      - pebble_certs:/etc/pebble
+    ports:
+      - "10080:80"
+      - "10443:443"
+      - "12019:2019"
+    depends_on:
+      - pebble
+    networks:
+      edge_net:
+        ipv4_address: 172.30.0.10
+
+  nd-edge:
+    build:
+      context: ../..
+      dockerfile: tests/edge-integration/fixtures/Dockerfile.nd-edge
+    network_mode: "service:caddy"
+    environment:
+      - PEBBLE_ACME_CA=https://pebble:14000/dir
+      - PEBBLE_ACME_CA_ROOT=/etc/pebble/pebble-root.pem
+      - ND_SHIELD_IP=172.30.0.10
+      - PANEL_A_ID=11111111-1111-4111-8111-111111111111
+      - PANEL_B_ID=22222222-2222-4222-8222-222222222222
+      - PANEL_A_TOKEN=shld_panel_a_token
+      - PANEL_B_TOKEN=shld_panel_b_token
+    volumes:
+      - caddy_etc:/etc/caddy
+      - caddy_data:/var/lib/caddy/.local/share/caddy
+      - nd_edge_etc:/etc/nd-edge
+      - nd_edge_var:/var/lib/nd-edge
+      - pebble_certs:/etc/pebble
+    depends_on:
+      - caddy
+      - panel-a
+      - panel-b
