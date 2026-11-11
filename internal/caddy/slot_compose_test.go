@@ -199,4 +199,37 @@ func TestSslipAndNipWildcardDomains(t *testing.T) {
 	if ip := ExtractWildcardDomainIP(numSlugDom); ip == nil || ip.String() != "45.250.230.88" {
 		t.Errorf("expected extracted IP 45.250.230.88, got: %v", ip)
 	}
+
+	// Shielded auto-domain includes 6-char panel ID and preserves digit-suffix safety
+	shieldDomAlpha := FormatWildcardDomain("myapp", "107.189.6.222", "sslip.io", "550e8a00-e29b-41d4-a716-446655440000")
+	if shieldDomAlpha != "myapp-550e8a-107-189-6-222.sslip.io" {
+		t.Fatalf("unexpected shielded sslip domain (alpha pid6): %s", shieldDomAlpha)
+	}
+	shieldDomDigit := FormatWildcardDomain("myapp", "107.189.6.222", "sslip.io", "550e8400-e29b-41d4-a716-446655440000")
+	if shieldDomDigit != "myapp-550e84-app-107-189-6-222.sslip.io" {
+		t.Fatalf("unexpected shielded sslip domain (digit pid6): %s", shieldDomDigit)
+	}
+	if ip := ExtractWildcardDomainIP(shieldDomDigit); ip == nil || ip.String() != "107.189.6.222" {
+		t.Errorf("expected extracted IP 107.189.6.222 from %s, got: %v", shieldDomDigit, ip)
+	}
+}
+
+func TestStreamCloseDelayLabels(t *testing.T) {
+	siteLabels := GenerateLabels(db.AppDomain{Domain: "ws.example.com", Service: "web", Port: 3000, EnableHTTPS: true})
+	if siteLabels["caddy.reverse_proxy.stream_close_delay"] != "10m" {
+		t.Fatalf("GenerateLabels missing stream_close_delay 10m: %v", siteLabels)
+	}
+
+	slotLabels := GenerateSlotLabels(
+		[]db.AppDomain{{Domain: "ws.example.com", Service: "web", Port: 3000, EnableHTTPS: true}},
+		[]HostPortBinding{{HostPort: 4013, ContainerPort: 4013, BindIP: "0.0.0.0", Protocol: "tcp", Service: "web"}},
+		nil,
+		false,
+	)
+	if slotLabels["caddy.reverse_proxy.stream_close_delay"] != "10m" {
+		t.Fatalf("GenerateSlotLabels missing domain stream_close_delay 10m: %v", slotLabels)
+	}
+	if slotLabels["caddy_1.reverse_proxy.stream_close_delay"] != "10m" {
+		t.Fatalf("GenerateSlotLabels missing host-port stream_close_delay 10m: %v", slotLabels)
+	}
 }

@@ -90,6 +90,10 @@ func (p *Panel) syncProxyRoute(ctx context.Context, r db.ProxyRoute) error {
 
 // ReconcileProxyRoutes republishes every enabled route (used at start-up).
 func (p *Panel) ReconcileProxyRoutes(ctx context.Context) {
+	if p.reconcileProxyRoutesFn != nil {
+		p.reconcileProxyRoutesFn(ctx)
+		return
+	}
 	routes, err := p.DB.ListProxyRoutes(ctx)
 	if err != nil {
 		return
@@ -122,10 +126,12 @@ func (p *Panel) ReconcileAllAppSlotCompose(ctx context.Context) {
 
 // GET /caddy/routes
 func (p *Panel) CaddyRoutesList(c *fiber.Ctx) error {
-	routes, err := p.DB.ListProxyRoutes(c.UserContext())
+	ctx := c.UserContext()
+	routes, err := p.DB.ListProxyRoutes(ctx)
 	if err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
+	p.attachProxyRouteEdgeStatuses(ctx, routes)
 	return c.JSON(fiber.Map{"ok": true, "routes": routes})
 }
 
@@ -154,15 +160,34 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 		r.Kind = "proxy"
 	}
 	r.ID = 0
+	var existing db.ProxyRoute
+	hasExisting := false
 	if idStr := c.Params("id"); idStr != "" {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return phpJSONErr(c, 400, "invalid id")
 		}
-		if _, err := p.DB.GetProxyRoute(ctx, id); err != nil {
+		ex, err := p.DB.GetProxyRoute(ctx, id)
+		if err != nil {
 			return phpJSONErr(c, 404, "route not found")
 		}
+		existing = ex
+		hasExisting = true
 		r.ID = id
+	}
+	if r.ShieldNodeID != nil && *r.ShieldNodeID <= 0 {
+		r.ShieldNodeID = nil
+	}
+	if r.ShieldNodeID != nil {
+		if _, err := p.DB.GetShieldNode(ctx, *r.ShieldNodeID); err != nil {
+			return phpJSONErr(c, 400, "shield node not found")
+		}
+		r.EnableHTTPS = true
+	}
+	if r.ShieldNodeID != nil && (!hasExisting || existing.ShieldNodeID == nil || existing.PendingOriginApply) {
+		r.PendingOriginApply = true
+	} else {
+		r.PendingOriginApply = false
 	}
 	if err := caddy.ValidateRoute(&r, phphosting.ValidHost); err != nil {
 		return phpJSONErr(c, 400, err.Error())
@@ -181,6 +206,10 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 	saved, _ := p.DB.GetProxyRoute(ctx, id)
 	if err := p.syncProxyRoute(ctx, saved); err != nil {
 		return phpJSONErr(c, 500, "saved, but the web server could not be updated: "+err.Error())
+	}
+	if saved.PendingOriginApply {
+		_ = p.DB.ClearProxyRoutePendingOriginApply(ctx, saved.ID)
+		saved.PendingOriginApply = false
 	}
 	p.RecordAuditLog(c, "caddy_route", "system", saved.Domain, "Saved "+saved.Kind+" route to "+saved.Target)
 	return c.JSON(fiber.Map{"ok": true, "route": saved})

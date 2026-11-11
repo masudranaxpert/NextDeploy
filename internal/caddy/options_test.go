@@ -61,7 +61,7 @@ func TestRouteValidationAndLabels(t *testing.T) {
 		t.Errorf("not cleaned: %+v", r)
 	}
 	l := RouteLabels(r)
-	if l["caddy"] != "app.example.com" || l["caddy.reverse_proxy"] != "http://10.0.0.5:8080" {
+	if l["caddy"] != "app.example.com" || l["caddy.reverse_proxy"] != "http://10.0.0.5:8080" || l["caddy.reverse_proxy.stream_close_delay"] != "10m" {
 		t.Errorf("labels: %v", l)
 	}
 	tls := db.ProxyRoute{Kind: "proxy", Domain: "b.example.com", Target: "https://10.0.0.6", SkipTLSVerify: true, EnableHTTPS: true}

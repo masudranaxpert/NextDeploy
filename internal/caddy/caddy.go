@@ -764,13 +764,16 @@ func appendSiteLabels(labels map[string]string, prefix string, d db.AppDomain) {
 		}
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = path + " " + upstreams
+		labels[base+".stream_close_delay"] = "10m"
 		order++
 	}
 	if order == 1 {
 		labels[prefix+".reverse_proxy"] = upstreams
+		labels[prefix+".reverse_proxy.stream_close_delay"] = "10m"
 	} else {
 		base := fmt.Sprintf("%s.%d_reverse_proxy", prefix, order)
 		labels[base] = upstreams
+		labels[base+".stream_close_delay"] = "10m"
 	}
 }
 
@@ -872,18 +875,40 @@ func ExtractWildcardDomainIP(domain string) net.IP {
 	return nil
 }
 
+// ShortPanelID returns a 6-character lowercase alphanumeric identifier derived from a panel UUID.
+func ShortPanelID(panelID string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(panelID)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			if b.Len() == 6 {
+				break
+			}
+		}
+	}
+	return b.String()
+}
+
 // FormatWildcardDomain builds a public sslip.io or nip.io hostname using dashed IPv4 notation
 // so Let's Encrypt can issue certificates without hitting public suffix depth edge cases.
-// If the slug ends with digits (e.g. "api-2"), "-app" is appended before the dashed IP so
-// sslip.io / nip.io do not misparse the trailing digit as the first IPv4 octet.
-func FormatWildcardDomain(slug, ipStr, provider string) string {
+// When an optional panelID is passed (for shielded apps), a 6-character panel prefix is included
+// (<app>-<pid6>-<dashed-ip>.sslip.io) so two panels on the same Shield IP never collide.
+// If the host prefix ends with digits (e.g. "api-2" or numeric pid6), "-app" is appended before
+// the dashed IP so sslip.io / nip.io do not misparse the trailing digit as the first IPv4 octet.
+func FormatWildcardDomain(slug, ipStr, provider string, panelID ...string) string {
 	slug = strings.Trim(strings.ToLower(strings.TrimSpace(slug)), "-.")
 	if slug == "" {
 		slug = "app"
 	}
-	last := slug[len(slug)-1]
+	prefix := slug
+	if len(panelID) > 0 {
+		if pid6 := ShortPanelID(panelID[0]); pid6 != "" {
+			prefix = slug + "-" + pid6
+		}
+	}
+	last := prefix[len(prefix)-1]
 	if last >= '0' && last <= '9' {
-		slug = slug + "-app"
+		prefix = prefix + "-app"
 	}
 	ipStr = strings.TrimSpace(ipStr)
 	if ipStr == "" {
@@ -894,7 +919,7 @@ func FormatWildcardDomain(slug, ipStr, provider string) string {
 	if provider != "nip.io" {
 		provider = "sslip.io"
 	}
-	return fmt.Sprintf("%s-%s.%s", slug, dashedIP, provider)
+	return fmt.Sprintf("%s-%s.%s", prefix, dashedIP, provider)
 }
 
 // LabelsToYAML converts a labels map to a YAML snippet for display.

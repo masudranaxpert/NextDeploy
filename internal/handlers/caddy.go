@@ -349,7 +349,11 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 		// PHP sites have no compose project: publish their routes instead.
 		sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		return p.PHP.SyncRoutes(sctx, appID)
+		if err := p.PHP.SyncRoutes(sctx, appID); err != nil {
+			return err
+		}
+		_ = p.DB.ClearAppPendingOriginApply(sctx, appID)
+		return nil
 	}
 	activeSlot := strings.TrimSpace(app.ActiveSlot)
 	if activeSlot == "" {
@@ -361,6 +365,10 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 	if strings.TrimSpace(app.PinnedSlot) != "" && strings.TrimSpace(app.StandbySlot) != "" {
 		_, _ = p.SyncAppSlotComposeCtx(ctx, appID, strings.TrimSpace(app.StandbySlot), true)
 	}
+	composeUp := p.composeUpNoBuildFn
+	if composeUp == nil {
+		composeUp = dockerx.ComposeUpNoBuild
+	}
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -368,15 +376,18 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 		paths := p.EffectiveComposePathsForSlot(bgCtx, app, appID, activeSlot)
 		dir := p.AppSourcePath(bgCtx, appID)
 		envFiles := p.ComposeEnvFiles(bgCtx, appID)
-		if res := dockerx.ComposeUpNoBuild(bgCtx, dir, paths, project, nil, envFiles); !res.OK {
+		res := composeUp(bgCtx, dir, paths, project, nil, envFiles)
+		if !res.OK {
 			log.Printf("compose apply app=%s project=%s: %s", appID, project, strings.TrimSpace(res.Output))
+			return
 		}
 		if strings.TrimSpace(app.PinnedSlot) != "" && strings.TrimSpace(app.StandbySlot) != "" {
 			standbySlot := strings.TrimSpace(app.StandbySlot)
 			standbyProj := p.SlotProjectName(app, appID, standbySlot)
 			standbyPaths := p.EffectiveComposePathsForSlot(bgCtx, app, appID, standbySlot)
-			_ = dockerx.ComposeUpNoBuild(bgCtx, dir, standbyPaths, standbyProj, nil, envFiles)
+			_ = composeUp(bgCtx, dir, standbyPaths, standbyProj, nil, envFiles)
 		}
+		_ = p.DB.ClearAppPendingOriginApply(bgCtx, appID)
 	}()
 	return nil
 }
@@ -529,8 +540,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		ServeMedia:      c.FormValue("serve_media") == "on",
 		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
 		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
-		RouteRulesJSON:  "[]",
-		ShieldNodeID:    shieldIDPtr,
+		RouteRulesJSON:     "[]",
+		ShieldNodeID:       shieldIDPtr,
+		PendingOriginApply: shieldIDPtr != nil,
 	}
 	if d.ShieldNodeID != nil {
 		d.EnableHTTPS = true
@@ -643,23 +655,32 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		}
 	}
 
+	pendingOriginApply := false
+	if current.ShieldNodeID == nil && shieldIDPtr != nil {
+		// E-ORIGIN-6: switching Direct -> Shield requires applying origin tls internal labels before /routes exposes the host.
+		pendingOriginApply = true
+	} else if current.ShieldNodeID != nil && shieldIDPtr != nil && current.PendingOriginApply {
+		pendingOriginApply = true
+	}
+
 	d := db.AppDomain{
-		ID:              current.ID,
-		AppID:           id,
-		Domain:          caddy.CleanQuotedValue(c.FormValue("domain")),
-		Service:         caddy.CleanQuotedValue(c.FormValue("service")),
-		Port:            port,
-		IsPrimary:       isPrimary,
-		EnableHTTPS:     c.FormValue("enable_https") == "on" || c.FormValue("enable_https") == "true",
-		EnableWWW:       c.FormValue("enable_www") == "on" || c.FormValue("enable_www") == "true",
-		ServeStatic:     c.FormValue("serve_static") == "on",
-		StaticPath:      strings.TrimSpace(c.FormValue("static_path")),
-		StaticURLPrefix: strings.TrimSpace(c.FormValue("static_url_prefix")),
-		ServeMedia:      c.FormValue("serve_media") == "on",
-		MediaPath:       strings.TrimSpace(c.FormValue("media_path")),
-		MediaURLPrefix:  strings.TrimSpace(c.FormValue("media_url_prefix")),
-		RouteRulesJSON:  "[]",
-		ShieldNodeID:    shieldIDPtr,
+		ID:                 current.ID,
+		AppID:              id,
+		Domain:             caddy.CleanQuotedValue(c.FormValue("domain")),
+		Service:            caddy.CleanQuotedValue(c.FormValue("service")),
+		Port:               port,
+		IsPrimary:          isPrimary,
+		EnableHTTPS:        c.FormValue("enable_https") == "on" || c.FormValue("enable_https") == "true",
+		EnableWWW:          c.FormValue("enable_www") == "on" || c.FormValue("enable_www") == "true",
+		ServeStatic:        c.FormValue("serve_static") == "on",
+		StaticPath:         strings.TrimSpace(c.FormValue("static_path")),
+		StaticURLPrefix:    strings.TrimSpace(c.FormValue("static_url_prefix")),
+		ServeMedia:         c.FormValue("serve_media") == "on",
+		MediaPath:          strings.TrimSpace(c.FormValue("media_path")),
+		MediaURLPrefix:     strings.TrimSpace(c.FormValue("media_url_prefix")),
+		RouteRulesJSON:     "[]",
+		ShieldNodeID:       shieldIDPtr,
+		PendingOriginApply: pendingOriginApply,
 	}
 	if d.ShieldNodeID != nil {
 		d.EnableHTTPS = true

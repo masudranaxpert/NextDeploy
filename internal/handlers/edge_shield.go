@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,11 +20,19 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+const (
+	settingPanelShieldNodeID  = "panel_shield_node_id"
+	caddyShieldTrustedProxies = "shield_trusted_proxies"
+)
+
 // EdgeVerifyDomain checks if a domain is legally configured on this NextDeploy instance.
 // Called by Shield Node Caddy on-demand TLS before issuing Let's Encrypt certificates.
 // GET /api/v1/edge/verify-domain?domain=example.com&token=shld_...
+//
+// Deprecated: Legacy on-demand TLS verification endpoint. Use GET /api/v1/edge/routes instead.
 func (p *Panel) EdgeVerifyDomain(c *fiber.Ctx) error {
-	domain := strings.TrimSpace(strings.ToLower(c.Query("domain")))
+	c.Set("Deprecation", "true")
+	domain := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(c.Query("domain"))), ".")
 	if domain == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing domain parameter")
 	}
@@ -30,8 +41,10 @@ func (p *Panel) EdgeVerifyDomain(c *fiber.Ctx) error {
 	ctx := c.UserContext()
 
 	// 1. Verify token against shield_nodes if any nodes exist
+	var node *db.ShieldNode
 	if token != "" {
-		node, err := p.DB.GetShieldNodeByToken(ctx, token)
+		var err error
+		node, err = p.DB.GetShieldNodeByToken(ctx, token)
 		if err == nil && node != nil {
 			// Record heartbeat from this shield node
 			_ = p.DB.UpdateShieldNodeHeartbeat(ctx, node.ID)
@@ -49,37 +62,126 @@ func (p *Panel) EdgeVerifyDomain(c *fiber.Ctx) error {
 
 	cleanDomain := strings.TrimPrefix(domain, "www.")
 
-	// 2. Check app_domains (Docker Apps & PHP Hosting)
+	// 2. Check app_domains (Docker Apps & PHP Hosting), scoped to node.ID when authenticated
 	var count int
-	err := p.DB.DB().QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM app_domains 
-		 WHERE LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?)`,
-		domain, cleanDomain).Scan(&count)
-	if err == nil && count > 0 {
-		return c.SendString("OK")
-	}
+	if node != nil {
+		err := p.DB.DB().QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM app_domains
+			 WHERE shield_node_id = ? AND (LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?))`,
+			node.ID, domain, cleanDomain).Scan(&count)
+		if err == nil && count > 0 {
+			return c.SendString("OK")
+		}
 
-	// 3. Check proxy_routes
-	err = p.DB.DB().QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM proxy_routes 
-		 WHERE enabled = 1 AND (LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?))`,
-		domain, cleanDomain).Scan(&count)
-	if err == nil && count > 0 {
-		return c.SendString("OK")
-	}
+		// 3. Check proxy_routes scoped to node.ID
+		err = p.DB.DB().QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM proxy_routes
+			 WHERE enabled = 1 AND shield_node_id = ? AND (LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?))`,
+			node.ID, domain, cleanDomain).Scan(&count)
+		if err == nil && count > 0 {
+			return c.SendString("OK")
+		}
 
-	// 4. Check Panel Domain
-	panelDomain := strings.ToLower(strings.TrimSpace(p.DB.GetSetting(ctx, "panel_domain")))
-	if panelDomain != "" && (domain == panelDomain || domain == "www."+panelDomain) {
-		return c.SendString("OK")
+		// 4. Check active preview hosts assigned to this shield node
+		for _, pv := range p.activePreviewRoutesForShield(ctx, &node.ID) {
+			if strings.EqualFold(pv.Domain, domain) {
+				return c.SendString("OK")
+			}
+		}
+
+		// 5. Check Panel Domain only if explicitly shielded on this node
+		panelDomain := strings.ToLower(strings.TrimSpace(p.DB.GetSetting(ctx, settingPanelDomain)))
+		if panelDomain != "" && p.panelShieldNodeID(ctx) == node.ID {
+			if domain == panelDomain || (settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false) && domain == "www."+panelDomain) {
+				return c.SendString("OK")
+			}
+		}
+	} else {
+		err := p.DB.DB().QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM app_domains
+			 WHERE LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?)`,
+			domain, cleanDomain).Scan(&count)
+		if err == nil && count > 0 {
+			return c.SendString("OK")
+		}
+
+		err = p.DB.DB().QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM proxy_routes
+			 WHERE enabled = 1 AND (LOWER(domain) = ? OR (enable_www = 1 AND LOWER(domain) = ?))`,
+			domain, cleanDomain).Scan(&count)
+		if err == nil && count > 0 {
+			return c.SendString("OK")
+		}
+
+		for _, pv := range p.activePreviewRoutesForShield(ctx, nil) {
+			if strings.EqualFold(pv.Domain, domain) {
+				return c.SendString("OK")
+			}
+		}
+
+		panelDomain := strings.ToLower(strings.TrimSpace(p.DB.GetSetting(ctx, settingPanelDomain)))
+		if panelDomain != "" && (domain == panelDomain || domain == "www."+panelDomain) {
+			return c.SendString("OK")
+		}
 	}
 
 	return c.Status(fiber.StatusNotFound).SendString("Domain not configured on this origin")
 }
 
+func (p *Panel) panelShieldNodeID(ctx context.Context) int64 {
+	raw := strings.TrimSpace(p.DB.GetSetting(ctx, settingPanelShieldNodeID))
+	if raw == "" {
+		return 0
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+type previewRouteEntry struct {
+	AppID  string
+	Slot   string
+	Domain string
+}
+
+func (p *Panel) activePreviewRoutesForShield(ctx context.Context, nodeID *int64) []previewRouteEntry {
+	apps, err := p.DB.ListApps(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []previewRouteEntry
+	for _, app := range apps {
+		pinned := strings.TrimSpace(app.PinnedSlot)
+		standby := strings.TrimSpace(app.StandbySlot)
+		if pinned == "" || standby == "" {
+			continue
+		}
+		pv := p.previewSite(ctx, app, standby)
+		if pv == nil || strings.TrimSpace(pv.Domain) == "" {
+			continue
+		}
+		if nodeID != nil {
+			if pv.ShieldNodeID == nil || *pv.ShieldNodeID != *nodeID {
+				continue
+			}
+		}
+		out = append(out, previewRouteEntry{
+			AppID:  app.ID,
+			Slot:   standby,
+			Domain: strings.ToLower(strings.TrimSpace(pv.Domain)),
+		})
+	}
+	return out
+}
+
 // EdgeShieldHeartbeat updates the last heartbeat time of a shield node.
 // POST /api/v1/edge/shield-heartbeat or GET /api/v1/edge/shield-heartbeat?token=...
+//
+// Deprecated: Legacy heartbeat endpoint. Use POST /api/v1/edge/status instead.
 func (p *Panel) EdgeShieldHeartbeat(c *fiber.Ctx) error {
+	c.Set("Deprecation", "true")
 	token := strings.TrimSpace(c.Query("token"))
 	if token == "" {
 		var body struct {
@@ -109,9 +211,64 @@ func (p *Panel) EdgeShieldHeartbeat(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "status": "connected", "node": node.Name})
 }
 
+// ReadOriginCaddyRootCA reads the Origin Caddy local root CA PEM, its sha256 hex digest, and "ok"|"missing".
+func (p *Panel) ReadOriginCaddyRootCA(ctx context.Context) (pem string, sha256Hex string, status string) {
+	if p.originCAFn != nil {
+		return p.originCAFn(ctx)
+	}
+	format := func(raw string) (string, string, string) {
+		trimmed := strings.TrimSpace(raw) + "\n"
+		sum := sha256.Sum256([]byte(trimmed))
+		return trimmed, hex.EncodeToString(sum[:]), "ok"
+	}
+
+	// 1. Try reading directly from Caddy container via docker exec
+	res := runutil.Run(ctx, "", nil, "docker", "exec", "caddy", "cat", "/data/caddy/pki/authorities/local/root.crt")
+	if res.OK && strings.Contains(res.Output, "-----BEGIN CERTIFICATE-----") {
+		return format(res.Output)
+	}
+
+	// 2. Try reading from host filesystem (if caddy_data volume or local path exists)
+	for _, path := range []string{
+		"/data/caddy/pki/authorities/local/root.crt",
+		"/var/lib/docker/volumes/nextdeploy_caddy_data/_data/caddy/pki/authorities/local/root.crt",
+	} {
+		if data, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
+			return format(string(data))
+		}
+	}
+
+	// 3. Fallback: query Caddy Admin API on internal docker network
+	client := http.Client{Timeout: 3 * time.Second}
+	for _, adminURL := range []string{"http://caddy:2019/pki/ca/local", "http://127.0.0.1:2019/pki/ca/local"} {
+		resp, aerr := client.Get(adminURL)
+		if aerr == nil {
+			func() {
+				defer resp.Body.Close()
+				if resp.StatusCode == 200 {
+					var caInfo struct {
+						RootCert string `json:"root_certificate"`
+					}
+					if jerr := json.NewDecoder(resp.Body).Decode(&caInfo); jerr == nil && strings.Contains(caInfo.RootCert, "-----BEGIN CERTIFICATE-----") {
+						pem, sha256Hex, status = format(caInfo.RootCert)
+					}
+				}
+			}()
+			if status == "ok" {
+				return pem, sha256Hex, status
+			}
+		}
+	}
+
+	return "", "", "missing"
+}
+
 // GetOriginCaddyRootCA returns the Origin Caddy local root CA certificate (PEM).
 // GET /api/v1/edge/origin-ca.crt?token=shld_...
+//
+// Deprecated: Legacy endpoint. Use GET /api/v1/edge/routes instead.
 func (p *Panel) GetOriginCaddyRootCA(c *fiber.Ctx) error {
+	c.Set("Deprecation", "true")
 	token := strings.TrimSpace(c.Query("token"))
 	if token == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
@@ -123,38 +280,10 @@ func (p *Panel) GetOriginCaddyRootCA(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).SendString("Invalid shield token")
 	}
 
-	// 1. Try reading directly from Caddy container via docker exec
-	res := runutil.Run(ctx, "", nil, "docker", "exec", "caddy", "cat", "/data/caddy/pki/authorities/local/root.crt")
-	if res.OK && strings.Contains(res.Output, "-----BEGIN CERTIFICATE-----") {
+	pem, _, status := p.ReadOriginCaddyRootCA(ctx)
+	if status == "ok" && pem != "" {
 		c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
-		return c.SendString(res.Output)
-	}
-
-	// 2. Try reading from host filesystem (if caddy_data volume or local path exists)
-	for _, path := range []string{
-		"/data/caddy/pki/authorities/local/root.crt",
-		"/var/lib/docker/volumes/nextdeploy_caddy_data/_data/caddy/pki/authorities/local/root.crt",
-	} {
-		if data, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
-			c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
-			return c.Send(data)
-		}
-	}
-
-	// 3. Fallback: query Caddy Admin API on internal docker network
-	client := http.Client{Timeout: 3 * time.Second}
-	for _, adminURL := range []string{"http://caddy:2019/pki/ca/local", "http://127.0.0.1:2019/pki/ca/local"} {
-		resp, aerr := client.Get(adminURL)
-		if aerr == nil && resp.StatusCode == 200 {
-			defer resp.Body.Close()
-			var caInfo struct {
-				RootCert string `json:"root_certificate"`
-			}
-			if jerr := json.NewDecoder(resp.Body).Decode(&caInfo); jerr == nil && strings.Contains(caInfo.RootCert, "-----BEGIN CERTIFICATE-----") {
-				c.Set("Content-Type", "application/x-x509-ca-cert; charset=utf-8")
-				return c.SendString(caInfo.RootCert)
-			}
-		}
+		return c.SendString(pem)
 	}
 
 	return c.Status(fiber.StatusNotFound).SendString("Origin Caddy local root CA certificate not generated yet")
@@ -162,7 +291,10 @@ func (p *Panel) GetOriginCaddyRootCA(c *fiber.Ctx) error {
 
 // GetEdgeShieldSetupScript returns a complete, automated bash installer for a Shield VPS node.
 // GET /api/v1/edge/setup.sh?id=1&token=shld_...
+//
+// Deprecated: Legacy catch-all installer. Stage 2 replaces with nd edge install wrapper.
 func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
+	c.Set("Deprecation", "true")
 	token := strings.TrimSpace(c.Query("token"))
 	if token == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
@@ -546,7 +678,10 @@ echo "==========================================================================
 
 // GetEdgeShieldUninstallScript returns a complete, automated bash uninstaller for a Shield VPS node.
 // GET /api/v1/edge/uninstall.sh?token=shld_...
+//
+// Deprecated: Legacy uninstaller.
 func (p *Panel) GetEdgeShieldUninstallScript(c *fiber.Ctx) error {
+	c.Set("Deprecation", "true")
 	token := strings.TrimSpace(c.Query("token"))
 	if token == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
@@ -614,6 +749,96 @@ echo "==========================================================================
 	return c.SendString(script)
 }
 
+func (p *Panel) attachShieldNodeDomainStatuses(ctx context.Context, nodes []db.ShieldNode) {
+	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
+	if err != nil || len(statuses) == 0 {
+		return
+	}
+	byNode := make(map[int64][]db.ShieldDomainStatus)
+	for _, st := range statuses {
+		byNode[st.NodeID] = append(byNode[st.NodeID], st)
+	}
+	for i := range nodes {
+		nodes[i].DomainStatuses = byNode[nodes[i].ID]
+	}
+}
+
+func (p *Panel) attachDomainEdgeStatuses(ctx context.Context, domains []db.AppDomain) {
+	if len(domains) == 0 {
+		return
+	}
+	hasShield := false
+	for _, d := range domains {
+		if d.ShieldNodeID != nil {
+			hasShield = true
+			break
+		}
+	}
+	if !hasShield {
+		return
+	}
+	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
+	if err != nil || len(statuses) == 0 {
+		return
+	}
+	type nodeHostKey struct {
+		nodeID int64
+		host   string
+	}
+	byKey := make(map[nodeHostKey]db.ShieldDomainStatus, len(statuses))
+	for _, st := range statuses {
+		byKey[nodeHostKey{nodeID: st.NodeID, host: strings.ToLower(st.Host)}] = st
+	}
+	for i := range domains {
+		if domains[i].ShieldNodeID == nil {
+			continue
+		}
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domains[i].Domain), "."))
+		if st, ok := byKey[nodeHostKey{nodeID: *domains[i].ShieldNodeID, host: host}]; ok {
+			copySt := st
+			domains[i].EdgeStatus = &copySt
+		}
+	}
+}
+
+func (p *Panel) attachProxyRouteEdgeStatuses(ctx context.Context, routes []db.ProxyRoute) {
+	if len(routes) == 0 {
+		return
+	}
+	hasShield := false
+	for _, r := range routes {
+		if r.ShieldNodeID != nil {
+			hasShield = true
+			break
+		}
+	}
+	if !hasShield {
+		return
+	}
+	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
+	if err != nil || len(statuses) == 0 {
+		return
+	}
+	type nodeHostKey struct {
+		nodeID int64
+		host   string
+	}
+	byKey := make(map[nodeHostKey]db.ShieldDomainStatus, len(statuses))
+	for _, st := range statuses {
+		byKey[nodeHostKey{nodeID: st.NodeID, host: strings.ToLower(st.Host)}] = st
+	}
+	for i := range routes {
+		if routes[i].ShieldNodeID == nil {
+			continue
+		}
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(routes[i].Domain), "."))
+		if st, ok := byKey[nodeHostKey{nodeID: *routes[i].ShieldNodeID, host: host}]; ok {
+			copySt := st
+			routes[i].EdgeStatus = &copySt
+		}
+	}
+}
+
 // ListShieldNodes returns all registered shield nodes with domain counts.
 // GET /api/v1/shield-nodes
 func (p *Panel) ListShieldNodes(c *fiber.Ctx) error {
@@ -625,12 +850,16 @@ func (p *Panel) ListShieldNodes(c *fiber.Ctx) error {
 	if nodes == nil {
 		nodes = []db.ShieldNode{}
 	}
+	panelID, _ := p.DB.EnsurePanelID(ctx)
 	u, ok := currentUser(c)
 	if ok && u.Role != db.RoleAdmin {
 		userShield := p.ResolveUserShield(ctx, &u)
-		var filtered []db.ShieldNode
+		filtered := make([]db.ShieldNode, 0, len(nodes))
 		for _, n := range nodes {
 			n.Token = ""
+			n.EdgeStatusJSON = ""
+			n.LastError = ""
+			n.DomainStatuses = nil
 			if userShield == nil || n.ID == userShield.ID {
 				filtered = append(filtered, n)
 			}
@@ -638,16 +867,29 @@ func (p *Panel) ListShieldNodes(c *fiber.Ctx) error {
 		// Mask origin IP from non-admins
 		return c.JSON(fiber.Map{
 			"ok":        true,
+			"panel_id":  panelID,
 			"nodes":     filtered,
 			"origin_ip": "",
 		})
 	}
-	originIP := sysinfo.DetectHostIP()
+	p.attachShieldNodeDomainStatuses(ctx, nodes)
+	originIP := p.originPublicIP(ctx)
 	return c.JSON(fiber.Map{
 		"ok":        true,
+		"panel_id":  panelID,
 		"nodes":     nodes,
 		"origin_ip": originIP,
 	})
+}
+
+func (p *Panel) originPublicIP(ctx context.Context) string {
+	if p.originIPFn != nil {
+		return p.originIPFn(ctx)
+	}
+	if ip := strings.TrimSpace(sysinfo.DetectHostIP()); ip != "" {
+		return ip
+	}
+	return strings.TrimSpace(sysinfo.Collect(ctx).PublicIP)
 }
 
 // CreateShieldNode adds a new Shield VPS node.
@@ -680,6 +922,7 @@ func (p *Panel) CreateShieldNode(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 	node.ID = id
+	node.SyncState = "pending"
 
 	// Automatically sync Caddy TrustedProxies to include this shield IP
 	p.syncShieldProxiesToCaddy(ctx)
@@ -691,9 +934,11 @@ func (p *Panel) CreateShieldNode(c *fiber.Ctx) error {
 	}
 	setupCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/setup.sh?token=%s\" | bash", scheme, panelHost, node.Token)
 	uninstallCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/uninstall.sh?token=%s\" | bash", scheme, panelHost, node.Token)
+	panelID, _ := p.DB.EnsurePanelID(ctx)
 
 	return c.JSON(fiber.Map{
 		"ok":                true,
+		"panel_id":          panelID,
 		"node":              node,
 		"setup_command":     setupCmd,
 		"uninstall_command": uninstallCmd,
@@ -717,6 +962,8 @@ func (p *Panel) UpdateShieldNode(c *fiber.Ctx) error {
 	}
 
 	ctx := c.UserContext()
+	oldNode, _ := p.DB.GetShieldNode(ctx, int64(id))
+
 	node := db.ShieldNode{
 		ID:   int64(id),
 		Name: strings.TrimSpace(body.Name),
@@ -727,11 +974,52 @@ func (p *Panel) UpdateShieldNode(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 
-	p.syncShieldProxiesToCaddy(ctx)
+	if oldNode != nil && strings.TrimSpace(oldNode.IP) != "" && strings.TrimSpace(oldNode.IP) != node.IP {
+		p.syncShieldProxiesToCaddy(ctx, oldNode.IP)
+	} else {
+		p.syncShieldProxiesToCaddy(ctx)
+	}
 	return c.JSON(fiber.Map{"ok": true})
 }
 
-// DeleteShieldNode removes a Shield node and unlinks domains.
+func (p *Panel) collectShieldAffectedResources(ctx context.Context, nodeID int64) (domainIDs []int64, appIDs []string, routeIDs []int64) {
+	if rows, err := p.DB.DB().QueryContext(ctx, `SELECT id, app_id FROM app_domains WHERE shield_node_id = ?`, nodeID); err == nil {
+		seenApps := map[string]bool{}
+		for rows.Next() {
+			var did int64
+			var appID string
+			if rows.Scan(&did, &appID) == nil {
+				domainIDs = append(domainIDs, did)
+				if appID != "" && !seenApps[appID] {
+					seenApps[appID] = true
+					appIDs = append(appIDs, appID)
+				}
+			}
+		}
+		_ = rows.Close()
+	}
+	if rows, err := p.DB.DB().QueryContext(ctx, `SELECT id FROM proxy_routes WHERE shield_node_id = ?`, nodeID); err == nil {
+		for rows.Next() {
+			var rid int64
+			if rows.Scan(&rid) == nil {
+				routeIDs = append(routeIDs, rid)
+			}
+		}
+		_ = rows.Close()
+	}
+	return domainIDs, appIDs, routeIDs
+}
+
+func (p *Panel) resyncAffectedShieldResources(ctx context.Context, appIDs []string, routeIDs []int64) {
+	for _, appID := range appIDs {
+		_ = p.SyncAndApplyBackground(ctx, appID)
+	}
+	if len(routeIDs) > 0 {
+		p.ReconcileProxyRoutes(ctx)
+	}
+}
+
+// DeleteShieldNode removes a Shield node, unlinks domains, prunes trusted proxies, and re-syncs affected origin routes.
 // DELETE /api/v1/shield-nodes/:id
 func (p *Panel) DeleteShieldNode(c *fiber.Ctx) error {
 	id, err := c.ParamsInt("id")
@@ -740,11 +1028,19 @@ func (p *Panel) DeleteShieldNode(c *fiber.Ctx) error {
 	}
 
 	ctx := c.UserContext()
+	oldNode, _ := p.DB.GetShieldNode(ctx, int64(id))
+	_, affectedAppIDs, affectedRouteIDs := p.collectShieldAffectedResources(ctx, int64(id))
+
 	if err := p.DB.DeleteShieldNode(ctx, int64(id)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
 
-	p.syncShieldProxiesToCaddy(ctx)
+	if oldNode != nil && strings.TrimSpace(oldNode.IP) != "" {
+		p.syncShieldProxiesToCaddy(ctx, oldNode.IP)
+	} else {
+		p.syncShieldProxiesToCaddy(ctx)
+	}
+	p.resyncAffectedShieldResources(ctx, affectedAppIDs, affectedRouteIDs)
 	return c.JSON(fiber.Map{"ok": true})
 }
 
@@ -794,7 +1090,7 @@ func (p *Panel) TestShieldNode(c *fiber.Ctx) error {
 	})
 }
 
-// ResolveUserShield returns the assigned or active shield node for the given user.
+// ResolveUserShield returns the explicitly assigned default shield node for the given user.
 func (p *Panel) ResolveUserShield(ctx context.Context, u *db.User) *db.ShieldNode {
 	if u == nil {
 		return nil
@@ -802,17 +1098,6 @@ func (p *Panel) ResolveUserShield(ctx context.Context, u *db.User) *db.ShieldNod
 	if u.DefaultShieldID != nil && *u.DefaultShieldID > 0 {
 		if node, err := p.DB.GetShieldNode(ctx, *u.DefaultShieldID); err == nil && node != nil {
 			return node
-		}
-	}
-	if u.Role != db.RoleAdmin {
-		nodes, err := p.DB.ListShieldNodes(ctx)
-		if err == nil && len(nodes) > 0 {
-			for _, n := range nodes {
-				if n.Status == "connected" {
-					return &n
-				}
-			}
-			return &nodes[0]
 		}
 	}
 	return nil
@@ -858,71 +1143,163 @@ func (p *Panel) ReassignShieldNodeDomains(c *fiber.Ctx) error {
 	_ = c.BodyParser(&body)
 
 	ctx := c.UserContext()
+	if body.TargetShieldID != nil && *body.TargetShieldID <= 0 {
+		body.TargetShieldID = nil
+	}
+	var targetNode *db.ShieldNode
+	if body.TargetShieldID != nil {
+		n, err := p.DB.GetShieldNode(ctx, *body.TargetShieldID)
+		if err != nil || n == nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"ok": false, "error": "Target shield node not found"})
+		}
+		targetNode = n
+	}
+
 	oldNode, _ := p.DB.GetShieldNode(ctx, int64(id))
 
-	_, err = p.DB.DB().ExecContext(ctx, `UPDATE app_domains SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	// Capture affected row IDs BEFORE updating shield_node_id so sslip/nip REPLACE only rewrites migrated rows.
+	affectedDomainIDs, affectedAppIDs, affectedRouteIDs := p.collectShieldAffectedResources(ctx, int64(id))
+
+	if body.TargetShieldID != nil {
+		_, err = p.DB.DB().ExecContext(ctx, `UPDATE app_domains SET shield_node_id = ?, enable_https = 1 WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	} else {
+		_, err = p.DB.DB().ExecContext(ctx, `UPDATE app_domains SET shield_node_id = NULL, pending_origin_apply = 0 WHERE shield_node_id = ?`, id)
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
 	}
-	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE proxy_routes SET shield_node_id = ? WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	if body.TargetShieldID != nil {
+		_, _ = p.DB.DB().ExecContext(ctx, `UPDATE proxy_routes SET shield_node_id = ?, enable_https = 1 WHERE shield_node_id = ?`, body.TargetShieldID, id)
+	} else {
+		_, _ = p.DB.DB().ExecContext(ctx, `UPDATE proxy_routes SET shield_node_id = NULL, pending_origin_apply = 0 WHERE shield_node_id = ?`, id)
+	}
 	_, _ = p.DB.DB().ExecContext(ctx, `UPDATE users SET default_shield_id = ? WHERE default_shield_id = ?`, body.TargetShieldID, id)
 
-	// Update any auto-domains (.sslip.io / .nip.io) containing the old dashed IP
-	if oldNode != nil && oldNode.IP != "" {
+	// Update any auto-domains (.sslip.io / .nip.io) ONLY for the migrated row IDs.
+	if oldNode != nil && oldNode.IP != "" && len(affectedDomainIDs) > 0 {
 		oldDashed := strings.ReplaceAll(strings.TrimSpace(oldNode.IP), ".", "-")
 		var newDashed string
-		if body.TargetShieldID != nil && *body.TargetShieldID > 0 {
-			if newNode, _ := p.DB.GetShieldNode(ctx, *body.TargetShieldID); newNode != nil && newNode.IP != "" {
-				newDashed = strings.ReplaceAll(strings.TrimSpace(newNode.IP), ".", "-")
-			}
+		if targetNode != nil && targetNode.IP != "" {
+			newDashed = strings.ReplaceAll(strings.TrimSpace(targetNode.IP), ".", "-")
 		} else {
-			originIP := sysinfo.Collect(ctx).PublicIP
+			originIP := p.originPublicIP(ctx)
 			newDashed = strings.ReplaceAll(strings.TrimSpace(originIP), ".", "-")
 		}
 
 		if oldDashed != "" && newDashed != "" && oldDashed != newDashed {
+			placeholders := make([]string, len(affectedDomainIDs))
+			args := make([]interface{}, 0, 2+len(affectedDomainIDs))
+			args = append(args, oldDashed, newDashed)
+			for i, did := range affectedDomainIDs {
+				placeholders[i] = "?"
+				args = append(args, did)
+			}
 			_, _ = p.DB.DB().ExecContext(ctx,
-				`UPDATE app_domains 
-				 SET domain = REPLACE(domain, ?, ?) 
-				 WHERE (shield_node_id = ? OR (? IS NULL AND shield_node_id IS NULL))
-				   AND (domain LIKE '%.sslip.io' OR domain LIKE '%.nip.io')`,
-				oldDashed, newDashed, body.TargetShieldID, body.TargetShieldID)
+				fmt.Sprintf(`UPDATE app_domains SET domain = REPLACE(domain, ?, ?) WHERE id IN (%s) AND (domain LIKE '%%.sslip.io' OR domain LIKE '%%.nip.io')`, strings.Join(placeholders, ",")),
+				args...)
 		}
 	}
 
 	p.syncShieldProxiesToCaddy(ctx)
 	_ = p.syncRootStackCompose(ctx)
+	p.resyncAffectedShieldResources(ctx, affectedAppIDs, affectedRouteIDs)
 
 	return c.JSON(fiber.Map{"ok": true})
 }
 
-// syncShieldProxiesToCaddy ensures all active Shield Node IPs are in Caddy TrustedProxies.
-func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context) {
+// syncShieldProxiesToCaddy reconciles active Shield Node IPs in Caddy TrustedProxies,
+// ensuring RealIP is set to "custom", pruning deleted/changed Shield IPs even when
+// len(nodes) == 0, and triggering root stack apply when the options change.
+func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...string) {
 	nodes, err := p.DB.ListShieldNodes(ctx)
-	if err != nil || len(nodes) == 0 {
+	if err != nil {
 		return
 	}
 
-	opts := p.caddyGlobalOptions(ctx)
-	trustedSet := make(map[string]bool)
-	for _, ip := range opts.TrustedProxies {
-		trustedSet[strings.TrimSpace(ip)] = true
-	}
-
-	changed := false
+	activeSet := make(map[string]bool)
+	activeList := make([]string, 0, len(nodes))
 	for _, n := range nodes {
 		ip := strings.TrimSpace(n.IP)
-		if ip != "" && !trustedSet[ip] {
-			opts.TrustedProxies = append(opts.TrustedProxies, ip)
-			trustedSet[ip] = true
-			changed = true
+		if ip != "" && !activeSet[ip] {
+			activeSet[ip] = true
+			activeList = append(activeList, ip)
+		}
+	}
+
+	prevManagedSet := make(map[string]bool)
+	if rawPrev := strings.TrimSpace(p.DB.GetCaddyConfig(ctx, caddyShieldTrustedProxies)); rawPrev != "" {
+		var prevList []string
+		if json.Unmarshal([]byte(rawPrev), &prevList) == nil {
+			for _, ip := range prevList {
+				ip = strings.TrimSpace(ip)
+				if ip != "" {
+					prevManagedSet[ip] = true
+				}
+			}
+		}
+	}
+	for _, ip := range removedIPs {
+		ip = strings.TrimSpace(ip)
+		if ip != "" {
+			prevManagedSet[ip] = true
+		}
+	}
+
+	opts := p.caddyGlobalOptions(ctx)
+	oldRealIP := opts.RealIP
+	oldProxies := append([]string(nil), opts.TrustedProxies...)
+
+	kept := make([]string, 0, len(opts.TrustedProxies)+len(activeList))
+	keptSet := make(map[string]bool)
+	for _, rawIP := range opts.TrustedProxies {
+		ip := strings.TrimSpace(rawIP)
+		if ip == "" {
+			continue
+		}
+		// Prune previously managed shield IPs that are no longer active
+		if prevManagedSet[ip] && !activeSet[ip] {
+			continue
+		}
+		if !keptSet[ip] {
+			keptSet[ip] = true
+			kept = append(kept, ip)
+		}
+	}
+	for _, ip := range activeList {
+		if !keptSet[ip] {
+			keptSet[ip] = true
+			kept = append(kept, ip)
+		}
+	}
+
+	opts.TrustedProxies = kept
+	if len(opts.TrustedProxies) > 0 {
+		opts.RealIP = "custom"
+	} else if opts.RealIP == "custom" {
+		opts.RealIP = "none"
+	}
+
+	// Persist current managed shield IP set
+	if managedRaw, mErr := json.Marshal(activeList); mErr == nil {
+		_ = p.DB.SetCaddyConfig(ctx, caddyShieldTrustedProxies, string(managedRaw))
+	}
+
+	changed := opts.RealIP != oldRealIP || len(opts.TrustedProxies) != len(oldProxies)
+	if !changed {
+		for i := range opts.TrustedProxies {
+			if opts.TrustedProxies[i] != oldProxies[i] {
+				changed = true
+				break
+			}
 		}
 	}
 
 	if changed {
 		raw, _ := json.Marshal(opts)
 		_ = p.DB.SetCaddyConfig(ctx, caddyOptionsKey, string(raw))
-		_ = p.syncRootStackCompose(ctx)
+		if err := p.syncRootStackCompose(ctx); err == nil {
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+		}
 	}
 }
 
@@ -947,6 +1324,9 @@ func (p *Panel) probeAllShieldNodes() {
 	}
 
 	for _, node := range nodes {
+		if node.Status == "unregistered" {
+			continue
+		}
 		ip := strings.TrimSpace(node.IP)
 		if ip == "" {
 			continue

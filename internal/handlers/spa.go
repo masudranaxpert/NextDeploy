@@ -258,6 +258,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		go func(i int, app db.App) {
 			defer appWg.Done()
 			doms, _ := p.DB.ListAppDomains(ctx, app.ID)
+			p.attachDomainEdgeStatuses(ctx, doms)
 			svcs := p.LoadComposeServices(ctx, app.ID)
 			var gitPtr *db.AppGitConfig
 			if gcfg, err := p.DB.GetAppGitConfig(ctx, app.ID); err == nil {
@@ -325,7 +326,11 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				EnvContent:    envStr,
 				Preview:       pvCfg,
 				PreviewBase: func() string {
-					targetIP, _ := p.ResolveAppPublicIP(ctx, app)
+					targetIP, targetShieldID := p.ResolveAppPublicIP(ctx, app)
+					if targetShieldID != nil {
+						pid, _ := p.DB.EnsurePanelID(ctx)
+						return previewHostBase(app, pvCfg, targetIP, pid)
+					}
 					return previewHostBase(app, pvCfg, targetIP)
 				}(),
 				Ports:         appPorts,
@@ -669,6 +674,10 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			}
 			return sysinfo.DetectHostIP()
 		}(),
+		"panel_id": func() string {
+			pid, _ := p.DB.EnsurePanelID(ctx)
+			return pid
+		}(),
 		"shield_nodes": func() []db.ShieldNode {
 			nodes, _ := p.DB.ListShieldNodes(ctx)
 			if nodes == nil {
@@ -679,12 +688,16 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				var filtered []db.ShieldNode
 				for _, n := range nodes {
 					n.Token = ""
+					n.EdgeStatusJSON = ""
+					n.LastError = ""
+					n.DomainStatuses = nil
 					if userShield == nil || n.ID == userShield.ID {
 						filtered = append(filtered, n)
 					}
 				}
 				return filtered
 			}
+			p.attachShieldNodeDomainStatuses(ctx, nodes)
 			return nodes
 		}(),
 		"server_time":       time.Now().UTC().Format(time.RFC3339),

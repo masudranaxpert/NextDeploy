@@ -258,7 +258,12 @@ func (p *Panel) PHPCreateSite(c *fiber.Ctx) error {
 			return phpJSONErr(c, 400, "could not attach domain: "+err.Error())
 		}
 	} else if !body.NoDefaultDomain && targetIP != "" {
-		domain = caddy.FormatWildcardDomain(id, targetIP, "sslip.io")
+		if targetShieldID != nil {
+			panelID, _ := p.DB.EnsurePanelID(ctx)
+			domain = caddy.FormatWildcardDomain(id, targetIP, "sslip.io", panelID)
+		} else {
+			domain = caddy.FormatWildcardDomain(id, targetIP, "sslip.io")
+		}
 		if _, err := p.DB.CreateAppDomain(ctx, db.AppDomain{
 			AppID: id, Domain: domain, Service: "php", Port: 80, IsPrimary: true,
 			EnableHTTPS: true, RouteRulesJSON: "[]",
