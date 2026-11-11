@@ -117,3 +117,12 @@ func ReadDirLink(linkPath string) (string, error) {
 	}
 	return strings.TrimSpace(string(b)), nil
 }
+
+// RemoveDirLink removes linkPath (used when rolling back a failed first apply).
+func RemoveDirLink(linkPath string) error {
+	err := os.Remove(linkPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}

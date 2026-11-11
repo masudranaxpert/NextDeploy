@@ -192,3 +192,18 @@ func TestRenderPanelDeterministicAcrossOrderPermutations(t *testing.T) {
 		t.Fatalf("expected byte-identical output across permutations:\nA:\n%s\nB:\n%s", outA, outB)
 	}
 }
+
+func TestRenderPanelRejectsUnvalidatedHost(t *testing.T) {
+	_, err := RenderPanelCaddy(RenderPanelInput{
+		PanelID:   "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		PanelName: "vps-1",
+		OriginIPs: []netip.Addr{netip.MustParseAddr("204.136.10.51")},
+		CAStatus:  CAStatusMissing,
+		Routes: []EdgeRoute{
+			{ID: "r1", Hosts: []string{"evil.com {\n respond 200"}},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected RenderPanelCaddy to reject unvalidated Caddyfile-injection host")
+	}
+}

@@ -465,6 +465,7 @@ func (d *Daemon) probeHosts(ctx context.Context, includeActive bool) {
 	panels := append([]PanelConfig(nil), d.cfg.Panels...)
 	d.mu.Unlock()
 
+	var updated bool
 	for _, p := range panels {
 		d.mu.Lock()
 		st := d.panelStates[p.PanelID]
@@ -498,9 +499,16 @@ func (d *Daemon) probeHosts(ctx context.Context, includeActive bool) {
 			d.mu.Unlock()
 		}
 		if len(targets) > 0 {
+			updated = true
 			d.mu.Lock()
 			_ = SavePanelState(d.opts.Paths.StateFile(p.PanelID), st)
 			d.mu.Unlock()
+		}
+	}
+	if updated {
+		select {
+		case d.statusCh <- struct{}{}:
+		default:
 		}
 	}
 }

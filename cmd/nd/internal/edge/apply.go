@@ -270,33 +270,60 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 			return res, err
 		}
 
-		// Render temporary Caddyfile referencing staged panelDir for validation.
+		// Stage temp copies of global.opts, common.caddy, panels, and Caddyfile so
+		// `caddy validate` tests the complete candidate config before any live file
+		// is touched (fixes clean-Shield first apply & stale-opts validation).
 		valCaddyfile := filepath.Join(a.paths.CaddyNDDir, fmt.Sprintf(".Caddyfile.validate.%d", nextGen))
-		valContent := RenderCaddyfileManagedRegion(a.paths, in.AdminAddr, in.ACMEEmail, panelDir, a.paths.UserCaddyDir)
-		// In validation caddyfile, rewrite origins symlink references inside staged panelDir?
-		// Better: staged panelDir files were rendered with OriginsLink; temporarily validate
-		// using a validation staging dir where OriginsLink points to originDir if needed,
-		// or rewrite the PEM path in the validation copy only.
+		valGlobalOpts := filepath.Join(a.paths.CaddyNDDir, fmt.Sprintf(".global.opts.validate.%d", nextGen))
+		valCommonCaddy := filepath.Join(a.paths.CaddyNDDir, fmt.Sprintf(".common.caddy.validate.%d", nextGen))
 		valPanelsDir := filepath.Join(a.paths.CaddyNDDir, fmt.Sprintf(".panels.validate.%d", nextGen))
-		if err := a.stageValidationCopy(valPanelsDir, panelDir, originDir); err != nil {
+		cleanupValidation := func() {
+			_ = os.Remove(valCaddyfile)
+			_ = os.Remove(valGlobalOpts)
+			_ = os.Remove(valCommonCaddy)
+			_ = os.RemoveAll(valPanelsDir)
+		}
+
+		if err := WriteFileAtomic(valGlobalOpts, in.GlobalOpts, 0o644); err != nil {
+			cleanupValidation()
 			_ = os.RemoveAll(panelDir)
 			_ = os.RemoveAll(originDir)
-			_ = os.RemoveAll(valPanelsDir)
 			a.recordFailure(meta, desiredHash, err, now)
 			return res, err
 		}
-		valContent = RenderCaddyfileManagedRegion(a.paths, in.AdminAddr, in.ACMEEmail, valPanelsDir, a.paths.UserCaddyDir)
-		if err := WriteFileAtomic(valCaddyfile, []byte(valContent), 0o644); err != nil {
+		if err := WriteFileAtomic(valCommonCaddy, in.CommonCaddy, 0o644); err != nil {
+			cleanupValidation()
 			_ = os.RemoveAll(panelDir)
 			_ = os.RemoveAll(originDir)
-			_ = os.RemoveAll(valPanelsDir)
+			a.recordFailure(meta, desiredHash, err, now)
+			return res, err
+		}
+		if err := a.stageValidationCopy(valPanelsDir, panelDir, originDir); err != nil {
+			cleanupValidation()
+			_ = os.RemoveAll(panelDir)
+			_ = os.RemoveAll(originDir)
+			a.recordFailure(meta, desiredHash, err, now)
+			return res, err
+		}
+
+		valPaths := a.paths
+		valPaths.GlobalOpts = valGlobalOpts
+		valPaths.CommonCaddy = valCommonCaddy
+		valRegion := RenderCaddyfileManagedRegion(valPaths, in.AdminAddr, in.ACMEEmail, valPanelsDir, a.paths.UserCaddyDir)
+		valContent := valRegion
+		if existingBytes, readErr := os.ReadFile(a.paths.Caddyfile); readErr == nil {
+			valContent = mergeManagedCaddyfile(string(existingBytes), valRegion)
+		}
+		if err := WriteFileAtomic(valCaddyfile, []byte(valContent), 0o644); err != nil {
+			cleanupValidation()
+			_ = os.RemoveAll(panelDir)
+			_ = os.RemoveAll(originDir)
 			a.recordFailure(meta, desiredHash, err, now)
 			return res, err
 		}
 
 		_, valErr := a.caddy.Validate(ctx, valCaddyfile)
-		_ = os.Remove(valCaddyfile)
-		_ = os.RemoveAll(valPanelsDir)
+		cleanupValidation()
 
 		if valErr == nil {
 			break
@@ -340,32 +367,43 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 	prevOriginsTarget, _ := ReadDirLink(a.paths.OriginsLink)
 
 	if err := SwapDirLinkAtomic(a.paths.OriginsLink, originDir); err != nil {
+		_ = os.RemoveAll(panelDir)
+		_ = os.RemoveAll(originDir)
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
 	if err := SwapDirLinkAtomic(a.paths.PanelsLink, panelDir); err != nil {
 		if prevOriginsTarget != "" {
 			_ = SwapDirLinkAtomic(a.paths.OriginsLink, prevOriginsTarget)
+		} else {
+			_ = RemoveDirLink(a.paths.OriginsLink)
 		}
+		_ = os.RemoveAll(panelDir)
+		_ = os.RemoveAll(originDir)
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
 
 	dur, reloadErr := a.caddy.Reload(ctx, a.paths.Caddyfile, in.AdminAddr)
 	if reloadErr != nil {
-		// Rollback symlinks and reload previous generation (E-CADDY-3).
+		// Rollback symlinks (or remove if first apply so no dangling symlinks remain)
+		// and reload previous generation when one existed (E-CADDY-3).
 		if prevOriginsTarget != "" {
 			_ = SwapDirLinkAtomic(a.paths.OriginsLink, prevOriginsTarget)
+		} else {
+			_ = RemoveDirLink(a.paths.OriginsLink)
 		}
 		if prevPanelsTarget != "" {
 			_ = SwapDirLinkAtomic(a.paths.PanelsLink, prevPanelsTarget)
+			_, rbReloadErr := a.caddy.Reload(ctx, a.paths.Caddyfile, in.AdminAddr)
+			if rbReloadErr != nil {
+				reloadErr = fmt.Errorf("%w (rollback reload also failed: %v)", reloadErr, rbReloadErr)
+			}
+		} else {
+			_ = RemoveDirLink(a.paths.PanelsLink)
 		}
-		_, rbReloadErr := a.caddy.Reload(ctx, a.paths.Caddyfile, in.AdminAddr)
 		_ = os.RemoveAll(panelDir)
 		_ = os.RemoveAll(originDir)
-		if rbReloadErr != nil {
-			reloadErr = fmt.Errorf("%w (rollback reload also failed: %v)", reloadErr, rbReloadErr)
-		}
 		a.recordFailure(meta, desiredHash, reloadErr, now)
 		return res, reloadErr
 	}
@@ -418,6 +456,14 @@ func (a *Applier) ensureManagedCaddyfile(adminAddr, acmeEmail string) error {
 		return err
 	}
 	existing := string(existingBytes)
+	updated := mergeManagedCaddyfile(existing, desiredRegion)
+	if updated == existing {
+		return nil
+	}
+	return WriteFileAtomic(a.paths.Caddyfile, []byte(updated), 0o644)
+}
+
+func mergeManagedCaddyfile(existing, desiredRegion string) string {
 	startIdx := strings.Index(existing, ManagedStartMarker)
 	endIdx := strings.Index(existing, ManagedEndMarker)
 	if startIdx >= 0 && endIdx > startIdx {
@@ -425,17 +471,12 @@ func (a *Applier) ensureManagedCaddyfile(adminAddr, acmeEmail string) error {
 		if afterEnd < len(existing) && existing[afterEnd] == '\n' {
 			afterEnd++
 		}
-		updated := existing[:startIdx] + desiredRegion + existing[afterEnd:]
-		if updated == existing {
-			return nil
-		}
-		return WriteFileAtomic(a.paths.Caddyfile, []byte(updated), 0o644)
+		return existing[:startIdx] + desiredRegion + existing[afterEnd:]
 	}
-	// If Caddyfile exists without markers (e.g. empty), replace if empty; otherwise append markers.
 	if strings.TrimSpace(existing) == "" {
-		return WriteFileAtomic(a.paths.Caddyfile, []byte(desiredRegion), 0o644)
+		return desiredRegion
 	}
-	return WriteFileAtomic(a.paths.Caddyfile, []byte(desiredRegion+"\n"+existing), 0o644)
+	return desiredRegion + "\n" + existing
 }
 
 func (a *Applier) compareCurrentGeneration(in ApplyInput) (drifted []string, identical bool) {

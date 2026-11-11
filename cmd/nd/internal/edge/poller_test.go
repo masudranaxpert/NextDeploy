@@ -222,7 +222,32 @@ func TestMassDeletionGuard(t *testing.T) {
 		t.Fatalf("expected initial update, got %+v", out)
 	}
 
-	// Mass delete: 10 -> 2 hosts (80% & >5 removed) held for 3 polls >= 3m.
+	// Mass delete: 10 -> 2 hosts (80% & >5 removed) held; a 304 revert clears Pending*.
+	curResp.Store(RoutesResponse{
+		APIVersion: 1,
+		PanelID:    "panel-1",
+		ETag:       "etag-2",
+		Origin:     OriginInfo{IPs: []string{"204.136.10.51"}, Port: 443, CAStatus: CAStatusMissing},
+		Routes:     makeRoutes(2),
+	})
+	out := PollPanelOnce(ctx, client, st, "", false, now.Add(15*time.Second))
+	if !out.HeldMassDelete || st.PendingCount != 1 {
+		t.Fatalf("expected transient poll 1 held, got %+v", out)
+	}
+	// Panel reverts to etag-10 -> server returns 304 -> clears pending candidate.
+	curResp.Store(RoutesResponse{
+		APIVersion: 1,
+		PanelID:    "panel-1",
+		ETag:       "etag-10",
+		Origin:     OriginInfo{IPs: []string{"204.136.10.51"}, Port: 443, CAStatus: CAStatusMissing},
+		Routes:     makeRoutes(10),
+	})
+	out = PollPanelOnce(ctx, client, st, "", false, now.Add(20*time.Second))
+	if out.Err != nil || st.PendingSnapshot != nil || st.PendingCount != 0 || st.PendingETag != "" {
+		t.Fatalf("expected 304 to clear held mass-delete state, got out=%+v pending=%d/%q", out, st.PendingCount, st.PendingETag)
+	}
+
+	// Real mass delete: 10 -> 2 hosts (80% & >5 removed) held for 3 polls >= 3m.
 	curResp.Store(RoutesResponse{
 		APIVersion: 1,
 		PanelID:    "panel-1",
@@ -231,7 +256,7 @@ func TestMassDeletionGuard(t *testing.T) {
 		Routes:     makeRoutes(2),
 	})
 
-	out := PollPanelOnce(ctx, client, st, "", false, now.Add(30*time.Second))
+	out = PollPanelOnce(ctx, client, st, "", false, now.Add(30*time.Second))
 	if !out.HeldMassDelete || out.SnapshotUpdated || st.LastGoodETag != "etag-10" {
 		t.Fatalf("poll 1 should hold mass delete, got %+v", out)
 	}
@@ -313,4 +338,26 @@ func TestTokenRedactionAndHTTPSRequirement(t *testing.T) {
 		t.Fatalf("expected https:// enforcement error, got %v", err)
 	}
 	_ = errors.New("unused")
+}
+
+func TestNextPollDelayBackoff(t *testing.T) {
+	checkBounds := func(name string, got, base time.Duration) {
+		t.Helper()
+		min := time.Duration(float64(base) * 0.79)
+		max := time.Duration(float64(base) * 1.21)
+		if got < min || got > max {
+			t.Fatalf("%s: got %s, expected within ±20%% of %s (%s..%s)", name, got, base, min, max)
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+		checkBounds("normal_30s", NextPollDelay(30, 0, SyncStateOK), 30*time.Second)
+		checkBounds("auth_failed_5m", NextPollDelay(30, 1, SyncStateAuthFailed), 5*time.Minute)
+		checkBounds("err_1_30s", NextPollDelay(30, 1, SyncStateStale), 30*time.Second)
+		checkBounds("err_2_60s", NextPollDelay(30, 2, SyncStateStale), 60*time.Second)
+		checkBounds("err_3_120s", NextPollDelay(30, 3, SyncStateStale), 120*time.Second)
+		checkBounds("err_4_240s", NextPollDelay(30, 4, SyncStateStale), 240*time.Second)
+		checkBounds("err_5_cap_5m", NextPollDelay(30, 5, SyncStateStale), 5*time.Minute)
+		checkBounds("err_10_cap_5m", NextPollDelay(30, 10, SyncStateStale), 5*time.Minute)
+	}
 }

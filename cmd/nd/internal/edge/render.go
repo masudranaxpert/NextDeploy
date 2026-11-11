@@ -151,8 +151,14 @@ func RenderPanelCaddy(in RenderPanelInput) (string, error) {
 		if err := ValidateRouteID(r.ID); err != nil {
 			return "", err
 		}
-		hosts := make([]string, len(r.Hosts))
-		copy(hosts, r.Hosts)
+		hosts := make([]string, 0, len(r.Hosts))
+		for _, rawHost := range r.Hosts {
+			norm, verr := NormalizeAndValidateHost(rawHost, "")
+			if verr != nil {
+				return "", fmt.Errorf("route %q host %q rejected: %w", r.ID, rawHost, verr)
+			}
+			hosts = append(hosts, norm)
+		}
 		sort.Strings(hosts)
 		rCopy := r
 		rCopy.Hosts = hosts

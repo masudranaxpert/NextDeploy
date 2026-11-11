@@ -389,6 +389,11 @@ func PollPanelOnce(ctx context.Context, client *PanelClient, st *PanelState, shi
 	st.First410At = time.Time{}
 
 	if notModified {
+		// Clear any held mass-deletion candidate if the panel reverted to LastGoodETag.
+		st.PendingSnapshot = nil
+		st.PendingETag = ""
+		st.PendingCount = 0
+		st.PendingFirstSeen = time.Time{}
 		st.SyncState = SyncStateOK
 		st.LastSyncOKAt = now
 		st.LastError = ""

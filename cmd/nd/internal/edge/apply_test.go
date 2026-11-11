@@ -198,3 +198,112 @@ func TestApplierOffendingPanelIsolationEMP5(t *testing.T) {
 		t.Fatalf("expected panel-bad.caddy to be excluded, err=%v", err)
 	}
 }
+
+func TestApplierValidationStagesGlobalOptsCommonAndUserSites(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 4, 0, 0, 0, time.UTC)
+	paths := NewPaths(t.TempDir())
+
+	// Seed Caddyfile with user sites outside markers (adopted Shield).
+	userSite := "user.example.com {\n\trespond \"ok\" 200\n}\n"
+	if err := WriteFileAtomic(paths.Caddyfile, []byte(userSite), 0o644); err != nil {
+		t.Fatalf("seed Caddyfile: %v", err)
+	}
+
+	var validatedContent string
+	var stagedFilesExisted bool
+	var liveUntouchedDuringValidate bool
+	caddy := &fakeCaddyRunner{
+		validateFn: func(_ context.Context, configPath string) (string, error) {
+			raw, err := os.ReadFile(configPath)
+			if err != nil {
+				return "", err
+			}
+			validatedContent = string(raw)
+
+			// Live GlobalOpts/CommonCaddy must NOT exist yet on first validate.
+			_, gErr := os.Stat(paths.GlobalOpts)
+			_, cErr := os.Stat(paths.CommonCaddy)
+			liveUntouchedDuringValidate = errors.Is(gErr, os.ErrNotExist) && errors.Is(cErr, os.ErrNotExist)
+
+			// Staged global.opts and common.caddy referenced inside valCaddyfile MUST exist on disk.
+			var checkedG, checkedC bool
+			for _, line := range strings.Split(validatedContent, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "import ") {
+					target := strings.TrimSpace(strings.TrimPrefix(line, "import "))
+					if strings.Contains(target, ".global.opts.validate.") {
+						if _, err := os.Stat(target); err == nil {
+							checkedG = true
+						}
+					}
+					if strings.Contains(target, ".common.caddy.validate.") {
+						if _, err := os.Stat(target); err == nil {
+							checkedC = true
+						}
+					}
+				}
+			}
+			stagedFilesExisted = checkedG && checkedC
+			return "ok", nil
+		},
+	}
+
+	applier := NewApplier(paths, caddy)
+	meta := &ApplyMeta{}
+	res, err := applier.Apply(ctx, ApplyInput{
+		AdminAddr:   DefaultAdminAddr,
+		GlobalOpts:  []byte(RenderGlobalOpts(DefaultCloudflareRanges)),
+		CommonCaddy: []byte(RenderCommonCaddy()),
+		Panels: []PanelRenderArtifact{
+			{PanelID: "panel-a", CaddyBytes: []byte("# panel-a\n"), Changed: true},
+		},
+	}, meta, now)
+	if err != nil || !res.Applied {
+		t.Fatalf("apply failed: res=%+v err=%v", res, err)
+	}
+	if !liveUntouchedDuringValidate || !stagedFilesExisted {
+		t.Fatalf("expected staged global.opts/common.caddy during validate with live untouched; liveUntouched=%v stagedExisted=%v", liveUntouchedDuringValidate, stagedFilesExisted)
+	}
+	if !strings.Contains(validatedContent, "user.example.com") || !strings.Contains(validatedContent, ManagedStartMarker) {
+		t.Fatalf("expected validated Caddyfile to merge user sites + managed region, got:\n%s", validatedContent)
+	}
+	finalCaddyfile, _ := os.ReadFile(paths.Caddyfile)
+	if !strings.Contains(string(finalCaddyfile), "user.example.com") {
+		t.Fatalf("expected user sites preserved in final Caddyfile")
+	}
+}
+
+func TestApplierFirstApplyReloadFailureCleansDanglingLinks(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 4, 0, 0, 0, time.UTC)
+	paths := NewPaths(t.TempDir())
+
+	caddy := &fakeCaddyRunner{
+		reloadFn: func(_ context.Context, _ string, _ string) (time.Duration, error) {
+			return 0, errors.New("reload failed on first apply")
+		},
+	}
+	applier := NewApplier(paths, caddy)
+	meta := &ApplyMeta{}
+	_, err := applier.Apply(ctx, ApplyInput{
+		AdminAddr:   DefaultAdminAddr,
+		GlobalOpts:  []byte(RenderGlobalOpts(DefaultCloudflareRanges)),
+		CommonCaddy: []byte(RenderCommonCaddy()),
+		Panels: []PanelRenderArtifact{
+			{PanelID: "panel-a", CaddyBytes: []byte("# panel-a\n"), Changed: true},
+		},
+	}, meta, now)
+	if err == nil {
+		t.Fatalf("expected reload error")
+	}
+	if caddy.reloadCalls != 1 {
+		t.Fatalf("expected 1 reload call on first-apply failure (no bogus rollback reload), got %d", caddy.reloadCalls)
+	}
+	if _, statErr := os.Lstat(paths.PanelsLink); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected PanelsLink removed on first-apply rollback, got statErr=%v", statErr)
+	}
+	if _, statErr := os.Lstat(paths.OriginsLink); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected OriginsLink removed on first-apply rollback, got statErr=%v", statErr)
+	}
+}

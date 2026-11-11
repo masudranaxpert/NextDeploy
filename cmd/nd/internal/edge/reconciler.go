@@ -174,15 +174,11 @@ func (r *Reconciler) ReconcileOnce(
 				pp.preserveDisk = true
 				pp.diskCaddy = cb
 				pp.diskPEM = pb
-				desired := make(map[string]struct{}, len(renderedByPanel[p.PanelID]))
-				for h := range renderedByPanel[p.PanelID] {
-					desired[h] = struct{}{}
-				}
 				claimants = append(claimants, Claimant{
 					PanelID:      p.PanelID,
 					PanelName:    p.PanelName,
 					RegisteredAt: p.RegisteredAt,
-					DesiredHosts: desired,
+					DesiredHosts: desiredHostsFromRendered(renderedByPanel[p.PanelID]),
 				})
 			}
 			continue
@@ -224,12 +220,20 @@ func (r *Reconciler) ReconcileOnce(
 		if pp.caStatus == CAStatusOK {
 			if err := ValidateCAPEM(snap.Origin.CAPEM); err != nil {
 				// Per E-MP-5, invalid CA on one panel must not block other panels.
+				// Preserve existing disk files AND claims so another panel cannot steal
+				// the host and cause duplicate Caddy site blocks.
 				st.SyncState = SyncStateError
 				st.LastError = fmt.Sprintf("invalid origin CA PEM: %v", err)
 				if cb, pb, ok := r.readExistingPanelFiles(p.PanelID); ok {
 					pp.preserveDisk = true
 					pp.diskCaddy = cb
 					pp.diskPEM = pb
+					claimants = append(claimants, Claimant{
+						PanelID:      p.PanelID,
+						PanelName:    p.PanelName,
+						RegisteredAt: p.RegisteredAt,
+						DesiredHosts: desiredHostsFromRendered(renderedByPanel[p.PanelID]),
+					})
 				}
 				continue
 			}
@@ -521,6 +525,20 @@ func (r *Reconciler) ReconcileOnce(
 		}
 
 		if !pp.preserveDisk {
+			// Surface held_mass_delete for hosts in LastGood that are slated for
+			// removal in PendingSnapshot while still keeping them rendered.
+			if pp.st.PendingSnapshot != nil {
+				pendingSet := collectSnapshotValidHostSet(pp.st.PendingSnapshot, cfg.ShieldHostname)
+				for host, hs := range pp.hostStatuses {
+					if _, stillPresent := pendingSet[host]; !stillPresent {
+						if _, wasRendered := admitted[host]; wasRendered {
+							hs.State = StateHeldMassDelete
+							hs.Detail = appendWarning(hs.Detail, fmt.Sprintf("held by mass-deletion guard (%d/3 polls)", pp.st.PendingCount))
+							pp.hostStatuses[host] = hs
+						}
+					}
+				}
+			}
 			pp.st.HostStates = pp.hostStatuses
 		}
 		_ = SavePanelState(r.paths.StateFile(p.PanelID), pp.st)
@@ -606,6 +624,14 @@ func collectShieldIPs(cfg *Config, panelStates map[string]*PanelState) []netip.A
 		}
 	}
 	return out
+}
+
+func desiredHostsFromRendered(rendered map[string]struct{}) map[string]struct{} {
+	desired := make(map[string]struct{}, len(rendered))
+	for h := range rendered {
+		desired[h] = struct{}{}
+	}
+	return desired
 }
 
 func pruneTimestamps(in []time.Time, cutoff time.Time) []time.Time {

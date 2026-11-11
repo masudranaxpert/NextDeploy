@@ -450,3 +450,111 @@ func TestDaemonEndToEndDebouncedSyncAndScopedStatus(t *testing.T) {
 		t.Fatalf("expected daemon poll+reconcile+status post; statusPosts=%d reloads=%d", len(postedStatus), caddy.reloadCalls)
 	}
 }
+
+func TestReconcilerDNS4ApexThenWWWAndInvalidCAPreservesClaim(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 4, 0, 0, 0, time.UTC)
+	paths := NewPaths(t.TempDir())
+
+	res := newFakeDNSResolver()
+	res.setBoth("apex.example.com", dns.TypeA, msgA("apex.example.com", "107.189.6.222"), nil)
+	res.setBoth("www.apex.example.com", dns.TypeA, msgNXDOMAIN(), nil)
+	res.setBoth("www.apex.example.com", dns.TypeAAAA, msgNXDOMAIN(), nil)
+
+	caddy := &fakeCaddyRunner{}
+	systemd := &fakeSystemdRunner{active: true}
+	cfIPs := NewCFIPStore()
+	dnsGate := NewDNSGate(DNSGateOptions{Resolver: res, CFIPs: cfIPs, CachePath: paths.DNSCacheFile})
+	rec := NewReconciler(paths, dnsGate, NewApplier(paths, caddy), NewCertProbe(paths.CaddyCertsDir, systemd), systemd, cfIPs)
+
+	caPEM := generateTestCertPEM(t, true)
+	cfg := &Config{
+		EdgeID:        "edge-1",
+		ShieldIPs:     []string{"107.189.6.222"},
+		PerPanelQuota: 2000,
+		Panels: []PanelConfig{
+			{PanelID: "panel-a", PanelName: "vps-a", RegisteredAt: now.Add(-2 * time.Hour)},
+			{PanelID: "panel-b", PanelName: "vps-b", RegisteredAt: now.Add(-1 * time.Hour)},
+		},
+	}
+	states := map[string]*PanelState{
+		"panel-a": NewPanelState("panel-a", "vps-a"),
+		"panel-b": NewPanelState("panel-b", "vps-b"),
+	}
+	states["panel-a"].LastGoodETag = "etag-a1"
+	states["panel-a"].LastGood = &RoutesResponse{
+		APIVersion: 1,
+		PanelID:    "panel-a",
+		ETag:       "etag-a1",
+		Origin:     OriginInfo{IPs: []string{"204.136.10.51"}, Port: 443, CAPEM: caPEM, CAStatus: CAStatusOK},
+		Routes:     []EdgeRoute{{ID: "r1", Hosts: []string{"apex.example.com", "www.apex.example.com"}}},
+	}
+	claims := NewClaimsStore()
+	meta := &ApplyMeta{}
+
+	// E-DNS-4 step 1: apex rendered while www is pending_dns.
+	out, err := rec.ReconcileOnce(ctx, cfg, states, claims, meta, false, false, now)
+	if err != nil || !out.Applied {
+		t.Fatalf("reconcile step 1 failed: out=%+v err=%v", out, err)
+	}
+	if states["panel-a"].HostStates["apex.example.com"].State != StateIssuing {
+		t.Fatalf("expected apex issuing, got %+v", states["panel-a"].HostStates["apex.example.com"])
+	}
+	if states["panel-a"].HostStates["www.apex.example.com"].State != StatePendingDNS {
+		t.Fatalf("expected www pending_dns, got %+v", states["panel-a"].HostStates["www.apex.example.com"])
+	}
+	panelsDir, _ := ReadDirLink(paths.PanelsLink)
+	aCaddy, _ := os.ReadFile(filepath.Join(panelsDir, "panel-a.caddy"))
+	if !strings.Contains(string(aCaddy), "apex.example.com") || strings.Contains(string(aCaddy), "www.apex.example.com") {
+		t.Fatalf("expected only apex in Caddyfile initially, got:\n%s", string(aCaddy))
+	}
+
+	// E-DNS-4 step 2: www DNS resolves -> www added in next reconcile.
+	res.setBoth("www.apex.example.com", dns.TypeA, msgA("www.apex.example.com", "107.189.6.222"), nil)
+	out, err = rec.ReconcileOnce(ctx, cfg, states, claims, meta, false, false, now.Add(2*time.Minute))
+	if err != nil || !out.Applied {
+		t.Fatalf("reconcile step 2 failed: out=%+v err=%v", out, err)
+	}
+	panelsDir, _ = ReadDirLink(paths.PanelsLink)
+	aCaddy, _ = os.ReadFile(filepath.Join(panelsDir, "panel-a.caddy"))
+	if !strings.Contains(string(aCaddy), "www.apex.example.com") {
+		t.Fatalf("expected www.apex.example.com added once DNS resolved, got:\n%s", string(aCaddy))
+	}
+
+	// Defect #3 regression: panel-a gets an invalid CA PEM while panel-b asks for apex.example.com.
+	// panel-a preserves its disk file AND its claim, so panel-b must get conflict instead of stealing apex.example.com.
+	states["panel-a"].LastGood.Origin.CAPEM = "CORRUPT-PEM"
+	states["panel-b"].LastGoodETag = "etag-b1"
+	states["panel-b"].LastGood = &RoutesResponse{
+		APIVersion: 1,
+		PanelID:    "panel-b",
+		ETag:       "etag-b1",
+		Origin:     OriginInfo{IPs: []string{"204.136.10.52"}, Port: 443, CAPEM: caPEM, CAStatus: CAStatusOK},
+		Routes:     []EdgeRoute{{ID: "r1", Hosts: []string{"apex.example.com"}}},
+	}
+	_, err = rec.ReconcileOnce(ctx, cfg, states, claims, meta, false, false, now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("reconcile with invalid CA on panel-a failed: %v", err)
+	}
+	if len(states["panel-b"].Conflicts) != 1 || states["panel-b"].Conflicts[0].Host != "apex.example.com" {
+		t.Fatalf("expected panel-b to get conflict for apex.example.com while panel-a preserves disk, got %+v", states["panel-b"].Conflicts)
+	}
+
+	// Defect #4 regression: held_mass_delete surfaced on hosts slated for removal in PendingSnapshot.
+	states["panel-a"].LastGood.Origin.CAPEM = caPEM
+	states["panel-a"].PendingSnapshot = &RoutesResponse{
+		APIVersion: 1,
+		PanelID:    "panel-a",
+		ETag:       "etag-empty",
+		Routes:     nil,
+	}
+	states["panel-a"].PendingETag = "etag-empty"
+	states["panel-a"].PendingCount = 1
+	_, err = rec.ReconcileOnce(ctx, cfg, states, claims, meta, false, false, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatalf("reconcile with pending mass delete failed: %v", err)
+	}
+	if states["panel-a"].HostStates["apex.example.com"].State != StateHeldMassDelete {
+		t.Fatalf("expected held_mass_delete state on apex.example.com, got %+v", states["panel-a"].HostStates["apex.example.com"])
+	}
+}
