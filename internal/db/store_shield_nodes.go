@@ -82,10 +82,16 @@ func (s *Store) migrateShieldNodes() error {
 	if err := addColumnIfMissing(s.db, "app_domains", "pending_origin_apply", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := addColumnIfMissing(s.db, "app_domains", "trusted_proxy", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := addColumnIfMissing(s.db, "proxy_routes", "shield_node_id", "INTEGER DEFAULT NULL"); err != nil {
 		return err
 	}
 	if err := addColumnIfMissing(s.db, "proxy_routes", "pending_origin_apply", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(s.db, "proxy_routes", "trusted_proxy", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 

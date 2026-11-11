@@ -11,7 +11,7 @@ import (
 
 func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(pending_origin_apply,0),created_at
+		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(trusted_proxy,0),COALESCE(pending_origin_apply,0),created_at
 		 FROM app_domains WHERE app_id=?
 		 ORDER BY COALESCE(is_primary,0) DESC, id ASC`, appID)
 	if err != nil {
@@ -21,11 +21,11 @@ func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, 
 	var out []AppDomain
 	for rows.Next() {
 		var d AppDomain
-		var isPrim, https, www, static, media, pending int
+		var isPrim, https, www, static, media, trustedProxy, pending int
 		var shieldID sql.NullInt64
 		var created string
 		if err := rows.Scan(&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
-			&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &pending, &created); err != nil {
+			&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &trustedProxy, &pending, &created); err != nil {
 			return nil, err
 		}
 		if shieldID.Valid {
@@ -36,6 +36,7 @@ func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, 
 		d.EnableWWW = www != 0
 		d.ServeStatic = static != 0
 		d.ServeMedia = media != 0
+		d.TrustedProxy = trustedProxy != 0
 		d.PendingOriginApply = pending != 0
 		t, _ := time.Parse(time.RFC3339, created)
 		d.CreatedAt = t
@@ -46,14 +47,14 @@ func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, 
 
 func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 	var d AppDomain
-	var isPrim, https, www, static, media, pending int
+	var isPrim, https, www, static, media, trustedProxy, pending int
 	var shieldID sql.NullInt64
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(pending_origin_apply,0),created_at
+		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(trusted_proxy,0),COALESCE(pending_origin_apply,0),created_at
 		 FROM app_domains WHERE id=?`, id).Scan(
 		&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
-		&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &pending, &created)
+		&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &trustedProxy, &pending, &created)
 	if err != nil {
 		return AppDomain{}, err
 	}
@@ -65,6 +66,7 @@ func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 	d.EnableWWW = www != 0
 	d.ServeStatic = static != 0
 	d.ServeMedia = media != 0
+	d.TrustedProxy = trustedProxy != 0
 	d.PendingOriginApply = pending != 0
 	t, _ := time.Parse(time.RFC3339, created)
 	d.CreatedAt = t
@@ -92,14 +94,14 @@ func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error)
 		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=?`, d.AppID)
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO app_domains(app_id,domain,service,port,is_primary,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,route_rules_json,shield_node_id,pending_origin_apply,created_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO app_domains(app_id,domain,service,port,is_primary,enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,route_rules_json,shield_node_id,trusted_proxy,pending_origin_apply,created_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		d.AppID, d.Domain, d.Service, d.Port,
 		boolInt(d.IsPrimary),
 		boolInt(d.EnableHTTPS), boolInt(d.EnableWWW),
 		boolInt(d.ServeStatic), d.StaticPath, d.StaticURLPrefix,
 		boolInt(d.ServeMedia), d.MediaPath, d.MediaURLPrefix, normalizeRulesJSON(d.RouteRulesJSON),
-		d.ShieldNodeID, boolInt(d.PendingOriginApply),
+		d.ShieldNodeID, boolInt(d.TrustedProxy), boolInt(d.PendingOriginApply),
 		time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return 0, err
@@ -124,14 +126,14 @@ func (s *Store) UpdateAppDomain(ctx context.Context, d AppDomain) error {
 		_, _ = s.db.ExecContext(ctx, `UPDATE app_domains SET is_primary=0 WHERE app_id=? AND id!=?`, d.AppID, d.ID)
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE app_domains SET domain=?,service=?,port=?,is_primary=?,enable_https=?,enable_www=?,serve_static=?,static_path=?,static_url_prefix=?,serve_media=?,media_path=?,media_url_prefix=?,route_rules_json=?,shield_node_id=?,pending_origin_apply=?
+		`UPDATE app_domains SET domain=?,service=?,port=?,is_primary=?,enable_https=?,enable_www=?,serve_static=?,static_path=?,static_url_prefix=?,serve_media=?,media_path=?,media_url_prefix=?,route_rules_json=?,shield_node_id=?,trusted_proxy=?,pending_origin_apply=?
 		 WHERE id=?`,
 		d.Domain, d.Service, d.Port,
 		boolInt(d.IsPrimary),
 		boolInt(d.EnableHTTPS), boolInt(d.EnableWWW),
 		boolInt(d.ServeStatic), d.StaticPath, d.StaticURLPrefix,
 		boolInt(d.ServeMedia), d.MediaPath, d.MediaURLPrefix, normalizeRulesJSON(d.RouteRulesJSON),
-		d.ShieldNodeID, boolInt(d.PendingOriginApply),
+		d.ShieldNodeID, boolInt(d.TrustedProxy), boolInt(d.PendingOriginApply),
 		d.ID)
 	return err
 }

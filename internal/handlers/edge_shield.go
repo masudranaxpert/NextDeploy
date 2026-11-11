@@ -1463,9 +1463,9 @@ func (p *Panel) ReassignShieldNodeDomains(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
-// syncShieldProxiesToCaddy reconciles active Shield Node IPs in Caddy TrustedProxies,
-// ensuring RealIP is set to "custom", pruning deleted/changed Shield IPs even when
-// len(nodes) == 0, and triggering root stack apply when the options change.
+// syncShieldProxiesToCaddy reconciles active Shield Node IPs into opts.ShieldProxies and
+// DirectCloudflare into opts.DirectCloudflare without clobbering opts.RealIP or custom
+// opts.TrustedProxies, triggering root stack apply when the effective options change.
 func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...string) {
 	nodes, err := p.DB.ListShieldNodes(ctx)
 	if err != nil {
@@ -1481,6 +1481,16 @@ func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...stri
 			activeList = append(activeList, ip)
 		}
 	}
+
+	var directCFCount int
+	_ = p.DB.DB().QueryRowContext(ctx, `
+		SELECT (
+			SELECT COUNT(1) FROM app_domains WHERE shield_node_id IS NULL AND COALESCE(trusted_proxy, 0) = 1
+		) + (
+			SELECT COUNT(1) FROM proxy_routes WHERE enabled = 1 AND shield_node_id IS NULL AND COALESCE(trusted_proxy, 0) = 1
+		)
+	`).Scan(&directCFCount)
+	directCF := directCFCount > 0
 
 	prevManagedSet := make(map[string]bool)
 	if rawPrev := strings.TrimSpace(p.DB.GetCaddyConfig(ctx, caddyShieldTrustedProxies)); rawPrev != "" {
@@ -1504,51 +1514,43 @@ func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...stri
 	opts := p.caddyGlobalOptions(ctx)
 	oldRealIP := opts.RealIP
 	oldProxies := append([]string(nil), opts.TrustedProxies...)
+	oldShield := append([]string(nil), opts.ShieldProxies...)
+	oldDirectCF := opts.DirectCloudflare
 
-	kept := make([]string, 0, len(opts.TrustedProxies)+len(activeList))
-	keptSet := make(map[string]bool)
-	for _, rawIP := range opts.TrustedProxies {
-		ip := strings.TrimSpace(rawIP)
-		if ip == "" {
-			continue
-		}
-		// Prune previously managed shield IPs that are no longer active
-		if prevManagedSet[ip] && !activeSet[ip] {
-			continue
-		}
-		if !keptSet[ip] {
-			keptSet[ip] = true
+	// Migrate/prune any legacy Shield IPs previously injected into opts.TrustedProxies
+	// while preserving user-defined custom proxies and opts.RealIP ("none"|"cloudflare"|"custom").
+	if opts.RealIP == "custom" && len(prevManagedSet) > 0 {
+		kept := make([]string, 0, len(opts.TrustedProxies))
+		for _, rawIP := range opts.TrustedProxies {
+			ip := strings.TrimSpace(rawIP)
+			if ip == "" || prevManagedSet[ip] {
+				continue
+			}
 			kept = append(kept, ip)
 		}
-	}
-	for _, ip := range activeList {
-		if !keptSet[ip] {
-			keptSet[ip] = true
-			kept = append(kept, ip)
+		opts.TrustedProxies = kept
+		if len(opts.TrustedProxies) == 0 {
+			opts.RealIP = "none"
+			opts.TrustedProxies = nil
 		}
 	}
 
-	opts.TrustedProxies = kept
-	if len(opts.TrustedProxies) > 0 {
-		opts.RealIP = "custom"
-	} else if opts.RealIP == "custom" {
-		opts.RealIP = "none"
+	if len(activeList) > 0 {
+		opts.ShieldProxies = append([]string(nil), activeList...)
+	} else {
+		opts.ShieldProxies = nil
 	}
+	opts.DirectCloudflare = directCF
 
 	// Persist current managed shield IP set
 	if managedRaw, mErr := json.Marshal(activeList); mErr == nil {
 		_ = p.DB.SetCaddyConfig(ctx, caddyShieldTrustedProxies, string(managedRaw))
 	}
 
-	changed := opts.RealIP != oldRealIP || len(opts.TrustedProxies) != len(oldProxies)
-	if !changed {
-		for i := range opts.TrustedProxies {
-			if opts.TrustedProxies[i] != oldProxies[i] {
-				changed = true
-				break
-			}
-		}
-	}
+	changed := opts.RealIP != oldRealIP ||
+		opts.DirectCloudflare != oldDirectCF ||
+		!stringSlicesEqual(opts.TrustedProxies, oldProxies) ||
+		!stringSlicesEqual(opts.ShieldProxies, oldShield)
 
 	if changed {
 		raw, _ := json.Marshal(opts)
@@ -1559,8 +1561,24 @@ func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...stri
 	}
 }
 
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // StartShieldNodeHealthLoop runs proactive background health checks on all shield nodes.
 func (p *Panel) StartShieldNodeHealthLoop() {
+	initCtx, initCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	p.syncShieldProxiesToCaddy(initCtx)
+	initCancel()
+
 	p.probeAllShieldNodes()
 
 	ticker := time.NewTicker(30 * time.Second)

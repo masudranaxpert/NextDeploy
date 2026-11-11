@@ -73,10 +73,11 @@ type EdgeOriginInfo struct {
 
 // EdgeRoute describes one route owned by this panel on the Shield node.
 type EdgeRoute struct {
-	ID      string           `json:"id"`
-	Kind    string           `json:"kind"` // "app_domain" | "php_site" | "proxy_route" | "preview" | "panel"
-	Hosts   []string         `json:"hosts"`
-	Options EdgeRouteOptions `json:"options"`
+	ID           string           `json:"id"`
+	Kind         string           `json:"kind"` // "app_domain" | "php_site" | "proxy_route" | "preview" | "panel"
+	Hosts        []string         `json:"hosts"`
+	TrustedProxy bool             `json:"trusted_proxy,omitempty"`
+	Options      EdgeRouteOptions `json:"options"`
 }
 
 // EdgeRouteOptions holds per-route proxy behaviour flags.
@@ -258,6 +259,8 @@ func (p *Panel) EdgeRegister(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	p.syncShieldProxiesToCaddy(ctx)
+
 	return c.JSON(EdgeRegisterResponse{
 		PanelID:         panelID,
 		PanelName:       p.panelDisplayName(ctx),
@@ -353,7 +356,7 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 
 	// 1. app_domains assigned to this Shield node (omitting E-ORIGIN-6 pending_origin_apply rows)
 	rows, err := p.DB.DB().QueryContext(ctx, `
-		SELECT d.id, d.app_id, d.domain, d.enable_www,
+		SELECT d.id, d.app_id, d.domain, d.enable_www, COALESCE(d.trusted_proxy, 0),
 		       CASE WHEN EXISTS (SELECT 1 FROM php_sites ps WHERE ps.app_id = d.app_id) THEN 1 ELSE 0 END AS is_php
 		FROM app_domains d
 		WHERE d.shield_node_id = ? AND COALESCE(d.pending_origin_apply, 0) = 0
@@ -365,8 +368,8 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 	for rows.Next() {
 		var id int64
 		var appID, dom string
-		var enableWWW, isPHP int
-		if err := rows.Scan(&id, &appID, &dom, &enableWWW, &isPHP); err != nil {
+		var enableWWW, trustedProxy, isPHP int
+		if err := rows.Scan(&id, &appID, &dom, &enableWWW, &trustedProxy, &isPHP); err != nil {
 			_ = rows.Close()
 			return EdgeRoutesResponse{}, err
 		}
@@ -382,10 +385,11 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 			}
 		}
 		candidates = append(candidates, EdgeRoute{
-			ID:      fmt.Sprintf("dom_%d", id),
-			Kind:    kind,
-			Hosts:   hosts,
-			Options: EdgeRouteOptions{Websocket: true, MaxBodyMB: 0, UpstreamH2: false},
+			ID:           fmt.Sprintf("dom_%d", id),
+			Kind:         kind,
+			Hosts:        hosts,
+			TrustedProxy: trustedProxy != 0,
+			Options:      EdgeRouteOptions{Websocket: true, MaxBodyMB: 0, UpstreamH2: false},
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -396,7 +400,7 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 
 	// 2. enabled proxy_routes assigned to this Shield node (omitting pending_origin_apply rows)
 	pRows, err := p.DB.DB().QueryContext(ctx, `
-		SELECT id, domain, enable_www
+		SELECT id, domain, enable_www, COALESCE(trusted_proxy, 0)
 		FROM proxy_routes
 		WHERE enabled = 1 AND shield_node_id = ? AND COALESCE(pending_origin_apply, 0) = 0
 		ORDER BY id ASC
@@ -407,8 +411,8 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 	for pRows.Next() {
 		var id int64
 		var dom string
-		var enableWWW int
-		if err := pRows.Scan(&id, &dom, &enableWWW); err != nil {
+		var enableWWW, trustedProxy int
+		if err := pRows.Scan(&id, &dom, &enableWWW, &trustedProxy); err != nil {
 			_ = pRows.Close()
 			return EdgeRoutesResponse{}, err
 		}
@@ -420,10 +424,11 @@ func (p *Panel) BuildEdgeRoutesResponse(ctx context.Context, node *db.ShieldNode
 			}
 		}
 		candidates = append(candidates, EdgeRoute{
-			ID:      fmt.Sprintf("proxy_%d", id),
-			Kind:    "proxy_route",
-			Hosts:   hosts,
-			Options: EdgeRouteOptions{Websocket: true, MaxBodyMB: 0, UpstreamH2: false},
+			ID:           fmt.Sprintf("proxy_%d", id),
+			Kind:         "proxy_route",
+			Hosts:        hosts,
+			TrustedProxy: trustedProxy != 0,
+			Options:      EdgeRouteOptions{Websocket: true, MaxBodyMB: 0, UpstreamH2: false},
 		})
 	}
 	if err := pRows.Err(); err != nil {
@@ -525,7 +530,7 @@ func ComputeEdgeRoutesETag(resp EdgeRoutesResponse) (string, error) {
 	for _, r := range routesCopy {
 		hosts := append([]string(nil), r.Hosts...)
 		sort.Strings(hosts)
-		sortedRoutes = append(sortedRoutes, map[string]interface{}{
+		entry := map[string]interface{}{
 			"hosts": hosts,
 			"id":    r.ID,
 			"kind":  r.Kind,
@@ -534,7 +539,11 @@ func ComputeEdgeRoutesETag(resp EdgeRoutesResponse) (string, error) {
 				"upstream_h2": r.Options.UpstreamH2,
 				"websocket":   r.Options.Websocket,
 			},
-		})
+		}
+		if r.TrustedProxy {
+			entry["trusted_proxy"] = true
+		}
+		sortedRoutes = append(sortedRoutes, entry)
 	}
 	ips := append([]string(nil), resp.Origin.IPs...)
 	canonical := map[string]interface{}{

@@ -34,6 +34,9 @@ func (p *Panel) CaddyOptionsGet(c *fiber.Ctx) error {
 	if o.TrustedProxies == nil {
 		o.TrustedProxies = []string{}
 	}
+	if o.ShieldProxies == nil {
+		o.ShieldProxies = []string{}
+	}
 	return c.JSON(fiber.Map{
 		"ok":                true,
 		"options":           o,
@@ -53,12 +56,15 @@ func (p *Panel) CaddyOptionsSave(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return phpJSONErr(c, 400, "invalid body")
 	}
+	ctx := c.UserContext()
+	existing := p.caddyGlobalOptions(ctx)
+	body.GlobalOptions.ShieldProxies = existing.ShieldProxies
+	body.GlobalOptions.DirectCloudflare = existing.DirectCloudflare
 	o, err := body.GlobalOptions.Normalize()
 	if err != nil {
 		return phpJSONErr(c, 400, err.Error())
 	}
 	raw, _ := json.Marshal(o)
-	ctx := c.UserContext()
 	if err := p.DB.SetCaddyConfig(ctx, caddyOptionsKey, string(raw)); err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
@@ -211,6 +217,7 @@ func (p *Panel) CaddyRouteSave(c *fiber.Ctx) error {
 		_ = p.DB.ClearProxyRoutePendingOriginApply(ctx, saved.ID)
 		saved.PendingOriginApply = false
 	}
+	p.syncShieldProxiesToCaddy(ctx)
 	p.RecordAuditLog(c, "caddy_route", "system", saved.Domain, "Saved "+saved.Kind+" route to "+saved.Target)
 	return c.JSON(fiber.Map{"ok": true, "route": saved})
 }
@@ -239,6 +246,7 @@ func (p *Panel) CaddyRouteToggle(c *fiber.Ctx) error {
 	if err := p.syncProxyRoute(ctx, r); err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
+	p.syncShieldProxiesToCaddy(ctx)
 	return c.JSON(fiber.Map{"ok": true, "route": r})
 }
 
@@ -257,6 +265,7 @@ func (p *Panel) CaddyRouteDelete(c *fiber.Ctx) error {
 	if err := p.DB.DeleteProxyRoute(ctx, id); err != nil {
 		return phpJSONErr(c, 500, err.Error())
 	}
+	p.syncShieldProxiesToCaddy(ctx)
 	p.RecordAuditLog(c, "caddy_route", "system", r.Domain, "Deleted route")
 	return c.JSON(fiber.Map{"ok": true})
 }

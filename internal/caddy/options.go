@@ -11,15 +11,17 @@ import (
 // GlobalOptions are the server-wide Caddy settings the admin can change. An empty value means
 // "Caddy's own default". They are written as labels on the Caddy container itself.
 type GlobalOptions struct {
-	Profile        string   `json:"profile"`         // default | balanced | high | strict | custom
-	ReadHeader     string   `json:"read_header"`     // time allowed to read request headers
-	ReadBodyIdle   string   `json:"read_body_idle"`  // max pause while a request body is uploaded
-	Idle           string   `json:"idle"`            // keep-alive wait for the next request
-	GracePeriod    string   `json:"grace_period"`    // how long a reload waits for open connections
-	MaxHeaderSize  string   `json:"max_header_size"` // e.g. 16KB; bigger headers get 431
-	RealIP         string   `json:"real_ip"`         // none | cloudflare | custom
-	TrustedProxies []string `json:"trusted_proxies"` // used when real_ip is custom
-	TrustedStrict  bool     `json:"trusted_strict"`  // read forwarded headers right to left
+	Profile          string   `json:"profile"`                     // default | balanced | high | strict | custom
+	ReadHeader       string   `json:"read_header"`                 // time allowed to read request headers
+	ReadBodyIdle     string   `json:"read_body_idle"`              // max pause while a request body is uploaded
+	Idle             string   `json:"idle"`                        // keep-alive wait for the next request
+	GracePeriod      string   `json:"grace_period"`                // how long a reload waits for open connections
+	MaxHeaderSize    string   `json:"max_header_size"`             // e.g. 16KB; bigger headers get 431
+	RealIP           string   `json:"real_ip"`                     // none | cloudflare | custom
+	TrustedProxies   []string `json:"trusted_proxies"`             // used when real_ip is custom
+	TrustedStrict    bool     `json:"trusted_strict"`              // read forwarded headers right to left
+	ShieldProxies    []string `json:"shield_proxies,omitempty"`    // auto-managed active Shield node IPs
+	DirectCloudflare bool     `json:"direct_cloudflare,omitempty"` // auto-managed when any direct domain/route has trusted_proxy=true
 }
 
 // CloudflareRanges are Cloudflare's published proxy ranges (https://www.cloudflare.com/ips/).
@@ -106,6 +108,19 @@ func (o GlobalOptions) Normalize() (GlobalOptions, error) {
 	default:
 		return o, fmt.Errorf("Real visitor IP: unknown mode")
 	}
+	if len(o.ShieldProxies) > 0 {
+		sp, err := NormalizeIPList(o.ShieldProxies)
+		if err != nil {
+			return o, fmt.Errorf("Shield proxies: %w", err)
+		}
+		if len(sp) == 0 {
+			o.ShieldProxies = nil
+		} else {
+			o.ShieldProxies = sp
+		}
+	} else {
+		o.ShieldProxies = nil
+	}
 	return o, nil
 }
 
@@ -123,20 +138,44 @@ func (o GlobalOptions) Labels() map[string]string {
 	set("caddy.servers.timeouts.idle", o.Idle)
 	set("caddy.servers.max_header_size", o.MaxHeaderSize)
 	set("caddy.grace_period", o.GracePeriod)
+
+	cfActive := o.RealIP == "cloudflare" || o.DirectCloudflare
+	seen := make(map[string]bool)
 	var ranges []string
-	switch o.RealIP {
-	case "cloudflare":
-		ranges = CloudflareRanges
-	case "custom":
-		ranges = o.TrustedProxies
+	appendRanges := func(list []string) {
+		for _, raw := range list {
+			ip := strings.TrimSpace(raw)
+			if ip == "" || seen[ip] {
+				continue
+			}
+			seen[ip] = true
+			ranges = append(ranges, ip)
+		}
 	}
+	if cfActive {
+		appendRanges(CloudflareRanges)
+	}
+	if o.RealIP == "custom" {
+		appendRanges(o.TrustedProxies)
+	}
+	appendRanges(o.ShieldProxies)
+
 	if len(ranges) > 0 {
 		out["caddy.servers.trusted_proxies"] = "static " + strings.Join(ranges, " ")
-		if o.TrustedStrict {
+		if cfActive || o.TrustedStrict {
 			out["caddy.servers.trusted_proxies_strict"] = `{{""}}`
+			out["caddy.servers.client_ip_headers"] = "CF-Connecting-IP X-Forwarded-For"
 		}
 	}
 	return out
+}
+
+// applyUntrustedDirectProxyHeaders enforces TrustedProxy == false on direct Origin
+// reverse_proxy blocks by stripping CF-Connecting-IP and forwarding the direct socket IP.
+func applyUntrustedDirectProxyHeaders(labels map[string]string, rpBase string) {
+	labels[rpBase+".header_up_0"] = "X-Real-IP {remote_host}"
+	labels[rpBase+".header_up_1"] = "X-Forwarded-For {remote_host}"
+	labels[rpBase+".header_up_2"] = "-CF-Connecting-IP"
 }
 
 // IsGlobalOptionLabel reports whether a label key is managed by GlobalOptions.

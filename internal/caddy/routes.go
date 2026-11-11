@@ -80,6 +80,9 @@ func RouteLabels(r db.ProxyRoute) map[string]string {
 	case "proxy":
 		labels["caddy.reverse_proxy"] = r.Target
 		labels["caddy.reverse_proxy.stream_close_delay"] = "10m"
+		if !r.TrustedProxy && r.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, "caddy.reverse_proxy")
+		}
 		if r.SkipTLSVerify && strings.HasPrefix(r.Target, "https://") {
 			labels["caddy.reverse_proxy.transport"] = "http"
 			labels["caddy.reverse_proxy.transport.tls_insecure_skip_verify"] = `{{""}}`
