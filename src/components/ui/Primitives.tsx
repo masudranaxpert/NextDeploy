@@ -18,7 +18,7 @@ export interface ShadcnDialogProps {
   description?: string;
   icon?: React.ReactNode;
   headerActions?: React.ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   children: React.ReactNode;
   footer?: React.ReactNode;
   closeOnBackdropClick?: boolean;
@@ -55,6 +55,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
     lg: 'max-w-lg',
     xl: 'max-w-xl',
     '2xl': 'max-w-2xl',
+    '3xl': 'max-w-3xl',
   }[maxWidth];
 
   const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
