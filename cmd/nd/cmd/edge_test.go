@@ -668,3 +668,10 @@ func TestPhase0_ShieldDomainAndProxyFlags(t *testing.T) {
 		t.Fatalf("expected error when both --shield and --direct passed to proxy add")
 	}
 }
+
+func TestParseCaddyVersionOutputSkipsJSONLogLines(t *testing.T) {
+	raw := "{\"level\":\"warn\",\"ts\":1794380479.562721,\"msg\":\"unable to determine directory for user configuration\"}\nv2.11.2 h1:abcdef\n"
+	if got := parseCaddyVersionOutput(raw); got != "v2.11.2" {
+		t.Fatalf("expected v2.11.2, got %q", got)
+	}
+}

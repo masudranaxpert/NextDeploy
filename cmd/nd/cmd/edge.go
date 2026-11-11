@@ -720,11 +720,28 @@ func detectCaddyVersionWithOps(ctx context.Context, ops *edgeOps) string {
 	if err != nil {
 		return ""
 	}
-	fields := strings.Fields(out)
-	if len(fields) > 0 {
-		return fields[0]
+	return parseCaddyVersionOutput(out)
+}
+
+func parseCaddyVersionOutput(out string) string {
+	var fallback string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "{") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields[0]) >= 2 && fields[0][0] == 'v' && fields[0][1] >= '0' && fields[0][1] <= '9' {
+			return fields[0]
+		}
+		if fallback == "" {
+			fallback = fields[0]
+		}
 	}
-	return ""
+	return fallback
 }
 
 // --- Caddyfile Parsing, Legacy Stripping, and Adoption ---
