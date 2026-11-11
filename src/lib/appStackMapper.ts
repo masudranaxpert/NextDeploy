@@ -216,6 +216,7 @@ export function mapRawAppToStack(
           serveMedia: d.serve_media ?? false,
           mediaPath: d.media_path,
           mediaUrlPrefix: d.media_url_prefix,
+          trusted_proxy: Boolean(d.trusted_proxy),
           shield_node_id: d.shield_node_id != null ? Number(d.shield_node_id) : null,
           pending_origin_apply: Boolean(d.pending_origin_apply),
           edge_status: d.edge_status ?? null,

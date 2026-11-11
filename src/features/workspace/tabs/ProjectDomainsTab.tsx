@@ -24,6 +24,7 @@ import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy'
 import { ShieldNode } from '../../../types/shield';
 import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp, getPanelId } from '../../../lib/backendApi';
 import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../../components/shield/EdgeDomainStatusBadge';
+import { TrustedProxyBadge, TrustedProxyToggle } from '../../../components/shield/TrustedProxyControl';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -176,6 +177,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const [domainMedia, setDomainMedia] = useState(false);
   const [domainMediaPath, setDomainMediaPath] = useState('/var/www/media');
   const [domainMediaPrefix, setDomainMediaPrefix] = useState('/media/');
+  const [domainTrustedProxy, setDomainTrustedProxy] = useState(false);
   const [domainShieldNodeId, setDomainShieldNodeId] = useState<number | null>(null);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => getCachedShieldNodes().nodes || []);
   const [saving, setSaving] = useState(false);
@@ -285,6 +287,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(false);
     setDomainMediaPath('/var/www/media');
     setDomainMediaPrefix('/media/');
+    setDomainTrustedProxy(false);
     setDomainShieldNodeId(null);
     setShowDomainModal(true);
   };
@@ -304,6 +307,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDomainMedia(Boolean(d.serveMedia));
     setDomainMediaPath(d.mediaPath || '/var/www/media');
     setDomainMediaPrefix(d.mediaUrlPrefix || '/media/');
+    setDomainTrustedProxy(Boolean(d.trusted_proxy));
     setDomainShieldNodeId(d.shield_node_id ?? null);
     setShowDomainModal(true);
   };
@@ -338,6 +342,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
         serve_media: domainMedia,
         media_path: domainMedia ? domainMediaPath.trim() : '',
         media_url_prefix: domainMedia ? domainMediaPrefix.trim() : '',
+        trusted_proxy: domainTrustedProxy,
         shield_node_id: domainShieldNodeId,
       };
 
@@ -358,6 +363,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 serveMedia: domainMedia,
                 mediaPath: payload.media_path,
                 mediaUrlPrefix: payload.media_url_prefix,
+                trusted_proxy: domainTrustedProxy,
                 shield_node_id: domainShieldNodeId,
               }
             : d
@@ -385,6 +391,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           serveMedia: domainMedia,
           mediaPath: payload.media_path,
           mediaUrlPrefix: payload.media_url_prefix,
+          trusted_proxy: domainTrustedProxy,
           shield_node_id: domainShieldNodeId,
           gzip: true,
           createdAt: 'Just now',
@@ -786,6 +793,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     pendingOriginApply={d.pending_origin_apply}
                   />
 
+                  <TrustedProxyBadge enabled={d.trusted_proxy} />
+
                   {d.enableWww && (
                     <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
                       + www.{d.domain}
@@ -1098,6 +1107,11 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   </div>
                 </label>
               </div>
+
+              <TrustedProxyToggle
+                checked={domainTrustedProxy}
+                onChange={setDomainTrustedProxy}
+              />
 
               {/* Shield VPS Proxy Node Selector (Admin Only) */}
               {isAdmin && (

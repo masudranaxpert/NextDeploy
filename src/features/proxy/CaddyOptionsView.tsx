@@ -53,7 +53,15 @@ export const CaddyOptionsView: React.FC = () => {
   const pick = (id: string) => {
     const p = profiles[id];
     if (!p) return;
-    setOpts({ ...p, real_ip: opts.real_ip, trusted_proxies: opts.trusted_proxies, trusted_strict: opts.trusted_strict, profile: id });
+    setOpts({
+      ...p,
+      real_ip: opts.real_ip,
+      trusted_proxies: opts.trusted_proxies,
+      trusted_strict: opts.trusted_strict,
+      shield_proxies: opts.shield_proxies,
+      direct_cloudflare: opts.direct_cloudflare,
+      profile: id,
+    });
   };
 
   const save = async (apply: boolean) => {
@@ -153,7 +161,39 @@ export const CaddyOptionsView: React.FC = () => {
             Strict: read forwarded headers from the right (use when several proxies are chained)
           </label>
         )}
-        <p className="mt-3 text-[11px] text-zinc-500">
+        {((opts.shield_proxies?.length ?? 0) > 0 || opts.direct_cloudflare) && (
+          <div className="mt-4 rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-2">
+            {(opts.shield_proxies?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-zinc-200">
+                    Connected Shield proxies (trusted automatically by Origin)
+                  </span>
+                  <span className="text-[11px] text-zinc-400">Read-only</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(opts.shield_proxies ?? []).map((ip) => (
+                    <code
+                      key={ip}
+                      className="rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 font-mono text-[11px] text-cyan-300 tabular-nums"
+                    >
+                      {ip}
+                    </code>
+                  ))}
+                </div>
+              </div>
+            )}
+            {opts.direct_cloudflare && (
+              <p className="text-[11px] text-sky-300">
+                Per-domain Trusted Proxy (Direct Cloudflare Real IP) is enabled on one or more direct domains.
+              </p>
+            )}
+            <p className="text-[11px] leading-snug text-zinc-400">
+              Shield VPS IPs and Direct Cloudflare Real IP combine automatically with your setting above without overwriting each other.
+            </p>
+          </div>
+        )}
+        <p className="mt-3 text-[11px] text-zinc-400">
           Without this, sites behind a CDN see the CDN's address for every visitor, so IP block lists and logs do not match real people.
         </p>
       </Card>
