@@ -1,0 +1,79 @@
+{
+  "register_request": {
+    "edge_id": "11111111-2222-4333-8444-555555555555",
+    "edge_version": "0.1.0",
+    "caddy_version": "v2.8.4",
+    "hostname": "shield-sg",
+    "public_ipv4": ["107.189.6.222"],
+    "public_ipv6": [],
+    "force": false
+  },
+  "register_response": {
+    "panel_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "panel_name": "vps-1",
+    "shield_node_id": 3,
+    "poll_interval_sec": 30,
+    "api_version": 1
+  },
+  "routes_response": {
+    "api_version": 1,
+    "panel_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "etag": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "origin": {
+      "ips": ["204.136.10.51"],
+      "port": 443,
+      "ca_pem": "-----BEGIN CERTIFICATE-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest\n-----END CERTIFICATE-----\n",
+      "ca_sha256": "deadbeef",
+      "ca_status": "ok"
+    },
+    "routes": [
+      {
+        "id": "dom_12",
+        "kind": "app_domain",
+        "hosts": ["app.example.com", "www.app.example.com"],
+        "options": {
+          "websocket": true,
+          "max_body_mb": 0,
+          "upstream_h2": false
+        }
+      }
+    ],
+    "node": {
+      "id": 3,
+      "ip": "107.189.6.222",
+      "deleted": false
+    }
+  },
+  "status_request": {
+    "edge_id": "11111111-2222-4333-8444-555555555555",
+    "edge_version": "0.1.0",
+    "caddy_version": "v2.8.4",
+    "caddy_running": true,
+    "applied_etag": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "last_apply_at": "2026-11-11T04:00:00Z",
+    "last_apply_error": "",
+    "uptime_sec": 3600,
+    "disk_free_pct": 82,
+    "mem_free_mb": 420,
+    "clock_skew_sec": 0,
+    "hosts": [
+      {
+        "host": "app.example.com",
+        "state": "active",
+        "detail": "",
+        "cert_not_after": "2027-01-01T00:00:00Z",
+        "issuer": "Let's Encrypt"
+      }
+    ],
+    "conflicts": [
+      {
+        "host": "x.com",
+        "owner_panel": "vps-2"
+      }
+    ]
+  },
+  "unregister_request": {
+    "edge_id": "11111111-2222-4333-8444-555555555555",
+    "reason": "panel_removed"
+  }
+}
