@@ -18,6 +18,8 @@ import {
   Server,
   Network,
   Eye,
+  ArrowRight,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
@@ -719,140 +721,160 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
             return (
               <div
                 key={d.id}
-                className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 transition-colors hover:border-white/[0.12]"
+                className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3 sm:p-3.5 transition-colors hover:border-white/[0.12] space-y-2.5"
               >
-                {/* URL Chip */}
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2.5">
-                  <a
-                    href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex min-w-0 flex-1 items-center font-mono text-xs"
-                    title={`Open ${d.domain}`}
-                  >
-                    <span className="shrink-0 text-emerald-400/70">{isHttps ? 'https://' : 'http://'}</span>
-                    <span className="truncate text-zinc-100">{d.domain}</span>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => void copyDomainUrl(d)}
-                    title="Copy domain URL"
-                    className="shrink-0 text-emerald-400/70 transition-colors hover:text-emerald-200 cursor-pointer"
-                  >
-                    {copiedDomain === d.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-
-                {/* Status Pills */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
-                  {isHttps ? (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-                      <Lock className="h-3 w-3" />
-                      Auto HTTPS
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-amber-400">
-                      <Lock className="h-3 w-3" />
-                      HTTP Only
-                    </span>
-                  )}
-
-                  {isAdmin && d.shield_node_id ? (
-                    (() => {
-                      const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
-                      return (
-                        <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
-                          isBroken
-                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
-                            : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
-                        }`}>
-                          <ShieldCheck className="h-3 w-3" />
-                          {isAdmin
-                            ? `Shield: ${matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}`
-                            : `Protected (${matchedShield ? matchedShield.ip : 'Edge Shield'})`}
-                          {isBroken && <span className="ml-1 text-[10px] uppercase font-bold text-rose-400">({matchedShield?.status || 'offline'})</span>}
+                {/* Main Row: Domain -> Upstream + Status Pills + Action Buttons */}
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                  {/* Left: Domain -> Upstream + Status Pills */}
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    {/* Domain Box (Emerald mono chip with copy & external link) */}
+                    <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-1.5 text-xs font-mono shadow-xs">
+                      <a
+                        href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center hover:underline"
+                        title={`Open ${d.domain}`}
+                      >
+                        <span className="text-emerald-400 font-medium">
+                          {isHttps ? 'https://' : 'http://'}{d.domain}
                         </span>
-                      );
-                    })()
-                  ) : d.shield_node_id ? (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
-                      <ShieldCheck className="h-3 w-3" />
-                      Protected ({shieldIp || 'Edge Shield'})
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
-                      <Globe className="h-3 w-3 text-zinc-500" />
-                      Direct Origin
-                    </span>
-                  )}
+                      </a>
+                      <div className="flex items-center gap-1.5 ml-1 border-l border-emerald-500/25 pl-2">
+                        <button
+                          type="button"
+                          onClick={() => void copyDomainUrl(d)}
+                          title="Copy domain URL"
+                          className="text-emerald-400/80 hover:text-emerald-200 transition-colors cursor-pointer"
+                        >
+                          {copiedDomain === d.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        </button>
+                        <a
+                          href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${d.domain} in new tab`}
+                          className="text-emerald-400/80 hover:text-emerald-200 transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    </div>
 
-                  <EdgeDomainStatusBadge
-                    shieldNodeId={d.shield_node_id}
-                    shieldIp={shieldIp}
-                    edgeStatus={d.edge_status}
-                    pendingOriginApply={d.pending_origin_apply}
-                  />
+                    {/* Arrow */}
+                    <ArrowRight className="h-3.5 w-3.5 text-zinc-600 shrink-0 hidden sm:block" />
 
-                  <TrustedProxyBadge enabled={d.trusted_proxy} />
+                    {/* Upstream Box (Amber mono chip with server icon) */}
+                    <div className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/[0.08] px-2.5 py-1.5 text-xs font-mono shadow-xs">
+                      <Server className="h-3.5 w-3.5 text-orange-400/80 shrink-0" />
+                      <span className="text-zinc-400 text-[11px]">Upstream:</span>
+                      <span className="text-orange-300 font-semibold tabular-nums">
+                        {d.targetService}:{d.targetPort}
+                      </span>
+                    </div>
 
-                  {d.enableWww && (
-                    <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
-                      + www.{d.domain}
-                    </span>
-                  )}
+                    {/* Status Badges */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {isHttps ? (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+                          <Lock className="h-3 w-3" />
+                          Auto HTTPS
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-amber-400">
+                          <Lock className="h-3 w-3" />
+                          HTTP Only
+                        </span>
+                      )}
 
-                  <span className="inline-flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
-                    <Server className="h-3.5 w-3.5 text-zinc-500" />
-                    Upstream:
-                    <code className="rounded border border-orange-500/25 bg-orange-500/[0.07] px-1.5 py-0.5 font-mono text-xs text-orange-300 tabular-nums">
-                      {d.targetService}:{d.targetPort}
-                    </code>
-                  </span>
+                      {isAdmin && d.shield_node_id ? (
+                        (() => {
+                          const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
+                                isBroken
+                                  ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                                  : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
+                              }`}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              {isAdmin
+                                ? `Shield: ${matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Node #${d.shield_node_id}`}`
+                                : `Protected (${matchedShield ? matchedShield.ip : 'Edge Shield'})`}
+                              {isBroken && (
+                                <span className="ml-1 text-[10px] uppercase font-bold text-rose-400">
+                                  ({matchedShield?.status || 'offline'})
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })()
+                      ) : d.shield_node_id ? (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
+                          <ShieldCheck className="h-3 w-3" />
+                          Protected ({shieldIp || 'Edge Shield'})
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
+                          <Globe className="h-3 w-3 text-zinc-500" />
+                          Direct Origin
+                        </span>
+                      )}
 
-                  {d.serveStatic && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">
-                      <FolderOpen className="h-3 w-3" />
-                      {d.staticUrlPrefix || '/static/'} → {d.staticPath}
-                    </span>
-                  )}
+                      <EdgeDomainStatusBadge
+                        shieldNodeId={d.shield_node_id}
+                        shieldIp={shieldIp}
+                        edgeStatus={d.edge_status}
+                        pendingOriginApply={d.pending_origin_apply}
+                      />
 
-                  {d.serveMedia && (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 font-mono text-xs text-violet-300">
-                      <ImageIcon className="h-3 w-3" />
-                      {d.mediaUrlPrefix || '/media/'} → {d.mediaPath}
-                    </span>
-                  )}
-                </div>
+                      <TrustedProxyBadge enabled={d.trusted_proxy} />
 
-                <EdgeDomainHints
-                  shieldNodeId={d.shield_node_id}
-                  edgeStatus={d.edge_status}
-                  isCloudflareProxied={dns?.cloudflare}
-                  cfFlexibleLoop={dns?.cf_flexible_loop}
-                  cfHint={dns?.cf_hint}
-                />
+                      {d.enableWww && (
+                        <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
+                          + www.{d.domain}
+                        </span>
+                      )}
 
-                {/* Actions */}
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
-                  <button
-                    type="button"
-                    onClick={() => handleCheckDns(d)}
-                    disabled={dnsLoadingId === d.id}
-                    className="inline-flex min-w-0 flex-1 sm:flex-initial sm:w-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCw
-                      className={`h-3.5 w-3.5 shrink-0 ${
-                        dnsLoadingId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'
-                      }`}
-                    />
-                    Verify DNS
-                  </button>
+                      {d.serveStatic && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 font-mono text-xs text-sky-300">
+                          <FolderOpen className="h-3 w-3" />
+                          {d.staticUrlPrefix || '/static/'} → {d.staticPath}
+                        </span>
+                      )}
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                      {d.serveMedia && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 font-mono text-xs text-violet-300">
+                          <ImageIcon className="h-3 w-3" />
+                          {d.mediaUrlPrefix || '/media/'} → {d.mediaPath}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Action Buttons Group */}
+                  <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-center">
+                    <button
+                      type="button"
+                      onClick={() => handleCheckDns(d)}
+                      disabled={dnsLoadingId === d.id}
+                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 shrink-0 ${
+                          dnsLoadingId === d.id ? 'animate-spin text-orange-400' : 'text-zinc-400'
+                        }`}
+                      />
+                      Verify DNS
+                    </button>
+
+                    <div className="h-4 w-px bg-white/[0.08] mx-1 hidden sm:block" />
+
                     <button
                       type="button"
                       onClick={() => handleInspectLabels(d)}
-                      className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
                     >
                       <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                       Caddy
@@ -861,7 +883,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     <button
                       type="button"
                       onClick={() => openEditModal(d)}
-                      className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
                     >
                       <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                       Edit
@@ -871,7 +893,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                       type="button"
                       onClick={() => handleDeleteDomain(d)}
                       title="Remove domain"
-                      className="inline-flex h-8.5 w-8.5 sm:h-7.5 sm:w-7.5 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

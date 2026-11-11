@@ -11,7 +11,7 @@ import {
 // ----------------------------------------------------------------------------
 // 1. shadcn/ui Dialog (Modal) Primitive — Dokploy / Linear 2026 Glass & Obsidian
 // ----------------------------------------------------------------------------
-interface ShadcnDialogProps {
+export interface ShadcnDialogProps {
   open: boolean;
   onClose: () => void;
   title: string;
@@ -21,6 +21,7 @@ interface ShadcnDialogProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   children: React.ReactNode;
   footer?: React.ReactNode;
+  closeOnBackdropClick?: boolean;
 }
 
 export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
@@ -33,7 +34,10 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
   maxWidth = 'md',
   children,
   footer,
+  closeOnBackdropClick = false,
 }) => {
+  const backdropMouseDownRef = useRef(false);
+
   useEffect(() => {
     if (!open) return;
     const handleEsc = (e: KeyboardEvent) => {
@@ -53,10 +57,26 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
     '2xl': 'max-w-2xl',
   }[maxWidth];
 
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      backdropMouseDownRef.current = true;
+    } else {
+      backdropMouseDownRef.current = false;
+    }
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (closeOnBackdropClick && backdropMouseDownRef.current && e.target === e.currentTarget) {
+      onClose();
+    }
+    backdropMouseDownRef.current = false;
+  };
+
   return createPortal(
     <div
       className="fixed inset-0 z-[999] flex items-center justify-center bg-black/75 p-3 sm:p-4 backdrop-blur-md animate-in fade-in duration-150"
-      onClick={onClose}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
     >
       <div
         role="dialog"
