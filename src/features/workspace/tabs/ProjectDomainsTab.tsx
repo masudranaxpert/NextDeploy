@@ -22,7 +22,8 @@ import {
 import { toast } from 'sonner';
 import { AppStack, DomainRoute, PreviewConfig } from '../../../types/nextdeploy';
 import { ShieldNode } from '../../../types/shield';
-import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain, formatWildcardDomain, updateDomainWithIp, getCachedShieldNodes, getServerPublicIp, getPanelId } from '../../../lib/backendApi';
+import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../../components/shield/EdgeDomainStatusBadge';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ShadcnSelect, ShadcnSelectOption } from '../../../components/ui/Primitives';
 import { OwnerContext } from '../../../components/ui/OwnerBadge';
@@ -241,6 +242,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
         domain: string;
         ips: string[];
         cloudflare: boolean;
+        cf_flexible_loop?: boolean;
+        cf_hint?: string;
         internalTLS: boolean;
         ok: boolean;
         error?: string;
@@ -426,6 +429,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           domain: res?.domain || d.domain,
           ips: resolvedIps,
           cloudflare: Boolean(res?.cloudflare),
+          cf_flexible_loop: Boolean(res?.cf_flexible_loop),
+          cf_hint: res?.cf_hint || '',
           internalTLS: Boolean(res?.internalTLS),
           ok: res?.ok !== false,
           error: res?.error,
@@ -702,6 +707,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           {app.domains.map((d) => {
             const dns = dnsResults[d.id];
             const isHttps = d.forceHttps !== false;
+            const matchedShield = d.shield_node_id ? shieldNodes.find((s) => s.id === d.shield_node_id) : null;
+            const shieldIp = matchedShield?.ip || d.shield_node_ip;
             return (
               <div
                 key={d.id}
@@ -745,7 +752,6 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
                   {isAdmin && d.shield_node_id ? (
                     (() => {
-                      const matchedShield = shieldNodes.find((s) => s.id === d.shield_node_id);
                       const isBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
                       return (
                         <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${
@@ -761,12 +767,24 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         </span>
                       );
                     })()
+                  ) : d.shield_node_id ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-xs font-medium text-cyan-400">
+                      <ShieldCheck className="h-3 w-3" />
+                      Protected ({shieldIp || 'Edge Shield'})
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
                       <Globe className="h-3 w-3 text-zinc-500" />
                       Direct Origin
                     </span>
                   )}
+
+                  <EdgeDomainStatusBadge
+                    shieldNodeId={d.shield_node_id}
+                    shieldIp={shieldIp}
+                    edgeStatus={d.edge_status}
+                    pendingOriginApply={d.pending_origin_apply}
+                  />
 
                   {d.enableWww && (
                     <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
@@ -796,6 +814,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     </span>
                   )}
                 </div>
+
+                <EdgeDomainHints
+                  shieldNodeId={d.shield_node_id}
+                  edgeStatus={d.edge_status}
+                  isCloudflareProxied={dns?.cloudflare}
+                  cfFlexibleLoop={dns?.cf_flexible_loop}
+                  cfHint={dns?.cf_hint}
+                />
 
                 {/* Actions */}
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
@@ -917,12 +943,13 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     {(() => {
                       const matchedShield = shieldNodes.find((s) => s.id === domainShieldNodeId);
                       const activeIp = matchedShield?.ip || getServerPublicIp();
+                      const panelIdArg = domainShieldNodeId ? getPanelId() : undefined;
                       return (
                         <>
                           <button
                             type="button"
                             onClick={() =>
-                              setDomainHost(formatWildcardDomain(app.slug, 'sslip.io', activeIp))
+                              setDomainHost(formatWildcardDomain(app.slug, 'sslip.io', activeIp, panelIdArg))
                             }
                             className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors"
                           >
@@ -931,7 +958,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                           <button
                             type="button"
                             onClick={() =>
-                              setDomainHost(formatWildcardDomain(app.slug, 'nip.io', activeIp))
+                              setDomainHost(formatWildcardDomain(app.slug, 'nip.io', activeIp, panelIdArg))
                             }
                             className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/20 cursor-pointer transition-colors"
                           >
@@ -1090,7 +1117,9 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         setDomainShieldNodeId(nextId);
                         const matched = shieldNodes.find((s) => s.id === nextId);
                         const nextIp = matched?.ip || getServerPublicIp();
-                        setDomainHost((prev) => updateDomainWithIp(prev, nextIp, app.slug));
+                        setDomainHost((prev) =>
+                          updateDomainWithIp(prev, nextIp, app.slug, !editingDomainId && nextId ? getPanelId() : undefined)
+                        );
                       }}
                       options={[
                         { value: '', label: 'Direct Origin (Server IP)' },

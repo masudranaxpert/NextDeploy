@@ -217,6 +217,8 @@ export function mapRawAppToStack(
           mediaPath: d.media_path,
           mediaUrlPrefix: d.media_url_prefix,
           shield_node_id: d.shield_node_id != null ? Number(d.shield_node_id) : null,
+          pending_origin_apply: Boolean(d.pending_origin_apply),
+          edge_status: d.edge_status ?? null,
           gzip: true,
           createdAt: d.created_at || 'Active',
         }))
