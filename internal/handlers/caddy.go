@@ -355,6 +355,9 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 		_ = p.DB.ClearAppPendingOriginApply(sctx, appID)
 		return nil
 	}
+	if p.Store == nil {
+		return nil
+	}
 	activeSlot := strings.TrimSpace(app.ActiveSlot)
 	if activeSlot == "" {
 		activeSlot = "blue"
@@ -577,6 +580,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	}
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
+		p.attachDomainEdgeStatuses(c.UserContext(), doms)
 		return c.JSON(fiber.Map{"ok": true, "id": newID, "domains": doms})
 	}
 	SetFlash(c, "domainSaved")
@@ -607,6 +611,7 @@ func (p *Panel) AppDomainDelete(c *fiber.Ctx) error {
 	}
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
+		p.attachDomainEdgeStatuses(c.UserContext(), doms)
 		return c.JSON(fiber.Map{"ok": true, "domains": doms})
 	}
 	SetFlash(c, "domainSaved")
@@ -714,6 +719,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	}
 	if WantsJSON(c) {
 		doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
+		p.attachDomainEdgeStatuses(c.UserContext(), doms)
 		return c.JSON(fiber.Map{"ok": true, "domains": doms})
 	}
 	SetFlash(c, "domainSaved")
@@ -837,12 +843,22 @@ func (p *Panel) AppDomainDNSCheck(c *fiber.Ctx) error {
 		}
 	}
 
+	cfLoop := false
+	cfHint := ""
+	if isBehindCF {
+		cfCtx, cancel := context.WithTimeout(c.UserContext(), 4*time.Second)
+		cfLoop, cfHint = CheckCloudflareFlexibleLoop(cfCtx, domain)
+		cancel()
+	}
+
 	return c.JSON(fiber.Map{
-		"ok":          true,
-		"domain":      domain,
-		"ips":         addrs,
-		"cloudflare":  isBehindCF,
-		"internalTLS": caddy.ShouldUseInternalTLS(domain),
+		"ok":               true,
+		"domain":           domain,
+		"ips":              addrs,
+		"cloudflare":       isBehindCF,
+		"cf_flexible_loop": cfLoop,
+		"cf_hint":          cfHint,
+		"internalTLS":      caddy.ShouldUseInternalTLS(domain),
 	})
 }
 
