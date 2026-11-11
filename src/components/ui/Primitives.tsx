@@ -59,6 +59,8 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full ${widthClass} overflow-hidden rounded-lg border border-white/[0.08] bg-[#0e0e11] text-zinc-100 shadow-[0_20px_60px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in-95 duration-150 ease-out`}
       >
@@ -85,7 +87,7 @@ export const ShadcnDialog: React.FC<ShadcnDialogProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 transition-colors cursor-pointer"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -381,13 +383,22 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         setOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+        btnRef.current?.focus();
+      }
+    };
     const handleScrollOrResize = () => setOpen(false);
 
     document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('scroll', handleScrollOrResize, true);
     window.addEventListener('resize', handleScrollOrResize);
     return () => {
       document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('scroll', handleScrollOrResize, true);
       window.removeEventListener('resize', handleScrollOrResize);
     };
@@ -401,13 +412,15 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         onClick={() => setOpen((prev) => !prev)}
         className={
           triggerClassName ||
-          `flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+          `flex h-8 w-8 items-center justify-center rounded-md border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
             open
               ? 'border-white/[0.18] bg-zinc-800 text-zinc-100'
               : 'border-transparent bg-transparent text-zinc-400 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-zinc-100'
           }`
         }
         aria-label={ariaLabel || 'Actions'}
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         {trigger || <MoreHorizontal className="h-4 w-4" />}
       </button>
@@ -416,20 +429,22 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         createPortal(
           <div
             ref={menuRef}
+            role="menu"
             style={{ top: coords.top, left: coords.left }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed z-[9999] w-56 origin-top-right rounded-xl border border-white/[0.09] bg-[#111115]/95 p-1 shadow-[0_16px_48px_rgba(0,0,0,0.85)] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+            className="fixed z-[9999] w-52 origin-top-right rounded-xl border border-white/[0.09] bg-[#111115]/95 p-1 shadow-[0_16px_48px_rgba(0,0,0,0.85)] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
           >
             {items.map((item, idx) => (
               <button
                 key={idx}
                 type="button"
+                role="menuitem"
                 disabled={item.disabled}
                 onClick={() => {
                   setOpen(false);
                   item.onClick();
                 }}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 disabled:opacity-40 disabled:pointer-events-none ${
                   item.variant === 'danger'
                     ? 'text-rose-400 hover:bg-rose-500/12'
                     : 'text-zinc-200 hover:bg-white/[0.06] hover:text-white'
