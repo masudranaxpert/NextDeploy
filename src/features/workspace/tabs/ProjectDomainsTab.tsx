@@ -724,23 +724,23 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                 className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3 sm:p-3.5 transition-colors hover:border-white/[0.12] space-y-2.5"
               >
                 {/* Main Row: Domain -> Upstream + Status Pills + Action Buttons */}
-                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-3">
                   {/* Left: Domain -> Upstream + Status Pills */}
-                  <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    {/* Domain Box (Emerald mono chip with copy & external link) */}
-                    <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-1.5 text-xs font-mono shadow-xs">
+                  <div className="flex flex-col xl:flex-row xl:items-center gap-2 min-w-0">
+                    {/* Domain Box (Full width on mobile with domain on left & actions on right; compact chip on desktop) */}
+                    <div className="w-full xl:w-auto flex items-center justify-between xl:justify-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-1.5 text-xs font-mono shadow-xs">
                       <a
                         href={`${isHttps ? 'https' : 'http'}://${d.domain}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center hover:underline"
+                        className="flex items-center min-w-0 truncate hover:underline"
                         title={`Open ${d.domain}`}
                       >
-                        <span className="text-emerald-400 font-medium">
+                        <span className="text-emerald-400 font-medium truncate">
                           {isHttps ? 'https://' : 'http://'}{d.domain}
                         </span>
                       </a>
-                      <div className="flex items-center gap-1.5 ml-1 border-l border-emerald-500/25 pl-2">
+                      <div className="flex items-center gap-1.5 ml-2 shrink-0 border-l border-emerald-500/25 pl-2">
                         <button
                           type="button"
                           onClick={() => void copyDomainUrl(d)}
@@ -761,20 +761,20 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                       </div>
                     </div>
 
-                    {/* Arrow */}
-                    <ArrowRight className="h-3.5 w-3.5 text-zinc-600 shrink-0 hidden sm:block" />
+                    {/* Arrow (Desktop only) */}
+                    <ArrowRight className="h-3.5 w-3.5 text-zinc-600 shrink-0 hidden xl:block" />
 
-                    {/* Upstream Box (Amber mono chip with server icon) */}
-                    <div className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/[0.08] px-2.5 py-1.5 text-xs font-mono shadow-xs">
-                      <Server className="h-3.5 w-3.5 text-orange-400/80 shrink-0" />
-                      <span className="text-zinc-400 text-[11px]">Upstream:</span>
-                      <span className="text-orange-300 font-semibold tabular-nums">
-                        {d.targetService}:{d.targetPort}
-                      </span>
-                    </div>
-
-                    {/* Status Badges */}
+                    {/* Badges & Upstream Cloud (Unified flex-wrap container on mobile & desktop) */}
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Upstream Chip */}
+                      <div className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/[0.08] px-2 py-0.5 text-xs font-mono shadow-xs">
+                        <Server className="h-3 w-3 text-orange-400/80 shrink-0" />
+                        <span className="text-zinc-400 text-[11px]">Upstream:</span>
+                        <span className="text-orange-300 font-semibold tabular-nums text-[11px]">
+                          {d.targetService}:{d.targetPort}
+                        </span>
+                      </div>
+
                       {isHttps ? (
                         <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-400">
                           <Lock className="h-3 w-3" />
@@ -853,8 +853,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Right: Action Buttons Group */}
-                  <div className="flex items-center gap-1.5 shrink-0 self-start xl:self-center">
+                  {/* Right: Action Buttons Group (Clean separated footer on mobile, inline on desktop) */}
+                  <div className="flex items-center justify-between xl:justify-end gap-2 w-full xl:w-auto pt-2 xl:pt-0 border-t border-white/[0.06] xl:border-t-0 shrink-0">
                     <button
                       type="button"
                       onClick={() => handleCheckDns(d)}
@@ -869,34 +869,36 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                       Verify DNS
                     </button>
 
-                    <div className="h-4 w-px bg-white/[0.08] mx-1 hidden sm:block" />
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-4 w-px bg-white/[0.08] mx-0.5 hidden xl:block" />
 
-                    <button
-                      type="button"
-                      onClick={() => handleInspectLabels(d)}
-                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
-                    >
-                      <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                      Caddy
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInspectLabels(d)}
+                        className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      >
+                        <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        Caddy
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(d)}
-                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
-                    >
-                      <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                      Edit
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(d)}
+                        className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      >
+                        <Edit2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        Edit
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDomain(d)}
-                      title="Remove domain"
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDomain(d)}
+                        title="Remove domain"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 transition-colors hover:bg-rose-500/20 cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
