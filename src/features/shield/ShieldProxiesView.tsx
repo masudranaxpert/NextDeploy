@@ -1262,7 +1262,7 @@ export function ShieldProxiesView() {
               4. DNS & Cloudflare Configuration
             </h4>
             <p className="text-zinc-400 leading-relaxed">
-              Point your domain&apos;s <strong>A Record</strong> to the <strong>Shield Public IP</strong>. Behind Cloudflare (orange cloud), use <strong>Full</strong> or <strong>Full (strict)</strong> SSL mode and turn <strong>Always Use HTTPS</strong> off while issuing new certificates.
+              Point your domain&apos;s <strong>A Record</strong> to the <strong>Shield Public IP</strong>. Behind Cloudflare (orange cloud), use <strong>Full</strong> or <strong>Full (strict)</strong> SSL encryption mode.
             </p>
           </div>
 

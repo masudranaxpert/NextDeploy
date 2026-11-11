@@ -834,7 +834,7 @@ func checkRedirectLoopURL(ctx context.Context, targetURL string, customClient ..
 		_ = resp.Body.Close()
 	}
 	if errors.Is(err, errCFRedirectLoop) {
-		return true, "Cloudflare Flexible SSL mode detected (redirect loop). Set SSL mode to Full or Full (strict) and turn Always Use HTTPS off."
+		return true, "Cloudflare Flexible SSL mode detected (redirect loop). In Cloudflare SSL/TLS, set encryption mode to Full or Full (strict)."
 	}
 	return false, ""
 }

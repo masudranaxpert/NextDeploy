@@ -216,44 +216,21 @@ export const EdgeDomainStatusBadge: React.FC<EdgeDomainStatusProps> = ({
 };
 
 export const EdgeDomainHints: React.FC<EdgeDomainHintsProps> = ({
-  shieldNodeId,
-  edgeStatus,
-  isCloudflareProxied,
   cfFlexibleLoop,
   cfHint,
 }) => {
-  const state = edgeStatus?.state || '';
-  const detail = edgeStatus?.detail?.trim() || '';
-
   const showFlexibleHint = Boolean(cfFlexibleLoop || cfHint);
-  const showCfAlwaysHttpsHint =
-    Boolean(shieldNodeId) &&
-    (state === 'issuing' || state === 'cert_error') &&
-    (Boolean(isCloudflareProxied) ||
-      /cloudflare|always use https|403|unauthorized/i.test(detail) ||
-      (state === 'issuing' && isPendingOver15Min(edgeStatus?.updated_at)));
-
-  if (!showFlexibleHint && !showCfAlwaysHttpsHint) return null;
+  if (!showFlexibleHint) return null;
 
   return (
     <div className="mt-2 space-y-1.5">
-      {showFlexibleHint && (
-        <div className="flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-300">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-rose-400" />
-          <span>
-            {cfHint ||
-              'Cloudflare Flexible SSL mode detected (redirect loop). Set SSL mode to Full or Full (strict) and turn Always Use HTTPS off.'}
-          </span>
-        </div>
-      )}
-      {showCfAlwaysHttpsHint && (
-        <div className="flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-2.5 py-1.5 text-[11px] text-amber-300">
-          <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400" />
-          <span>
-            If Cloudflare &apos;Always Use HTTPS&apos; + Full (strict) is on, turn Always Use HTTPS off; we redirect to HTTPS ourselves.
-          </span>
-        </div>
-      )}
+      <div className="flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-300">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-rose-400" />
+        <span>
+          {cfHint ||
+            'Cloudflare Flexible SSL mode detected (redirect loop). In Cloudflare SSL/TLS settings, set encryption mode to Full or Full (strict).'}
+        </span>
+      </div>
     </div>
   );
 };
