@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRightLeft, ExternalLink, Pencil, Plus, Trash2, Waypoints } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, Globe, Pencil, Plus, ShieldCheck, Trash2, Waypoints } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendApi } from '../../lib/backendApi';
+import { backendApi, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
 import type { ProxyRoute } from '../../lib/api/caddyApi';
-import { ShadcnDialog, ShadcnSwitch } from '../../components/ui/Primitives';
+import type { ShieldNode } from '../../types/shield';
+import { ShadcnDialog, ShadcnSelect, ShadcnSwitch } from '../../components/ui/Primitives';
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, inputCls, selectCls } from '../php/ui';
 
 const blank: Partial<ProxyRoute> = {
   kind: 'proxy', domain: '', target: '', redirect_code: 301, keep_path: true,
   enable_https: true, enable_www: false, skip_tls_verify: false, enabled: true, note: '',
+  shield_node_id: null,
 };
 
 export const CaddyRoutesView: React.FC = () => {
   const [routes, setRoutes] = useState<ProxyRoute[] | null>(null);
+  const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => getCachedShieldNodes().nodes || []);
   const [error, setError] = useState('');
   const [form, setForm] = useState<Partial<ProxyRoute> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -29,6 +32,9 @@ export const CaddyRoutesView: React.FC = () => {
 
   useEffect(() => {
     void load();
+    backendApi.listShieldNodes().then((res) => {
+      if (res.ok && res.nodes) setShieldNodes(res.nodes);
+    }).catch(() => {});
   }, []);
 
   if (error) return <ErrorBlock message={error} onRetry={load} />;
@@ -36,9 +42,20 @@ export const CaddyRoutesView: React.FC = () => {
 
   const save = async () => {
     if (!form) return;
+    const existing = form.id ? routes.find((r) => r.id === form.id) : undefined;
+    if (form.shield_node_id && form.shield_node_id !== existing?.shield_node_id) {
+      const target = shieldNodes.find((s) => s.id === form.shield_node_id);
+      if (target && target.status !== 'connected') {
+        toast.error(`Cannot route through '${target.name}': Node is ${target.status}. Only connected shield nodes can route traffic.`);
+        return;
+      }
+    }
     setSaving(true);
     try {
-      const res = await backendApi.caddyRouteSave(form);
+      const res = await backendApi.caddyRouteSave({
+        ...form,
+        shield_node_id: form.shield_node_id ?? null,
+      });
       if (!res.ok) {
         toast.error(res.error || 'Could not save the route');
         return;
@@ -87,13 +104,17 @@ export const CaddyRoutesView: React.FC = () => {
                 <tr>
                   <th className="py-2 pr-4 font-medium">Domain</th>
                   <th className="py-2 pr-4 font-medium">Type</th>
+                  <th className="py-2 pr-4 font-medium">Routing</th>
                   <th className="py-2 pr-4 font-medium">Target</th>
                   <th className="py-2 pr-4 font-medium">On</th>
                   <th className="py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.05]">
-                {routes.map((r) => (
+                {routes.map((r) => {
+                  const matchedShield = r.shield_node_id ? shieldNodes.find((s) => s.id === r.shield_node_id) : null;
+                  const isShieldBroken = Boolean(matchedShield && matchedShield.status !== 'connected');
+                  return (
                   <tr key={r.id}>
                     <td className="py-2.5 pr-4">
                       <a
@@ -110,6 +131,32 @@ export const CaddyRoutesView: React.FC = () => {
                     <td className="py-2.5 pr-4">
                       {r.kind === 'proxy' ? <Pill tone="violet">proxy</Pill> : <Pill tone="amber">redirect {r.redirect_code}</Pill>}
                     </td>
+                    <td className="py-2.5 pr-4">
+                      {r.shield_node_id ? (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                            isShieldBroken
+                              ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                              : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
+                          }`}
+                        >
+                          <ShieldCheck className="h-3 w-3 shrink-0" />
+                          <span>
+                            {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Shield #${r.shield_node_id}`}
+                          </span>
+                          {isShieldBroken && (
+                            <span className="ml-0.5 text-[10px] uppercase font-bold text-rose-400">
+                              ({matchedShield?.status || 'offline'})
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+                          <Globe className="h-3 w-3 text-zinc-500" />
+                          Direct Origin
+                        </span>
+                      )}
+                    </td>
                     <td className="max-w-[18rem] truncate py-2.5 pr-4 font-mono text-zinc-300" title={r.target}>
                       {r.target}
                       {r.kind === 'redirect' && r.keep_path && <span className="text-zinc-500"> + path</span>}
@@ -119,7 +166,7 @@ export const CaddyRoutesView: React.FC = () => {
                     </td>
                     <td className="py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <GhostButton title="Edit" onClick={() => setForm({ ...r })}>
+                        <GhostButton title="Edit" onClick={() => setForm({ ...r, shield_node_id: r.shield_node_id ?? null })}>
                           <Pencil className="h-3.5 w-3.5" />
                         </GhostButton>
                         <GhostButton tone="danger" title="Delete" onClick={() => void remove(r)}>
@@ -128,7 +175,8 @@ export const CaddyRoutesView: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -214,6 +262,46 @@ export const CaddyRoutesView: React.FC = () => {
                   Target has a self-signed certificate
                 </label>
               )}
+            </div>
+            <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                  Edge Shield Proxy
+                </label>
+                <span className="text-[11px] text-zinc-500">Origin Masking</span>
+              </div>
+              <div className="pt-1">
+                <ShadcnSelect
+                  value={form.shield_node_id ?? ''}
+                  onChange={(val) => set({ shield_node_id: val ? Number(val) : null })}
+                  options={[
+                    { value: '', label: 'Direct Origin (Server IP)' },
+                    ...shieldNodes.map((s) => ({
+                      value: s.id,
+                      label: s.name,
+                      sublabel: s.ip,
+                      disabled: s.status !== 'connected' && s.id !== form.shield_node_id,
+                      badge:
+                        s.status !== 'connected'
+                          ? {
+                              text: s.status === 'pending' ? 'Pending Setup' : 'Offline',
+                              tone: s.status === 'pending' ? ('warning' as const) : ('danger' as const),
+                            }
+                          : undefined,
+                    })),
+                  ]}
+                />
+                <div className="mt-2 flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded bg-zinc-950/60 border border-white/[0.04]">
+                  <span className="text-zinc-500">Routing DNS Target IP:</span>
+                  <span className="text-emerald-400 font-medium">
+                    {(() => {
+                      const matched = shieldNodes.find((s) => s.id === form.shield_node_id);
+                      return matched ? `${matched.name} (${matched.ip})` : `Origin Server (${getServerPublicIp() || 'Direct'})`;
+                    })()}
+                  </span>
+                </div>
+              </div>
             </div>
             <Field label="Note">
               <input className={inputCls} value={form.note ?? ''} onChange={(e) => set({ note: e.target.value })} placeholder="Optional" maxLength={200} />

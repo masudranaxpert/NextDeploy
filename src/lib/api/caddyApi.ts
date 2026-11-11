@@ -31,6 +31,7 @@ export interface ProxyRoute {
   skip_tls_verify: boolean;
   enabled: boolean;
   note: string;
+  shield_node_id?: number | null;
   created_at: string;
 }
 

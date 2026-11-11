@@ -104,23 +104,6 @@ export function ShieldProxiesView() {
     }
   };
 
-  const handleDelete = async (id: number, nodeName: string) => {
-    if (!confirm(`Are you sure you want to delete shield node '${nodeName}'? Any domains assigned to this shield will revert to Direct Origin.`)) {
-      return;
-    }
-    try {
-      const res = await backendApi.deleteShieldNode(id);
-      if (res.ok) {
-        toast.success('Shield node deleted');
-        fetchNodes();
-      } else {
-        toast.error(res.error || 'Failed to delete');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
-    }
-  };
-
   const handleTest = async (node: ShieldNode) => {
     setTestingId(node.id);
     try {
