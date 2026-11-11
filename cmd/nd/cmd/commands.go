@@ -2595,6 +2595,8 @@ func RunDomain(cl *client.Client, args []string) error {
 			port        = 80
 			enableHTTPS = true
 			enableWWW   = false
+			shieldID    *int64
+			direct      bool
 			posArgs     []string
 		)
 
@@ -2627,11 +2629,31 @@ func RunDomain(cl *client.Client, args []string) error {
 				enableWWW = true
 			} else if a == "--no-www" || a == "--www=false" {
 				enableWWW = false
+			} else if a == "--shield" && i+1 < len(subArgs) {
+				id, err := strconv.ParseInt(strings.TrimSpace(subArgs[i+1]), 10, 64)
+				if err != nil || id <= 0 {
+					return fmt.Errorf("invalid --shield node ID %q: must be a positive integer", subArgs[i+1])
+				}
+				shieldID = &id
+				i++
+			} else if strings.HasPrefix(a, "--shield=") {
+				val := strings.TrimSpace(strings.TrimPrefix(a, "--shield="))
+				id, err := strconv.ParseInt(val, 10, 64)
+				if err != nil || id <= 0 {
+					return fmt.Errorf("invalid --shield node ID %q: must be a positive integer", val)
+				}
+				shieldID = &id
+			} else if a == "--direct" {
+				direct = true
 			} else if strings.HasPrefix(a, "-") {
 				return fmt.Errorf("unknown flag: %s", a)
 			} else {
 				posArgs = append(posArgs, a)
 			}
+		}
+
+		if shieldID != nil && direct {
+			return fmt.Errorf("cannot specify both --shield and --direct")
 		}
 
 		var appID, domain string
@@ -2654,7 +2676,7 @@ func RunDomain(cl *client.Client, args []string) error {
 					return fmt.Errorf("app_id required: nd domain add <app_id> <domain> (or link directory with 'nd link <app_id>')")
 				}
 			} else {
-				return fmt.Errorf("domain required: nd domain add [app_id] <domain> [--service <svc>] [--port <port>]")
+				return fmt.Errorf("domain required: nd domain add [app_id] <domain> [--service <svc>] [--port <port>] [--shield <node_id> | --direct]")
 			}
 		}
 
@@ -2667,6 +2689,12 @@ func RunDomain(cl *client.Client, args []string) error {
 		}
 		if service != "" {
 			payload["service"] = service
+		}
+		if shieldID != nil {
+			payload["shield_node_id"] = *shieldID
+		} else if direct {
+			payload["shield_node_id"] = int64(0)
+			payload["direct"] = true
 		}
 
 		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
@@ -3137,7 +3165,7 @@ App Management:
 
 Domain Management:
   nd domain list [app_id] [--json]   List custom domains mapped to an application (alias: nd domains)
-  nd domain add [app_id] <domain>    Add and route custom domain (supports --service, --port, --www)
+  nd domain add [app_id] <domain>    Add and route custom domain (--service, --port, --www, --shield <id>, --direct)
   nd domain rm [app_id] <domain|id>  Remove custom domain mapping (alias: nd domain delete)
 
 Process & Container Inspection:
@@ -3194,14 +3222,19 @@ Backups:
 
 Proxy & Edge Shield:
   nd proxy list                      List Caddy reverse proxy upstream routes
-  nd proxy add <domain> <upstream>   Add custom reverse proxy upstream route
+  nd proxy add <domain> <upstream>   Add custom reverse proxy upstream route (--shield <id>, --direct)
   nd proxy rm <id>                   Remove proxy route
   nd proxy reload                    Reload Caddy configuration without downtime
   nd proxy logs [-f]                 View reverse proxy logs
-  nd shield list                     List edge shield proxy nodes
+  nd shield list [--json]            List edge shield proxy nodes
+  nd shield add <name> <ip>          Register a new edge shield node
+  nd shield update <id> [flags]      Update an edge shield node (--name, --ip)
+  nd shield rm <id>                  Remove an edge shield node
+  nd shield rotate-token <id>        Rotate a shield node's bearer token
   nd shield test <node_id>           Test edge shield proxy node connectivity
-  nd shield setup-script             Output bash setup script for edge shield server
-  nd shield reassign <app> <node>    Reassign app traffic through shield node
+  nd shield setup-script [id]        Output bash setup command for edge shield server
+  nd shield reassign <src> [dst]     Reassign domains from source shield to target (or direct)
+  nd edge <subcommand>               Manage multi-panel Edge Shield daemon on Shield VPS (run 'nd edge --help')
 
 System Monitoring & Maintenance:
   nd top / stats                     Live system resource monitor (CPU, RAM, disk, containers)
