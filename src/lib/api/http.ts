@@ -163,6 +163,7 @@ export interface DomainFormPayload {
   serve_media?: boolean;
   media_path?: string;
   media_url_prefix?: string;
+  trusted_proxy?: boolean;
   shield_node_id?: number | null;
 }
 

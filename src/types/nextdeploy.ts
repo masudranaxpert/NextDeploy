@@ -91,6 +91,7 @@ export interface DomainRoute {
   mediaPath?: string;
   mediaUrlPrefix?: string;
   gzip: boolean;
+  trusted_proxy?: boolean;
   shield_node_id?: number | null;
   shield_node_name?: string;
   shield_node_ip?: string;

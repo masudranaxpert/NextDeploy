@@ -465,6 +465,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        trusted_proxy: payload.trusted_proxy ? 'on' : '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     });
@@ -488,6 +489,7 @@ export const appsAndDockerApi = {
         serve_media: payload.serve_media ? 'on' : '',
         media_path: payload.media_path || '',
         media_url_prefix: payload.media_url_prefix || '',
+        trusted_proxy: payload.trusted_proxy ? 'on' : '',
         shield_node_id: payload.shield_node_id != null ? String(payload.shield_node_id) : '',
       }),
     });

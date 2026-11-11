@@ -18,6 +18,8 @@ export interface CaddyOptions {
   real_ip: 'none' | 'cloudflare' | 'custom';
   trusted_proxies: string[];
   trusted_strict: boolean;
+  shield_proxies?: string[];
+  direct_cloudflare?: boolean;
 }
 
 export interface ProxyRoute {
@@ -30,6 +32,7 @@ export interface ProxyRoute {
   enable_https: boolean;
   enable_www: boolean;
   skip_tls_verify: boolean;
+  trusted_proxy?: boolean;
   enabled: boolean;
   note: string;
   shield_node_id?: number | null;

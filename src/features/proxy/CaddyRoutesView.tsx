@@ -6,11 +6,12 @@ import type { ProxyRoute } from '../../lib/api/caddyApi';
 import type { ShieldNode } from '../../types/shield';
 import { ShadcnDialog, ShadcnSelect, ShadcnSwitch } from '../../components/ui/Primitives';
 import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../components/shield/EdgeDomainStatusBadge';
+import { TrustedProxyBadge, TrustedProxyToggle } from '../../components/shield/TrustedProxyControl';
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, inputCls, selectCls } from '../php/ui';
 
 const blank: Partial<ProxyRoute> = {
   kind: 'proxy', domain: '', target: '', redirect_code: 301, keep_path: true,
-  enable_https: true, enable_www: false, skip_tls_verify: false, enabled: true, note: '',
+  enable_https: true, enable_www: false, skip_tls_verify: false, trusted_proxy: false, enabled: true, note: '',
   shield_node_id: null,
 };
 
@@ -83,6 +84,7 @@ export const CaddyRoutesView: React.FC = () => {
     try {
       const res = await backendApi.caddyRouteSave({
         ...form,
+        trusted_proxy: Boolean(form.trusted_proxy),
         shield_node_id: form.shield_node_id ?? null,
       });
       if (!res.ok) {
@@ -199,6 +201,7 @@ export const CaddyRoutesView: React.FC = () => {
                           pendingOriginApply={r.pending_origin_apply}
                           compact
                         />
+                        <TrustedProxyBadge enabled={r.trusted_proxy} />
                       </div>
                     </td>
                     <td className="max-w-[18rem] truncate py-2.5 pr-4 font-mono text-zinc-300" title={r.target}>
@@ -219,7 +222,7 @@ export const CaddyRoutesView: React.FC = () => {
                             <RefreshCw className={`h-3.5 w-3.5 ${cfCheckLoadingId === r.id ? 'animate-spin text-orange-400' : ''}`} />
                           </GhostButton>
                         )}
-                        <GhostButton title="Edit" onClick={() => setForm({ ...r, shield_node_id: r.shield_node_id ?? null })}>
+                        <GhostButton title="Edit" onClick={() => setForm({ ...r, trusted_proxy: Boolean(r.trusted_proxy), shield_node_id: r.shield_node_id ?? null })}>
                           <Pencil className="h-3.5 w-3.5" />
                         </GhostButton>
                         <GhostButton tone="danger" title="Delete" onClick={() => void remove(r)}>
@@ -316,6 +319,10 @@ export const CaddyRoutesView: React.FC = () => {
                 </label>
               )}
             </div>
+            <TrustedProxyToggle
+              checked={Boolean(form.trusted_proxy)}
+              onChange={(v) => set({ trusted_proxy: v })}
+            />
             <div className="p-3 rounded-lg bg-[#09090b] border border-white/[0.08] space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
