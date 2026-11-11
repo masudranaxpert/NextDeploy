@@ -1240,13 +1240,9 @@ export default function App() {
                 : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7"
             }
           >
-            <Suspense fallback={<PageSkeleton nav={selectedApp ? 'apps' : activeNav} />}>
+            <Suspense fallback={<PageSkeleton nav={selectedApp ? 'workspace' : activeNav} />}>
             {isBootstrapping ? (
-              activeNav === 'overview' && !selectedApp ? (
-                <DashboardSkeleton />
-              ) : (
-                <PageSkeleton nav={selectedApp ? 'apps' : activeNav} />
-              )
+              <PageSkeleton nav={selectedApp ? 'workspace' : activeNav} />
             ) : selectedApp ? (
               <AppWorkspace
                 app={selectedApp}
