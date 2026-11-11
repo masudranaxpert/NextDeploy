@@ -535,35 +535,39 @@ export const PhpDomainsTab: React.FC<{
                       >
                         {d.domain}
                       </a>
-                      <a
-                        href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
-                        title="Open in new tab"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await copyToClipboard(d.domain);
-                          if (ok) {
-                            setCopiedDomainId(d.id);
-                            setTimeout(() => setCopiedDomainId((cur) => (cur === d.id ? null : cur)), 1500);
-                          }
-                        }}
-                        className={`shrink-0 transition-colors cursor-pointer ${
-                          copiedDomainId === d.id ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                        title={copiedDomainId === d.id ? 'Copied!' : 'Copy domain'}
-                      >
-                        {copiedDomainId === d.id ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-400 animate-in zoom-in-75 duration-150" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0 pl-1.5">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await copyToClipboard(d.domain);
+                            if (ok) {
+                              setCopiedDomainId(d.id);
+                              setTimeout(() => setCopiedDomainId((cur) => (cur === d.id ? null : cur)), 1500);
+                            }
+                          }}
+                          className={`inline-flex h-5.5 w-5.5 items-center justify-center rounded-md border transition-all cursor-pointer shadow-xs active:scale-95 ${
+                            copiedDomainId === d.id
+                              ? 'border-emerald-400 bg-emerald-500/35 text-emerald-100'
+                              : 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30 hover:border-emerald-400/60 hover:text-emerald-100'
+                          }`}
+                          title={copiedDomainId === d.id ? 'Copied!' : 'Copy domain'}
+                        >
+                          {copiedDomainId === d.id ? (
+                            <Check className="h-3 w-3 text-emerald-300 animate-in zoom-in-75 duration-150" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </button>
+                        <a
+                          href={`${d.forceHttps ? 'https' : 'http'}://${d.domain}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-5.5 w-5.5 items-center justify-center rounded-md border border-cyan-500/35 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400/60 hover:text-cyan-100 transition-all cursor-pointer shadow-xs active:scale-95"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
 
                       {/* Badges inline next to domain name */}
                       <div className="flex flex-wrap items-center gap-1.5 shrink-0 pl-1">

@@ -740,12 +740,16 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                           {isHttps ? 'https://' : 'http://'}{d.domain}
                         </span>
                       </a>
-                      <div className="flex items-center gap-1.5 ml-2 shrink-0 border-l border-emerald-500/25 pl-2">
+                      <div className="flex items-center gap-2 sm:gap-2.5 ml-2.5 sm:ml-3 shrink-0 border-l border-emerald-500/30 pl-2.5 sm:pl-3">
                         <button
                           type="button"
                           onClick={() => void copyDomainUrl(d)}
                           title="Copy domain URL"
-                          className="text-emerald-400/80 hover:text-emerald-200 transition-colors cursor-pointer"
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-md border transition-all cursor-pointer shadow-xs active:scale-95 ${
+                            copiedDomain === d.id
+                              ? 'border-emerald-400 bg-emerald-500/35 text-emerald-100 shadow-emerald-500/20'
+                              : 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30 hover:border-emerald-400/60 hover:text-emerald-100'
+                          }`}
                         >
                           {copiedDomain === d.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                         </button>
@@ -754,7 +758,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                           target="_blank"
                           rel="noopener noreferrer"
                           title={`Open ${d.domain} in new tab`}
-                          className="text-emerald-400/80 hover:text-emerald-200 transition-colors"
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-cyan-500/35 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400/60 hover:text-cyan-100 transition-all cursor-pointer shadow-xs active:scale-95"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
