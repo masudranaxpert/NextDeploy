@@ -38,7 +38,7 @@ import {
   MCP_TOOLS_CATALOG,
 } from './data/mcpTools';
 import { NextDeployLogoMark } from './components/ui/BrandIcons';
-import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes } from './lib/backendApi';
+import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes, setPanelId } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
 import { dataSync } from './lib/dataSync';
 import { PageSkeleton, DashboardSkeleton } from './components/skeletons/PageSkeletons';
@@ -387,8 +387,11 @@ export default function App() {
     if (data.public_ip) {
       setServerPublicIp(data.public_ip);
     }
+    if (data.panel_id) {
+      setPanelId(data.panel_id);
+    }
     if (Array.isArray(data.shield_nodes)) {
-      setCachedShieldNodes(data.shield_nodes, data.origin_ip || data.public_ip || data.sys?.PublicIP || '');
+      setCachedShieldNodes(data.shield_nodes, data.origin_ip || data.public_ip || data.sys?.PublicIP || '', data.panel_id);
     }
     if (data.user) {
       setCurrentUser({

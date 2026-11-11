@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRightLeft, ExternalLink, Globe, Pencil, Plus, ShieldCheck, Trash2, Waypoints } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, Globe, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Waypoints } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendApi, getCachedShieldNodes, getServerPublicIp } from '../../lib/backendApi';
 import type { ProxyRoute } from '../../lib/api/caddyApi';
 import type { ShieldNode } from '../../types/shield';
 import { ShadcnDialog, ShadcnSelect, ShadcnSwitch } from '../../components/ui/Primitives';
+import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../components/shield/EdgeDomainStatusBadge';
 import { Card, EmptyState, ErrorBlock, Field, GhostButton, LoadingBlock, Pill, PrimaryButton, inputCls, selectCls } from '../php/ui';
 
 const blank: Partial<ProxyRoute> = {
@@ -19,6 +20,34 @@ export const CaddyRoutesView: React.FC = () => {
   const [error, setError] = useState('');
   const [form, setForm] = useState<Partial<ProxyRoute> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [cfCheckLoadingId, setCfCheckLoadingId] = useState<number | null>(null);
+  const [cfChecks, setCfChecks] = useState<Record<number, { cf_flexible_loop: boolean; cf_hint?: string }>>({});
+
+  const checkRouteCloudflare = async (r: ProxyRoute) => {
+    if (!r.shield_node_id) return;
+    setCfCheckLoadingId(r.id);
+    try {
+      const res = await backendApi.checkShieldCloudflareLoop(r.shield_node_id, r.domain);
+      if (!res.ok) {
+        toast.error(res.error || 'Could not check Cloudflare SSL mode');
+        return;
+      }
+      setCfChecks((prev) => ({
+        ...prev,
+        [r.id]: {
+          cf_flexible_loop: Boolean(res.cf_flexible_loop),
+          cf_hint: res.cf_hint || '',
+        },
+      }));
+      if (res.cf_flexible_loop) {
+        toast.warning(`Cloudflare Flexible loop detected on ${r.domain}`);
+      } else {
+        toast.success(`No Cloudflare redirect loop detected on ${r.domain}`);
+      }
+    } finally {
+      setCfCheckLoadingId(null);
+    }
+  };
 
   const load = async () => {
     const res = await backendApi.caddyRoutes();
@@ -127,35 +156,50 @@ export const CaddyRoutesView: React.FC = () => {
                         <ExternalLink className="h-3 w-3 opacity-60" />
                       </a>
                       {r.note && <div className="mt-0.5 text-[11px] text-zinc-500">{r.note}</div>}
+                      <EdgeDomainHints
+                        shieldNodeId={r.shield_node_id}
+                        edgeStatus={r.edge_status}
+                        cfFlexibleLoop={cfChecks[r.id]?.cf_flexible_loop}
+                        cfHint={cfChecks[r.id]?.cf_hint}
+                      />
                     </td>
                     <td className="py-2.5 pr-4">
                       {r.kind === 'proxy' ? <Pill tone="violet">proxy</Pill> : <Pill tone="amber">redirect {r.redirect_code}</Pill>}
                     </td>
                     <td className="py-2.5 pr-4">
-                      {r.shield_node_id ? (
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                            isShieldBroken
-                              ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
-                              : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
-                          }`}
-                        >
-                          <ShieldCheck className="h-3 w-3 shrink-0" />
-                          <span>
-                            {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Shield #${r.shield_node_id}`}
-                          </span>
-                          {isShieldBroken && (
-                            <span className="ml-0.5 text-[10px] uppercase font-bold text-rose-400">
-                              ({matchedShield?.status || 'offline'})
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {r.shield_node_id ? (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                              isShieldBroken
+                                ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                                : 'border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400'
+                            }`}
+                          >
+                            <ShieldCheck className="h-3 w-3 shrink-0" />
+                            <span>
+                              {matchedShield ? `${matchedShield.name} (${matchedShield.ip})` : `Shield #${r.shield_node_id}`}
                             </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
-                          <Globe className="h-3 w-3 text-zinc-500" />
-                          Direct Origin
-                        </span>
-                      )}
+                            {isShieldBroken && (
+                              <span className="ml-0.5 text-[10px] uppercase font-bold text-rose-400">
+                                ({matchedShield?.status || 'offline'})
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+                            <Globe className="h-3 w-3 text-zinc-500" />
+                            Direct Origin
+                          </span>
+                        )}
+                        <EdgeDomainStatusBadge
+                          shieldNodeId={r.shield_node_id}
+                          shieldIp={matchedShield?.ip}
+                          edgeStatus={r.edge_status}
+                          pendingOriginApply={r.pending_origin_apply}
+                          compact
+                        />
+                      </div>
                     </td>
                     <td className="max-w-[18rem] truncate py-2.5 pr-4 font-mono text-zinc-300" title={r.target}>
                       {r.target}
@@ -166,6 +210,15 @@ export const CaddyRoutesView: React.FC = () => {
                     </td>
                     <td className="py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
+                        {r.shield_node_id && (
+                          <GhostButton
+                            title="Check Cloudflare SSL / redirect loop"
+                            disabled={cfCheckLoadingId === r.id}
+                            onClick={() => void checkRouteCloudflare(r)}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${cfCheckLoadingId === r.id ? 'animate-spin text-orange-400' : ''}`} />
+                          </GhostButton>
+                        )}
                         <GhostButton title="Edit" onClick={() => setForm({ ...r, shield_node_id: r.shield_node_id ?? null })}>
                           <Pencil className="h-3.5 w-3.5" />
                         </GhostButton>

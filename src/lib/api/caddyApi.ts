@@ -1,5 +1,6 @@
 import { requestJson } from './http';
 import { notifyMutation } from '../dataSync';
+import type { ShieldDomainStatus } from '../../types/shield';
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',
@@ -32,6 +33,8 @@ export interface ProxyRoute {
   enabled: boolean;
   note: string;
   shield_node_id?: number | null;
+  pending_origin_apply?: boolean;
+  edge_status?: ShieldDomainStatus | null;
   created_at: string;
 }
 

@@ -23,6 +23,9 @@ export {
   updateDomainWithIp,
   getServerPublicIp,
   setServerPublicIp,
+  getPanelId,
+  setPanelId,
+  shortPanelId,
 } from './api/http';
 
 export const backendApi = {
