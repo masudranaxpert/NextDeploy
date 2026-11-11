@@ -89,7 +89,7 @@ func calculateCPUPercent() float64 {
 		return lastCPUPct
 	}
 
-	if total > lastCPUTot && now.Sub(lastCPUAt) >= 200*time.Millisecond {
+	if total > lastCPUTot && now.Sub(lastCPUAt) >= 500*time.Millisecond {
 		diffTot := float64(total - lastCPUTot)
 		diffIdle := float64(idle - lastCPUIdle)
 		if diffTot > 0 && diffIdle <= diffTot {
@@ -332,20 +332,19 @@ func StartTelemetryCollector() {
 
 		telemetryMu.Lock()
 		if len(telemetryHistory) == 0 {
-			for i := 40; i >= 0; i-- {
-				t := now.Add(-time.Duration(i*30) * time.Second)
-				telemetryHistory = append(telemetryHistory, TelemetryPoint{
-					Time:          t.Format("15:04"),
-					CPU:           snap.CPUPercent,
-					Memory:        snap.MemUsedPct,
-					DiskIO:        snap.DiskUsedPct,
-					NetInMbps:     0,
-					NetOutMbps:    0,
-					Requests:      0,
-					CaddyRequests: 0,
-					PanelRequests: 0,
-				})
-			}
+			// Do not flood 40 fake past points with startup CPU spike.
+			// Initialize with clean current point; 15s ticker continuously builds real history.
+			telemetryHistory = append(telemetryHistory, TelemetryPoint{
+				Time:          now.Format("15:04"),
+				CPU:           snap.CPUPercent,
+				Memory:        snap.MemUsedPct,
+				DiskIO:        snap.DiskUsedPct,
+				NetInMbps:     0,
+				NetOutMbps:    0,
+				Requests:      0,
+				CaddyRequests: 0,
+				PanelRequests: 0,
+			})
 		}
 		telemetryMu.Unlock()
 

@@ -224,7 +224,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		Ports         []db.AllocatedPort      `json:"ports"`
 		PHP           *phpAppInfo             `json:"php,omitempty"`
 		Usage         appUsage                `json:"usage"`
-		DiskMB        int64                   `json:"disk_mb"`
+		DiskMB        float64                 `json:"disk_mb"`
 		OwnerName     string                  `json:"owner_name"`
 		OwnerRole     string                  `json:"owner_role"`
 	}
@@ -336,7 +336,22 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				Ports:         appPorts,
 				PHP:           phpInfo,
 				Usage:         p.usageForApp(ctx, app, usageByProject),
-				DiskMB:        p.AppStorageBytes(app.ID) / (1024 * 1024),
+				DiskMB: func() float64 {
+					var totalMB float64 = float64(p.AppStorageBytes(app.ID)) / (1024 * 1024)
+					for _, v := range appVols {
+						totalMB += volSizes[v]
+					}
+					if _, isPHP := phpByApp[app.ID]; isPHP && p.PHP != nil {
+						if dbs, err := p.DB.ListPHPDatabases(ctx, app.ID); err == nil && len(dbs) > 0 {
+							var dbNames []string
+							for _, d := range dbs {
+								dbNames = append(dbNames, d.DBName)
+							}
+							totalMB += float64(p.PHP.DatabaseBytes(ctx, dbNames)) / (1024 * 1024)
+						}
+					}
+					return totalMB
+				}(),
 				OwnerName:     ownerOf(owners, app.OwnerID).Name,
 				OwnerRole:     ownerOf(owners, app.OwnerID).Role,
 			}
