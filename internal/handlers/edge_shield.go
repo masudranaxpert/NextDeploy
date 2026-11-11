@@ -763,10 +763,43 @@ func (p *Panel) attachShieldNodeDomainStatuses(ctx context.Context, nodes []db.S
 	}
 }
 
-func (p *Panel) attachDomainEdgeStatuses(ctx context.Context, domains []db.AppDomain) {
-	if len(domains) == 0 {
-		return
+type nodeHostStatusKey struct {
+	nodeID int64
+	host   string
+}
+
+func (p *Panel) loadEdgeStatusLookup(ctx context.Context) map[nodeHostStatusKey]db.ShieldDomainStatus {
+	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
+	if err != nil || len(statuses) == 0 {
+		return nil
 	}
+	byKey := make(map[nodeHostStatusKey]db.ShieldDomainStatus, len(statuses))
+	for _, st := range statuses {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(st.Host), "."))
+		if norm, ok := normalizeEdgeHost(host); ok {
+			host = norm
+		}
+		byKey[nodeHostStatusKey{nodeID: st.NodeID, host: host}] = st
+	}
+	return byKey
+}
+
+func lookupNodeHostStatus(byKey map[nodeHostStatusKey]db.ShieldDomainStatus, nodeID int64, rawDomain string) *db.ShieldDomainStatus {
+	if len(byKey) == 0 {
+		return nil
+	}
+	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(rawDomain), "."))
+	if norm, ok := normalizeEdgeHost(host); ok {
+		host = norm
+	}
+	if st, ok := byKey[nodeHostStatusKey{nodeID: nodeID, host: host}]; ok {
+		copySt := st
+		return &copySt
+	}
+	return nil
+}
+
+func (p *Panel) attachDomainEdgeStatuses(ctx context.Context, domains []db.AppDomain) {
 	hasShield := false
 	for _, d := range domains {
 		if d.ShieldNodeID != nil {
@@ -777,34 +810,19 @@ func (p *Panel) attachDomainEdgeStatuses(ctx context.Context, domains []db.AppDo
 	if !hasShield {
 		return
 	}
-	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
-	if err != nil || len(statuses) == 0 {
+	byKey := p.loadEdgeStatusLookup(ctx)
+	if len(byKey) == 0 {
 		return
-	}
-	type nodeHostKey struct {
-		nodeID int64
-		host   string
-	}
-	byKey := make(map[nodeHostKey]db.ShieldDomainStatus, len(statuses))
-	for _, st := range statuses {
-		byKey[nodeHostKey{nodeID: st.NodeID, host: strings.ToLower(st.Host)}] = st
 	}
 	for i := range domains {
 		if domains[i].ShieldNodeID == nil {
 			continue
 		}
-		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domains[i].Domain), "."))
-		if st, ok := byKey[nodeHostKey{nodeID: *domains[i].ShieldNodeID, host: host}]; ok {
-			copySt := st
-			domains[i].EdgeStatus = &copySt
-		}
+		domains[i].EdgeStatus = lookupNodeHostStatus(byKey, *domains[i].ShieldNodeID, domains[i].Domain)
 	}
 }
 
 func (p *Panel) attachProxyRouteEdgeStatuses(ctx context.Context, routes []db.ProxyRoute) {
-	if len(routes) == 0 {
-		return
-	}
 	hasShield := false
 	for _, r := range routes {
 		if r.ShieldNodeID != nil {
@@ -815,27 +833,15 @@ func (p *Panel) attachProxyRouteEdgeStatuses(ctx context.Context, routes []db.Pr
 	if !hasShield {
 		return
 	}
-	statuses, err := p.DB.ListAllShieldDomainStatuses(ctx)
-	if err != nil || len(statuses) == 0 {
+	byKey := p.loadEdgeStatusLookup(ctx)
+	if len(byKey) == 0 {
 		return
-	}
-	type nodeHostKey struct {
-		nodeID int64
-		host   string
-	}
-	byKey := make(map[nodeHostKey]db.ShieldDomainStatus, len(statuses))
-	for _, st := range statuses {
-		byKey[nodeHostKey{nodeID: st.NodeID, host: strings.ToLower(st.Host)}] = st
 	}
 	for i := range routes {
 		if routes[i].ShieldNodeID == nil {
 			continue
 		}
-		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(routes[i].Domain), "."))
-		if st, ok := byKey[nodeHostKey{nodeID: *routes[i].ShieldNodeID, host: host}]; ok {
-			copySt := st
-			routes[i].EdgeStatus = &copySt
-		}
+		routes[i].EdgeStatus = lookupNodeHostStatus(byKey, *routes[i].ShieldNodeID, routes[i].Domain)
 	}
 }
 

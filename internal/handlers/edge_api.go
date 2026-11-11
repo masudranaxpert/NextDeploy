@@ -744,20 +744,48 @@ func (p *Panel) RotateShieldNodeToken(c *fiber.Ctx) error {
 
 var errCFRedirectLoop = errors.New("cloudflare redirect loop")
 
+// isSafeCFCheckHost validates that host is a public FQDN (no IP literals, ports, localhost, or internal suffixes)
+// before making any outbound HTTP request (prevents SSRF).
+func isSafeCFCheckHost(raw string) (string, bool) {
+	h := strings.TrimSpace(strings.ToLower(raw))
+	if h == "" || len(h) > 253 {
+		return "", false
+	}
+	if strings.ContainsAny(h, ":/?#@*\\ \t\r\n") {
+		return "", false
+	}
+	ascii, ok := normalizeEdgeHost(h)
+	if !ok || len(ascii) > 253 || !strings.Contains(ascii, ".") {
+		return "", false
+	}
+	if net.ParseIP(ascii) != nil {
+		return "", false
+	}
+	if ascii == "localhost" {
+		return "", false
+	}
+	for _, sfx := range []string{".local", ".localhost", ".internal", ".test", ".example", ".invalid", ".lan", ".home.arpa"} {
+		if strings.HasSuffix(ascii, sfx) {
+			return "", false
+		}
+	}
+	for _, b := range []byte(ascii) {
+		if !((b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '.' || b == '-') {
+			return "", false
+		}
+	}
+	return ascii, true
+}
+
 // CheckCloudflareFlexibleLoop fetches http://<host>/ following up to 10 redirects to detect
 // Cloudflare Flexible SSL redirect loops (E-CF-4).
 func CheckCloudflareFlexibleLoop(ctx context.Context, host string, customClient ...*http.Client) (bool, string) {
-	cleanHost := strings.TrimSpace(strings.ToLower(host))
-	cleanHost = strings.TrimPrefix(cleanHost, "https://")
-	cleanHost = strings.TrimPrefix(cleanHost, "http://")
-	if idx := strings.Index(cleanHost, "/"); idx != -1 {
-		cleanHost = cleanHost[:idx]
-	}
-	if cleanHost == "" {
+	safeHost, ok := isSafeCFCheckHost(host)
+	if !ok {
 		return false, ""
 	}
 
-	targetURL := "http://" + cleanHost + "/"
+	targetURL := "http://" + safeHost + "/"
 	return checkRedirectLoopURL(ctx, targetURL, customClient...)
 }
 
@@ -806,15 +834,16 @@ func checkRedirectLoopURL(ctx context.Context, targetURL string, customClient ..
 // GET /api/v1/shield-nodes/:id/cf-check?domain=example.com
 func (p *Panel) ShieldNodeCFCheck(c *fiber.Ctx) error {
 	domain := strings.TrimSpace(c.Query("domain"))
-	if domain == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "domain required"})
+	safeDomain, ok := isSafeCFCheckHost(domain)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"ok": false, "error": "valid public domain required"})
 	}
 	ctx, cancel := context.WithTimeout(c.UserContext(), 5*time.Second)
 	defer cancel()
-	loop, hint := CheckCloudflareFlexibleLoop(ctx, domain)
+	loop, hint := CheckCloudflareFlexibleLoop(ctx, safeDomain)
 	return c.JSON(fiber.Map{
 		"ok":               true,
-		"domain":           domain,
+		"domain":           safeDomain,
 		"cf_flexible_loop": loop,
 		"cf_hint":          hint,
 	})

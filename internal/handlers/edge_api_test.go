@@ -416,6 +416,19 @@ func TestCheckCloudflareFlexibleLoop(t *testing.T) {
 	if loop || hint != "" {
 		t.Fatalf("expected no loop for 200 response, got loop=%v hint=%q", loop, hint)
 	}
+
+	// SSRF guard: reject IP literals, ports, localhost, and internal suffixes
+	for _, unsafe := range []string{"127.0.0.1", "169.254.169.254", "localhost", "svc.internal", "app.local", "example.com:8080", "http://example.com/path", "10.0.0.1"} {
+		if _, ok := isSafeCFCheckHost(unsafe); ok {
+			t.Fatalf("expected isSafeCFCheckHost(%q) == false", unsafe)
+		}
+		if l, h := CheckCloudflareFlexibleLoop(context.Background(), unsafe); l || h != "" {
+			t.Fatalf("expected unsafe host %q to be skipped", unsafe)
+		}
+	}
+	if got, ok := isSafeCFCheckHost("App.Example.COM"); !ok || got != "app.example.com" {
+		t.Fatalf("expected valid public host normalized, got %q ok=%v", got, ok)
+	}
 }
 
 func TestEdgeContractFixture(t *testing.T) {
@@ -479,11 +492,21 @@ func TestShieldAndDomainStatusExposureForUI(t *testing.T) {
 	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	_ = store.UpdateShieldNodeEdgeStatus(ctx, n1, "1.2.0", "v2.8.4", "etag_x", "", `{"ok":true}`, []db.ShieldDomainStatus{
 		{Host: "route-ui.example.com", State: "active", CertNotAfter: &exp},
+		{Host: "xn--mnchen-3ya.de", State: "issuing", Detail: "obtaining cert"},
 		{Host: "secret-other.example.com", State: "conflict", Detail: "panel-2"},
 	})
 	_, _ = store.SaveProxyRoute(ctx, db.ProxyRoute{
 		Kind: "proxy", Domain: "route-ui.example.com", Target: "http://127.0.0.1:9000", Enabled: true, ShieldNodeID: &n1,
 	})
+	_ = store.CreateApp(ctx, "app-idn", "app-idn", adminID)
+	_, _ = store.CreateAppDomain(ctx, db.AppDomain{
+		AppID: "app-idn", Domain: "münchen.de", Service: "web", Port: 80, ShieldNodeID: &n1,
+	})
+	idnDoms, _ := store.ListAppDomains(ctx, "app-idn")
+	p.attachDomainEdgeStatuses(ctx, idnDoms)
+	if len(idnDoms) != 1 || idnDoms[0].EdgeStatus == nil || idnDoms[0].EdgeStatus.State != "issuing" {
+		t.Fatalf("expected Unicode domain münchen.de to match punycode shield_domain_status, got %+v", idnDoms)
+	}
 
 	// Admin gets full edge fields & domain_statuses
 	req := httptest.NewRequest("GET", "/api/v1/shield-nodes", nil)
@@ -502,7 +525,7 @@ func TestShieldAndDomainStatusExposureForUI(t *testing.T) {
 		t.Fatalf("unexpected admin list: %+v", admList)
 	}
 	gotNode := admList.Nodes[0]
-	if gotNode.EdgeVersion != "1.2.0" || gotNode.CaddyVersion != "v2.8.4" || gotNode.SyncState != "ok" || gotNode.ConflictsCount != 1 || len(gotNode.DomainStatuses) != 2 {
+	if gotNode.EdgeVersion != "1.2.0" || gotNode.CaddyVersion != "v2.8.4" || gotNode.SyncState != "ok" || gotNode.ConflictsCount != 1 || len(gotNode.DomainStatuses) != 3 {
 		t.Fatalf("missing edge fields for admin: %+v", gotNode)
 	}
 

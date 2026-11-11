@@ -738,6 +738,7 @@ func (p *Panel) AppDomainSetPrimary(c *fiber.Ctx) error {
 	}
 	p.syncWordPressDomainIfApplicable(id, d.Domain)
 	doms, _ := p.DB.ListAppDomains(c.UserContext(), id)
+	p.attachDomainEdgeStatuses(c.UserContext(), doms)
 	return c.JSON(fiber.Map{
 		"ok":             true,
 		"primary_domain": d.Domain,
