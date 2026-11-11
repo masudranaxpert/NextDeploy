@@ -20,9 +20,11 @@ type ProxyRoute struct {
 	EnableWWW     bool   `json:"enable_www"`      // also answer on www.<domain>
 	SkipTLSVerify bool   `json:"skip_tls_verify"` // proxy to an https target with a self-signed certificate
 	Enabled       bool   `json:"enabled"`
-	Note          string `json:"note"`
-	ShieldNodeID  *int64 `json:"shield_node_id,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	Note               string              `json:"note"`
+	ShieldNodeID       *int64              `json:"shield_node_id,omitempty"`
+	PendingOriginApply bool                `json:"pending_origin_apply,omitempty"`
+	EdgeStatus         *ShieldDomainStatus `json:"edge_status,omitempty"`
+	CreatedAt          string              `json:"created_at"`
 }
 
 func (s *Store) migrateProxyRoutes() error {
@@ -43,17 +45,17 @@ func (s *Store) migrateProxyRoutes() error {
 	return err
 }
 
-const proxyRouteCols = `id, kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, created_at`
+const proxyRouteCols = `id, kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, COALESCE(pending_origin_apply,0), created_at`
 
 func scanProxyRoute(sc interface{ Scan(...any) error }) (ProxyRoute, error) {
 	var r ProxyRoute
-	var keep, https, www, skip, en int
+	var keep, https, www, skip, en, pending int
 	var shieldID sql.NullInt64
-	err := sc.Scan(&r.ID, &r.Kind, &r.Domain, &r.Target, &r.RedirectCode, &keep, &https, &www, &skip, &en, &r.Note, &shieldID, &r.CreatedAt)
+	err := sc.Scan(&r.ID, &r.Kind, &r.Domain, &r.Target, &r.RedirectCode, &keep, &https, &www, &skip, &en, &r.Note, &shieldID, &pending, &r.CreatedAt)
 	if shieldID.Valid {
 		r.ShieldNodeID = &shieldID.Int64
 	}
-	r.KeepPath, r.EnableHTTPS, r.EnableWWW, r.SkipTLSVerify, r.Enabled = keep == 1, https == 1, www == 1, skip == 1, en == 1
+	r.KeepPath, r.EnableHTTPS, r.EnableWWW, r.SkipTLSVerify, r.Enabled, r.PendingOriginApply = keep == 1, https == 1, www == 1, skip == 1, en == 1, pending != 0
 	return r, err
 }
 
@@ -108,16 +110,21 @@ func (s *Store) SaveProxyRoute(ctx context.Context, r ProxyRoute) (int64, error)
 		return 0
 	}
 	if r.ID == 0 {
-		res, err := s.db.ExecContext(ctx, `INSERT INTO proxy_routes (kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, created_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, time.Now().UTC().Format(time.RFC3339))
+		res, err := s.db.ExecContext(ctx, `INSERT INTO proxy_routes (kind, domain, target, redirect_code, keep_path, enable_https, enable_www, skip_tls_verify, enabled, note, shield_node_id, pending_origin_apply, created_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.PendingOriginApply), time.Now().UTC().Format(time.RFC3339))
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE proxy_routes SET kind=?, domain=?, target=?, redirect_code=?, keep_path=?, enable_https=?, enable_www=?, skip_tls_verify=?, enabled=?, note=?, shield_node_id=? WHERE id=?`,
-		r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, r.ID)
+	_, err := s.db.ExecContext(ctx, `UPDATE proxy_routes SET kind=?, domain=?, target=?, redirect_code=?, keep_path=?, enable_https=?, enable_www=?, skip_tls_verify=?, enabled=?, note=?, shield_node_id=?, pending_origin_apply=? WHERE id=?`,
+		r.Kind, r.Domain, r.Target, r.RedirectCode, b(r.KeepPath), b(r.EnableHTTPS), b(r.EnableWWW), b(r.SkipTLSVerify), b(r.Enabled), r.Note, r.ShieldNodeID, b(r.PendingOriginApply), r.ID)
 	return r.ID, err
+}
+
+func (s *Store) ClearProxyRoutePendingOriginApply(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE proxy_routes SET pending_origin_apply=0 WHERE id=? AND pending_origin_apply != 0`, id)
+	return err
 }
 
 func (s *Store) DeleteProxyRoute(ctx context.Context, id int64) error {
