@@ -993,7 +993,7 @@ func RemoveVolumeByName(ctx context.Context, name string) error {
 
 // protectedImageMarkers lists platform runtime images that must survive "Delete Unused":
 // PHP version images are pulled on demand and have no container until a site uses them.
-var protectedImageMarkers = []string{"nextdeploy-php", "nextdeploy-v2", "caddy-docker-proxy", "phpmyadmin", "mariadb", "busybox"}
+var protectedImageMarkers = []string{"nextdeploy-php", "alpine", "caddy-docker-proxy", "phpmyadmin", "mariadb", "busybox"}
 
 func isProtectedImage(tags []string) bool {
 	for _, t := range tags {
