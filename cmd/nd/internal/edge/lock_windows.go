@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,4 +95,25 @@ func wrapDiskError(err error) error {
 		return fmt.Errorf("%w: %v", ErrDiskFull, err)
 	}
 	return err
+}
+
+// SwapDirLinkAtomic attempts a real symlink and falls back to an atomic target
+// pointer file when running unprivileged on Windows without symlink privileges.
+func SwapDirLinkAtomic(linkPath, targetDir string) error {
+	if err := SwapSymlinkAtomic(linkPath, targetDir); err == nil {
+		return nil
+	}
+	return WriteFileAtomic(linkPath, []byte(targetDir), 0o644)
+}
+
+// ReadDirLink reads a symlink target or Windows pointer file written by SwapDirLinkAtomic.
+func ReadDirLink(linkPath string) (string, error) {
+	if target, err := os.Readlink(linkPath); err == nil {
+		return target, nil
+	}
+	b, err := os.ReadFile(linkPath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }

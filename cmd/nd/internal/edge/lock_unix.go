@@ -83,3 +83,13 @@ func wrapDiskError(err error) error {
 	}
 	return err
 }
+
+// SwapDirLinkAtomic atomically swaps linkPath to point to targetDir using a POSIX symlink.
+func SwapDirLinkAtomic(linkPath, targetDir string) error {
+	return SwapSymlinkAtomic(linkPath, targetDir)
+}
+
+// ReadDirLink reads the symlink target of linkPath.
+func ReadDirLink(linkPath string) (string, error) {
+	return os.Readlink(linkPath)
+}
