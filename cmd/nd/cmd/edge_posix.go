@@ -3,16 +3,13 @@
 package cmd
 
 import (
-	"fmt"
-	"io/fs"
 	"os"
 	"os/signal"
-	"os/user"
-	"path/filepath"
-	"strconv"
 	"syscall"
 
 	"golang.org/x/sys/unix"
+
+	"nd/internal/edge"
 )
 
 func edgeGetEUID() int {
@@ -28,42 +25,7 @@ func edgeDiskFreeBytes(path string) (uint64, error) {
 }
 
 func edgeChownGroup(rootPath, groupName string, recursive bool) error {
-	if groupName == "" {
-		return nil
-	}
-	grp, err := user.LookupGroup(groupName)
-	if err != nil {
-		// Fall back to user lookup if group name differs from primary gid.
-		u, uErr := user.Lookup(groupName)
-		if uErr != nil {
-			return fmt.Errorf("lookup group %q: %w", groupName, err)
-		}
-		gid, convErr := strconv.Atoi(u.Gid)
-		if convErr != nil {
-			return convErr
-		}
-		return chownTreeGID(rootPath, gid, recursive)
-	}
-	gid, err := strconv.Atoi(grp.Gid)
-	if err != nil {
-		return err
-	}
-	return chownTreeGID(rootPath, gid, recursive)
-}
-
-func chownTreeGID(rootPath string, gid int, recursive bool) error {
-	if !recursive {
-		return os.Chown(rootPath, 0, gid)
-	}
-	return filepath.WalkDir(rootPath, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return os.Lchown(p, 0, gid)
-		}
-		return os.Chown(p, 0, gid)
-	})
+	return edge.ChownGroup(rootPath, groupName, recursive)
 }
 
 func edgeDaemonSignalNotify() (<-chan os.Signal, <-chan os.Signal, func()) {

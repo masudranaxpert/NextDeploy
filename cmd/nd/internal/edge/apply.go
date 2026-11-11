@@ -164,6 +164,7 @@ type PanelRenderArtifact struct {
 type ApplyInput struct {
 	AdminAddr   string
 	ACMEEmail   string
+	CaddyGroup  string
 	GlobalOpts  []byte
 	CommonCaddy []byte
 	Panels      []PanelRenderArtifact
@@ -184,8 +185,9 @@ type ApplyResult struct {
 // Applier manages atomic generation directories, validation, symlink swaps,
 // Caddy reload, rollback, and old-generation pruning (§5.5).
 type Applier struct {
-	paths Paths
-	caddy CaddyRunner
+	paths      Paths
+	caddy      CaddyRunner
+	chownGroup func(path, group string, recursive bool) error
 }
 
 // NewApplier constructs an Applier.
@@ -193,7 +195,18 @@ func NewApplier(paths Paths, caddy CaddyRunner) *Applier {
 	if caddy == nil {
 		caddy = &ExecCaddyRunner{}
 	}
-	return &Applier{paths: paths, caddy: caddy}
+	return &Applier{
+		paths:      paths,
+		caddy:      caddy,
+		chownGroup: ChownGroup,
+	}
+}
+
+func (a *Applier) applyGroup(path, group string, recursive bool) {
+	if group == "" || a.chownGroup == nil {
+		return
+	}
+	_ = a.chownGroup(path, group, recursive)
 }
 
 // DesiredHash returns a deterministic SHA-256 hash of the desired rendered state
@@ -237,7 +250,7 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 	}
 
 	// Ensure base directories and placeholder in user dir exist (E-CADDY-11).
-	if err := a.ensureBaseDirs(); err != nil {
+	if err := a.ensureBaseDirs(in.CaddyGroup); err != nil {
 		return res, err
 	}
 
@@ -353,10 +366,12 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
+	a.applyGroup(a.paths.GlobalOpts, in.CaddyGroup, false)
 	if err := WriteFileAtomic(a.paths.CommonCaddy, in.CommonCaddy, 0o644); err != nil {
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
+	a.applyGroup(a.paths.CommonCaddy, in.CaddyGroup, false)
 	if err := a.ensureManagedCaddyfile(in.AdminAddr, in.ACMEEmail); err != nil {
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
@@ -372,6 +387,7 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
+	a.applyGroup(a.paths.OriginsLink, in.CaddyGroup, false)
 	if err := SwapDirLinkAtomic(a.paths.PanelsLink, panelDir); err != nil {
 		if prevOriginsTarget != "" {
 			_ = SwapDirLinkAtomic(a.paths.OriginsLink, prevOriginsTarget)
@@ -383,6 +399,7 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 		a.recordFailure(meta, desiredHash, err, now)
 		return res, err
 	}
+	a.applyGroup(a.paths.PanelsLink, in.CaddyGroup, false)
 
 	dur, reloadErr := a.caddy.Reload(ctx, a.paths.Caddyfile, in.AdminAddr)
 	if reloadErr != nil {
@@ -427,7 +444,7 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 	return res, nil
 }
 
-func (a *Applier) ensureBaseDirs() error {
+func (a *Applier) ensureBaseDirs(caddyGroup string) error {
 	for _, d := range []string{
 		filepath.Dir(a.paths.Caddyfile),
 		a.paths.CaddyNDDir,
@@ -443,6 +460,8 @@ func (a *Applier) ensureBaseDirs() error {
 			return err
 		}
 	}
+	a.applyGroup(a.paths.CaddyNDDir, caddyGroup, false)
+	a.applyGroup(a.paths.UserCaddyDir, caddyGroup, true)
 	return nil
 }
 
@@ -588,6 +607,9 @@ func (a *Applier) stageGeneration(panelDir, originDir string, in ApplyInput, pan
 	}
 	_ = syncDir(panelDir)
 	_ = syncDir(originDir)
+	// Ensure Caddy's unprivileged service group can traverse and read staged generations before reload.
+	a.applyGroup(panelDir, in.CaddyGroup, true)
+	a.applyGroup(originDir, in.CaddyGroup, true)
 	return nil
 }
 

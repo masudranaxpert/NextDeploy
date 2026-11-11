@@ -307,3 +307,62 @@ func TestApplierFirstApplyReloadFailureCleansDanglingLinks(t *testing.T) {
 		t.Fatalf("expected OriginsLink removed on first-apply rollback, got statErr=%v", statErr)
 	}
 }
+
+func TestApplierAppliesCaddyGroupOwnershipBeforeReload(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 4, 0, 0, 0, time.UTC)
+	paths := NewPaths(t.TempDir())
+
+	var events []string
+	caddy := &fakeCaddyRunner{
+		reloadFn: func(_ context.Context, _ string, _ string) (time.Duration, error) {
+			events = append(events, "reload")
+			return 5 * time.Millisecond, nil
+		},
+	}
+	applier := NewApplier(paths, caddy)
+	applier.chownGroup = func(p, group string, recursive bool) error {
+		events = append(events, "chown:"+filepath.Base(p)+":"+group)
+		return nil
+	}
+
+	res, err := applier.Apply(ctx, ApplyInput{
+		AdminAddr:   DefaultAdminAddr,
+		CaddyGroup:  "caddy",
+		GlobalOpts:  []byte(RenderGlobalOpts(DefaultCloudflareRanges)),
+		CommonCaddy: []byte(RenderCommonCaddy()),
+		Panels: []PanelRenderArtifact{
+			{
+				PanelID:    "panel-a",
+				CaddyBytes: []byte("# panel-a\n"),
+				PEMBytes:   []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"),
+				Changed:    true,
+			},
+		},
+	}, &ApplyMeta{}, now)
+	if err != nil || !res.Applied {
+		t.Fatalf("apply failed: res=%+v err=%v", res, err)
+	}
+
+	reloadIdx := -1
+	var sawPanelGen, sawOriginGen bool
+	for i, ev := range events {
+		if ev == "reload" {
+			reloadIdx = i
+		}
+		if strings.HasPrefix(ev, "chown:panels.gen-000001:caddy") {
+			sawPanelGen = true
+		}
+		if strings.HasPrefix(ev, "chown:origins.gen-000001:caddy") {
+			sawOriginGen = true
+		}
+	}
+	if !sawPanelGen || !sawOriginGen || reloadIdx <= 0 {
+		t.Fatalf("expected generation dirs chowned before reload, got events=%v", events)
+	}
+	for i := reloadIdx + 1; i < len(events); i++ {
+		if strings.HasPrefix(events[i], "chown:") {
+			t.Fatalf("unexpected chown after reload in events=%v", events)
+		}
+	}
+}

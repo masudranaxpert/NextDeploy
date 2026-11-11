@@ -526,13 +526,17 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 		return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(out))
 	}
 
-	// Step 10: Enable Caddy, run synchronous initial reconcile, start nd-edge, print summary.
+	// Step 10: Enable Caddy, apply perms/SELinux, run synchronous initial reconcile, start nd-edge, print summary.
 	fmt.Fprintln(ops.stdout, "==> [10/10] Starting services and running initial reconcile...")
 	if out, err := ops.runCmd(ctx, "systemctl", "enable", "--now", "caddy"); err != nil {
 		return fmt.Errorf("systemctl enable --now caddy: %w: %s", err, strings.TrimSpace(out))
 	}
+	applyInstallPermsAndSELinux(ops, caddyUser)
 
-	// If nd-edge is already running (idempotent re-install), stop briefly or signal reload after reconcile.
+	// Check whether nd-edge was already running before enable --now so we don't SIGHUP a freshly spawned process during init.
+	_, wasActiveErr := ops.runCmd(ctx, "systemctl", "is-active", "--quiet", "nd-edge")
+	wasRunning := wasActiveErr == nil
+
 	reconcileSummary := ""
 	if summary, recErr := runSyncReconcileLocked(ctx, ops, cfg, false); recErr == nil {
 		reconcileSummary = summary
@@ -543,7 +547,7 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 	if out, err := ops.runCmd(ctx, "systemctl", "enable", "--now", "nd-edge"); err != nil {
 		return fmt.Errorf("systemctl enable --now nd-edge: %w: %s", err, strings.TrimSpace(out))
 	}
-	if reconcileSummary == "" {
+	if wasRunning && reconcileSummary == "" {
 		_, _ = ops.runCmd(ctx, "systemctl", "reload", "nd-edge")
 	}
 
@@ -1740,6 +1744,9 @@ func runEdgeDaemon(ops *edgeOps, args []string) error {
 		fmt.Fprintln(ops.stdout, "Usage: nd edge run")
 		return nil
 	}
+	reloadCh, stopCh, cleanupSignals := edgeDaemonSignalNotify()
+	defer cleanupSignals()
+
 	caddyVer := detectCaddyVersionWithOps(context.Background(), ops)
 	d, lock, err := edge.NewDaemon(edge.DaemonOptions{
 		Paths:        ops.paths,
@@ -1759,9 +1766,6 @@ func runEdgeDaemon(ops *edgeOps, args []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	reloadCh, stopCh, cleanupSignals := edgeDaemonSignalNotify()
-	defer cleanupSignals()
 
 	go func() {
 		for {

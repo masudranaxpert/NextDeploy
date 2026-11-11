@@ -467,9 +467,14 @@ func (r *Reconciler) ReconcileOnce(
 	}
 
 	// 7. Atomic Caddy generation apply (§5.5).
+	caddyGroup := strings.TrimSpace(cfg.CaddyUser)
+	if caddyGroup == "" && r.systemd != nil {
+		caddyGroup = r.systemd.CaddyUser(ctx)
+	}
 	applyIn := ApplyInput{
 		AdminAddr:   cfg.AdminAddr,
 		ACMEEmail:   cfg.ACMEEmail,
+		CaddyGroup:  caddyGroup,
 		GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges())),
 		CommonCaddy: []byte(RenderCommonCaddy()),
 		Panels:      artifacts,
