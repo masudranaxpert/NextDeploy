@@ -977,21 +977,18 @@ func ensureInstallLayout(ctx context.Context, ops *edgeOps, plan caddyfileInstal
 		}
 	}
 
-	var globalOptsContent string
-	if plan.SkipTrustedProxies {
-		var b strings.Builder
-		b.WriteString("# nd-edge skipped trusted_proxies (already defined in adopted Caddyfile)\n")
-		if strings.TrimSpace(plan.PreservedGlobal) != "" {
-			b.WriteString(strings.TrimSpace(plan.PreservedGlobal) + "\n")
-		}
-		globalOptsContent = b.String()
-	} else {
-		cfStore := edge.LoadOrInitCFIPStore(ops.paths.CFIPsFile)
-		globalOptsContent = edge.RenderGlobalOpts(cfStore.Ranges())
-		if strings.TrimSpace(plan.PreservedGlobal) != "" {
-			globalOptsContent += "\n" + strings.TrimSpace(plan.PreservedGlobal) + "\n"
+	cfStore := edge.LoadOrInitCFIPStore(ops.paths.CFIPsFile)
+	tmpCfg := &edge.Config{
+		TrustedProxies:  plan.SkipTrustedProxies,
+		PreservedGlobal: plan.PreservedGlobal,
+	}
+	if !tmpCfg.TrustedProxies && strings.TrimSpace(tmpCfg.PreservedGlobal) == "" {
+		if existingCfg, err := edge.LoadConfig(ops.paths.ConfigFile); err == nil {
+			tmpCfg.TrustedProxies = existingCfg.TrustedProxies
+			tmpCfg.PreservedGlobal = existingCfg.PreservedGlobal
 		}
 	}
+	globalOptsContent := edge.RenderGlobalOptsForConfig(tmpCfg, cfStore.Ranges())
 	if err := edge.WriteFileAtomic(ops.paths.GlobalOpts, []byte(globalOptsContent), 0o640); err != nil {
 		return err
 	}
@@ -1070,7 +1067,12 @@ func loadOrInitEdgeConfig(ops *edgeOps, plan caddyfileInstallPlan, caddyUser str
 	}
 	cfg.DNSGateOff = dnsGateOff
 	cfg.CaddyUser = caddyUser
-	cfg.TrustedProxies = plan.SkipTrustedProxies
+	if plan.SkipTrustedProxies {
+		cfg.TrustedProxies = true
+	}
+	if strings.TrimSpace(plan.PreservedGlobal) != "" {
+		cfg.PreservedGlobal = strings.TrimSpace(plan.PreservedGlobal)
+	}
 	if cfg.ShieldHostname == "" && ops.hostname != nil {
 		if hn, hErr := ops.hostname(); hErr == nil {
 			cfg.ShieldHostname = hn

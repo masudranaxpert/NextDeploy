@@ -118,6 +118,7 @@ type Config struct {
 	ShieldHostname  string        `json:"shield_hostname,omitempty"`
 	ShieldIPs       []string      `json:"shield_ips,omitempty"`
 	TrustedProxies  bool          `json:"skip_trusted_proxies,omitempty"`
+	PreservedGlobal string        `json:"preserved_global,omitempty"`
 	Panels          []PanelConfig `json:"panels"`
 }
 

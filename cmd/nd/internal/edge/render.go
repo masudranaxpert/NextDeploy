@@ -78,6 +78,24 @@ func RenderGlobalOpts(cfRanges []string) string {
 	return b.String()
 }
 
+// RenderGlobalOptsForConfig renders /etc/caddy/nd/global.opts honoring an
+// adopted Caddyfile's existing trusted_proxies / global directives.
+func RenderGlobalOptsForConfig(cfg *Config, cfRanges []string) string {
+	if cfg != nil && cfg.TrustedProxies {
+		var b strings.Builder
+		b.WriteString("# nd-edge skipped trusted_proxies (already defined in adopted Caddyfile)\n")
+		if strings.TrimSpace(cfg.PreservedGlobal) != "" {
+			b.WriteString(strings.TrimSpace(cfg.PreservedGlobal) + "\n")
+		}
+		return b.String()
+	}
+	out := RenderGlobalOpts(cfRanges)
+	if cfg != nil && strings.TrimSpace(cfg.PreservedGlobal) != "" {
+		out += "\n" + strings.TrimSpace(cfg.PreservedGlobal) + "\n"
+	}
+	return out
+}
+
 // RenderCommonCaddy renders /etc/caddy/nd/common.caddy (§5.3).
 func RenderCommonCaddy() string {
 	return `(nd_common) {

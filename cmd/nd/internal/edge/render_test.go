@@ -207,3 +207,17 @@ func TestRenderPanelRejectsUnvalidatedHost(t *testing.T) {
 		t.Fatalf("expected RenderPanelCaddy to reject unvalidated Caddyfile-injection host")
 	}
 }
+
+func TestRenderGlobalOptsForConfigPreservesAdoptedTrustedProxies(t *testing.T) {
+	preserved := "servers {\n\ttrusted_proxies static 103.21.244.0/22 5.175.220.216\n}"
+	out := RenderGlobalOptsForConfig(&Config{
+		TrustedProxies:  true,
+		PreservedGlobal: preserved,
+	}, DefaultCloudflareRanges)
+	if !strings.Contains(out, "5.175.220.216") {
+		t.Fatalf("expected preserved trusted_proxies IP in global.opts, got:\n%s", out)
+	}
+	if strings.Contains(out, "client_ip_headers") {
+		t.Fatalf("expected nd-edge trusted_proxies block to be skipped when adopted Caddyfile already defines servers/trusted_proxies, got:\n%s", out)
+	}
+}

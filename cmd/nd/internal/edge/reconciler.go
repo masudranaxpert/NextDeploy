@@ -470,7 +470,7 @@ func (r *Reconciler) ReconcileOnce(
 	applyIn := ApplyInput{
 		AdminAddr:   cfg.AdminAddr,
 		ACMEEmail:   cfg.ACMEEmail,
-		GlobalOpts:  []byte(RenderGlobalOpts(r.cfIPs.Ranges())),
+		GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges())),
 		CommonCaddy: []byte(RenderCommonCaddy()),
 		Panels:      artifacts,
 		Force:       force,
