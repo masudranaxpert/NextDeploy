@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { backendApi, getPanelId } from '../../lib/backendApi';
 import { RotateShieldTokenResponse, ShieldNode } from '../../types/shield';
 import { copyToClipboard } from '../../lib/clipboard';
-import { ActionMenu, ActionMenuItem, ShadcnDialog } from '../../components/ui/Primitives';
+import { ShadcnDialog } from '../../components/ui/Primitives';
 import { ManageShieldModal } from '../../components/shield/ManageShieldModal';
 import {
   SHIELD_PREP_COMMAND,
@@ -47,51 +47,106 @@ function formatSyncTime(iso?: string): { short: string; full: string } | null {
   };
 }
 
-const SYNC_WARNING_LABELS: Record<string, { label: string; tone: 'warn' | 'error' }> = {
-  stale: { label: 'Sync stale', tone: 'warn' },
-  auth_failed: { label: 'Auth failed', tone: 'error' },
-  outdated: { label: 'Edge outdated', tone: 'warn' },
-  panel_outdated: { label: 'Panel outdated', tone: 'warn' },
+const SYNC_STATE_STYLES: Record<string, { label: string; cls: string; dot: string }> = {
+  ok: {
+    label: 'Sync OK',
+    cls: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400',
+    dot: 'bg-emerald-400',
+  },
+  stale: {
+    label: 'Stale',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  auth_failed: {
+    label: 'Auth Failed',
+    cls: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+    dot: 'bg-rose-400',
+  },
+  outdated: {
+    label: 'Edge Outdated',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  panel_outdated: {
+    label: 'Panel Outdated',
+    cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    dot: 'bg-amber-400',
+  },
+  pending: {
+    label: 'Pending',
+    cls: 'border-zinc-700 bg-zinc-800/70 text-zinc-300',
+    dot: 'bg-zinc-400',
+  },
+  unregistered: {
+    label: 'Unregistered',
+    cls: 'border-zinc-700 bg-zinc-900 text-zinc-400',
+    dot: 'bg-zinc-500',
+  },
 };
 
-const CONNECTION_META: Record<string, { label: string; dot: string; text: string }> = {
-  connected: { label: 'Connected', dot: 'bg-emerald-400', text: 'text-zinc-100' },
-  pending: { label: 'Pending setup', dot: 'bg-amber-400', text: 'text-amber-300' },
-  unregistered: { label: 'Unregistered', dot: 'bg-zinc-400', text: 'text-zinc-300' },
-  offline: { label: 'Offline', dot: 'bg-rose-400', text: 'text-rose-300' },
+const NodeConnectionBadge: React.FC<{ status: ShieldNode['status'] }> = ({ status }) => {
+  if (status === 'connected') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        Connected
+      </span>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 ring-1 ring-amber-500/20 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        Pending Setup
+      </span>
+    );
+  }
+  if (status === 'unregistered') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-400 ring-1 ring-white/10 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+        Unregistered
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-400 ring-1 ring-rose-500/20 shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+      Offline
+    </span>
+  );
+};
+
+const SyncStateBadge: React.FC<{ syncState?: string; lastError?: string }> = ({ syncState, lastError }) => {
+  const key = (syncState || 'pending').toLowerCase();
+  const style = SYNC_STATE_STYLES[key] || {
+    label: syncState || 'Unknown',
+    cls: 'border-zinc-700 bg-zinc-900 text-zinc-300',
+    dot: 'bg-zinc-400',
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${style.cls}`}
+      title={lastError || undefined}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  );
 };
 
 const NodeStatusReadout: React.FC<{ node: ShieldNode }> = ({ node }) => {
-  const conn = CONNECTION_META[node.status] || CONNECTION_META.offline;
-  const syncKey = (node.sync_state || '').toLowerCase();
-  const syncWarning = SYNC_WARNING_LABELS[syncKey];
-  const isHealthySync = node.status === 'connected' && (!syncKey || syncKey === 'ok');
-
   return (
-    <div className="space-y-0.5 min-w-0">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap">
-          <span className={`h-2 w-2 rounded-full shrink-0 ${conn.dot}`} aria-hidden="true" />
-          <span className={conn.text}>{conn.label}</span>
-        </span>
-        {syncWarning && (
-          <span
-            className={`text-[11px] font-medium whitespace-nowrap ${
-              syncWarning.tone === 'error' ? 'text-rose-300' : 'text-amber-300'
-            }`}
-            title={node.last_error || undefined}
-          >
-            · {syncWarning.label}
-          </span>
-        )}
-        {isHealthySync && (
-          <span className="text-[11px] text-zinc-400 whitespace-nowrap">· Sync OK</span>
-        )}
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <NodeConnectionBadge status={node.status} />
+        <SyncStateBadge syncState={node.sync_state} lastError={node.last_error} />
       </div>
       {node.last_error && (
-        <p className="text-[11px] text-rose-300 max-w-[16rem] truncate" title={node.last_error}>
+        <span className="text-[11px] text-rose-400/90 max-w-[16rem] truncate" title={node.last_error}>
           {node.last_error}
-        </p>
+        </span>
       )}
     </div>
   );
@@ -105,18 +160,21 @@ const NodeDomainsCell: React.FC<{ node: ShieldNode }> = ({ node }) => {
     .map((s) => `${s.host}${s.detail ? ` (${s.detail})` : ''}`);
 
   return (
-    <div className="space-y-0.5">
-      <span className="text-xs font-medium tabular-nums text-zinc-200 block">
+    <div className="flex flex-col items-start gap-1">
+      <span className="inline-flex items-center gap-1 rounded-md bg-zinc-800/80 px-2 py-0.5 text-xs font-medium text-zinc-200 border border-zinc-700/60">
+        <Globe className="h-3 w-3 text-cyan-400" />
         {count} {count === 1 ? 'domain' : 'domains'}
       </span>
-      {conflicts > 0 && (
+      {conflicts > 0 ? (
         <span
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-300 tabular-nums"
+          className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-300"
           title={conflictedHosts.length > 0 ? `Conflicts: ${conflictedHosts.join(', ')}` : undefined}
         >
-          <ShieldAlert className="h-3 w-3 shrink-0" />
+          <ShieldAlert className="h-3 w-3 shrink-0 text-rose-400" />
           {conflicts} conflict{conflicts === 1 ? '' : 's'}
         </span>
+      ) : (
+        <span className="text-[11px] text-zinc-500">0 conflicts</span>
       )}
     </div>
   );
@@ -271,32 +329,6 @@ export function ShieldProxiesView() {
   const activeCount = nodes.filter((n) => n.status === 'connected').length;
   const totalProtectedDomains = nodes.reduce((acc, n) => acc + (n.assigned_domains || 0), 0);
   const panelOrigin = getPanelOrigin();
-
-  const buildNodeMenuItems = (node: ShieldNode): ActionMenuItem[] => {
-    const items: ActionMenuItem[] = [];
-    if (node.assigned_domains > 0) {
-      items.push({
-        label: 'Reassign domains',
-        icon: <ArrowLeftRight className="h-3.5 w-3.5" />,
-        onClick: () => {
-          setReassignModalNode(node);
-          setTargetShieldId(null);
-        },
-      });
-    }
-    items.push({
-      label: 'Rotate token',
-      icon: <KeyRound className="h-3.5 w-3.5" />,
-      onClick: () => openRotateModal(node),
-    });
-    items.push({
-      label: 'Delete node',
-      icon: <Trash2 className="h-3.5 w-3.5" />,
-      variant: 'danger',
-      onClick: () => setDeleteModalNode(node),
-    });
-    return items;
-  };
 
   return (
     <div className="space-y-5 sm:space-y-6 max-w-7xl mx-auto">
@@ -587,9 +619,9 @@ export function ShieldProxiesView() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Shield Node</th>
                     <th className="px-4 py-3 font-medium">Public IP</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Version</th>
-                    <th className="px-4 py-3 font-medium">Domains</th>
+                    <th className="px-4 py-3 font-medium">Status & Sync</th>
+                    <th className="px-4 py-3 font-medium">Versions</th>
+                    <th className="px-4 py-3 font-medium">Domains & Conflicts</th>
                     <th className="px-4 py-3 font-medium">Last Sync</th>
                     <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
@@ -597,22 +629,36 @@ export function ShieldProxiesView() {
                 <tbody className="divide-y divide-zinc-800/60">
                   {nodes.map((node) => {
                     const syncTime = formatSyncTime(node.last_sync_at || node.last_heartbeat_at);
-                    const menuItems = buildNodeMenuItems(node);
+                    const isConnected = node.status === 'connected';
+                    const isPending = node.status === 'pending';
 
                     return (
                       <tr key={node.id} className="hover:bg-zinc-800/25 transition-colors">
                         <td className="px-4 py-3.5 align-middle">
-                          <div className="min-w-0">
-                            <span className="font-medium text-zinc-100 block truncate">{node.name}</span>
-                            <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
-                              #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
-                            </span>
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                                isConnected
+                                  ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
+                                  : isPending
+                                  ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20'
+                              }`}
+                            >
+                              <Shield className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="font-semibold text-zinc-100 block truncate">{node.name}</span>
+                              <div className="text-[11px] text-zinc-400 font-mono tabular-nums">
+                                ID: #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
+                              </div>
+                            </div>
                           </div>
                         </td>
 
                         <td className="px-4 py-3.5 align-middle">
                           <div className="inline-flex items-center gap-1.5">
-                            <span className="font-mono text-xs tabular-nums text-zinc-200">{node.ip}</span>
+                            <span className="font-mono text-xs tabular-nums text-zinc-200 font-medium">{node.ip}</span>
                             <button
                               type="button"
                               onClick={() => handleCopy(node.ip, `ip-${node.id}`)}
@@ -633,19 +679,11 @@ export function ShieldProxiesView() {
                           <NodeStatusReadout node={node} />
                         </td>
 
-                        <td className="px-4 py-3.5 align-middle font-mono tabular-nums">
-                          {node.edge_version ? (
-                            <div className="space-y-0.5">
-                              <div className="text-xs text-zinc-200">edge {node.edge_version}</div>
-                              {node.caddy_version && (
-                                <div className="text-[11px] text-zinc-400">caddy {node.caddy_version}</div>
-                              )}
-                            </div>
-                          ) : node.caddy_version ? (
-                            <div className="text-xs text-zinc-300">caddy {node.caddy_version}</div>
-                          ) : (
-                            <span className="text-xs text-zinc-400">-</span>
-                          )}
+                        <td className="px-4 py-3.5 align-middle font-mono tabular-nums text-xs">
+                          <div className="space-y-0.5">
+                            <div className="text-zinc-200">edge: {node.edge_version || <span className="text-zinc-500">—</span>}</div>
+                            <div className="text-[11px] text-zinc-400">caddy: {node.caddy_version || <span className="text-zinc-500">—</span>}</div>
+                          </div>
                         </td>
 
                         <td className="px-4 py-3.5 align-middle">
@@ -656,34 +694,63 @@ export function ShieldProxiesView() {
                           {syncTime ? (
                             <span title={syncTime.full}>{syncTime.short}</span>
                           ) : (
-                            <span>Awaiting sync</span>
+                            <span className="text-zinc-600">Awaiting sync</span>
                           )}
                         </td>
 
                         <td className="px-4 py-3.5 align-middle text-right">
-                          <div className="inline-flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {node.assigned_domains > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReassignModalNode(node);
+                                  setTargetShieldId(null);
+                                }}
+                                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 hover:border-cyan-700 transition-colors cursor-pointer"
+                                title="Failover / Reassign domains"
+                              >
+                                <ArrowLeftRight className="h-3.5 w-3.5 text-cyan-400" />
+                                <span>Reassign</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setSelectedScriptNode(node)}
-                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-white/[0.1] bg-zinc-900 text-xs font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-colors cursor-pointer"
+                              title="Setup, upgrade, and uninstall commands"
                             >
-                              <Terminal className="h-3.5 w-3.5 text-zinc-400" />
+                              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
                               <span>Commands</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openRotateModal(node)}
+                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 transition-colors cursor-pointer"
+                              title="Rotate Shield authentication token"
+                            >
+                              <KeyRound className="h-3.5 w-3.5 text-amber-400" />
+                              <span>Rotate</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleTest(node)}
                               disabled={testingId === node.id}
                               aria-label={`Test connectivity for ${node.name}`}
-                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-transparent text-xs font-medium text-zinc-300 hover:border-white/[0.08] hover:bg-zinc-800/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 disabled:opacity-50 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-sky-500/30 bg-sky-500/10 text-xs font-medium text-sky-300 hover:bg-sky-500/20 hover:border-sky-500/50 disabled:opacity-50 transition-colors cursor-pointer"
+                              title="Test connectivity"
                             >
-                              <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-emerald-400' : 'text-zinc-400'}`} />
+                              <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-sky-300' : 'text-sky-400'}`} />
                               <span>{testingId === node.id ? 'Testing...' : 'Test'}</span>
                             </button>
-                            <ActionMenu
-                              items={menuItems}
-                              ariaLabel={`More actions for ${node.name}`}
-                            />
+                            <button
+                              type="button"
+                              onClick={() => setDeleteModalNode(node)}
+                              className="h-8 w-8 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-400 transition-colors cursor-pointer"
+                              title="Delete Shield Node"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -697,18 +764,32 @@ export function ShieldProxiesView() {
             <div className="block md:hidden divide-y divide-zinc-800/60">
               {nodes.map((node) => {
                 const syncTime = formatSyncTime(node.last_sync_at || node.last_heartbeat_at);
-                const menuItems = buildNodeMenuItems(node);
+                const isConnected = node.status === 'connected';
+                const isPending = node.status === 'pending';
 
                 return (
                   <div key={node.id} className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="font-medium text-zinc-100 text-sm block truncate">
-                          {node.name}
-                        </span>
-                        <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
-                          #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
-                        </span>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                            isConnected
+                              ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
+                              : isPending
+                              ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20'
+                          }`}
+                        >
+                          <Shield className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-semibold text-zinc-100 text-sm block truncate">
+                            {node.name}
+                          </span>
+                          <span className="text-[11px] text-zinc-400 font-mono tabular-nums">
+                            #{node.id}{node.edge_id ? ` · ${node.edge_id.slice(0, 8)}` : ''}
+                          </span>
+                        </div>
                       </div>
                       <div className="shrink-0 text-right">
                         <NodeStatusReadout node={node} />
@@ -744,32 +825,54 @@ export function ShieldProxiesView() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      {node.assigned_domains > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReassignModalNode(node);
+                            setTargetShieldId(null);
+                          }}
+                          className="inline-flex items-center justify-center gap-1 h-9 px-2.5 rounded-md border border-cyan-800/60 bg-cyan-950/40 text-xs font-medium text-cyan-300 hover:bg-cyan-900/60 transition-colors cursor-pointer"
+                        >
+                          <ArrowLeftRight className="h-3.5 w-3.5 text-cyan-400" />
+                          <span>Reassign</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setSelectedScriptNode(node)}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-white/[0.1] bg-zinc-900 text-xs font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer"
                       >
-                        <Terminal className="h-3.5 w-3.5 text-zinc-400" />
+                        <Terminal className="h-3.5 w-3.5 text-emerald-400" />
                         <span>Commands</span>
                       </button>
-
+                      <button
+                        type="button"
+                        onClick={() => openRotateModal(node)}
+                        className="inline-flex items-center justify-center gap-1 h-9 px-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-300 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                      >
+                        <KeyRound className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Rotate</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleTest(node)}
                         disabled={testingId === node.id}
                         aria-label={`Test connectivity for ${node.name}`}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-white/[0.08] bg-zinc-950 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 disabled:opacity-50 transition-colors cursor-pointer"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-sky-500/30 bg-sky-500/10 text-xs font-medium text-sky-300 hover:bg-sky-500/20 disabled:opacity-50 transition-colors cursor-pointer"
                       >
-                        <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-emerald-400' : 'text-zinc-400'}`} />
+                        <Activity className={`h-3.5 w-3.5 ${testingId === node.id ? 'animate-spin text-sky-300' : 'text-sky-400'}`} />
                         <span>{testingId === node.id ? 'Testing...' : 'Test'}</span>
                       </button>
-
-                      <ActionMenu
-                        items={menuItems}
-                        ariaLabel={`More actions for ${node.name}`}
-                        triggerClassName="flex h-9 w-9 items-center justify-center rounded-md border border-white/[0.08] bg-zinc-950 text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setDeleteModalNode(node)}
+                        className="h-9 w-9 shrink-0 rounded-md border border-zinc-800 flex items-center justify-center text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-400 transition-colors cursor-pointer"
+                        title="Delete Shield Node"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 );

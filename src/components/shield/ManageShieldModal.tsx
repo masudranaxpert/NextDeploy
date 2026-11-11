@@ -34,7 +34,7 @@ interface CommandBlockProps {
   label: string;
   hint?: string;
   command: string;
-  accent?: 'primary' | 'default' | 'danger';
+  accent?: 'primary' | 'cyan' | 'amber' | 'danger' | 'default';
   copiedId: string | null;
   onCopy: (text: string, id: string) => void;
 }
@@ -51,9 +51,13 @@ const CommandBlock: React.FC<CommandBlockProps> = ({
   const isCopied = copiedId === id;
   const borderClass =
     accent === 'primary'
-      ? 'border-emerald-500/30 bg-zinc-950'
+      ? 'border-emerald-500/40 bg-zinc-950/90'
+      : accent === 'cyan'
+      ? 'border-cyan-500/40 bg-zinc-950/90'
+      : accent === 'amber'
+      ? 'border-amber-500/40 bg-zinc-950/90'
       : accent === 'danger'
-      ? 'border-rose-500/25 bg-zinc-950'
+      ? 'border-rose-500/40 bg-zinc-950/90'
       : 'border-white/[0.08] bg-zinc-950';
 
   return (
@@ -146,13 +150,13 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
             onClick={() => handleCopy(node.ip, 'header-ip')}
             aria-label={`Copy IP ${node.ip}`}
             title="Copy Shield IP"
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] bg-zinc-900 px-2 font-mono text-xs tabular-nums text-zinc-200 hover:border-white/[0.16] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 font-mono text-xs tabular-nums text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-colors cursor-pointer"
           >
             <span>{node.ip}</span>
             {copiedId === 'header-ip' ? (
               <Check className="h-3 w-3 text-emerald-400" />
             ) : (
-              <Copy className="h-3 w-3 text-zinc-400" />
+              <Copy className="h-3 w-3 text-emerald-400/70" />
             )}
           </button>
         ) : null
@@ -166,7 +170,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 onClose();
                 onRotateToken(node);
               }}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-white/[0.1] bg-zinc-900 text-xs font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 transition-colors cursor-pointer"
             >
               <KeyRound className="h-3.5 w-3.5 text-amber-400" />
               <span>Rotate Token</span>
@@ -180,7 +184,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
               onDone?.();
               onClose();
             }}
-            className="h-8 px-4 rounded-md bg-zinc-800 text-xs font-medium text-white hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors cursor-pointer"
+            className="h-8 px-4 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white shadow-xs transition-colors cursor-pointer"
           >
             Done
           </button>
@@ -232,6 +236,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 label="1. Open firewall ports"
                 hint="Ubuntu / Debian"
                 command={SHIELD_PREP_COMMAND}
+                accent="cyan"
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
@@ -246,10 +251,10 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 onCopy={handleCopy}
               />
 
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.07] bg-zinc-950/70 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs text-zinc-400 shrink-0">Token</span>
-                  <code className="font-mono text-xs text-zinc-200 truncate max-w-[14rem] sm:max-w-[20rem]">
+                  <span className="text-xs text-amber-400 font-medium shrink-0">Token</span>
+                  <code className="font-mono text-xs text-amber-200 truncate max-w-[14rem] sm:max-w-[20rem]">
                     {showToken ? node.token : '••••••••••••••••••••••••'}
                   </code>
                 </div>
@@ -258,7 +263,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                     type="button"
                     onClick={() => setShowToken((v) => !v)}
                     aria-label={showToken ? 'Hide raw token' : 'Show raw token'}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 text-xs text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 cursor-pointer"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 text-xs text-amber-300 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 cursor-pointer"
                   >
                     {showToken ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                     <span>{showToken ? 'Hide' : 'Show'}</span>
@@ -267,7 +272,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                     type="button"
                     onClick={() => handleCopy(node.token, 'raw-token')}
                     aria-label="Copy raw token"
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-zinc-900 px-2 text-xs text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 cursor-pointer"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 text-xs text-amber-300 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 cursor-pointer"
                   >
                     {copiedId === 'raw-token' ? (
                       <>
@@ -285,9 +290,9 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
               </div>
 
               <p className="flex items-start gap-2 text-[11px] text-zinc-400 leading-relaxed">
-                <Lock className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" />
+                <Lock className="h-3.5 w-3.5 text-emerald-400/80 shrink-0 mt-0.5" />
                 <span>
-                  Tokens pass via <code className="font-mono text-zinc-200">--token-stdin</code> instead of URLs or CLI flags. Routes sync automatically within 30s after install.
+                  Tokens pass via <code className="font-mono text-emerald-300">--token-stdin</code> instead of URLs or CLI flags. Routes sync automatically within 30s after install.
                 </span>
               </p>
             </div>
@@ -305,6 +310,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 label="Upgrade binary & check health"
                 hint="SHA-256 verified"
                 command={upgradeCmd}
+                accent="cyan"
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
@@ -313,6 +319,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 id="modal-doctor-cmd"
                 label="Run edge diagnostics"
                 command="nd edge doctor"
+                accent="primary"
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
@@ -322,6 +329,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 label="Re-apply token on VPS"
                 hint="--token-stdin"
                 command={setTokenCmd}
+                accent="amber"
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
@@ -344,6 +352,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
                 label="Unlink this panel only"
                 hint="Keeps other panels"
                 command={unlinkCmd}
+                accent="amber"
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
