@@ -8,7 +8,7 @@ import { copyToClipboard } from '../../lib/clipboard';
 import { OwnerContext } from '../../components/ui/OwnerBadge';
 import { ShadcnDialog, ShadcnSelect } from '../../components/ui/Primitives';
 import { EdgeDomainHints, EdgeDomainStatusBadge } from '../../components/shield/EdgeDomainStatusBadge';
-import { TRUSTED_PROXY_HELPER, TrustedProxyBadge, TrustedProxyToggle } from '../../components/shield/TrustedProxyControl';
+import { TrustedProxyBadge, TrustedProxyToggle } from '../../components/shield/TrustedProxyControl';
 import { Card, EmptyState, Field, GhostButton, Pill, PrimaryButton, inputCls } from './ui';
 
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
@@ -330,9 +330,6 @@ export const PhpDomainsTab: React.FC<{
             </label>
             <TrustedProxyToggle variant="inline" checked={trustedProxy} onChange={setTrustedProxy} />
           </div>
-          <p className="text-[11px] text-zinc-400">
-            Trusted Proxy (optional): {TRUSTED_PROXY_HELPER}
-          </p>
         </div>
 
         {/* Mobile Layout (<sm): Untouched vertical stacked layout */}

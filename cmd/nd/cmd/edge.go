@@ -167,7 +167,7 @@ func printEdgeHelp(w io.Writer) {
 	fmt.Fprintln(w, "\nManage NextDeploy Multi-Panel Edge Shield on a Shield VPS:")
 	fmt.Fprintln(w, "  install       --panel-url URL [--token TOKEN | --token-stdin] [flags]  Install Caddy + nd-edge daemon")
 	fmt.Fprintln(w, "  add-panel     --panel-url URL [--token TOKEN | --token-stdin] [flags]  Register an additional panel")
-	fmt.Fprintln(w, "  remove-panel  <panel_id|name> [--purge-certs]                          Unregister and remove one panel")
+	fmt.Fprintln(w, "  remove-panel  <panel_id|name>                                          Unregister and remove one panel")
 	fmt.Fprintln(w, "  list          [--json]                                                 List registered panels & sync state")
 	fmt.Fprintln(w, "  status        [--json] [host]                                          Show per-host TLS & routing status")
 	fmt.Fprintln(w, "  sync          [--panel ID] [--force]                                   Trigger immediate reconciliation")
@@ -176,7 +176,7 @@ func printEdgeHelp(w io.Writer) {
 	fmt.Fprintln(w, "  set-token     <panel_id|name> [--token TOKEN | --token-stdin]          Update bearer token for a panel")
 	fmt.Fprintln(w, "  set-url       <panel_id|name> --panel-url URL [flags]                  Update panel API URL")
 	fmt.Fprintln(w, "  upgrade       [--url URL] [--sha256 HEX]                               Self-update nd binary safely")
-	fmt.Fprintln(w, "  uninstall     [--all] [--purge-certs]                                  Remove nd-edge and restore Caddyfile")
+	fmt.Fprintln(w, "  uninstall     [--all]                                                  Remove nd-edge and restore Caddyfile")
 	fmt.Fprintln(w, "\nToken input also honors ND_EDGE_TOKEN environment variable.")
 }
 
@@ -1323,15 +1323,15 @@ func saveInitialPanelState(paths edge.Paths, panelCfg edge.PanelConfig, snap *ed
 
 func runEdgeRemovePanel(ops *edgeOps, args []string) error {
 	if len(args) == 0 || hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge remove-panel <panel_id|name> [--purge-certs]")
+		fmt.Fprintln(ops.stdout, "Usage: nd edge remove-panel <panel_id|name>")
 		return nil
 	}
 
 	var target string
-	var purgeCerts bool
 	for _, a := range args {
 		if a == "--purge-certs" {
-			purgeCerts = true
+			// Kept for backward compatibility
+			continue
 		} else if strings.HasPrefix(a, "-") {
 			return fmt.Errorf("unknown flag: %s", a)
 		} else if target == "" {
@@ -1366,16 +1366,12 @@ func runEdgeRemovePanel(ops *edgeOps, args []string) error {
 		Reason: "panel_removed",
 	})
 
-	// Collect hosts for --purge-certs before deleting state file.
-	var removedHosts []string
-	var keepHosts map[string]struct{}
-	if purgeCerts {
-		removedHosts = collectPanelHosts(ops.paths, removed.PanelID)
-		keepHosts = make(map[string]struct{})
-		for _, p := range cfg.Panels {
-			for _, h := range collectPanelHosts(ops.paths, p.PanelID) {
-				keepHosts[h] = struct{}{}
-			}
+	// Collect hosts to automatically clean up unused certificates.
+	removedHosts := collectPanelHosts(ops.paths, removed.PanelID)
+	keepHosts := make(map[string]struct{})
+	for _, p := range cfg.Panels {
+		for _, h := range collectPanelHosts(ops.paths, p.PanelID) {
+			keepHosts[h] = struct{}{}
 		}
 	}
 
@@ -1398,7 +1394,7 @@ func runEdgeRemovePanel(ops *edgeOps, args []string) error {
 		}
 	}
 
-	if purgeCerts && len(removedHosts) > 0 {
+	if len(removedHosts) > 0 {
 		purgeUnusedHostCerts(ops.paths.CaddyCertsDir, removedHosts, keepHosts)
 	}
 
@@ -2341,16 +2337,17 @@ func resolveLatestNDDownload(ctx context.Context, httpClient *http.Client, goos,
 
 func runEdgeUninstall(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge uninstall [--all] [--purge-certs]")
+		fmt.Fprintln(ops.stdout, "Usage: nd edge uninstall [--all]")
 		return nil
 	}
-	var all, purgeCerts bool
+	var all bool
 	for _, a := range args {
 		switch a {
 		case "--all":
 			all = true
 		case "--purge-certs":
-			purgeCerts = true
+			// Kept for backward compatibility
+			continue
 		default:
 			return fmt.Errorf("unknown flag: %s", a)
 		}
@@ -2418,7 +2415,7 @@ func runEdgeUninstall(ops *edgeOps, args []string) error {
 		}
 	}
 
-	if purgeCerts {
+	if all {
 		_ = os.RemoveAll(ops.paths.CaddyCertsDir)
 	}
 

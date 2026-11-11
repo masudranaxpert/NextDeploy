@@ -82,18 +82,18 @@ export const EdgeDomainStatusBadge: React.FC<EdgeDomainStatusProps> = ({
       return overdue ? (
         <span
           className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300"
-          title={exp.full ? `Certificate expires ${exp.full}` : undefined}
+          title={exp.full ? `Certificate renew overdue (${exp.full})` : undefined}
         >
           <AlertTriangle className="h-3 w-3 shrink-0" />
-          {exp.text ? `Active · Renew overdue (expires ${exp.text})` : 'Active · Renew overdue'}
+          Active · Renew overdue
         </span>
       ) : (
         <span
           className="inline-flex items-center gap-1 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400"
-          title={exp.full ? `Certificate expires ${exp.full}` : undefined}
+          title="SSL Active (Auto-renewed by Edge)"
         >
           <CheckCircle2 className="h-3 w-3 shrink-0" />
-          {exp.text ? `Active (expires ${exp.text})` : 'Active'}
+          Active
         </span>
       );
     }
