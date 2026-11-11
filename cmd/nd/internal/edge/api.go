@@ -109,10 +109,11 @@ type OriginInfo struct {
 
 // EdgeRoute is a single route group for one app/site/proxy/preview/panel.
 type EdgeRoute struct {
-	ID      string       `json:"id"`
-	Kind    string       `json:"kind"`
-	Hosts   []string     `json:"hosts"`
-	Options RouteOptions `json:"options"`
+	ID           string       `json:"id"`
+	Kind         string       `json:"kind"`
+	Hosts        []string     `json:"hosts"`
+	TrustedProxy bool         `json:"trusted_proxy,omitempty"`
+	Options      RouteOptions `json:"options"`
 }
 
 // RouteOptions controls proxy behavior for a route.

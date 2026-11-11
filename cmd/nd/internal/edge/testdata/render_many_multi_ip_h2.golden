@@ -3,8 +3,9 @@
 	reverse_proxy https://204.136.10.51:443 https://204.136.10.52:443 {
 		lb_policy first
 		header_up Host {host}
-		header_up X-Real-IP {client_ip}
-		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
 		header_up X-Forwarded-Proto https
 		stream_close_delay 10m
 		flush_interval -1
@@ -27,8 +28,9 @@
 	reverse_proxy https://204.136.10.51:443 https://204.136.10.52:443 {
 		lb_policy first
 		header_up Host {host}
-		header_up X-Real-IP {client_ip}
-		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
 		header_up X-Forwarded-Proto https
 		stream_close_delay 10m
 		flush_interval -1

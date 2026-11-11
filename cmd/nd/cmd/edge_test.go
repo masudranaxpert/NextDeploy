@@ -675,3 +675,113 @@ func TestParseCaddyVersionOutputSkipsJSONLogLines(t *testing.T) {
 		t.Fatalf("expected v2.11.2, got %q", got)
 	}
 }
+
+func TestStripLegacyAndDoctorPreserveOtherTenantOnDemandTLS(t *testing.T) {
+	paths := edge.NewPaths(t.TempDir())
+
+	// Even when NextDeploy legacy catch-all AND NextDeploy on_demand_tls are stripped,
+	// another tenant's on_demand_tls block MUST NOT be touched.
+	mixed := `{
+	# Global On-Demand TLS with NextDeploy verification
+	on_demand_tls {
+		ask https://panel.example.com/api/v1/edge/verify-domain?token=shld_old
+	}
+	on_demand_tls {
+		ask https://other-tenant.example.com/tls-check
+	}
+}
+
+# === NextDeploy Edge Shield Catch-all ===
+https:// {
+	tls {
+		on_demand
+	}
+}
+# === End NextDeploy Edge Shield Catch-all ===
+
+other.example.com {
+	tls {
+		on_demand
+	}
+	respond "tenant" 200
+}
+`
+	plan, err := prepareInstallCaddyfile(mixed, paths, "", true)
+	if err != nil {
+		t.Fatalf("prepareInstallCaddyfile failed: %v", err)
+	}
+	if !plan.LegacyStripped {
+		t.Fatalf("expected LegacyStripped=true")
+	}
+	if strings.Contains(plan.PreservedGlobal, "/api/v1/edge/verify-domain") {
+		t.Fatalf("expected NextDeploy verify-domain on_demand_tls to be stripped, got:\n%s", plan.PreservedGlobal)
+	}
+	if !strings.Contains(plan.PreservedGlobal, "https://other-tenant.example.com/tls-check") {
+		t.Fatalf("expected other tenant on_demand_tls to be preserved in PreservedGlobal, got:\n%s", plan.PreservedGlobal)
+	}
+	if !strings.Contains(plan.Content, "other.example.com") {
+		t.Fatalf("expected other tenant site block to be preserved, got:\n%s", plan.Content)
+	}
+
+	// NextDeploy comment marker without /api/v1/edge/verify-domain is still stripped,
+	// while a separate non-NextDeploy on_demand_tls remains intact.
+	commentOnly := `{
+	# NextDeploy verification
+	on_demand_tls {
+		ask https://legacy.example.com/check
+	}
+	on_demand_tls {
+		ask https://other-tenant.example.com/allow
+	}
+}
+`
+	cleaned, didStrip := stripLegacyNextDeploy(commentOnly)
+	if !didStrip {
+		t.Fatalf("expected comment-marked NextDeploy on_demand_tls to be stripped")
+	}
+	if strings.Contains(cleaned, "legacy.example.com") {
+		t.Fatalf("expected comment-marked NextDeploy on_demand_tls removed, got:\n%s", cleaned)
+	}
+	if !strings.Contains(cleaned, "other-tenant.example.com") {
+		t.Fatalf("expected non-NextDeploy on_demand_tls preserved, got:\n%s", cleaned)
+	}
+
+	// Doctor must PASS when another tenant has non-NextDeploy on_demand_tls in Caddyfile,
+	// and FAIL when /api/v1/edge/verify-domain is present.
+	ops, stdout, _ := newTestEdgeOps(t)
+	_ = edge.SaveConfig(ops.paths.ConfigFile, &edge.Config{EdgeID: "edge-doc"})
+	managedWithOtherTenant := edge.RenderCaddyfileManagedRegion(ops.paths, "", "", "", "") + `
+{
+	on_demand_tls {
+		ask https://other-tenant.example.com/tls-check
+	}
+}
+`
+	if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(managedWithOtherTenant), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"doctor"}); err != nil {
+		t.Fatalf("expected doctor to pass with other-tenant on_demand_tls, got err=%v\n%s", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[PASS] caddy-directives") {
+		t.Fatalf("expected [PASS] caddy-directives, got:\n%s", stdout.String())
+	}
+
+	// Now inject /api/v1/edge/verify-domain -> doctor must FAIL caddy-directives.
+	managedWithLegacyND := edge.RenderCaddyfileManagedRegion(ops.paths, "", "", "", "") + `
+{
+	on_demand_tls {
+		ask https://panel.example.com/api/v1/edge/verify-domain
+	}
+}
+`
+	_ = edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(managedWithLegacyND), 0o644)
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"doctor"}); err == nil {
+		t.Fatalf("expected doctor to fail when /api/v1/edge/verify-domain is present")
+	}
+	if !strings.Contains(stdout.String(), "[FAIL] caddy-directives") {
+		t.Fatalf("expected [FAIL] caddy-directives, got:\n%s", stdout.String())
+	}
+}

@@ -405,12 +405,16 @@ func (r *Reconciler) ReconcileOnce(
 
 	// 6. Render artifacts for each panel.
 	artifacts := make([]PanelRenderArtifact, 0, len(cfg.Panels))
+	anyTrustedProxy := false
 	for _, p := range cfg.Panels {
 		pp := prepared[p.PanelID]
 		if pp == nil {
 			continue
 		}
 		if pp.preserveDisk {
+			if renderedCaddyUsesTrustedProxy(pp.diskCaddy) {
+				anyTrustedProxy = true
+			}
 			artifacts = append(artifacts, PanelRenderArtifact{
 				PanelID:    p.PanelID,
 				CaddyBytes: pp.diskCaddy,
@@ -435,6 +439,9 @@ func (r *Reconciler) ReconcileOnce(
 			if len(kept) > 0 {
 				r2 := rt
 				r2.Hosts = kept
+				if r2.TrustedProxy {
+					anyTrustedProxy = true
+				}
 				finalRoutes = append(finalRoutes, r2)
 			}
 		}
@@ -475,7 +482,7 @@ func (r *Reconciler) ReconcileOnce(
 		AdminAddr:   cfg.AdminAddr,
 		ACMEEmail:   cfg.ACMEEmail,
 		CaddyGroup:  caddyGroup,
-		GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges())),
+		GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges(), anyTrustedProxy)),
 		CommonCaddy: []byte(RenderCommonCaddy()),
 		Panels:      artifacts,
 		Force:       force,
@@ -650,4 +657,9 @@ func pruneTimestamps(in []time.Time, cutoff time.Time) []time.Time {
 		}
 	}
 	return out
+}
+
+func renderedCaddyUsesTrustedProxy(caddyBytes []byte) bool {
+	s := string(caddyBytes)
+	return strings.Contains(s, "_tp)")
 }

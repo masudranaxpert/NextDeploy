@@ -834,23 +834,27 @@ func stripLegacyNextDeploy(raw string) (string, bool) {
 	lines := strings.Split(text, "\n")
 	var out []string
 	i := 0
+	stripNextOnDemand := false
 	for i < len(lines) {
 		trimmed := strings.TrimSpace(lines[i])
 		if (trimmed == "# Global On-Demand TLS with NextDeploy verification" || trimmed == "# NextDeploy verification") &&
 			i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "on_demand_tls") {
 			stripped = true
+			stripNextOnDemand = true
 			i++
 			continue
 		}
 		if strings.HasPrefix(trimmed, "on_demand_tls") && strings.Contains(trimmed, "{") {
 			blockEnd := findClosingBraceLine(lines, i)
 			blockBody := strings.Join(lines[i:blockEnd+1], "\n")
-			if strings.Contains(blockBody, "/api/v1/edge/verify-domain") || stripped {
+			if stripNextOnDemand || strings.Contains(blockBody, "/api/v1/edge/verify-domain") {
 				stripped = true
+				stripNextOnDemand = false
 				i = blockEnd + 1
 				continue
 			}
 		}
+		stripNextOnDemand = false
 		out = append(out, lines[i])
 		i++
 	}
@@ -1003,13 +1007,28 @@ func ensureInstallLayout(ctx context.Context, ops *edgeOps, plan caddyfileInstal
 		TrustedProxies:  plan.SkipTrustedProxies,
 		PreservedGlobal: plan.PreservedGlobal,
 	}
-	if !tmpCfg.TrustedProxies && strings.TrimSpace(tmpCfg.PreservedGlobal) == "" {
-		if existingCfg, err := edge.LoadConfig(ops.paths.ConfigFile); err == nil {
+	anyTrustedProxy := false
+	if existingCfg, err := edge.LoadConfig(ops.paths.ConfigFile); err == nil {
+		if !tmpCfg.TrustedProxies && strings.TrimSpace(tmpCfg.PreservedGlobal) == "" {
 			tmpCfg.TrustedProxies = existingCfg.TrustedProxies
 			tmpCfg.PreservedGlobal = existingCfg.PreservedGlobal
 		}
+		now := ops.now()
+		for _, p := range existingCfg.Panels {
+			if st, stErr := edge.LoadPanelState(ops.paths.StateFile(p.PanelID), p.PanelID, p.PanelName, now); stErr == nil && st.LastGood != nil {
+				for _, rt := range st.LastGood.Routes {
+					if rt.TrustedProxy {
+						anyTrustedProxy = true
+						break
+					}
+				}
+			}
+			if anyTrustedProxy {
+				break
+			}
+		}
 	}
-	globalOptsContent := edge.RenderGlobalOptsForConfig(tmpCfg, cfStore.Ranges())
+	globalOptsContent := edge.RenderGlobalOptsForConfig(tmpCfg, cfStore.Ranges(), anyTrustedProxy)
 	if err := edge.WriteFileAtomic(ops.paths.GlobalOpts, []byte(globalOptsContent), 0o640); err != nil {
 		return err
 	}
@@ -1906,8 +1925,8 @@ func runEdgeDoctor(ops *edgeOps, args []string) error {
 		add("Caddyfile", "FAIL", err.Error())
 	} else {
 		cfText := string(rawCF)
-		if strings.Contains(cfText, legacyCatchAllStartMarker) || strings.Contains(cfText, "on_demand_tls") {
-			add("caddy-directives", "FAIL", "legacy catch-all or on_demand_tls directives still present")
+		if strings.Contains(cfText, legacyCatchAllStartMarker) || strings.Contains(cfText, "/api/v1/edge/verify-domain") {
+			add("caddy-directives", "FAIL", "legacy catch-all or NextDeploy on_demand_tls directives still present")
 		} else if !strings.Contains(cfText, edge.ManagedStartMarker) || !strings.Contains(cfText, edge.ManagedEndMarker) {
 			add("caddy-directives", "FAIL", "nd-edge managed markers missing from Caddyfile")
 		} else if ops.caddy != nil {
