@@ -289,15 +289,18 @@ func (p *Panel) GetOriginCaddyRootCA(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusNotFound).SendString("Origin Caddy local root CA certificate not generated yet")
 }
 
-// GetEdgeShieldSetupScript returns a complete, automated bash installer for a Shield VPS node.
-// GET /api/v1/edge/setup.sh?id=1&token=shld_...
-//
-// Deprecated: Legacy catch-all installer. Stage 2 replaces with nd edge install wrapper.
+// GetEdgeShieldSetupScript returns an idempotent bash wrapper that installs/updates
+// the `nd` CLI and runs `nd edge install --token-stdin`, keeping the token out
+// of CLI arguments and shell history. Passing `?legacy=1` falls back to the
+// deprecated Caddy catch-all installer.
+// GET /api/v1/edge/setup.sh?token=shld_...
 func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
-	c.Set("Deprecation", "true")
-	token := strings.TrimSpace(c.Query("token"))
+	token := extractEdgeScriptToken(c)
 	if token == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
+	}
+	if strings.ContainsAny(token, "\r\n\x00") {
+		return c.Status(fiber.StatusBadRequest).SendString("Invalid token parameter")
 	}
 
 	ctx := c.UserContext()
@@ -306,6 +309,125 @@ func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).SendString("Invalid shield token")
 	}
 
+	if edgeQueryBool(c, "legacy") {
+		return p.renderLegacyEdgeShieldSetupScript(c, node, token)
+	}
+
+	scheme, panelHost := panelRequestOrigin(c)
+	panelURL := fmt.Sprintf("%s://%s", scheme, panelHost)
+	panelID, _ := p.DB.EnsurePanelID(ctx)
+
+	installArgs := []string{
+		"edge", "install",
+		"--panel-url", shellSingleQuote(panelURL),
+		"--token-stdin",
+	}
+	if edgeQueryBool(c, "adopt") {
+		installArgs = append(installArgs, "--adopt-existing")
+	}
+	if acmeEmail := strings.TrimSpace(c.Query("acme_email")); acmeEmail != "" {
+		if !isValidACMEEmail(acmeEmail) {
+			return c.Status(fiber.StatusBadRequest).SendString("Invalid acme_email parameter")
+		}
+		installArgs = append(installArgs, "--acme-email", shellSingleQuote(acmeEmail))
+	}
+	if edgeQueryBool(c, "insecure_http") || scheme == "http" {
+		installArgs = append(installArgs, "--insecure-http")
+	}
+	if edgeQueryBool(c, "force") {
+		installArgs = append(installArgs, "--force")
+	}
+	if caSHA := strings.TrimSpace(c.Query("panel_ca_sha256")); caSHA != "" {
+		if !isValidSHA256Hex(caSHA) {
+			return c.Status(fiber.StatusBadRequest).SendString("Invalid panel_ca_sha256 parameter")
+		}
+		installArgs = append(installArgs, "--panel-ca-sha256", shellSingleQuote(strings.ToLower(caSHA)))
+	}
+	if dnsGate := strings.ToLower(strings.TrimSpace(c.Query("dns_gate"))); dnsGate != "" {
+		if dnsGate != "on" && dnsGate != "off" {
+			return c.Status(fiber.StatusBadRequest).SendString("Invalid dns_gate parameter (expected on or off)")
+		}
+		installArgs = append(installArgs, "--dns-gate", dnsGate)
+	}
+
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+# ==============================================================================
+# NextDeploy Shield Node Setup Wrapper (nd edge)
+# Node: %s (IP: %s)
+# Panel: %s (%s)
+# ==============================================================================
+set -euo pipefail
+
+REPO="masudranaxpert/NextDeploy"
+INSTALL_DIR="/usr/local/bin"
+ND_BIN="${INSTALL_DIR}/nd"
+
+if [ "${ND_SKIP_DOWNLOAD:-0}" = "1" ] && command -v nd >/dev/null 2>&1; then
+    ND_BIN="$(command -v nd)"
+else
+    OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "$OS" in
+        linux*)  OS="linux" ;;
+        darwin*) OS="darwin" ;;
+        *)
+            echo "Unsupported OS: $OS" >&2
+            exit 1
+            ;;
+    esac
+
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64|amd64)  ARCH="amd64" ;;
+        arm64|aarch64) ARCH="arm64" ;;
+        *)
+            echo "Unsupported architecture: $ARCH" >&2
+            exit 1
+            ;;
+    esac
+
+    BINARY="nd-${OS}-${ARCH}"
+    DEFAULT_URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
+    DOWNLOAD_URL="${ND_DOWNLOAD_URL:-$DEFAULT_URL}"
+
+    echo "==> Installing/updating nd CLI (${OS}/${ARCH}) from ${DOWNLOAD_URL}..."
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$DOWNLOAD_URL" -o "$TMP/nd"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$TMP/nd" "$DOWNLOAD_URL"
+    else
+        echo "Error: curl or wget is required to install nd" >&2
+        exit 1
+    fi
+
+    chmod +x "$TMP/nd"
+    if [ -w "$INSTALL_DIR" ]; then
+        mv "$TMP/nd" "$ND_BIN"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo mv "$TMP/nd" "$ND_BIN"
+    else
+        USER_BIN="${HOME:-/root}/.local/bin"
+        mkdir -p "$USER_BIN"
+        mv "$TMP/nd" "$USER_BIN/nd"
+        ND_BIN="$USER_BIN/nd"
+    fi
+fi
+
+echo "==> Running nd edge install for panel %s..."
+"$ND_BIN" %s <<'EOF'
+%s
+EOF
+`, sanitizeShellComment(node.Name), sanitizeShellComment(node.IP), sanitizeShellComment(panelID), sanitizeShellComment(panelURL), sanitizeShellComment(panelURL), strings.Join(installArgs, " "), token)
+
+	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	return c.SendString(script)
+}
+
+func (p *Panel) renderLegacyEdgeShieldSetupScript(c *fiber.Ctx, node *db.ShieldNode, token string) error {
+	c.Set("Deprecation", "true")
+
 	// Detect Origin Public IP
 	originIP := sysinfo.DetectHostIP()
 	if originIP == "" {
@@ -313,19 +435,16 @@ func (p *Panel) GetEdgeShieldSetupScript(c *fiber.Ctx) error {
 	}
 
 	// Panel Origin Scheme & Host for Caddy ask query
-	panelHost := c.Hostname()
-	scheme := "http"
-	if c.Secure() || c.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
+	scheme, panelHost := panelRequestOrigin(c)
 
 	askURL := fmt.Sprintf("%s://%s/api/v1/edge/verify-domain?token=%s", scheme, panelHost, token)
 	originCAURL := fmt.Sprintf("%s://%s/api/v1/edge/origin-ca.crt?token=%s", scheme, panelHost, token)
 	heartbeatURL := fmt.Sprintf("%s://%s/api/v1/edge/shield-heartbeat?token=%s", scheme, panelHost, token)
 
 	script := fmt.Sprintf(`#!/usr/bin/env bash
+# DEPRECATED: Legacy catch-all Shield installer (?legacy=1). Use default setup.sh (nd edge install) instead.
 # ==============================================================================
-# NextDeploy Shield Node Automated Setup Script
+# NextDeploy Shield Node Automated Setup Script (Legacy)
 # Node: %s (IP: %s)
 # Origin IP: %s
 # ==============================================================================
@@ -676,13 +795,12 @@ echo "==========================================================================
 	return c.SendString(script)
 }
 
-// GetEdgeShieldUninstallScript returns a complete, automated bash uninstaller for a Shield VPS node.
+// GetEdgeShieldUninstallScript returns a thin bash wrapper around `nd edge remove-panel`
+// (or `nd edge uninstall --all` when `?all=1`). Passing `?legacy=1` falls back to
+// the deprecated Caddy uninstaller.
 // GET /api/v1/edge/uninstall.sh?token=shld_...
-//
-// Deprecated: Legacy uninstaller.
 func (p *Panel) GetEdgeShieldUninstallScript(c *fiber.Ctx) error {
-	c.Set("Deprecation", "true")
-	token := strings.TrimSpace(c.Query("token"))
+	token := extractEdgeScriptToken(c)
 	if token == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing token parameter")
 	}
@@ -693,17 +811,66 @@ func (p *Panel) GetEdgeShieldUninstallScript(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).SendString("Invalid shield token")
 	}
 
-	panelHost := c.Hostname()
-	scheme := "http"
-	if c.Secure() || c.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
+	if edgeQueryBool(c, "legacy") {
+		return p.renderLegacyEdgeShieldUninstallScript(c, node, token)
 	}
 
-	unregURL := fmt.Sprintf("%s://%s/api/v1/edge/shield-heartbeat?token=%s&action=uninstall", scheme, panelHost, token)
+	panelID, _ := p.DB.EnsurePanelID(ctx)
+	target := strings.TrimSpace(panelID)
+	if target == "" {
+		target = strings.TrimSpace(node.Name)
+	}
+
+	removeAll := edgeQueryBool(c, "all")
+	purgeCerts := edgeQueryBool(c, "purge_certs")
+
+	var cmdArgs []string
+	if removeAll {
+		cmdArgs = []string{"edge", "uninstall", "--all"}
+	} else {
+		cmdArgs = []string{"edge", "remove-panel", shellSingleQuote(target)}
+	}
+	if purgeCerts {
+		cmdArgs = append(cmdArgs, "--purge-certs")
+	}
 
 	script := fmt.Sprintf(`#!/usr/bin/env bash
 # ==============================================================================
-# NextDeploy Shield Node Automated Uninstall & Cleanup Script
+# NextDeploy Shield Node Uninstall Wrapper (nd edge)
+# Node: %s (IP: %s)
+# Panel: %s
+# ==============================================================================
+set -euo pipefail
+
+ND_BIN="${ND_BIN:-}"
+if [ -z "$ND_BIN" ]; then
+    if command -v nd >/dev/null 2>&1; then
+        ND_BIN="$(command -v nd)"
+    elif [ -x /usr/local/bin/nd ]; then
+        ND_BIN="/usr/local/bin/nd"
+    else
+        echo "Error: nd binary not found. If this is a legacy Shield node, run uninstall.sh?legacy=1" >&2
+        exit 1
+    fi
+fi
+
+"$ND_BIN" %s
+`, sanitizeShellComment(node.Name), sanitizeShellComment(node.IP), sanitizeShellComment(panelID), strings.Join(cmdArgs, " "))
+
+	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	return c.SendString(script)
+}
+
+func (p *Panel) renderLegacyEdgeShieldUninstallScript(c *fiber.Ctx, node *db.ShieldNode, token string) error {
+	c.Set("Deprecation", "true")
+
+	scheme, panelHost := panelRequestOrigin(c)
+	unregURL := fmt.Sprintf("%s://%s/api/v1/edge/shield-heartbeat?token=%s&action=uninstall", scheme, panelHost, token)
+
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+# DEPRECATED: Legacy Shield uninstaller (?legacy=1). Use default uninstall.sh (nd edge remove-panel) instead.
+# ==============================================================================
+# NextDeploy Shield Node Automated Uninstall & Cleanup Script (Legacy)
 # Node: %s (IP: %s)
 # ==============================================================================
 set -e
@@ -747,6 +914,91 @@ echo "==========================================================================
 
 	c.Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	return c.SendString(script)
+}
+
+func extractEdgeScriptToken(c *fiber.Ctx) string {
+	if tok := strings.TrimSpace(c.Query("token")); tok != "" {
+		return tok
+	}
+	auth := strings.TrimSpace(c.Get("Authorization"))
+	if len(auth) > 7 && strings.EqualFold(auth[:7], "Bearer ") {
+		return strings.TrimSpace(auth[7:])
+	}
+	return ""
+}
+
+func edgeQueryBool(c *fiber.Ctx, key string) bool {
+	v := strings.ToLower(strings.TrimSpace(c.Query(key)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func panelRequestOrigin(c *fiber.Ctx) (scheme, host string) {
+	scheme = "http"
+	if c.Secure() || strings.EqualFold(strings.TrimSpace(c.Get("X-Forwarded-Proto")), "https") {
+		scheme = "https"
+	}
+	for _, candidate := range []string{strings.TrimSpace(c.Get("Host")), strings.TrimSpace(c.Hostname())} {
+		if isSafePanelHost(candidate) {
+			return scheme, candidate
+		}
+	}
+	return scheme, "localhost"
+}
+
+func isSafePanelHost(h string) bool {
+	if h == "" || len(h) > 255 {
+		return false
+	}
+	for i := 0; i < len(h); i++ {
+		ch := h[i]
+		isValid := (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '.' || ch == '-' || ch == ':' || ch == '[' || ch == ']'
+		if !isValid {
+			return false
+		}
+	}
+	return true
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func sanitizeShellComment(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
+}
+
+func isValidACMEEmail(email string) bool {
+	if email == "" || len(email) > 254 || strings.HasPrefix(email, "-") || !strings.Contains(email, "@") {
+		return false
+	}
+	for i := 0; i < len(email); i++ {
+		ch := email[i]
+		if ch <= 0x20 || ch >= 0x7f {
+			return false
+		}
+		if strings.ContainsRune(`'"\$`+"`"+`;&|<>(){}`, rune(ch)) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Panel) attachShieldNodeDomainStatuses(ctx context.Context, nodes []db.ShieldNode) {
@@ -933,12 +1185,9 @@ func (p *Panel) CreateShieldNode(c *fiber.Ctx) error {
 	// Automatically sync Caddy TrustedProxies to include this shield IP
 	p.syncShieldProxiesToCaddy(ctx)
 
-	panelHost := c.Hostname()
-	scheme := "http"
-	if c.Secure() || c.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
+	scheme, panelHost := panelRequestOrigin(c)
 	setupCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/setup.sh?token=%s\" | bash", scheme, panelHost, node.Token)
+	upgradeCmd := "nd edge upgrade"
 	uninstallCmd := fmt.Sprintf("curl -sSL \"%s://%s/api/v1/edge/uninstall.sh?token=%s\" | bash", scheme, panelHost, node.Token)
 	panelID, _ := p.DB.EnsurePanelID(ctx)
 
@@ -947,6 +1196,7 @@ func (p *Panel) CreateShieldNode(c *fiber.Ctx) error {
 		"panel_id":          panelID,
 		"node":              node,
 		"setup_command":     setupCmd,
+		"upgrade_command":   upgradeCmd,
 		"uninstall_command": uninstallCmd,
 	})
 }
