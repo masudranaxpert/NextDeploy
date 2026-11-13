@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.7.0"
+var Version = "2.8.0"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -3157,7 +3157,7 @@ App Management:
   nd apps [--json]                   List all applications
   nd create <name>                   Create and link a new application
   nd delete [app_id] [-f]            Delete an application (requires confirmation unless -f)
-  nd git [status|off|on] [app_id]   Choose Git or workspace files as the deploy source (keeps repo settings)
+  nd git [cmd] [app_id]              Git integration (status, on/off, providers, repos, branches, webhooks, connect, sync, push, disconnect)
   nd link <app_id>                   Link current directory to an app (.nd/project.json)
   nd unlink                          Remove link from current directory
   nd info [app_id] [--json]          Show app details, domains, health, and status (alias: nd status)
@@ -3201,7 +3201,7 @@ PHP & Database Hosting:
   nd php import-manifest <file.json> Batch provision sites, custom domains, DBs & routing
   nd php fix-perms [app_id]          Repair file ownership & POSIX permissions (755/775/644)
   nd php pma [app_id]                Generate one-click auto-login SSO URL for phpMyAdmin
-  nd php db list|create|grant|user   Manage MariaDB databases, users & privileges
+  nd php db list|create|grant|user   Manage MariaDB databases, users & privileges (alias: nd db)
   nd php cron list|add|rm|run        Manage scheduled cron jobs (--schedule/--command or positional)
 
 Volumes & Storage:
@@ -3221,11 +3221,14 @@ Backups:
   nd backup dest list|add            Manage remote S3/storage backup destinations
 
 Proxy & Edge Shield:
-  nd proxy list                      List Caddy reverse proxy upstream routes
-  nd proxy add <domain> <upstream>   Add custom reverse proxy upstream route (--shield <id>, --direct)
+  nd proxy list [--json]             List Caddy reverse proxy upstream routes
+  nd proxy add <domain> <upstream>   Add custom reverse proxy or redirect (--shield <id>, --direct)
+  nd proxy enable|disable|toggle <id> Enable, disable, or flip a proxy route
   nd proxy rm <id>                   Remove proxy route
   nd proxy reload                    Reload Caddy configuration without downtime
-  nd proxy logs [-f]                 View reverse proxy logs
+  nd proxy logs [-n N] [-f]          View or stream Caddy reverse proxy logs
+  nd proxy status [--json]           Show panel proxy status and live Caddy config
+  nd proxy options [show|set]        View or update global Caddy timeouts and Real-IP mode
   nd shield list [--json]            List edge shield proxy nodes
   nd shield add <name> <ip>          Register a new edge shield node
   nd shield update <id> [flags]      Update an edge shield node (--name, --ip)
@@ -3243,7 +3246,9 @@ System Monitoring & Maintenance:
 
 Environment Variables:
   nd env list [app_id] [--json]      List configured environment variable keys
+  nd env get [app_id] <KEY>          Reveal an environment variable value (alias: nd env reveal)
   nd env set [app_id] KEY=VAL ...    Set or update environment variables
+  nd env unset [app_id] <KEY> ...    Remove environment variables (alias: nd env rm)
 
 File & Folder Management:
   nd files [path] [-r] [--json]      List workspace files and directories (alias: nd file list, nd ls)

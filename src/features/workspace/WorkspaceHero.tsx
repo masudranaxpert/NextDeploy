@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -326,9 +325,8 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                   </span>
                 )}
                 {active && (
-                  <motion.span
-                    layoutId="workspaceTabUnderline"
-                    transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  <span
+                    aria-hidden="true"
                     className="hidden md:block absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
                   />
                 )}
@@ -376,9 +374,8 @@ export const WorkspaceHero: React.FC<WorkspaceHeroProps> = ({
                     </span>
                   )}
                   {active && (
-                    <motion.span
-                      layoutId="workspaceTabUnderline"
-                      transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                    <span
+                      aria-hidden="true"
                       className="hidden md:block absolute inset-x-3 bottom-0 h-[2.5px] rounded-full bg-orange-500 shadow-[0_-2px_10px_rgba(255,107,0,0.45)]"
                     />
                   )}

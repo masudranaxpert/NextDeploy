@@ -67,15 +67,15 @@ _nd_completions() {
             return 0
             ;;
         db)
-            COMPREPLY=( $(compgen -W "list create delete export import users" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "list create grant rm export import user" -- ${cur}) )
             return 0
             ;;
         backup|backups)
-            COMPREPLY=( $(compgen -W "now list restore schedule drivelink" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "list create log restore schedule dest" -- ${cur}) )
             return 0
             ;;
         proxy)
-            COMPREPLY=( $(compgen -W "list add rm reload logs" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "list add enable disable toggle rm reload logs status options" -- ${cur}) )
             return 0
             ;;
         shield)
@@ -87,11 +87,11 @@ _nd_completions() {
             return 0
             ;;
         volume|volumes)
-            COMPREPLY=( $(compgen -W "list browse backup restore" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "list browse download restore rm prune" -- ${cur}) )
             return 0
             ;;
         git)
-            COMPREPLY=( $(compgen -W "status sync enable disable pull" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "status on off providers repos branches webhooks connect sync pull push disconnect" -- ${cur}) )
             return 0
             ;;
         completion)

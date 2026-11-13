@@ -410,13 +410,15 @@ func (p *Panel) CleanupWorkspaceDir(appID string) {
 	}
 }
 
-// IsGitApp returns true when the app uses git integration (source_type git or a stored git config row).
+// IsGitApp returns true when the app has an active git integration config (stored in app_git_configs and not paused).
+// If an app's source_type was set to "git" but no git repo was actually connected (or was disconnected),
+// it must NOT attempt to sync Git.
 func (p *Panel) IsGitApp(ctx context.Context, appID string) bool {
 	if cfg, err := p.DB.GetAppGitConfig(ctx, appID); err == nil {
 		// A paused config stays stored but the workspace is the deploy source.
-		return !cfg.SyncPaused
+		return !cfg.SyncPaused && cfg.RepoURL != ""
 	}
-	return p.DB.GetAppSourceType(ctx, appID) == "git"
+	return false
 }
 
 func (p *Panel) isGitApp(ctx context.Context, appID string) bool {

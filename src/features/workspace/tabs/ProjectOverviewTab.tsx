@@ -99,13 +99,13 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-300">
               <Folder className="h-3.5 w-3.5" />
-              {hasGitConnection ? 'Manual Files (Git Sync OFF)' : 'Manual Workspace'}
+              {hasGitConnection ? 'Manual Files' : 'Manual Mode'}
             </span>
           )}
 
           {hasGitConnection && !isGitSyncActive && (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-xs font-medium text-amber-300">
-              Git connected · {app.gitBranch || 'main'} (manual sync available)
+              Git: {app.gitBranch || 'main'} · Sync OFF
             </span>
           )}
 
@@ -258,7 +258,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                   Deploy Mode
                 </span>
                 <div className="mt-1 font-medium text-xs text-orange-400 whitespace-nowrap">
-                  Manual Files Only
+                  Manual Files
                 </div>
               </div>
               <div className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 min-w-0">

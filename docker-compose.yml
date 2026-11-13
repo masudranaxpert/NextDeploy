@@ -13,21 +13,18 @@ services:
         labels:
             caddy.auto_https: disable_redirects
             caddy.metrics: '{{""}}'
-            caddy.servers.trusted_proxies: static 10.0.0.1
         networks:
             - nextdeploy
         ports:
             - 80:80
             - 443:443/tcp
             - 443:443/udp
-            - 3000:3000
         restart: unless-stopped
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - caddy_data:/data
-            - ./data/workspaces:/data/workspaces:ro
+            - /data/workspaces:/data/workspaces:ro
     panel:
-        build: .
         container_name: panel
         depends_on:
             - caddy
@@ -45,7 +42,7 @@ services:
         restart: unless-stopped
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
-            - ./data:/data
-            - ./docker-compose.yml:/stack/docker-compose.yml:rw
+            - /data:/data
+            - /opt/nextdeploy/docker-compose.yml:/stack/docker-compose.yml:rw
 volumes:
     caddy_data: {}

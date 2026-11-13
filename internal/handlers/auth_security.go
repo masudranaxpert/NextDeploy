@@ -233,7 +233,10 @@ func (p *Panel) SecurityHeadersMiddleware(c *fiber.Ctx) error {
 			!strings.HasPrefix(path, "/api/v1/") &&
 			path != "/mcp" && !strings.HasPrefix(path, "/mcp/") {
 			origin := strings.TrimSpace(c.Get("Origin"))
-			if origin != "" && origin != "null" {
+			if origin == "null" {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden: invalid Origin header"})
+			}
+			if origin != "" {
 				u, err := url.Parse(origin)
 				if err != nil || u.Hostname() == "" {
 					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden: invalid Origin header"})

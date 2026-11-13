@@ -494,6 +494,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           setLogSearch={logs.setLogSearch}
           logLiveTail={logs.logLiveTail}
           setLogLiveTail={logs.setLogLiveTail}
+          isLogsLoading={logs.isLogsLoading}
           logTimeRange={logs.logTimeRange}
           setLogTimeRange={logs.setLogTimeRange}
           filteredLogs={logs.filteredLogs}

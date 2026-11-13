@@ -98,7 +98,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized", "redirect": "/login"})
 		}
-		return c.Redirect("/login?next=" + c.Path())
+		return c.Redirect("/login?next=" + url.QueryEscape(c.Path()))
 	}
 	userID, expiresAt, err := p.DB.GetSession(ctx, token)
 	if err != nil || time.Now().After(expiresAt) {
@@ -107,7 +107,7 @@ func (p *Panel) AuthMiddleware(c *fiber.Ctx) error {
 		if WantsJSON(c) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "session expired", "redirect": "/login"})
 		}
-		return c.Redirect("/login?next=" + c.Path())
+		return c.Redirect("/login?next=" + url.QueryEscape(c.Path()))
 	}
 	user, err := p.DB.GetUserByID(ctx, userID)
 	if err != nil {

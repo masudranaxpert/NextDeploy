@@ -16,6 +16,13 @@ import (
 type Result = runutil.Result
 
 func run(ctx context.Context, dir string, env []string, args ...string) runutil.Result {
+	if len(args) > 0 && args[0] == "git" {
+		// Allow panel (often UID 0) to run git inside workspaces/htdocs owned by site UIDs (20001+).
+		wrapped := make([]string, 0, len(args)+2)
+		wrapped = append(wrapped, "git", "-c", "safe.directory=*")
+		wrapped = append(wrapped, args[1:]...)
+		args = wrapped
+	}
 	return runutil.Run(ctx, dir, env, args...)
 }
 
@@ -242,4 +249,86 @@ func WebhookURL(baseURL, appID string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/webhooks/github/%s", baseURL, appID)
+}
+
+// Push initializes a git repo in dir if needed, commits any changes, and pushes to origin/<branch>.
+func Push(ctx context.Context, dir, repoURL, branch, authMode, token, commitMsg, authorName, authorEmail string, force bool) Result {
+	repoURL = strings.TrimSpace(repoURL)
+	if repoURL == "" {
+		return Result{OK: false, Output: "repository URL is required"}
+	}
+	if strings.TrimSpace(branch) == "" {
+		branch = "main"
+	}
+	if strings.TrimSpace(commitMsg) == "" {
+		commitMsg = "Sync from NextDeploy"
+	}
+	if strings.TrimSpace(authorName) == "" {
+		authorName = "NextDeploy"
+	}
+	if strings.TrimSpace(authorEmail) == "" {
+		authorEmail = "noreply@nextdeploy.local"
+	}
+	safeURL := SafeRepoURL(repoURL)
+	authURL := AuthenticatedRepoURL(repoURL, authMode, token)
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+
+	if !RepoExists(dir) {
+		initRes := run(ctx, dir, env, "git", "init", "-b", branch)
+		if !initRes.OK {
+			// Fallback for older git without -b
+			initRes = run(ctx, dir, env, "git", "init")
+			if !initRes.OK {
+				return initRes
+			}
+			_ = run(ctx, dir, env, "git", "checkout", "-B", branch)
+		}
+	}
+
+	_ = run(ctx, dir, env, "git", "config", "--local", "user.name", authorName)
+	_ = run(ctx, dir, env, "git", "config", "--local", "user.email", authorEmail)
+
+	remote := run(ctx, dir, env, "git", "remote", "get-url", "origin")
+	if remote.OK {
+		_ = run(ctx, dir, env, "git", "remote", "set-url", "origin", authURL)
+	} else {
+		_ = run(ctx, dir, env, "git", "remote", "add", "origin", authURL)
+	}
+	// Restore credential-free remote URL after push so tokens are never left in .git/config.
+	defer func() {
+		if safeURL != "" {
+			_ = run(context.Background(), dir, env, "git", "remote", "set-url", "origin", safeURL)
+		}
+	}()
+
+	if addRes := run(ctx, dir, env, "git", "-c", "core.fileMode=false", "add", "-A", "--", ".", ":!.nextdeploy", ":!.panel-meta", ":!.nd"); !addRes.OK {
+		return addRes
+	}
+	statusRes := run(ctx, dir, env, "git", "-c", "core.fileMode=false", "status", "--porcelain")
+	if statusRes.OK && strings.TrimSpace(statusRes.Output) != "" {
+		if commitRes := run(ctx, dir, env, "git", "commit", "-m", commitMsg); !commitRes.OK {
+			return commitRes
+		}
+	} else if CurrentCommit(ctx, dir) == "" {
+		// Empty repo with no commits yet
+		if commitRes := run(ctx, dir, env, "git", "commit", "--allow-empty", "-m", commitMsg); !commitRes.OK {
+			return commitRes
+		}
+	}
+
+	pushArgs := []string{"git", "push", "-u", "origin", "HEAD:" + branch}
+	if force {
+		pushArgs = []string{"git", "push", "--force", "-u", "origin", "HEAD:" + branch}
+	}
+	pushRes := run(ctx, dir, env, pushArgs...)
+	if !pushRes.OK {
+		if authURL != safeURL {
+			pushRes.Output = strings.ReplaceAll(pushRes.Output, authURL, safeURL)
+		}
+		lower := strings.ToLower(pushRes.Output)
+		if !force && (strings.Contains(lower, "fetch first") || strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "rejected")) {
+			pushRes.Output = strings.TrimSpace(pushRes.Output) + "\nHint: remote branch already has commits (such as an initial README). Retry with --force if you want to overwrite it."
+		}
+	}
+	return pushRes
 }

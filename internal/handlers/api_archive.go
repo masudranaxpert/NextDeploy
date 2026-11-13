@@ -26,7 +26,7 @@ func (p *Panel) APIAuthMiddleware(c *fiber.Ctx) error {
 	if token == "" {
 		token = strings.TrimSpace(c.Get("X-API-Key"))
 	}
-	if token == "" {
+	if token == "" && strings.EqualFold(c.Get("Upgrade"), "websocket") {
 		token = strings.TrimSpace(c.Query("token"))
 	}
 

@@ -18,13 +18,14 @@ func Open(path string) (*Store, error) {
 		"&_pragma=temp_store(MEMORY)" +
 		"&_pragma=mmap_size(67108864)" +
 		"&_pragma=cache_size(-32000)" +
-		"&_pragma=busy_timeout(5000)"
+		"&_pragma=busy_timeout(10000)"
 	d, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, err
 	}
-	d.SetMaxOpenConns(4)
-	d.SetMaxIdleConns(2)
+	// Serialize SQLite writes on a single connection in WAL mode to avoid SQLITE_BUSY under concurrent deploys/syncs.
+	d.SetMaxOpenConns(1)
+	d.SetMaxIdleConns(1)
 	s := &Store{db: d}
 	if err := s.migrate(); err != nil {
 		_ = d.Close()

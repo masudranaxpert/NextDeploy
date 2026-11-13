@@ -27,6 +27,19 @@ func NormalizeRepoURL(raw string) string {
 		raw = strings.TrimSuffix(raw, ".git")
 		return "https://github.com/" + raw + ".git"
 	}
+	if strings.HasPrefix(raw, "git@gitlab.com:") {
+		raw = strings.TrimPrefix(raw, "git@gitlab.com:")
+		raw = strings.TrimSuffix(raw, ".git")
+		return "https://gitlab.com/" + raw + ".git"
+	}
+	// Expand shorthand "owner/repo" (or "github.com/owner/repo") into an HTTPS clone URL.
+	if !strings.Contains(raw, "://") && !strings.Contains(raw, ":\\") && !strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, ".") && !strings.ContainsAny(raw, " \t\n") {
+		if strings.HasPrefix(raw, "github.com/") || strings.HasPrefix(raw, "gitlab.com/") {
+			raw = "https://" + raw
+		} else if parts := strings.Split(strings.TrimSuffix(raw, ".git"), "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			raw = "https://github.com/" + parts[0] + "/" + parts[1] + ".git"
+		}
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
 		return raw

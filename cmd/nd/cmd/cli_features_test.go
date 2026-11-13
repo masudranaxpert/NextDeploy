@@ -450,3 +450,87 @@ func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
 		t.Fatalf("runBackupSchedule rm failed: %v", err)
 	}
 }
+
+func TestCLI_ProxyLogsToggleAndOptions(t *testing.T) {
+	var seenTail string
+	var toggledTo *bool
+	var savedRealIP string
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/proxy/logs":
+			seenTail = r.URL.Query().Get("tail")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    true,
+				"lines": []string{"2026/11/13 INFO caddy started", "2026/11/13 INFO serving TLS"},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/proxy/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"routes": []map[string]any{{
+					"id":           7,
+					"domain":       "api.example.com",
+					"target":       "http://app:3000",
+					"kind":         "proxy",
+					"enable_https": true,
+					"enabled":      true,
+				}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/proxy/routes/7/toggle":
+			var body struct {
+				Enabled bool `json:"enabled"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			toggledTo = &body.Enabled
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/proxy/options":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"options": map[string]any{
+					"profile":  "balanced",
+					"real_ip":  "none",
+					"idle":     "2m",
+					"trusted_proxies": []string{},
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/proxy/options":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			savedRealIP, _ = body["real_ip"].(string)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	cl := client.New(config.Config{ServerURL: ts.URL, Token: "test-token"}, "test-sess")
+
+	out, err := captureOutput(func() error {
+		return RunProxy(cl, []string{"logs", "-n", "20"})
+	})
+	if err != nil {
+		t.Fatalf("proxy logs failed: %v", err)
+	}
+	if seenTail != "20" {
+		t.Fatalf("expected query ?tail=20, got %q", seenTail)
+	}
+	if !strings.Contains(out, "caddy started") || strings.Contains(out, `"lines"`) {
+		t.Fatalf("expected plain log lines, got: %s", out)
+	}
+
+	if err := RunProxy(cl, []string{"toggle", "7"}); err != nil {
+		t.Fatalf("proxy toggle failed: %v", err)
+	}
+	if toggledTo == nil || *toggledTo != false {
+		t.Fatalf("expected toggle on enabled route #7 to disable, got %v", toggledTo)
+	}
+
+	if err := RunProxy(cl, []string{"options", "set", "--real-ip", "cloudflare"}); err != nil {
+		t.Fatalf("proxy options set failed: %v", err)
+	}
+	if savedRealIP != "cloudflare" {
+		t.Fatalf("expected real_ip=cloudflare, got %q", savedRealIP)
+	}
+}

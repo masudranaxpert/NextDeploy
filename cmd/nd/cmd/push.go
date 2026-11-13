@@ -238,7 +238,7 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 			len(toUpload), len(toDelete), inSyncCount)
 	}
 
-	if len(toUpload) == 0 && (!prune || len(toDelete) == 0) {
+	if len(toUpload) == 0 && (!prune || len(toDelete) == 0) && !doDeploy {
 		if jsonOutput {
 			res := PushResult{
 				AppID:    appID,
@@ -253,6 +253,9 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		}
 		fmt.Println("✓ Already in sync — nothing to push.")
 		return nil
+	}
+	if len(toUpload) == 0 && (!prune || len(toDelete) == 0) && !jsonOutput {
+		fmt.Println("✓ Files already in sync — proceeding to deploy...")
 	}
 
 	// Step 1: Upload changed files as multipart tar.gz

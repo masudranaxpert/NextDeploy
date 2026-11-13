@@ -114,19 +114,37 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			if strings.Contains(strings.ToLower(repoURL), "gitlab") {
 				cfg.Provider = "gitlab"
 			}
-			// Auto-link connected git provider if available
-			providers, _ := p.DB.ListGitProviders(c.UserContext(), &u.ID)
-			for _, gp := range providers {
-				if gp.Provider == cfg.Provider {
-					cfg.GitProviderID = gp.ID
-					if strings.TrimSpace(gp.Token) != "" {
-						cfg.AuthMode = "token"
-						cfg.Token = gp.Token
+			// Auto-link connected git provider only when caller did not pick public/explicit token mode
+			if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
+				providers, _ := p.DB.ListGitProviders(c.UserContext(), &u.ID)
+				if len(providers) == 0 && u.Role == db.RoleAdmin {
+					providers, _ = p.DB.ListGitProviders(c.UserContext(), nil)
+				}
+				for _, gp := range providers {
+					if gp.Provider == cfg.Provider {
+						cfg.GitProviderID = gp.ID
+						if strings.TrimSpace(gp.Token) != "" {
+							cfg.AuthMode = "token"
+							if cfg.Provider == "gitlab" {
+								cfg.AuthMode = "gitlab_token"
+							}
+							cfg.Token = gp.Token
+						} else if cfg.Provider == "github" {
+							if detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), gp.ID); derr == nil {
+								cfg.AuthMode = "github_app"
+								cfg.AppGitID = detail.GitHubAppID
+								cfg.InstallationID = detail.InstallationID
+								cfg.PrivateKeyPEM = detail.PrivateKeyPEM
+								if strings.TrimSpace(detail.WebhookSecret) != "" {
+									cfg.WebhookSecret = detail.WebhookSecret
+								}
+							}
+						}
+						break
 					}
-					break
 				}
 			}
-			if cfg.AuthMode == "" {
+			if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
 				cfg.AuthMode = "public"
 			}
 			if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {

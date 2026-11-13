@@ -101,7 +101,7 @@ func (p *Panel) buildGitHubManifest(c *fiber.Ctx, providerName string) githubMan
 		SetupURL:    p.githubSetupURL(c),
 		Public:      false,
 		DefaultPermissions: map[string]string{
-			"contents":         "read",
+			"contents":         "write",
 			"metadata":         "read",
 			"administration":   "write",
 			"repository_hooks": "write",
@@ -435,46 +435,92 @@ func (p *Panel) GitHubProviderInstall(c *fiber.Ctx) error {
 func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 	startTime := time.Now()
 	body := c.Body()
+	eventHeader := strings.TrimSpace(c.Get("X-GitHub-Event"))
+	if eventHeader == "ping" {
+		return c.SendStatus(fiber.StatusOK)
+	}
+	if eventHeader != "" && eventHeader != "push" {
+		return c.SendStatus(fiber.StatusOK)
+	}
 	deliveryID := strings.TrimSpace(c.Get("X-GitHub-Delivery"))
 	if deliveryID == "" {
 		b := make([]byte, 8)
 		_, _ = rand.Read(b)
 		deliveryID = "app-" + hex.EncodeToString(b)
 	}
-	var payload struct {
-		Action     string `json:"action"`
-		Repository struct {
-			FullName string `json:"full_name"`
-		} `json:"repository"`
-		Ref   string `json:"ref"`
-		After string `json:"after"`
-	}
+	var payload githubPushPayload
 	_ = json.Unmarshal(body, &payload)
-	event := c.Get("X-GitHub-Event", "push")
-	if payload.Ref != "" {
-		event = fmt.Sprintf("%s (%s)", event, NormalizeBranch(payload.Ref))
-	} else if payload.Action != "" {
-		event = fmt.Sprintf("%s (%s)", event, payload.Action)
+	repo := strings.TrimSpace(payload.Repository.FullName)
+	if repo == "" {
+		return c.SendStatus(fiber.StatusAccepted)
+	}
+	branch := NormalizeBranch(payload.Ref)
+	event := "push"
+	if branch != "" {
+		event = fmt.Sprintf("push (%s)", branch)
 	}
 	sha := ""
 	if len(payload.After) >= 7 {
 		sha = payload.After[:7]
 	}
-	repo := payload.Repository.FullName
-	if repo == "" {
-		repo = "GitHub App"
+
+	ctx := c.UserContext()
+	configs, err := p.DB.ListGitApps(ctx)
+	if err != nil {
+		return c.SendStatus(fiber.StatusInternalServerError)
 	}
-	_ = p.DB.RecordWebhookDelivery(c.UserContext(), db.WebhookDelivery{
-		AppID:      "global",
-		DeliveryID: deliveryID,
-		Provider:   "GitHub",
-		Repo:       repo,
-		Event:      event,
-		SHA:        sha,
-		Status:     "200 OK",
-		Latency:    fmt.Sprintf("%dms", time.Since(startTime).Milliseconds()),
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-	})
+
+	sig := c.Get("X-Hub-Signature-256")
+	matched := 0
+	for _, cfg := range configs {
+		if cfg.Provider != "github" || cfg.SyncPaused {
+			continue
+		}
+		cfgRepo := strings.TrimSpace(cfg.RepoFullName)
+		if cfgRepo == "" {
+			cfgRepo = RepoFullNameFromURL(cfg.RepoURL)
+		}
+		if !strings.EqualFold(cfgRepo, repo) {
+			continue
+		}
+		sigOK := cfg.WebhookSecret == "" || verifyGitHubSignature(cfg.WebhookSecret, body, sig)
+		if !sigOK && cfg.GitProviderID > 0 {
+			if detail, derr := p.DB.GetGitHubProviderDetail(ctx, cfg.GitProviderID); derr == nil && strings.TrimSpace(detail.WebhookSecret) != "" {
+				sigOK = verifyGitHubSignature(detail.WebhookSecret, body, sig)
+			}
+		}
+		if !sigOK {
+			continue
+		}
+		if cfg.Branch != "" && branch != "" && !strings.EqualFold(NormalizeBranch(cfg.Branch), branch) {
+			continue
+		}
+		app, aerr := p.DB.GetApp(ctx, cfg.AppID)
+		if aerr != nil {
+			continue
+		}
+		matched++
+		if ok, derr := p.DB.MarkWebhookDelivery(ctx, cfg.AppID, deliveryID); derr != nil || !ok {
+			continue
+		}
+		_ = p.DB.RecordWebhookDelivery(ctx, db.WebhookDelivery{
+			AppID:      cfg.AppID,
+			DeliveryID: deliveryID,
+			Provider:   "GitHub",
+			Repo:       repo,
+			Event:      event,
+			SHA:        sha,
+			Status:     "200 OK",
+			Latency:    fmt.Sprintf("%dms", time.Since(startTime).Milliseconds()),
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		})
+		if cfg.AutoDeploy {
+			p.triggerWebhookDeploy(app, cfg.AppID)
+		}
+	}
+	if matched == 0 {
+		return c.SendStatus(fiber.StatusAccepted)
+	}
 	return c.SendStatus(fiber.StatusOK)
 }
 

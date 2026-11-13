@@ -456,10 +456,10 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
         <div className="space-y-3 font-mono text-xs">
           <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 flex items-center justify-between">
             <span className="text-zinc-200 truncate">
-              curl -fsSL https://nextdeploy.sh/install.sh | sh
+              curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh
             </span>
             <CopyButton
-              value="curl -fsSL https://nextdeploy.sh/install.sh | sh"
+              value="curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install-nd.sh | sh"
               label="Copy"
               toastMessage="Copied install script"
               className="text-orange-400 hover:underline cursor-pointer shrink-0 ml-2 inline-flex items-center gap-1 font-mono text-xs"
@@ -467,8 +467,9 @@ export const McpAndCliView: React.FC<McpAndCliViewProps> = ({
           </div>
           <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-1 text-[11px] text-zinc-400">
             <div>$ nd login {typeof window !== 'undefined' ? window.location.origin : 'https://panel.yourdomain.com'}</div>
-            <div>$ nd push --app my-app --deploy</div>
-            <div>$ nd logs my-app --follow</div>
+            <div>$ nd link my-app</div>
+            <div>$ nd push --deploy</div>
+            <div>$ nd logs -f</div>
           </div>
         </div>
       </ShadcnDialog>

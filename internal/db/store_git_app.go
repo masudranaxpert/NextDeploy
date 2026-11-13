@@ -89,7 +89,7 @@ func (s *Store) ListGitApps(ctx context.Context) ([]AppGitConfig, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT app_id, COALESCE(git_provider_id,0), provider, repo_url, repo_full_name, branch, auth_mode, token,
        app_git_id, installation_id, private_key_pem, webhook_secret, auto_deploy,
-       last_deploy_ref, created_at, updated_at
+       COALESCE(sync_paused,0), last_deploy_ref, created_at, updated_at
 FROM app_git_configs ORDER BY datetime(updated_at) DESC`)
 	if err != nil {
 		return nil, err
@@ -98,16 +98,17 @@ FROM app_git_configs ORDER BY datetime(updated_at) DESC`)
 	var out []AppGitConfig
 	for rows.Next() {
 		var g AppGitConfig
-		var auto int
+		var auto, paused int
 		var created, updated string
 		if err := rows.Scan(
 			&g.AppID, &g.GitProviderID, &g.Provider, &g.RepoURL, &g.RepoFullName, &g.Branch, &g.AuthMode, &g.Token,
-			&g.AppGitID, &g.InstallationID, &g.PrivateKeyPEM, &g.WebhookSecret, &auto,
+			&g.AppGitID, &g.InstallationID, &g.PrivateKeyPEM, &g.WebhookSecret, &auto, &paused,
 			&g.LastDeployRef, &created, &updated,
 		); err != nil {
 			return nil, err
 		}
 		g.AutoDeploy = auto != 0
+		g.SyncPaused = paused != 0
 		g.CreatedAt, _ = time.Parse(time.RFC3339, created)
 		g.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
 		out = append(out, g)

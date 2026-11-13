@@ -7,7 +7,7 @@ const SkelBlock: React.FC<{ className?: string }> = ({ className = 'h-4 w-full r
 
 /** 1. Overview Dashboard Skeleton */
 export const DashboardSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Overview">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Overview">
     {/* Live Telemetry Header */}
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
@@ -84,7 +84,7 @@ export const DashboardSkeleton: React.FC = () => (
 
 /** 2. Monitoring View Skeleton */
 export const MonitorSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Monitoring">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Monitoring">
     {/* Header */}
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
@@ -153,9 +153,9 @@ export const MonitorSkeleton: React.FC = () => (
 
 /** 3. Projects List Skeleton */
 export const ProjectsListSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Projects">
+  <div className="space-y-5 nd-skel overflow-hidden" aria-busy="true" aria-label="Loading Projects">
     {/* Header */}
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
         <div className="flex items-center gap-2">
@@ -167,8 +167,8 @@ export const ProjectsListSkeleton: React.FC = () => (
     </div>
 
     {/* Search & Filter Bar */}
-    <div className="flex items-center justify-between gap-3">
-      <div className="h-9 w-64 rounded-lg bg-white/[0.04]" />
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="h-9 w-full max-w-64 rounded-lg bg-white/[0.04]" />
       <div className="flex items-center gap-2">
         <div className="h-8 w-20 rounded-lg bg-white/[0.04]" />
         <div className="h-8 w-20 rounded-lg bg-white/[0.04]" />
@@ -205,27 +205,28 @@ export const ProjectsListSkeleton: React.FC = () => (
 
 /** 4. Workspace Skeleton (Selected App) */
 export const WorkspaceSkeleton: React.FC = () => (
-  <div className="space-y-4 animate-pulse" aria-busy="true" aria-label="Loading Project Workspace">
-    {/* Header */}
-    <div className="h-24 rounded-2xl border border-white/[0.06] bg-[#111115]/80 p-5 flex items-center justify-between">
-      <div className="space-y-2">
-        <div className="flex items-center gap-2.5">
-          <div className="h-5 w-44 rounded bg-white/[0.09]" />
-          <div className="h-5 w-16 rounded-full bg-emerald-500/10" />
+  <div className="space-y-4 nd-skel overflow-hidden" aria-busy="true" aria-label="Loading Project Workspace">
+    {/* Hero + Wrapped Tab Nav inside card */}
+    <div className="rounded-2xl border border-white/[0.06] bg-[#111115]/80 p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2.5">
+            <div className="h-5 w-44 rounded bg-white/[0.09]" />
+            <div className="h-5 w-16 rounded-full bg-emerald-500/10" />
+          </div>
+          <div className="h-3.5 w-52 max-w-full rounded bg-white/[0.04]" />
         </div>
-        <div className="h-3.5 w-64 rounded bg-white/[0.04]" />
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-20 rounded-lg bg-white/[0.05]" />
+          <div className="h-8 w-24 rounded-lg bg-emerald-500/20" />
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="h-8 w-20 rounded-lg bg-white/[0.05]" />
-        <div className="h-8 w-24 rounded-lg bg-emerald-500/20" />
-      </div>
-    </div>
 
-    {/* Tab Nav */}
-    <div className="flex gap-2 border-b border-white/[0.06] pb-2">
-      {['Overview', 'Services', 'Domains', 'Environment', 'Backups', 'Deploy Logs', 'Settings'].map((t, i) => (
-        <div key={i} className="h-7 w-24 rounded-lg bg-white/[0.04]" />
-      ))}
+      <div className="flex flex-wrap gap-2 pt-1">
+        {['Overview', 'Services', 'Domains', 'Environment', 'Backups', 'Deploy Logs', 'Settings'].map((t, i) => (
+          <div key={i} className="h-7 w-22 rounded-lg bg-white/[0.04]" />
+        ))}
+      </div>
     </div>
 
     {/* Workspace Body */}
@@ -241,7 +242,7 @@ export const WorkspaceSkeleton: React.FC = () => (
 
 /** 5. Shield Nodes Skeleton */
 export const ShieldProxiesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Shield Nodes">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Shield Nodes">
     {/* Header */}
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
@@ -304,7 +305,7 @@ export const ShieldProxiesSkeleton: React.FC = () => (
 
 /** 6. Proxy Routes Skeleton */
 export const ProxyRoutesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Proxy Routes">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Proxy Routes">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -359,7 +360,7 @@ export const ProxyRoutesSkeleton: React.FC = () => (
 
 /** 7. Caddy Options Skeleton */
 export const CaddyOptionsSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Caddy Options">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Caddy Options">
     <div className="flex items-center justify-between">
       <div className="space-y-1">
         <div className="h-5 w-40 rounded bg-white/[0.09]" />
@@ -395,7 +396,7 @@ export const CaddyOptionsSkeleton: React.FC = () => (
 
 /** 8. PHP Sites Skeleton */
 export const PhpSitesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading PHP Sites">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading PHP Sites">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -443,7 +444,7 @@ export const PhpSitesSkeleton: React.FC = () => (
 
 /** 9. Docker Containers Skeleton */
 export const ContainersSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Containers">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Containers">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -481,7 +482,7 @@ export const ContainersSkeleton: React.FC = () => (
 
 /** 10. Docker Images Skeleton */
 export const ImagesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Images">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Images">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -523,7 +524,7 @@ export const ImagesSkeleton: React.FC = () => (
 
 /** 11. Docker Volumes Skeleton */
 export const VolumesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Volumes">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Volumes">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -558,7 +559,7 @@ export const VolumesSkeleton: React.FC = () => (
 
 /** 12. Backups View Skeleton */
 export const BackupsSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Backups">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Backups">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -594,7 +595,7 @@ export const BackupsSkeleton: React.FC = () => (
 
 /** 13. Server Migration Skeleton */
 export const MigrationSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Server Migration">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Server Migration">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -629,7 +630,7 @@ export const MigrationSkeleton: React.FC = () => (
 
 /** 14. Git & Registries Skeleton */
 export const GitAndRegistriesSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Git & Registries">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Git & Registries">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -668,7 +669,7 @@ export const GitAndRegistriesSkeleton: React.FC = () => (
 
 /** 15. CLI & MCP Skeleton */
 export const McpAndCliSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading CLI & MCP">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading CLI & MCP">
     <div className="flex items-center gap-2">
       <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
       <div className="h-5 w-44 rounded bg-white/[0.09]" />
@@ -703,7 +704,7 @@ export const McpAndCliSkeleton: React.FC = () => (
 
 /** 16. Team & Users Skeleton */
 export const UsersSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Team & Quotas">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Team & Quotas">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
@@ -747,7 +748,7 @@ export const UsersSkeleton: React.FC = () => (
 
 /** 17. System Settings Skeleton */
 export const SettingsSkeleton: React.FC = () => (
-  <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Loading Settings">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Settings">
     <div className="flex items-center justify-between">
       <div className="space-y-1">
         <div className="h-5 w-36 rounded bg-white/[0.09]" />
@@ -771,7 +772,7 @@ export const SettingsSkeleton: React.FC = () => (
 
 /** 18. NextDeploy AI Copilot Skeleton */
 export const NextDeployAiSkeleton: React.FC = () => (
-  <div className="h-full flex flex-col justify-between p-6 animate-pulse" aria-busy="true" aria-label="Loading ND AI">
+  <div className="h-full flex flex-col justify-between p-6 nd-skel" aria-busy="true" aria-label="Loading ND AI">
     <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
       <div className="flex items-center gap-2.5">
         <div className="h-7 w-7 rounded-lg bg-violet-500/20" />
@@ -799,7 +800,7 @@ export const NextDeployAiSkeleton: React.FC = () => (
 
 /** 19. Terminal Skeleton */
 export const TerminalSkeleton: React.FC = () => (
-  <div className="h-[calc(100vh-8rem)] rounded-2xl border border-white/[0.08] bg-black p-4 space-y-3 font-mono animate-pulse" aria-busy="true" aria-label="Loading Terminal">
+  <div className="h-[calc(100vh-8rem)] rounded-2xl border border-white/[0.08] bg-black p-4 space-y-3 font-mono nd-skel" aria-busy="true" aria-label="Loading Terminal">
     <div className="flex items-center gap-2 border-b border-white/[0.06] pb-3">
       <div className="h-3 w-3 rounded-full bg-rose-500/40" />
       <div className="h-3 w-3 rounded-full bg-amber-500/40" />
@@ -820,7 +821,7 @@ export const TerminalSkeleton: React.FC = () => (
 
 /** Generic Table Skeleton fallback */
 export const TableSkeleton: React.FC<{ title?: string }> = ({ title = 'Loading' }) => (
-  <div className="space-y-4 animate-pulse" aria-busy="true" aria-label={title}>
+  <div className="space-y-4 nd-skel" aria-busy="true" aria-label={title}>
     <div className="flex items-center justify-between gap-3">
       <div className="h-8 w-44 rounded-xl bg-white/[0.06]" />
       <div className="flex items-center gap-2">

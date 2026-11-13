@@ -313,6 +313,9 @@ func (p *Panel) GitProvidersList(c *fiber.Ctx) error {
 					pr.NeedsInstall = true
 				}
 				pr.InstallURL = "/git/" + strconv.FormatInt(gp.ID, 10) + "/github/install"
+			} else if strings.HasPrefix(gp.Token, "gho_") {
+				pr.AuthMethod = "GitHub OAuth"
+				pr.AccountLogin = gp.Name
 			} else {
 				pr.AuthMethod = "Fine-Grained PAT"
 				pr.AccountLogin = gp.Name

@@ -411,6 +411,8 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 					it.NeedsInstall = true
 				}
 				it.InstallURL = "/git/" + strconv.FormatInt(gp.ID, 10) + "/github/install"
+			} else if strings.HasPrefix(gp.Token, "gho_") {
+				it.AuthMethod = "GitHub OAuth"
 			} else {
 				it.AuthMethod = "Fine-Grained PAT"
 			}

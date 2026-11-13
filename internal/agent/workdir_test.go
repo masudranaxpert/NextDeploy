@@ -120,9 +120,12 @@ func TestWorkDirSwitchesRealOmp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bash: %v", err)
 		}
-		return strings.TrimSpace(res.Output)
+		return strings.TrimPrefix(strings.TrimSpace(res.Output), `\\?\`)
 	}
-	real := func(p string) string { r, _ := filepath.EvalSymlinks(p); return r }
+	real := func(p string) string {
+		r, _ := filepath.EvalSymlinks(p)
+		return strings.TrimPrefix(r, `\\?\`)
+	}
 
 	if got := pwd(); got != real(root) {
 		t.Fatalf("root cwd = %q, want %q", got, real(root))

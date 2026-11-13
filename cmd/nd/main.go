@@ -23,7 +23,9 @@ func main() {
 }
 
 func run() int {
-	cmd.Version = version
+	if version != "" && version != "dev" {
+		cmd.Version = version
+	}
 	rawArgs := os.Args[1:]
 	if len(rawArgs) == 0 {
 		cmd.PrintHelp()

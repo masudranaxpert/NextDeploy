@@ -219,3 +219,69 @@ func TestLoggedInCookieLifecycle(t *testing.T) {
 		t.Fatalf("expected nd_logged_in cookie to be cleared on logout, got: %+v", logoutResp.Cookies())
 	}
 }
+
+func TestSecurityHeadersRejectsNullOrigin(t *testing.T) {
+	p := &Panel{}
+	app := fiber.New()
+	app.Use(p.SecurityHeadersMiddleware)
+	app.Post("/apps", func(c *fiber.Ctx) error {
+		return c.SendStatus(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/apps", nil)
+	req.Host = "panel.example.com"
+	req.Header.Set("Origin", "null")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for Origin: null on POST, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPIAuthQueryTokenRestrictedToWebSocket(t *testing.T) {
+	store, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	ctx := t.Context()
+	uid, err := store.CreateUser(ctx, "admin", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	rawTok, _, err := store.CreateAPIToken(ctx, uid, "cli", "cli", nil, false, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateAPIToken failed: %v", err)
+	}
+
+	p := &Panel{DB: store}
+	app := fiber.New()
+	app.Get("/api/v1/apps", p.APIAuthMiddleware, func(c *fiber.Ctx) error {
+		return c.SendStatus(http.StatusOK)
+	})
+
+	// REST call with ?token= must be rejected
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/apps?token="+rawTok, nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("rest request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for ?token= on REST endpoint, got %d", resp.StatusCode)
+	}
+
+	// WebSocket upgrade with ?token= is allowed
+	wsReq := httptest.NewRequest(http.MethodGet, "/api/v1/apps?token="+rawTok, nil)
+	wsReq.Header.Set("Connection", "Upgrade")
+	wsReq.Header.Set("Upgrade", "websocket")
+	wsResp, err := app.Test(wsReq)
+	if err != nil {
+		t.Fatalf("ws request failed: %v", err)
+	}
+	if wsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for ?token= on WebSocket upgrade, got %d", wsResp.StatusCode)
+	}
+}

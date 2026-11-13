@@ -237,7 +237,7 @@ func runPHPCreate(cl *client.Client, args []string) error {
 	if resp.DBName != "" {
 		fmt.Printf("Database:    %s (user: %s, pass: %s)\n", resp.DBName, resp.DBUser, resp.DBPassword)
 	}
-	fmt.Printf("Files root:  htdocs/\nOpen shell:  nd shell %s\nUpload code: nd push %s\n", appID, appID)
+	fmt.Printf("Files root:  htdocs/\nOpen shell:  nd shell %s\nUpload code: nd push %s\nPush to Git: nd git push %s --repo <url>\n", appID, appID, appID)
 	return nil
 }
 

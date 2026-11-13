@@ -163,8 +163,19 @@
   to { opacity: 1; transform: none; }
 }
 .nd-log-line { animation: nd-log-in .35s ease-out both; }
+/* Pulse only inner leaf skeleton bars/chips, keeping card borders and hairline dividers steady */
+@keyframes nd-skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.nd-skel :is(div, span):empty:not([class*="border"]):not(.w-full) {
+  animation: nd-skel-pulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
 @media (prefers-reduced-motion: reduce) {
-  .nd-log-line { animation: none; }
+  .nd-log-line,
+  .nd-skel :is(div, span):empty:not([class*="border"]):not(.w-full) {
+    animation: none;
+  }
 }
 
 ::view-transition-old(root),

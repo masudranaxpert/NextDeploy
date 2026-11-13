@@ -1517,6 +1517,30 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		}
 	}
 
+	if h.p.DB.IsPHPSite(ctx, appID) {
+		if h.p.PHP == nil {
+			return errorResult(errors.New("PHP hosting manager not initialized"))
+		}
+		sctx, scancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer scancel()
+		if err := h.p.PHP.SyncSite(sctx, appID); err != nil {
+			return errorResult(err)
+		}
+		h.p.PHP.ReloadCaddy(sctx)
+		_ = h.p.DB.InsertDeployLog(ctx, appID, action, true, gitSyncOut)
+		out := map[string]interface{}{
+			"app_id":  appID,
+			"action":  action,
+			"ok":      true,
+			"status":  "success",
+			"message": "PHP site synced and restarted",
+		}
+		if gitSyncWarning != "" {
+			out["git_sync_warning"] = gitSyncWarning
+		}
+		return jsonResult(out)
+	}
+
 	targetSlot := "blue"
 	if app.ActiveSlot == "blue" {
 		targetSlot = "green"

@@ -14,6 +14,7 @@ interface ProjectLogsTabProps {
   setLogSearch: (s: string) => void;
   logLiveTail: boolean;
   setLogLiveTail: React.Dispatch<React.SetStateAction<boolean>>;
+  isLogsLoading?: boolean;
   logTimeRange: 'live' | '15m' | '1h' | '24h';
   setLogTimeRange: (range: 'live' | '15m' | '1h' | '24h') => void;
   filteredLogs: LogEntry[];
@@ -113,6 +114,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
   setLogSearch,
   logLiveTail,
   setLogLiveTail,
+  isLogsLoading,
   logTimeRange,
   setLogTimeRange,
   filteredLogs,
@@ -309,10 +311,19 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
         {/* Desktop Log Console Stream */}
         <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#07070a]">
-          <div ref={desktopLogContainerRef} className="divide-y divide-white/[0.03] font-mono text-xs max-h-[560px] overflow-y-auto">
+          <div
+            ref={desktopLogContainerRef}
+            className={`divide-y divide-white/[0.03] font-mono text-xs max-h-[560px] overflow-y-auto ${
+              logWordWrap ? 'overflow-x-hidden' : 'overflow-x-auto'
+            }`}
+          >
             {filteredLogs.length === 0 ? (
-              <div className="p-8 text-center text-xs text-zinc-500 font-mono">
-                {logLiveTail ? 'Listening for container log output...' : 'No logs recorded'}
+              <div className="p-8 text-center text-xs text-zinc-400 font-mono">
+                {isLogsLoading
+                  ? 'Loading container logs...'
+                  : logLiveTail
+                    ? 'Waiting for container log output...'
+                    : 'No logs recorded'}
               </div>
             ) : (
               filteredLogs.map((l) => (
@@ -572,10 +583,19 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
       {/* Log Entries Stream Box */}
       <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-[#09090d]">
-        <div ref={mobileLogContainerRef} className="divide-y divide-zinc-800/50 max-h-[560px] overflow-y-auto">
+        <div
+          ref={mobileLogContainerRef}
+          className={`divide-y divide-zinc-800/50 max-h-[560px] overflow-y-auto ${
+            logWordWrap ? 'overflow-x-hidden' : 'overflow-x-auto'
+          }`}
+        >
           {filteredLogs.length === 0 ? (
-            <div className="py-12 text-center text-xs text-zinc-500 font-mono">
-              {logLiveTail ? 'Listening for container log output...' : 'No logs recorded'}
+            <div className="py-12 text-center text-xs text-zinc-400 font-mono">
+              {isLogsLoading
+                ? 'Loading container logs...'
+                : logLiveTail
+                  ? 'Waiting for container log output...'
+                  : 'No logs recorded'}
             </div>
           ) : (
             filteredLogs.map((l, index) => {

@@ -11,7 +11,9 @@ export const gitAndRegistryApi = {
         token?: string;
         notes?: string;
         accountName?: string;
+        account_login?: string;
         authMethod?: string;
+        auth_method?: string;
         status?: string;
         error?: string;
         repos_accessible?: number;
