@@ -260,6 +260,29 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 			slotProject := p.SlotProjectName(app, id, targetSlot)
 			slotPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, targetSlot)
 
+			// Direct host-bound ports (DB/TCP/UDP) cannot overlap between Blue and Green slots;
+			// stop any running old stack for this app first so the target slot can bind cleanly.
+			hasDirectPort := false
+			for _, b := range bindings {
+				if b.Direct {
+					hasDirectPort = true
+					break
+				}
+			}
+			if !isPinnedMode && hasDirectPort {
+				r.writeTimestampedLineLocked("[ports] Releasing direct host-bound ports from previous stack before deploying target slot...")
+				for _, otherSlot := range []string{"blue", "green"} {
+					if otherSlot == targetSlot {
+						continue
+					}
+					prevProj := p.SlotProjectName(app, id, otherSlot)
+					prevPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, otherSlot)
+					_ = dockerx.ComposeDown(runCtx, dir, prevPaths, prevProj, nil, envFiles)
+					_ = dockerapi.RemoveContainersByComposeProject(runCtx, prevProj)
+				}
+				p.StopOtherComposeStacks(runCtx, app, id, slotProject)
+			}
+
 			if isPinnedMode {
 				r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] Production is pinned on Slot %s. Deploying preview release to Slot %s...", pinnedSlot, targetSlot))
 			} else {
@@ -301,8 +324,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.Mu.Lock()
 						r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] ✓ Preview slot %s is live and healthy! Production remains pinned on slot %s.", targetSlot, pinnedSlot))
 						r.Mu.Unlock()
-						_ = p.syncRootStackCompose(runCtx)
-						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+						p.syncAndApplyRootCaddyIfNeeded(runCtx)
 						go func() {
 							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 							defer cancel()
@@ -330,8 +352,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 							r.Mu.Unlock()
 						}
 						p.StopOtherComposeStacks(runCtx, app, id, slotProject)
-						_ = p.syncRootStackCompose(runCtx)
-						p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+						p.syncAndApplyRootCaddyIfNeeded(runCtx)
 						go func() {
 							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 							defer cancel()
@@ -342,6 +363,16 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 			} else {
 				r.writeTimestampedLineLocked("[zero-downtime] Compose build/up failed on target slot. Keeping active slot running.")
 				_ = dockerx.ComposeDown(runCtx, dir, slotPaths, slotProject, nil, envFiles)
+			}
+
+			// Restore DB port allocations to the live active slot if the deploy failed/aborted.
+			if !res.OK {
+				if currentSlot != "" {
+					_, _ = p.SyncAppSlotComposeCtx(runCtx, id, currentSlot, false)
+				} else {
+					_ = p.DB.ReleaseAppPorts(runCtx, id)
+				}
+				p.syncAndApplyRootCaddyIfNeeded(runCtx)
 			}
 
 			if cfg, err := p.DB.GetAppGitConfig(runCtx, id); err == nil {
@@ -357,6 +388,9 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 					standbyPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, app.StandbySlot)
 					_ = dockerx.ComposeDown(runCtx, dir, standbyPaths, standbyProj, nil, envFiles)
 				}
+			}
+			if res.OK {
+				p.syncAndApplyRootCaddyIfNeeded(runCtx)
 			}
 		}
 

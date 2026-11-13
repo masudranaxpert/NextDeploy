@@ -174,18 +174,20 @@ func main() {
 	go p.ReapplyAppCgroupLimitsOnStart()
 	go p.WarmUsage()
 	go p.StartBackupWorker()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if p.PHP != nil {
+			p.PHP.Reconcile(ctx)
+		}
+		p.ReconcileProxyRoutes(ctx)
+		p.ReconcileAllAppSlotCompose(ctx)
+	}()
 	if p.PHP != nil {
 		p.PHP.StartCronScheduler(context.Background())
 		p.PHP.StartPMAJanitor(context.Background())
 		p.PHP.StartSymlinkSweeper(context.Background())
 		go p.AutoHealWordPressSitesOnStart()
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			p.PHP.Reconcile(ctx)
-			p.ReconcileProxyRoutes(ctx)
-			p.ReconcileAllAppSlotCompose(ctx)
-		}()
 	}
 
 	// Auth routes (no session middleware)

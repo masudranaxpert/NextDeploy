@@ -1541,29 +1541,9 @@ func (h *Handler) handleDeploy(ctx context.Context, u db.User, args map[string]i
 		return jsonResult(out)
 	}
 
-	targetSlot := "blue"
-	if app.ActiveSlot == "blue" {
-		targetSlot = "green"
-	}
-
-	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		if _, err := h.p.SyncAppSlotComposeCtx(ctx, appID, targetSlot); err != nil {
-			return errorResult(fmt.Errorf("caddy slot compose sync failed: %w", err))
-		}
-	} else {
-		if err := h.p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
-			return errorResult(fmt.Errorf("caddy sync failed: %w", err))
-		}
-	}
-
-	projCtx, projCancel := context.WithTimeout(ctx, 30*time.Second)
-	project := h.p.ActiveComposeProjectName(projCtx, app, appID)
-	projCancel()
-	paths := h.p.EffectiveComposePaths(ctx, app, appID)
-
-	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		project = h.p.SlotProjectName(app, appID, targetSlot)
-		paths = h.p.EffectiveComposePathsForSlot(ctx, app, appID, targetSlot)
+	project, paths, err := h.p.ResolveComposeActionTarget(ctx, app, appID, action)
+	if err != nil {
+		return errorResult(fmt.Errorf("compose sync failed: %w", err))
 	}
 
 	jobID, err := h.p.StartComposeJob(appID, project, paths, action, fn, gitSyncOut)

@@ -398,39 +398,14 @@ func (p *Panel) enqueueCompose(c *fiber.Ctx, action string, fn func(context.Cont
 		targetSlot = "green"
 	}
 
-	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		if _, err := p.SyncAppSlotComposeCtx(c.UserContext(), id, targetSlot, isPinnedMode); err != nil {
-			msg := "[error]\n" + err.Error()
-			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-			if wantJSON {
-				return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error(), "output": msg})
-			}
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
+	project, paths, err := p.ResolveComposeActionTarget(c.UserContext(), app, id, action)
+	if err != nil {
+		msg := "[error]\n" + err.Error()
+		_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
+		if wantJSON {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error(), "output": msg})
 		}
-	} else {
-		activeSlot := app.ActiveSlot
-		if activeSlot == "" {
-			activeSlot = "blue"
-		}
-		if _, err := p.SyncAppSlotComposeCtx(c.UserContext(), id, activeSlot, false); err != nil {
-			msg := "[error]\n" + err.Error()
-			_ = p.DB.InsertDeployLog(c.UserContext(), id, action, false, msg)
-			if wantJSON {
-				return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error(), "output": msg})
-			}
-			return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
-		}
-	}
-
-	activeSlot := app.ActiveSlot
-	if activeSlot == "" {
-		activeSlot = "blue"
-	}
-	project := p.SlotProjectName(app, id, activeSlot)
-	paths := p.EffectiveComposePathsForSlot(c.UserContext(), app, id, activeSlot)
-	if action == "Deploy" || action == "Redeploy (pull + up)" {
-		project = p.SlotProjectName(app, id, targetSlot)
-		paths = p.EffectiveComposePathsForSlot(c.UserContext(), app, id, targetSlot)
+		return c.Redirect(fmt.Sprintf("/apps/%s?tab=deployment", id))
 	}
 
 	p.RecordAuditLog(c, "compose_"+strings.ToLower(strings.ReplaceAll(action, " ", "_")), "app", id, "Triggered compose action: "+action)

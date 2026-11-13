@@ -280,6 +280,9 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 		if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
+		if !isPreviewOnly {
+			_ = p.DB.ReleaseAppPorts(ctx, appID)
+		}
 		return nil, nil
 	}
 
@@ -316,17 +319,29 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 
 	project := p.SlotProjectName(app, appID, slot)
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
+	dotenvContent := p.appDotEnvContent(ctx, app, appID)
 	var preview *db.AppDomain
 	if isPreviewOnly {
 		preview = p.previewSite(ctx, app, slot)
 	}
-	content, bindings, err := caddy.GenerateSlotMergedCompose(base, project, slot, domains, panelEnv, cgroupParent, preview, isPreviewOnly)
+	content, bindings, err := caddy.GenerateSlotMergedComposeWithEnv(base, project, slot, domains, panelEnv, dotenvContent, cgroupParent, preview, isPreviewOnly)
 	if err != nil {
 		return nil, fmt.Errorf("generate slot merged compose: %w", err)
 	}
 
-	for _, b := range bindings {
-		if err := p.DB.AllocatePort(ctx, b.HostPort, b.BindIP, appID, b.Service, b.Protocol); err != nil {
+	if !isPreviewOnly {
+		desired := make([]db.AllocatedPort, 0, len(bindings))
+		for _, b := range bindings {
+			desired = append(desired, db.AllocatedPort{
+				Port:     b.HostPort,
+				BindIP:   b.BindIP,
+				AppID:    appID,
+				Service:  b.Service,
+				Protocol: b.Protocol,
+				Direct:   b.Direct,
+			})
+		}
+		if err := p.DB.SyncAppPorts(ctx, appID, desired); err != nil {
 			return nil, fmt.Errorf("port allocation conflict: %w", err)
 		}
 	}
@@ -336,6 +351,26 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 	}
 	_ = atomicWriteFile(p.composeOverridePath(ctx, appID), content, 0640)
 	return bindings, nil
+}
+
+func (p *Panel) appDotEnvContent(ctx context.Context, app db.App, appID string) string {
+	if p.Store == nil {
+		return ""
+	}
+	var parts []string
+	seen := make(map[string]bool)
+	addFile := func(path string) {
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+			parts = append(parts, string(b))
+		}
+	}
+	addFile(p.Store.DotEnvPath(p.ComposeWorkspaceRoot(ctx, appID)))
+	addFile(filepath.Join(filepath.Dir(p.ComposeFilePath(ctx, app, appID)), ".env"))
+	return strings.Join(parts, "\n")
 }
 
 // SyncAndApplyBackground writes the Caddy override for the active slot then runs `docker compose up -d`
@@ -372,24 +407,30 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 	if composeUp == nil {
 		composeUp = dockerx.ComposeUpNoBuild
 	}
+	project := p.SlotProjectName(app, appID, activeSlot)
+	paths := p.EffectiveComposePathsForSlot(ctx, app, appID, activeSlot)
+	dir := p.AppSourcePath(ctx, appID)
+	envFiles := p.ComposeEnvFiles(ctx, appID)
+	hasPinnedStandby := strings.TrimSpace(app.PinnedSlot) != "" && strings.TrimSpace(app.StandbySlot) != ""
+	var standbyProj string
+	var standbyPaths []string
+	if hasPinnedStandby {
+		standbySlot := strings.TrimSpace(app.StandbySlot)
+		standbyProj = p.SlotProjectName(app, appID, standbySlot)
+		standbyPaths = p.EffectiveComposePathsForSlot(ctx, app, appID, standbySlot)
+	}
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		project := p.SlotProjectName(app, appID, activeSlot)
-		paths := p.EffectiveComposePathsForSlot(bgCtx, app, appID, activeSlot)
-		dir := p.AppSourcePath(bgCtx, appID)
-		envFiles := p.ComposeEnvFiles(bgCtx, appID)
 		res := composeUp(bgCtx, dir, paths, project, nil, envFiles)
 		if !res.OK {
 			log.Printf("compose apply app=%s project=%s: %s", appID, project, strings.TrimSpace(res.Output))
 			return
 		}
-		if strings.TrimSpace(app.PinnedSlot) != "" && strings.TrimSpace(app.StandbySlot) != "" {
-			standbySlot := strings.TrimSpace(app.StandbySlot)
-			standbyProj := p.SlotProjectName(app, appID, standbySlot)
-			standbyPaths := p.EffectiveComposePathsForSlot(bgCtx, app, appID, standbySlot)
+		if hasPinnedStandby {
 			_ = composeUp(bgCtx, dir, standbyPaths, standbyProj, nil, envFiles)
 		}
+		p.syncAndApplyRootCaddyIfNeeded(bgCtx)
 		_ = p.DB.ClearAppPendingOriginApply(bgCtx, appID)
 	}()
 	return nil

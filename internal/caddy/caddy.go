@@ -562,23 +562,26 @@ func normalizeNamedVolumes(doc map[string]interface{}, projectName string) {
 	doc["volumes"] = rawVolumes
 }
 
-// MergeCaddyGatewayPorts adds custom host gateway ports (e.g. 4013:4013) to Caddy's published ports.
+// MergeCaddyGatewayPorts reconciles custom host gateway ports (e.g. 4013:4013) on Caddy's published ports,
+// preserving standard 80/443 bindings while stripping stale or direct (non-HTTP) ports.
 func MergeCaddyGatewayPorts(caddySvc map[string]interface{}, ports []db.AllocatedPort) {
-	if len(ports) == 0 {
-		return
-	}
 	var current []interface{}
+	seen := make(map[string]bool)
 	if raw, ok := caddySvc["ports"]; ok {
 		if list, ok := raw.([]interface{}); ok {
-			current = list
+			for _, item := range list {
+				if b, ok, err := parsePortString("caddy", fmt.Sprint(item)); err == nil && ok && (b.HostPort == 80 || b.HostPort == 443) {
+					key := fmt.Sprint(item)
+					if !seen[key] {
+						seen[key] = true
+						current = append(current, item)
+					}
+				}
+			}
 		}
 	}
-	seen := make(map[string]bool)
-	for _, p := range current {
-		seen[fmt.Sprint(p)] = true
-	}
 	for _, ap := range ports {
-		if ap.Port <= 0 {
+		if ap.Port <= 0 || ap.Direct {
 			continue
 		}
 		portMapping := fmt.Sprintf("%d:%d", ap.Port, ap.Port)

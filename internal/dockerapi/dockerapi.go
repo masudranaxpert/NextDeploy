@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -271,6 +272,91 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 		}
 	}
 	return project, "", fmt.Errorf("mount %q not found on container %q", mountDestination, containerName)
+}
+
+// LivePortState summarizes live Docker container port bindings and Caddy gateway labels.
+type LivePortState struct {
+	DirectHostPorts   map[int]bool    // Host ports currently bound by running non-Caddy containers
+	CaddyGatewayPorts map[int]bool    // Gateway :PORT addresses advertised on running containers' Caddy labels
+	CaddyBoundPorts   map[int]bool    // Host ports (>0, excluding 80/443) currently published by the running Caddy container
+	RunningProjects   map[string]bool // Compose project names with at least one running container
+}
+
+func extractCaddyLabelPorts(labels map[string]string, dst map[int]bool) {
+	for k, v := range labels {
+		if k != "caddy" && !strings.HasPrefix(k, "caddy_") {
+			continue
+		}
+		// Skip sub-keys like caddy.reverse_proxy, caddy_1.tls
+		if strings.Contains(k, ".") {
+			continue
+		}
+		for _, site := range strings.Split(v, ",") {
+			s := strings.TrimSpace(site)
+			s = strings.TrimPrefix(s, "http://")
+			s = strings.TrimPrefix(s, "https://")
+			idx := strings.LastIndexByte(s, ':')
+			if idx < 0 {
+				continue
+			}
+			host := strings.TrimSpace(s[:idx])
+			if host != "" && net.ParseIP(strings.Trim(host, "[]")) == nil {
+				continue
+			}
+			p, err := strconv.Atoi(strings.TrimSpace(s[idx+1:]))
+			if err == nil && p > 0 && p <= 65535 {
+				dst[p] = true
+			}
+		}
+	}
+}
+
+// InspectLivePortState inspects currently running containers via Docker Engine API.
+func InspectLivePortState(ctx context.Context) (*LivePortState, error) {
+	cli, err := apiClient()
+	if err != nil {
+		return nil, err
+	}
+	list, err := cli.ContainerList(ctx, types.ContainerListOptions{All: false})
+	if err != nil {
+		return nil, err
+	}
+	st := &LivePortState{
+		DirectHostPorts:   make(map[int]bool),
+		CaddyGatewayPorts: make(map[int]bool),
+		CaddyBoundPorts:   make(map[int]bool),
+		RunningProjects:   make(map[string]bool),
+	}
+	for _, c := range list {
+		if !strings.EqualFold(c.State, "running") {
+			continue
+		}
+		proj := strings.TrimSpace(c.Labels[composeProjectLabel])
+		if proj != "" {
+			st.RunningProjects[proj] = true
+		}
+		name := containerName(c)
+		isCaddy := strings.EqualFold(name, "caddy") ||
+			(strings.EqualFold(proj, "nextdeploy") && strings.EqualFold(strings.TrimSpace(c.Labels["com.docker.compose.service"]), "caddy"))
+
+		for _, p := range c.Ports {
+			if p.PublicPort == 0 {
+				continue
+			}
+			port := int(p.PublicPort)
+			if isCaddy {
+				if port != 80 && port != 443 {
+					st.CaddyBoundPorts[port] = true
+				}
+			} else {
+				st.DirectHostPorts[port] = true
+			}
+		}
+		if !isCaddy {
+			extractCaddyLabelPorts(c.Labels, st.CaddyGatewayPorts)
+		}
+	}
+	return st, nil
 }
 
 func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {

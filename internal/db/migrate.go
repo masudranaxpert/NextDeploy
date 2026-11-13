@@ -676,10 +676,16 @@ CREATE TABLE IF NOT EXISTS allocated_ports (
   app_id TEXT NOT NULL,
   service TEXT NOT NULL DEFAULT '',
   protocol TEXT NOT NULL DEFAULT 'tcp',
+  direct INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   FOREIGN KEY(app_id) REFERENCES apps(id) ON DELETE CASCADE
 );`); err != nil {
 		return err
+	}
+	if _, err := s.db.Exec(`ALTER TABLE allocated_ports ADD COLUMN direct INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
 	}
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_allocated_ports_app ON allocated_ports(app_id);`); err != nil {
 		return err

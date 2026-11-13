@@ -67,4 +67,29 @@ func TestPortAllocationsRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("app2 should be able to allocate freed port 4013: %v", err)
 	}
+
+	// SyncAppPorts: updates direct flag, removes stale port, fails atomically on conflict
+	if err := store.SyncAppPorts(ctx, "app1", []AllocatedPort{
+		{Port: 54325, BindIP: "0.0.0.0", Service: "db", Protocol: "tcp", Direct: true},
+		{Port: 12002, BindIP: "0.0.0.0", Service: "web", Protocol: "tcp", Direct: false},
+	}); err != nil {
+		t.Fatalf("SyncAppPorts failed: %v", err)
+	}
+	if err := store.SyncAppPorts(ctx, "app1", []AllocatedPort{
+		{Port: 12002, BindIP: "0.0.0.0", Service: "web", Protocol: "tcp", Direct: false},
+	}); err != nil {
+		t.Fatalf("SyncAppPorts prune failed: %v", err)
+	}
+	if alloc, _ := store.GetPortAllocation(ctx, 54325); alloc != nil {
+		t.Fatalf("expected pruned port 54325 to be released, got %+v", alloc)
+	}
+	// Attempting SyncAppPorts with conflicting port 4013 owned by app2 must leave 12002 untouched
+	if err := store.SyncAppPorts(ctx, "app1", []AllocatedPort{
+		{Port: 4013, Service: "web", Protocol: "tcp"},
+	}); err == nil {
+		t.Fatalf("expected conflict error syncing reserved port owned by app2")
+	}
+	if alloc, _ := store.GetPortAllocation(ctx, 12002); alloc == nil {
+		t.Fatalf("expected existing port 12002 to remain after rollback")
+	}
 }

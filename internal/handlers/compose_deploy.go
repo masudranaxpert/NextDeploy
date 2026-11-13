@@ -245,6 +245,11 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 	if err := p.DB.DeleteApp(ctx, id); err != nil {
 		return err
 	}
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		p.syncAndApplyRootCaddyIfNeeded(bgCtx)
+	}()
 	p.InvalidateAfterAppDeployChange(id)
 	_ = os.RemoveAll(dir)
 	p.CleanupWorkspaceDir(id)

@@ -17,6 +17,7 @@ import (
 	"panel/internal/agent"
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/perflog"
@@ -66,7 +67,9 @@ type Panel struct {
 
 	edgeRateMu              sync.Mutex
 	edgeRateMap             map[string]*edgeRateWindow
+	rootApplyMu             sync.Mutex
 	applyRootStackComposeFn func(composeFile string, services ...string)
+	inspectLivePortStateFn  func(ctx context.Context) (*dockerapi.LivePortState, error)
 	composeUpNoBuildFn      func(ctx context.Context, dir string, paths []string, project string, logW io.Writer, envFiles []string) dockerx.Result
 	reconcileProxyRoutesFn  func(ctx context.Context)
 	originIPFn              func(ctx context.Context) string
@@ -596,6 +599,51 @@ func (p *Panel) composeProjectAndPSHint(ctx context.Context, app db.App, id stri
 func (p *Panel) ActiveComposeProjectName(ctx context.Context, app db.App, id string) string {
 	project, _, _ := p.ComposeProjectAndPS(ctx, app, id)
 	return project
+}
+
+// ResolveComposeActionTarget prepares slot overrides/port allocations and returns the
+// compose project name and effective compose file paths for a compose action.
+func (p *Panel) ResolveComposeActionTarget(ctx context.Context, app db.App, id, action string) (project string, paths []string, err error) {
+	pinnedSlot := strings.TrimSpace(app.PinnedSlot)
+	isPinnedMode := pinnedSlot == "blue" || pinnedSlot == "green"
+
+	targetSlot := "blue"
+	if isPinnedMode {
+		if pinnedSlot == "blue" {
+			targetSlot = "green"
+		}
+	} else if app.ActiveSlot == "blue" {
+		targetSlot = "green"
+	}
+
+	if action == "Deploy" || action == "Redeploy (pull + up)" {
+		if _, err := p.SyncAppSlotComposeCtx(ctx, id, targetSlot, isPinnedMode); err != nil {
+			return "", nil, err
+		}
+		return p.SlotProjectName(app, id, targetSlot), p.EffectiveComposePathsForSlot(ctx, app, id, targetSlot), nil
+	}
+
+	activeSlot := strings.TrimSpace(app.ActiveSlot)
+	if activeSlot == "" {
+		activeSlot = "blue"
+	}
+	slotProj := p.SlotProjectName(app, id, activeSlot)
+
+	// If a legacy (non-slot) stack is currently running for this app, target that live
+	// project for Stop/Restart/Start rather than missing it by assuming <app>-<slot>.
+	liveProj, liveRows, liveRes := p.ComposeProjectAndPS(ctx, app, id)
+	if liveRes.OK && len(liveRows) > 0 && liveProj != "" && liveProj != slotProj &&
+		!strings.HasSuffix(liveProj, "-blue") && !strings.HasSuffix(liveProj, "-green") {
+		if action != "Stop" && action != "Down" {
+			_ = p.SyncAppCaddyOverrideCtx(ctx, id)
+		}
+		return liveProj, p.EffectiveComposePaths(ctx, app, id), nil
+	}
+
+	if _, err := p.SyncAppSlotComposeCtx(ctx, id, activeSlot, false); err != nil {
+		return "", nil, err
+	}
+	return slotProj, p.EffectiveComposePathsForSlot(ctx, app, id, activeSlot), nil
 }
 
 // stopOtherComposeStacks runs compose down (no volume removal) for every project name candidate

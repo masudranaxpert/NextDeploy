@@ -273,13 +273,14 @@ type DeployLog struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// AllocatedPort records a host port reserved by NextDeploy proxy gateway.
+// AllocatedPort records a host port reserved by NextDeploy proxy gateway or direct bind.
 type AllocatedPort struct {
 	Port      int       `json:"port"`
 	BindIP    string    `json:"bind_ip"`
 	AppID     string    `json:"app_id"`
 	Service   string    `json:"service"`
 	Protocol  string    `json:"protocol"`
+	Direct    bool      `json:"direct"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

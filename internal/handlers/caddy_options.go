@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -109,13 +111,44 @@ func (p *Panel) ReconcileProxyRoutes(ctx context.Context) {
 	}
 }
 
-// ReconcileAllAppSlotCompose reconciles compose slot overrides for all active apps on startup.
+// ReconcileAllAppSlotCompose reconciles compose slot overrides for all apps on startup,
+// prioritizing running apps before stopped apps so stopped apps cannot steal active ports,
+// and applies root Caddy gateway port updates when needed.
 func (p *Panel) ReconcileAllAppSlotCompose(ctx context.Context) {
 	apps, err := p.DB.ListApps(ctx)
 	if err != nil {
 		return
 	}
-	for _, a := range apps {
+	live, liveErr := p.inspectLivePortState(ctx)
+	runningByApp := make(map[string]bool, len(apps))
+	if liveErr == nil && live != nil {
+		for _, a := range apps {
+			for _, cand := range p.composeProjectCandidates(ctx, a, a.ID) {
+				if live.RunningProjects[cand] {
+					runningByApp[a.ID] = true
+					break
+				}
+			}
+		}
+		// Release stale port rows owned by currently stopped apps so running apps
+		// reclaim their active ports cleanly; stopped apps re-register free ports below.
+		if existing, err := p.DB.ListAllocatedPorts(ctx); err == nil {
+			released := make(map[string]bool)
+			for _, ap := range existing {
+				if !runningByApp[ap.AppID] && !released[ap.AppID] {
+					released[ap.AppID] = true
+					_ = p.DB.ReleaseAppPorts(ctx, ap.AppID)
+				}
+			}
+		}
+	}
+
+	ordered := append([]db.App(nil), apps...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return runningByApp[ordered[i].ID] && !runningByApp[ordered[j].ID]
+	})
+
+	for _, a := range ordered {
 		if p.PHP != nil && p.DB.IsPHPSite(ctx, a.ID) {
 			continue
 		}
@@ -123,11 +156,15 @@ func (p *Panel) ReconcileAllAppSlotCompose(ctx context.Context) {
 		if slot == "" {
 			slot = "blue"
 		}
-		_, _ = p.SyncAppSlotComposeCtx(ctx, a.ID, slot, false)
+		if _, err := p.SyncAppSlotComposeCtx(ctx, a.ID, slot, false); err != nil {
+			log.Printf("reconcile app %s (%s) compose: %v", a.ID, slot, err)
+		}
 		if strings.TrimSpace(a.PinnedSlot) != "" && strings.TrimSpace(a.StandbySlot) != "" {
 			_, _ = p.SyncAppSlotComposeCtx(ctx, a.ID, strings.TrimSpace(a.StandbySlot), true)
 		}
 	}
+
+	p.syncAndApplyRootCaddyIfNeeded(ctx)
 }
 
 // GET /caddy/routes

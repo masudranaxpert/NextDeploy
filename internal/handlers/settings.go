@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -419,27 +420,89 @@ func (p *Panel) nextDeployComposePath() string {
 	return panelStackComposeContainerPath
 }
 
-func (p *Panel) syncRootStackCompose(ctx context.Context) error {
+func (p *Panel) inspectLivePortState(ctx context.Context) (*dockerapi.LivePortState, error) {
+	if p.inspectLivePortStateFn != nil {
+		return p.inspectLivePortStateFn(ctx)
+	}
+	if p.applyRootStackComposeFn != nil {
+		return nil, fmt.Errorf("live docker inspection skipped in mocked test")
+	}
+	return dockerapi.InspectLivePortState(ctx)
+}
+
+func filterCaddyGatewayPorts(allocated []db.AllocatedPort, live *dockerapi.LivePortState) []db.AllocatedPort {
+	out := make([]db.AllocatedPort, 0, len(allocated))
+	for _, ap := range allocated {
+		if ap.Port <= 0 || ap.Direct {
+			continue
+		}
+		if live != nil {
+			if live.DirectHostPorts[ap.Port] {
+				continue
+			}
+			if !live.CaddyGatewayPorts[ap.Port] {
+				continue
+			}
+		}
+		out = append(out, ap)
+	}
+	return out
+}
+
+func portSetsEqual(a, b map[int]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Panel) syncRootStackComposeState(ctx context.Context) (changed bool, wantedPorts map[int]bool, live *dockerapi.LivePortState, err error) {
 	path := p.nextDeployComposePath()
 	if err := rootStackComposeFileOrError(path); err != nil {
-		return err
+		return false, nil, nil, err
 	}
 	base, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return false, nil, nil, err
 	}
+	live, liveErr := p.inspectLivePortState(ctx)
+	if liveErr != nil {
+		live = nil
+	}
+	allocated, _ := p.DB.ListAllocatedPorts(ctx)
+	gatewayPorts := filterCaddyGatewayPorts(allocated, live)
+	wantedPorts = make(map[int]bool, len(gatewayPorts))
+	for _, ap := range gatewayPorts {
+		wantedPorts[ap.Port] = true
+	}
+
 	panelDomain := p.DB.GetSetting(ctx, settingPanelDomain)
 	enableHTTPS := settingBool(p.DB.GetSetting(ctx, settingPanelEnableHTTPS), true)
 	enableWWW := settingBool(p.DB.GetSetting(ctx, settingPanelEnableWWW), false)
 	email := p.DB.GetCaddyConfig(ctx, "email")
 	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
 	sharedMounts := p.caddySharedMountsFromSettings(ctx)
-	gatewayPorts, _ := p.DB.ListAllocatedPorts(ctx)
 	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts, p.caddyGlobalOptions(ctx), gatewayPorts...)
 	if err != nil {
-		return err
+		return false, nil, live, err
 	}
-	return os.WriteFile(path, merged, 0640)
+	changed = !bytes.Equal(base, merged)
+	if changed {
+		if err := os.WriteFile(path, merged, 0640); err != nil {
+			return false, wantedPorts, live, err
+		}
+	}
+	return changed, wantedPorts, live, nil
+}
+
+func (p *Panel) syncRootStackCompose(ctx context.Context) error {
+	_, _, _, err := p.syncRootStackComposeState(ctx)
+	return err
 }
 
 // formValues returns duplicate POST keys (e.g. several checkboxes sharing one name).
@@ -627,6 +690,42 @@ func runRootStackComposeViaHelperContainer(ctx context.Context, hostComposePath,
 	return nil
 }
 
+func (p *Panel) runRootStackComposeLocked(ctx context.Context, composeFile string, services ...string) {
+	if len(services) == 0 {
+		return
+	}
+	if p.applyRootStackComposeFn != nil {
+		p.applyRootStackComposeFn(composeFile, services...)
+		return
+	}
+	composeFile = filepath.Clean(composeFile)
+	projectDir := filepath.Dir(composeFile)
+	project := rootStackComposeProjectName(projectDir)
+	spec := strings.Join(services, " ")
+	if useDockerComposeHelper() {
+		hostComposePath, detectedProject, err := rootStackComposeHelperTarget(ctx)
+		if err != nil {
+			p.setRootApplyStatus("Compose apply failed while resolving host compose target: " + err.Error())
+			log.Printf("root stack compose helper target: %v", err)
+			return
+		}
+		project = detectedProject
+		if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project, services); err != nil {
+			p.setRootApplyStatus("Compose apply failed: " + err.Error())
+			log.Printf("root stack compose helper: %v", err)
+		} else {
+			p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
+		}
+		return
+	}
+	if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, services...); !res.OK {
+		p.setRootApplyStatus("Compose apply failed: " + strings.TrimSpace(res.Output))
+		log.Printf("root stack compose apply %s: %s", spec, strings.TrimSpace(res.Output))
+	} else {
+		p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
+	}
+}
+
 // applyRootStackComposeBackground runs `docker compose up -d` for the given services only.
 // Panel domain saves use ["panel"] (new Caddy labels on the panel service); shared volume saves use ["caddy"] (mounts on the proxy).
 func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...string) {
@@ -637,42 +736,43 @@ func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...
 		p.applyRootStackComposeFn(composeFile, services...)
 		return
 	}
-	composeFile = filepath.Clean(composeFile)
-
-	// Avoid running a redundant root compose apply if the file was recently checked and unchanged
-	projectDir := filepath.Dir(composeFile)
-	project := rootStackComposeProjectName(projectDir)
 	spec := strings.Join(services, " ")
 	p.setRootApplyStatus("Queued: docker compose up -d " + spec + ".")
 	go func() {
+		p.rootApplyMu.Lock()
+		defer p.rootApplyMu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if useDockerComposeHelper() {
-			hostComposePath, detectedProject, err := rootStackComposeHelperTarget(ctx)
-			if err != nil {
-				p.setRootApplyStatus("Compose apply failed while resolving host compose target: " + err.Error())
-				log.Printf("root stack compose helper target: %v", err)
-				return
-			}
-			project = detectedProject
-			if err := runRootStackComposeViaHelperContainer(ctx, hostComposePath, project, services); err != nil {
-				p.setRootApplyStatus("Compose apply failed: " + err.Error())
-				log.Printf("root stack compose helper: %v", err)
-			} else {
-				p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
-			}
-			return
-		}
-		if res := dockerx.ComposeApplyServices(ctx, projectDir, []string{composeFile}, project, nil, nil, services...); !res.OK {
-			p.setRootApplyStatus("Compose apply failed: " + strings.TrimSpace(res.Output))
-			log.Printf("root stack compose apply %s: %s", spec, strings.TrimSpace(res.Output))
-		} else {
-			p.setRootApplyStatus("Apply completed (docker compose up -d " + spec + ").")
-		}
+		p.runRootStackComposeLocked(ctx, composeFile, services...)
 	}()
 }
 
+// syncAndApplyRootCaddyIfNeeded reconciles root compose gateway ports against live container state
+// and recreates Caddy only when root compose bytes changed or live Caddy port bindings differ.
+func (p *Panel) syncAndApplyRootCaddyIfNeeded(ctx context.Context) {
+	p.rootApplyMu.Lock()
+	defer p.rootApplyMu.Unlock()
+
+	changed, wantedPorts, live, err := p.syncRootStackComposeState(ctx)
+	if err != nil {
+		log.Printf("sync root stack compose skipped: %v", err)
+		return
+	}
+	needsApply := changed
+	if !needsApply && live != nil && !portSetsEqual(wantedPorts, live.CaddyBoundPorts) {
+		needsApply = true
+	}
+	if !needsApply {
+		return
+	}
+	applyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	p.runRootStackComposeLocked(applyCtx, p.nextDeployComposePath(), "caddy")
+}
+
 func (p *Panel) SyncRootStackComposeOnStart() error {
+	p.rootApplyMu.Lock()
+	defer p.rootApplyMu.Unlock()
 	return p.syncRootStackCompose(context.Background())
 }
 

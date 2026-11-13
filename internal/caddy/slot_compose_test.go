@@ -233,3 +233,101 @@ func TestStreamCloseDelayLabels(t *testing.T) {
 		t.Fatalf("GenerateSlotLabels missing host-port stream_close_delay 10m: %v", slotLabels)
 	}
 }
+
+func TestGenerateSlotMergedComposeWithEnvAndDirectPorts(t *testing.T) {
+	inputYAML := `
+services:
+  web:
+    image: myweb:latest
+    ports:
+      - "${APP_PORT:-8080}:80"
+  db:
+    image: postgres:16
+    ports:
+      - "${DB_PORT:-5432}:5432"
+  optional_caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    ports:
+      - "80:80"
+      - "443:443"
+`
+	out, bindings, err := GenerateSlotMergedComposeWithEnv(
+		[]byte(inputYAML),
+		"myapp-blue",
+		"blue",
+		nil,
+		"PANEL_FOO=bar",
+		"APP_PORT=18080\nDB_PORT=54325\n",
+		"",
+		nil,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("GenerateSlotMergedComposeWithEnv failed: %v", err)
+	}
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("unmarshal generated compose: %v", err)
+	}
+	services := doc["services"].(map[string]interface{})
+
+	// web HTTP port 18080 from .env must be stripped into expose + Caddy label :18080
+	webSvc := services["web"].(map[string]interface{})
+	if _, hasPorts := webSvc["ports"]; hasPorts {
+		t.Fatalf("expected HTTP web port to be stripped for Caddy proxy, got ports=%v", webSvc["ports"])
+	}
+	webLabels := webSvc["labels"].(map[string]interface{})
+	if webLabels["caddy"] != ":18080" {
+		t.Fatalf("expected caddy gateway label :18080, got %v", webLabels["caddy"])
+	}
+
+	// postgres direct port 54325:5432 must remain in svc["ports"] and NOT get Caddy HTTP labels
+	dbSvc := services["db"].(map[string]interface{})
+	dbPorts, ok := dbSvc["ports"].([]interface{})
+	if !ok || len(dbPorts) != 1 || dbPorts[0] != "54325:5432" {
+		t.Fatalf("expected direct db port 54325:5432 preserved on db service, got %v", dbSvc["ports"])
+	}
+	if _, hasLabels := dbSvc["labels"]; hasLabels {
+		t.Fatalf("expected no Caddy HTTP labels on direct postgres service, got %v", dbSvc["labels"])
+	}
+
+	var sawWeb, sawDB bool
+	for _, b := range bindings {
+		if b.Service == "web" && b.HostPort == 18080 && !b.Direct {
+			sawWeb = true
+		}
+		if b.Service == "db" && b.HostPort == 54325 && b.Direct {
+			sawDB = true
+		}
+	}
+	if !sawWeb || !sawDB {
+		t.Fatalf("expected web(18080, direct=false) and db(54325, direct=true), got %+v", bindings)
+	}
+}
+
+func TestMergeCaddyGatewayPortsStripsStaleAndDirectPorts(t *testing.T) {
+	caddySvc := map[string]interface{}{
+		"ports": []interface{}{"80:80", "443:443", "443:443/udp", "4013:4013", "9999:9999"},
+	}
+	MergeCaddyGatewayPorts(caddySvc, []db.AllocatedPort{
+		{Port: 12002, BindIP: "0.0.0.0", Protocol: "tcp", Direct: false},
+		{Port: 54325, BindIP: "0.0.0.0", Protocol: "tcp", Direct: true},
+	})
+	got := caddySvc["ports"].([]interface{})
+	if len(got) != 4 {
+		t.Fatalf("expected 4 caddy ports (80, 443, 443/udp, 12002), got %v", got)
+	}
+	for _, p := range got {
+		if p == "4013:4013" || p == "9999:9999" || p == "54325:54325" {
+			t.Fatalf("stale or direct port leaked into caddy ports: %v", got)
+		}
+	}
+
+	// Calling with empty slice must prune remaining gateway ports too
+	MergeCaddyGatewayPorts(caddySvc, nil)
+	got = caddySvc["ports"].([]interface{})
+	if len(got) != 3 {
+		t.Fatalf("expected only 3 base caddy ports when empty, got %v", got)
+	}
+}

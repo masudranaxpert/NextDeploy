@@ -21,16 +21,139 @@ type HostPortBinding struct {
 	BindIP        string
 	Protocol      string
 	Service       string
+	Direct        bool
+}
+
+var (
+	braceEnvPattern  = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::?-([^}]*))?\}`)
+	simpleEnvPattern = regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*)`)
+
+	nonHTTPContainerPorts = map[int]bool{
+		21:    true, // FTP
+		22:    true, // SSH
+		25:    true, // SMTP
+		53:    true, // DNS
+		110:   true, // POP3
+		143:   true, // IMAP
+		465:   true, // SMTPS
+		587:   true, // SMTP submission
+		993:   true, // IMAPS
+		995:   true, // POP3S
+		1433:  true, // MSSQL
+		1521:  true, // Oracle
+		1883:  true, // MQTT
+		3306:  true, // MySQL/MariaDB
+		3389:  true, // RDP
+		4222:  true, // NATS
+		5432:  true, // PostgreSQL
+		5672:  true, // RabbitMQ AMQP
+		6379:  true, // Redis/Valkey
+		6380:  true, // Redis TLS
+		8883:  true, // MQTT TLS
+		9042:  true, // Cassandra
+		9092:  true, // Kafka
+		11211: true, // Memcached
+		26257: true, // CockroachDB
+		27017: true, // MongoDB
+		27018: true, // MongoDB
+		27019: true, // MongoDB
+		33060: true, // MySQL X
+	}
+)
+
+// ParseComposeEnv parses dotenv-formatted text blocks in priority order (later blocks override earlier ones).
+func ParseComposeEnv(blocks ...string) map[string]string {
+	out := make(map[string]string)
+	for _, block := range blocks {
+		for _, rawLine := range strings.Split(block, "\n") {
+			line := strings.TrimSpace(rawLine)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			line = strings.TrimPrefix(line, "export ")
+			eq := strings.IndexByte(line, '=')
+			if eq <= 0 {
+				continue
+			}
+			key := strings.TrimSpace(line[:eq])
+			val := strings.TrimSpace(line[eq+1:])
+			if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+				val = val[1 : len(val)-1]
+			}
+			if key != "" {
+				out[key] = val
+			}
+		}
+	}
+	return out
+}
+
+func isDirectHostPort(b HostPortBinding, svc map[string]interface{}) bool {
+	if strings.EqualFold(b.Protocol, "udp") {
+		return true
+	}
+	if nonHTTPContainerPorts[b.ContainerPort] {
+		return true
+	}
+	if imgRaw, ok := svc["image"].(string); ok {
+		img := strings.ToLower(strings.TrimSpace(imgRaw))
+		// Strip registry/tag for basename check while avoiding admin UI images (pgadmin, redisinsight, mongo-express, etc.)
+		if !strings.Contains(img, "admin") && !strings.Contains(img, "express") &&
+			!strings.Contains(img, "insight") && !strings.Contains(img, "exporter") &&
+			!strings.Contains(img, "ui") {
+			for _, dbToken := range []string{"postgres", "postgis", "timescaledb", "mariadb", "mysql", "percona", "redis", "valkey", "keydb", "mongo", "memcached"} {
+				if strings.Contains(img, dbToken) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func formatDirectPortEntry(b HostPortBinding) string {
+	base := fmt.Sprintf("%d:%d", b.HostPort, b.ContainerPort)
+	if b.BindIP != "" && b.BindIP != "0.0.0.0" {
+		base = fmt.Sprintf("%s:%d:%d", b.BindIP, b.HostPort, b.ContainerPort)
+	}
+	if strings.EqualFold(b.Protocol, "udp") {
+		base += "/udp"
+	}
+	return base
 }
 
 // ExtractAndStripHostPorts scans services for host port mappings, converts them
 // to container-only expose entries, and returns the list of detected host ports.
-func ExtractAndStripHostPorts(services map[string]interface{}) ([]HostPortBinding, error) {
+func ExtractAndStripHostPorts(services map[string]interface{}, envMaps ...map[string]string) ([]HostPortBinding, error) {
+	return extractAndPartitionHostPorts(services, false, envMaps...)
+}
+
+func hasServiceProfiles(svc map[string]interface{}) bool {
+	raw, ok := svc["profiles"]
+	if !ok || raw == nil {
+		return false
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		return len(v) > 0
+	case []string:
+		return len(v) > 0
+	case string:
+		return strings.TrimSpace(v) != ""
+	default:
+		return false
+	}
+}
+
+func extractAndPartitionHostPorts(services map[string]interface{}, keepDirect bool, envMaps ...map[string]string) ([]HostPortBinding, error) {
 	var extracted []HostPortBinding
 
 	for svcName, rawSvc := range services {
 		svc, ok := toStringMap(rawSvc)
 		if !ok {
+			continue
+		}
+		if hasServiceProfiles(svc) {
 			continue
 		}
 		rawPorts, hasPorts := svc["ports"]
@@ -41,30 +164,35 @@ func ExtractAndStripHostPorts(services map[string]interface{}) ([]HostPortBindin
 		var keptPorts []interface{}
 		var newExpose []string
 
+		handleEntry := func(entry interface{}) error {
+			binding, isHostPub, err := parsePortEntry(svcName, entry, envMaps...)
+			if err != nil {
+				return err
+			}
+			if !isHostPub {
+				keptPorts = append(keptPorts, entry)
+				return nil
+			}
+			binding.Direct = isDirectHostPort(binding, svc)
+			extracted = append(extracted, binding)
+			if keepDirect && binding.Direct {
+				keptPorts = append(keptPorts, formatDirectPortEntry(binding))
+			} else {
+				newExpose = append(newExpose, strconv.Itoa(binding.ContainerPort))
+			}
+			return nil
+		}
+
 		switch portsList := rawPorts.(type) {
 		case []interface{}:
 			for _, p := range portsList {
-				binding, isHostPub, err := parsePortEntry(svcName, p)
-				if err != nil {
+				if err := handleEntry(p); err != nil {
 					return nil, err
-				}
-				if isHostPub {
-					extracted = append(extracted, binding)
-					newExpose = append(newExpose, strconv.Itoa(binding.ContainerPort))
-				} else {
-					keptPorts = append(keptPorts, p)
 				}
 			}
 		case string:
-			binding, isHostPub, err := parsePortString(svcName, portsList)
-			if err != nil {
+			if err := handleEntry(portsList); err != nil {
 				return nil, err
-			}
-			if isHostPub {
-				extracted = append(extracted, binding)
-				newExpose = append(newExpose, strconv.Itoa(binding.ContainerPort))
-			} else {
-				keptPorts = append(keptPorts, portsList)
 			}
 		}
 
@@ -83,61 +211,77 @@ func ExtractAndStripHostPorts(services map[string]interface{}) ([]HostPortBindin
 	return extracted, nil
 }
 
-func parsePortEntry(svcName string, p interface{}) (HostPortBinding, bool, error) {
+func parsePortEntry(svcName string, p interface{}, envMaps ...map[string]string) (HostPortBinding, bool, error) {
 	switch v := p.(type) {
 	case string:
-		return parsePortString(svcName, v)
+		return parsePortString(svcName, v, envMaps...)
 	case int:
 		// Standalone port number like 3000 -> container port only
 		return HostPortBinding{}, false, nil
 	case map[string]interface{}:
-		return parsePortMap(svcName, v)
+		return parsePortMap(svcName, v, envMaps...)
 	case map[interface{}]interface{}:
 		m := make(map[string]interface{}, len(v))
 		for k, val := range v {
 			m[fmt.Sprint(k)] = val
 		}
-		return parsePortMap(svcName, m)
+		return parsePortMap(svcName, m, envMaps...)
 	default:
 		return HostPortBinding{}, false, nil
 	}
 }
 
+func lookupComposeVar(name string, envMaps ...map[string]string) (string, bool) {
+	for i := len(envMaps) - 1; i >= 0; i-- {
+		if envMaps[i] == nil {
+			continue
+		}
+		if v, ok := envMaps[i][name]; ok {
+			return v, true
+		}
+	}
+	return os.LookupEnv(name)
+}
+
 // expandComposeEnv resolves common docker-compose variable patterns:
 // ${VAR:-default}, ${VAR-default}, ${VAR}, and $VAR.
-// If an environment variable is not defined in the environment, the default is used.
-func expandComposeEnv(s string) string {
+// Provided envMaps take precedence over process environment variables.
+func expandComposeEnv(s string, envMaps ...map[string]string) string {
 	if !strings.Contains(s, "$") {
 		return s
 	}
 
-	// First handle ${VAR:-default} and ${VAR-default}
-	bracePattern := regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-?([^}]*))?\}`)
-	s = bracePattern.ReplaceAllStringFunc(s, func(match string) string {
-		sub := bracePattern.FindStringSubmatch(match)
-		if len(sub) < 2 {
-			return match
+	// First handle ${VAR:-default}, ${VAR-default}, ${VAR}
+	s = braceEnvPattern.ReplaceAllStringFunc(s, func(match string) string {
+		inner := match[2 : len(match)-1]
+		var varName, op, defaultVal string
+		if idx := strings.Index(inner, ":-"); idx != -1 {
+			varName, op, defaultVal = inner[:idx], ":-", inner[idx+2:]
+		} else if idx := strings.IndexByte(inner, '-'); idx != -1 {
+			varName, op, defaultVal = inner[:idx], "-", inner[idx+1:]
+		} else {
+			varName = inner
 		}
-		varName := sub[1]
-		defaultVal := ""
-		if len(sub) >= 3 {
-			defaultVal = sub[2]
+		val, exists := lookupComposeVar(varName, envMaps...)
+		if op == "-" {
+			if exists {
+				return val
+			}
+			return defaultVal
 		}
-		if val, exists := os.LookupEnv(varName); exists && val != "" {
+		if exists && val != "" {
 			return val
 		}
 		return defaultVal
 	})
 
 	// Next handle simple $VAR
-	simplePattern := regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*)`)
-	s = simplePattern.ReplaceAllStringFunc(s, func(match string) string {
-		sub := simplePattern.FindStringSubmatch(match)
+	s = simpleEnvPattern.ReplaceAllStringFunc(s, func(match string) string {
+		sub := simpleEnvPattern.FindStringSubmatch(match)
 		if len(sub) < 2 {
 			return match
 		}
-		varName := sub[1]
-		if val, exists := os.LookupEnv(varName); exists && val != "" {
+		if val, exists := lookupComposeVar(sub[1], envMaps...); exists && val != "" {
 			return val
 		}
 		return ""
@@ -177,7 +321,7 @@ func splitPortString(s string) []string {
 	return parts
 }
 
-func parsePortString(svcName, s string) (HostPortBinding, bool, error) {
+func parsePortString(svcName, s string, envMaps ...map[string]string) (HostPortBinding, bool, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return HostPortBinding{}, false, nil
@@ -185,14 +329,17 @@ func parsePortString(svcName, s string) (HostPortBinding, bool, error) {
 
 	proto := "tcp"
 	if idx := strings.Index(s, "/"); idx != -1 {
-		proto = strings.ToLower(strings.TrimSpace(s[idx+1:]))
+		proto = strings.ToLower(strings.TrimSpace(expandComposeEnv(s[idx+1:], envMaps...)))
+		if proto == "" {
+			proto = "tcp"
+		}
 		s = s[:idx]
 	}
 
 	parts := splitPortString(s)
 	// Expand variables in each part
 	for i := range parts {
-		parts[i] = strings.TrimSpace(expandComposeEnv(parts[i]))
+		parts[i] = strings.TrimSpace(expandComposeEnv(parts[i], envMaps...))
 	}
 
 	switch len(parts) {
@@ -248,30 +395,34 @@ func parsePortString(svcName, s string) (HostPortBinding, bool, error) {
 	}
 }
 
-func parsePortMap(svcName string, m map[string]interface{}) (HostPortBinding, bool, error) {
+func parsePortMap(svcName string, m map[string]interface{}, envMaps ...map[string]string) (HostPortBinding, bool, error) {
 	pubRaw, hasPub := m["published"]
 	targetRaw, hasTarget := m["target"]
 	if !hasPub || !hasTarget {
 		return HostPortBinding{}, false, nil
 	}
 
-	hostP, err := strconv.Atoi(fmt.Sprint(pubRaw))
+	hostP, err := strconv.Atoi(strings.TrimSpace(expandComposeEnv(fmt.Sprint(pubRaw), envMaps...)))
 	if err != nil {
 		return HostPortBinding{}, false, fmt.Errorf("invalid published port: %w", err)
 	}
-	targetP, err := strconv.Atoi(fmt.Sprint(targetRaw))
+	targetP, err := strconv.Atoi(strings.TrimSpace(expandComposeEnv(fmt.Sprint(targetRaw), envMaps...)))
 	if err != nil {
 		return HostPortBinding{}, false, fmt.Errorf("invalid target port: %w", err)
 	}
 
 	bindIP := "0.0.0.0"
 	if hostIP, ok := m["host_ip"].(string); ok && strings.TrimSpace(hostIP) != "" {
-		bindIP = strings.TrimSpace(hostIP)
+		if expanded := strings.TrimSpace(expandComposeEnv(hostIP, envMaps...)); expanded != "" {
+			bindIP = expanded
+		}
 	}
 
 	proto := "tcp"
 	if p, ok := m["protocol"].(string); ok && strings.TrimSpace(p) != "" {
-		proto = strings.ToLower(strings.TrimSpace(p))
+		if expanded := strings.ToLower(strings.TrimSpace(expandComposeEnv(p, envMaps...))); expanded != "" {
+			proto = expanded
+		}
 	}
 
 	return HostPortBinding{
@@ -340,9 +491,12 @@ func GenerateSlotLabels(domains []db.AppDomain, hostPorts []HostPortBinding, pre
 		}
 	}
 
-	// 2. Process Host Port Gateways (e.g. :3000, :4013) — skipped in preview-only mode so production keeps exclusive host ports
+	// 2. Process Host Port Gateways (e.g. :3000, :4013) — skipped in preview-only mode or for direct L4/UDP ports
 	if !previewOnly {
 		for _, hp := range hostPorts {
+			if hp.Direct {
+				continue
+			}
 			prefix := "caddy"
 			if siteIndex > 0 {
 				prefix = fmt.Sprintf("caddy_%d", siteIndex)
@@ -472,9 +626,15 @@ func appendSlotSiteLabels(labels map[string]string, prefix string, d db.AppDomai
 }
 
 // GenerateSlotMergedCompose produces a compose file for a specific Blue/Green slot.
-// It strips host port publications, registers internal exposes, assigns slot-safe container
-// names and volumes, and attaches Caddy reverse-proxy labels.
+// It strips HTTP host port publications for Caddy proxying, preserves non-HTTP/UDP ports directly on services,
+// assigns slot-safe container names and volumes, and attaches Caddy reverse-proxy labels.
 func GenerateSlotMergedCompose(base []byte, projectName, slot string, domains []db.AppDomain, panelEnv, cgroupParent string, preview *db.AppDomain, previewOnly ...bool) ([]byte, []HostPortBinding, error) {
+	return GenerateSlotMergedComposeWithEnv(base, projectName, slot, domains, panelEnv, "", cgroupParent, preview, previewOnly...)
+}
+
+// GenerateSlotMergedComposeWithEnv is like GenerateSlotMergedCompose but also incorporates dotenv blocks
+// (such as .env files in the workspace) when resolving port expressions like ${APP_PORT:-8080}.
+func GenerateSlotMergedComposeWithEnv(base []byte, projectName, slot string, domains []db.AppDomain, panelEnv, dotenvEnv, cgroupParent string, preview *db.AppDomain, previewOnly ...bool) ([]byte, []HostPortBinding, error) {
 	isPreviewOnly := len(previewOnly) > 0 && previewOnly[0]
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
@@ -489,8 +649,11 @@ func GenerateSlotMergedCompose(base []byte, projectName, slot string, domains []
 		return nil, nil, fmt.Errorf("compose file has no services block")
 	}
 
-	// 1. Extract & strip host ports to avoid port collision
-	hostPorts, err := ExtractAndStripHostPorts(services)
+	// Build merged env lookup: dotenv lower priority than panelEnv (matching container .env precedence)
+	envMap := ParseComposeEnv(dotenvEnv, panelEnv)
+
+	// 1. Extract host ports: HTTP ports move to Caddy gateway; direct L4/UDP ports stay on service (unless preview-only standby)
+	hostPorts, err := extractAndPartitionHostPorts(services, !isPreviewOnly, envMap)
 	if err != nil {
 		return nil, nil, fmt.Errorf("extract host ports: %w", err)
 	}
@@ -537,7 +700,7 @@ func GenerateSlotMergedCompose(base []byte, projectName, slot string, domains []
 	}
 	doc["networks"] = networks
 
-	// 7. Group domains and host ports by service
+	// 7. Group domains and Caddy-proxied (non-direct) host ports by service
 	byServiceDomains := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {
 		svc := cleanQuotedValue(d.Service)
@@ -551,6 +714,9 @@ func GenerateSlotMergedCompose(base []byte, projectName, slot string, domains []
 
 	byServicePorts := map[string][]HostPortBinding{}
 	for _, hp := range hostPorts {
+		if hp.Direct {
+			continue
+		}
 		byServicePorts[hp.Service] = append(byServicePorts[hp.Service], hp)
 	}
 
