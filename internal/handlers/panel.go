@@ -67,6 +67,7 @@ type Panel struct {
 
 	edgeRateMu              sync.Mutex
 	edgeRateMap             map[string]*edgeRateWindow
+	rootComposeMu           sync.Mutex
 	rootApplyMu             sync.Mutex
 	applyRootStackComposeFn func(composeFile string, services ...string)
 	inspectLivePortStateFn  func(ctx context.Context) (*dockerapi.LivePortState, error)

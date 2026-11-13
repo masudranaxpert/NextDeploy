@@ -462,6 +462,9 @@ func portSetsEqual(a, b map[int]bool) bool {
 }
 
 func (p *Panel) syncRootStackComposeState(ctx context.Context) (changed bool, wantedPorts map[int]bool, live *dockerapi.LivePortState, err error) {
+	p.rootComposeMu.Lock()
+	defer p.rootComposeMu.Unlock()
+
 	path := p.nextDeployComposePath()
 	if err := rootStackComposeFileOrError(path); err != nil {
 		return false, nil, nil, err
@@ -493,7 +496,7 @@ func (p *Panel) syncRootStackComposeState(ctx context.Context) (changed bool, wa
 	}
 	changed = !bytes.Equal(base, merged)
 	if changed {
-		if err := os.WriteFile(path, merged, 0640); err != nil {
+		if err := atomicWriteFile(path, merged, 0640); err != nil {
 			return false, wantedPorts, live, err
 		}
 	}
