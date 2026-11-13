@@ -324,7 +324,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.Mu.Lock()
 						r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] ✓ Preview slot %s is live and healthy! Production remains pinned on slot %s.", targetSlot, pinnedSlot))
 						r.Mu.Unlock()
-						p.syncAndApplyRootCaddyIfNeeded(runCtx)
+						p.triggerRootCaddySync()
 						go func() {
 							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 							defer cancel()
@@ -352,7 +352,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 							r.Mu.Unlock()
 						}
 						p.StopOtherComposeStacks(runCtx, app, id, slotProject)
-						p.syncAndApplyRootCaddyIfNeeded(runCtx)
+						p.triggerRootCaddySync()
 						go func() {
 							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 							defer cancel()
@@ -372,7 +372,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 				} else {
 					_ = p.DB.ReleaseAppPorts(runCtx, id)
 				}
-				p.syncAndApplyRootCaddyIfNeeded(runCtx)
+				p.triggerRootCaddySync()
 			}
 
 			if cfg, err := p.DB.GetAppGitConfig(runCtx, id); err == nil {
@@ -390,7 +390,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 				}
 			}
 			if res.OK {
-				p.syncAndApplyRootCaddyIfNeeded(runCtx)
+				p.triggerRootCaddySync()
 			}
 		}
 

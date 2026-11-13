@@ -770,6 +770,20 @@ func (p *Panel) syncAndApplyRootCaddyIfNeeded(ctx context.Context) {
 	p.runRootStackComposeLocked(applyCtx, p.nextDeployComposePath(), "caddy")
 }
 
+// triggerRootCaddySync reconciles root Caddy gateway ports in a serialized background goroutine
+// (or inline when a test hook overrides applyRootStackComposeFn).
+func (p *Panel) triggerRootCaddySync() {
+	if p.applyRootStackComposeFn != nil {
+		p.syncAndApplyRootCaddyIfNeeded(context.Background())
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		p.syncAndApplyRootCaddyIfNeeded(ctx)
+	}()
+}
+
 func (p *Panel) SyncRootStackComposeOnStart() error {
 	p.rootApplyMu.Lock()
 	defer p.rootApplyMu.Unlock()

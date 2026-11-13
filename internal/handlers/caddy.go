@@ -430,8 +430,8 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 		if hasPinnedStandby {
 			_ = composeUp(bgCtx, dir, standbyPaths, standbyProj, nil, envFiles)
 		}
-		p.syncAndApplyRootCaddyIfNeeded(bgCtx)
 		_ = p.DB.ClearAppPendingOriginApply(bgCtx, appID)
+		p.triggerRootCaddySync()
 	}()
 	return nil
 }
