@@ -5,7 +5,7 @@
 **Self-hosted Docker deployment & CloudPanel-style PHP hosting panel** — Compose stacks, instant pre-built PHP runtimes with CVE alerts, automated HTTPS, native AI MCP server, and live logs from one clean UI.
 
 [![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy-v2?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy-v2)
+[![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go)](https://go.dev)
 
@@ -28,13 +28,13 @@
 ## Quick Install (One Command)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
 ```
 
 With custom domain and Let's Encrypt email:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/install.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash -s -- \
   --domain panel.example.com --email admin@example.com
 ```
 
@@ -90,14 +90,14 @@ omp is only started when you use the AI page and is stopped again after 15 idle 
 
 ```bash
 mkdir -p /data
-curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
 ### Local Development / Build from Source
 
 ```bash
-git clone https://github.com/masudranaxpert/NextDeploy.git -b main-v2
+git clone https://github.com/masudranaxpert/NextDeploy.git
 cd NextDeploy
 npm run build
 go build -o panel .
@@ -110,7 +110,7 @@ go build -o panel .
 
 - **Update to latest v2**: `sudo nextdeploy-update`
 - **Stream panel logs**: `sudo nextdeploy-logs`
-- **Uninstall**: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/uninstall.sh | sudo bash`
+- **Uninstall**: `curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/uninstall.sh | sudo bash`
 
 ---
 

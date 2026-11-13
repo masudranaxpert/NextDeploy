@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  NextDeploy v2 — Install script (branch main-v2)
-#  Docker image masudranaxpert/nextdeploy-v2:latest; compose file from branch main-v2.
+#  NextDeploy — Install script (branch main)
+#  Docker image masudranaxpert/nextdeploy:latest; compose file from branch main.
 #
 #  Usage:
-#    curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/install.sh | sudo bash
+#    curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh | sudo bash
 #    sudo bash install.sh [--domain panel.example.com] [--email admin@example.com]
 # =============================================================================
 set -euo pipefail
@@ -21,8 +21,8 @@ RESET='\033[0m'
 # ── Config defaults ───────────────────────────────────────────────────────────
 INSTALL_DIR="/opt/nextdeploy"
 DATA_DIR="/data"
-COMPOSE_URL="https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main-v2/docker-compose.yml"
-# Panel image tag (must match docker-v2.yml policy for main-v2)
+COMPOSE_URL="https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml"
+# Panel image tag (must match docker-main.yml policy for main)
 PANEL_IMAGE_TAG="latest"
 PANEL_DOMAIN=""
 CADDY_EMAIL=""
@@ -244,13 +244,13 @@ drop_legacy_panel_stack_env_in_compose() {
   info "Removed legacy panel stack compose envs"
 }
 
-# Ensure compose panel image uses :latest (matches docker-v2.yml policy on main-v2).
+# Ensure compose panel image uses :latest (matches docker-main.yml policy on main).
 patch_nextdeploy_image_in_compose() {
   local tag="$1"
   local f="$INSTALL_DIR/docker-compose.yml"
   [[ -f "$f" ]] || return 0
   if grep -qE 'masudranaxpert/nextdeploy' "$f" 2>/dev/null; then
-    sed -i -E "s|masudranaxpert/nextdeploy(-v2)?:[a-zA-Z0-9._-]+|masudranaxpert/nextdeploy-v2:${tag}|g" "$f"
+    sed -i -E "s|masudranaxpert/nextdeploy(-v2)?:[a-zA-Z0-9._-]+|masudranaxpert/nextdeploy:${tag}|g" "$f"
   fi
 }
 
@@ -532,7 +532,7 @@ if [[ -f "\$INSTALL_DIR/docker-compose.yml" ]]; then
   sed -i '/^[[:space:]]*PANEL_STACK_COMPOSE_FILE:/d' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null || true
 fi
 if grep -qE 'masudranaxpert/nextdeploy' "\$INSTALL_DIR/docker-compose.yml" 2>/dev/null; then
-  sed -i -E "s|masudranaxpert/nextdeploy(-v2)?:[a-zA-Z0-9._-]+|masudranaxpert/nextdeploy-v2:${PANEL_IMAGE_TAG}|g" "\$INSTALL_DIR/docker-compose.yml"
+  sed -i -E "s|masudranaxpert/nextdeploy(-v2)?:[a-zA-Z0-9._-]+|masudranaxpert/nextdeploy:${PANEL_IMAGE_TAG}|g" "\$INSTALL_DIR/docker-compose.yml"
 fi
 echo "[NextDeploy] Pulling images (tag: ${PANEL_IMAGE_TAG})..."
 cd "\$INSTALL_DIR"
