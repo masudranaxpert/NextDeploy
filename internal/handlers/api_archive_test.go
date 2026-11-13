@@ -191,9 +191,10 @@ func TestAPIAppsList(t *testing.T) {
 
 	wsStore := workspace.NewStore(tmpDir)
 	p := &Panel{
-		DB:             store,
-		Store:          wsStore,
-		WorkspacesRoot: tmpDir,
+		DB:                      store,
+		Store:                   wsStore,
+		WorkspacesRoot:          tmpDir,
+		applyRootStackComposeFn: func(string, ...string) {},
 	}
 
 	ctx := context.Background()
@@ -264,9 +265,10 @@ func TestAPIAppDelete(t *testing.T) {
 
 	wsStore := workspace.NewStore(tmpDir)
 	p := &Panel{
-		DB:             store,
-		Store:          wsStore,
-		WorkspacesRoot: tmpDir,
+		DB:                      store,
+		Store:                   wsStore,
+		WorkspacesRoot:          tmpDir,
+		applyRootStackComposeFn: func(string, ...string) {},
 	}
 
 	ctx := context.Background()
@@ -321,7 +323,7 @@ func TestAPIAppDelete(t *testing.T) {
 	// 3. Authorized delete (token has AllowAppDelete)
 	reqAuth := httptest.NewRequest("DELETE", "/api/v1/apps/"+appID, nil)
 	reqAuth.Header.Set("Authorization", "Bearer "+rawToken)
-	respAuth, err := app.Test(reqAuth)
+	respAuth, err := app.Test(reqAuth, 5000)
 	if err != nil {
 		t.Fatalf("app.Test failed: %v", err)
 	}

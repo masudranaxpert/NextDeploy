@@ -472,12 +472,14 @@ func TestPhase0PendingOriginApplyEOrigin6(t *testing.T) {
 	}
 	defer store.Close()
 
+	_ = setupTempRootCompose(t)
 	proceedCh := make(chan struct{})
 	doneCh := make(chan struct{})
 	p := &Panel{
-		DB:             store,
-		Store:          workspace.NewStore(wsRoot),
-		WorkspacesRoot: wsRoot,
+		DB:                      store,
+		Store:                   workspace.NewStore(wsRoot),
+		WorkspacesRoot:          wsRoot,
+		applyRootStackComposeFn: func(string, ...string) {},
 		composeUpNoBuildFn: func(ctx context.Context, dir string, paths []string, project string, logW io.Writer, envFiles []string) dockerx.Result {
 			<-proceedCh
 			close(doneCh)
