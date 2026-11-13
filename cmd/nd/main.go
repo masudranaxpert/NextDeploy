@@ -25,6 +25,8 @@ func main() {
 func run() int {
 	if version != "" && version != "dev" {
 		cmd.Version = version
+	} else {
+		version = cmd.Version
 	}
 	rawArgs := os.Args[1:]
 	if len(rawArgs) == 0 {
