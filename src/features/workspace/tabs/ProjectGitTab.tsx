@@ -242,32 +242,47 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
 
-  // Force Copy Git Checkout Confirmation Modal (when pausing GitSync with existing workspace files)
+  // Force Confirmation Modal (both enabling with dirty git checkout or pausing with existing workspace files)
   const [forceSyncModalOpen, setForceSyncModalOpen] = useState(false);
+  const [forceSyncTarget, setForceSyncTarget] = useState(false);
   const [forceSyncWarning, setForceSyncWarning] = useState('');
+  const [isTogglingSync, setIsTogglingSync] = useState(false);
 
   const handleToggleGitSync = async (nextEnabled: boolean, force = false) => {
-    const res = await backendApi.setGitSync(app.id, nextEnabled, force);
-    if (res.data?.confirm_needed && !force) {
-      setForceSyncWarning(
-        res.data.warning ||
-          'Workspace already contains local files. Pausing Git Sync will copy the Git checkout into the workspace and overwrite matching files.'
+    if (isTogglingSync) return;
+    setIsTogglingSync(true);
+    try {
+      const res = await backendApi.setGitSync(app.id, nextEnabled, force);
+      if (res.data?.confirm_needed && !force) {
+        setForceSyncTarget(nextEnabled);
+        setForceSyncWarning(
+          res.data.warning ||
+            (nextEnabled
+              ? 'The Git checkout has uncommitted local edits that the next Git sync would discard.'
+              : 'Workspace already contains local files. Pausing Git Sync will copy the Git checkout into the workspace and overwrite matching files.')
+        );
+        setForceSyncModalOpen(true);
+        return;
+      }
+      if (!res.ok && !res.offlineFallback) {
+        toast.error(res.error || 'Failed to update Git Sync');
+        return;
+      }
+      setGitSyncEnabled(nextEnabled);
+      setForceSyncModalOpen(false);
+      onUpdateApp({
+        ...app,
+        sourceType: nextEnabled ? 'git' : 'compose',
+        gitSync: nextEnabled,
+      });
+      toast.success(
+        nextEnabled
+          ? 'Git Sync ON — deployments automatically pull from Git'
+          : 'Git Sync OFF — deployments use Workspace Files (use Sync Now for manual Git pull)'
       );
-      setForceSyncModalOpen(true);
-      return;
+    } finally {
+      setIsTogglingSync(false);
     }
-    setGitSyncEnabled(nextEnabled);
-    setForceSyncModalOpen(false);
-    onUpdateApp({
-      ...app,
-      sourceType: nextEnabled ? 'git' : 'compose',
-      gitSync: nextEnabled,
-    });
-    toast.success(
-      nextEnabled
-        ? 'Git Sync ON — deployments automatically pull from Git'
-        : 'Git Sync OFF — deployments use Workspace Files (use Sync Now for manual Git pull)'
-    );
   };
 
   const handleManualSyncNow = async () => {
@@ -742,11 +757,15 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
         </form>
       </div>
 
-      {/* Force Pause Git Sync Confirmation Modal */}
+      {/* Force Git Sync Confirmation Modal */}
       <ShadcnDialog
         open={forceSyncModalOpen}
-        onClose={() => setForceSyncModalOpen(false)}
-        title="Copy Git Checkout into Workspace?"
+        onClose={() => !isTogglingSync && setForceSyncModalOpen(false)}
+        title={
+          forceSyncTarget
+            ? 'Discard Uncommitted Edits & Enable Git Sync?'
+            : 'Copy Git Checkout into Workspace?'
+        }
         icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
       >
         <div className="space-y-4">
@@ -754,17 +773,23 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"
+              disabled={isTogglingSync}
               onClick={() => setForceSyncModalOpen(false)}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
+              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 disabled:opacity-50 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={() => void handleToggleGitSync(false, true)}
-              className="rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 cursor-pointer"
+              disabled={isTogglingSync}
+              onClick={() => void handleToggleGitSync(forceSyncTarget, true)}
+              className="rounded-lg bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
-              Overwrite &amp; Pause Git Sync
+              {isTogglingSync
+                ? 'Updating...'
+                : forceSyncTarget
+                  ? 'Overwrite & Enable Git Sync'
+                  : 'Overwrite & Pause Git Sync'}
             </button>
           </div>
         </div>

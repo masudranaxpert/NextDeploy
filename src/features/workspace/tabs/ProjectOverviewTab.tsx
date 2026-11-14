@@ -67,6 +67,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
   const [confirmDeleteManual, setConfirmDeleteManual] = useState(false);
   const [gitSyncModalOpen, setGitSyncModalOpen] = useState(false);
   const [forceGitSyncResume, setForceGitSyncResume] = useState(false);
+  const [gitSyncForceWarning, setGitSyncForceWarning] = useState('');
+  const [isUpdatingGitSync, setIsUpdatingGitSync] = useState(false);
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => getCachedShieldNodes().nodes || []);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -235,18 +237,39 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 </div>
                 <ShadcnSwitch
                   checked={isGitSyncActive}
-                  onChange={(next) => {
-                    void backendApi.setGitSync(app.id, next, false);
-                    onUpdateApp({
-                      ...app,
-                      sourceType: next ? 'git' : 'compose',
-                      gitSync: next,
-                    });
-                    toast.success(
-                      next
-                        ? 'Git Sync ON — deployments pull from repository'
-                        : 'Git Sync OFF — deployments use manual workspace files'
-                    );
+                  onChange={async (next) => {
+                    if (isUpdatingGitSync) return;
+                    setIsUpdatingGitSync(true);
+                    try {
+                      const res = await backendApi.setGitSync(app.id, next, false);
+                      if (res.data?.confirm_needed) {
+                        setForceGitSyncResume(next);
+                        setGitSyncForceWarning(
+                          res.data.warning ||
+                            (next
+                              ? 'The Git checkout has uncommitted local edits that the next Git sync would discard.'
+                              : 'Workspace already contains local files. Pausing Git Sync will overwrite matching files with the Git checkout.')
+                        );
+                        setGitSyncModalOpen(true);
+                        return;
+                      }
+                      if (!res.ok && !res.offlineFallback) {
+                        toast.error(res.error || 'Failed to update Git Sync');
+                        return;
+                      }
+                      onUpdateApp({
+                        ...app,
+                        sourceType: next ? 'git' : 'compose',
+                        gitSync: next,
+                      });
+                      toast.success(
+                        next
+                          ? 'Git Sync ON — deployments pull from repository'
+                          : 'Git Sync OFF — deployments use manual workspace files'
+                      );
+                    } finally {
+                      setIsUpdatingGitSync(false);
+                    }
                   }}
                 />
               </div>
@@ -593,7 +616,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
       {/* Pause / Resume Git Sync Modal */}
       <ShadcnDialog
         open={gitSyncModalOpen}
-        onClose={() => setGitSyncModalOpen(false)}
+        onClose={() => {
+          if (!isUpdatingGitSync) {
+            setGitSyncForceWarning('');
+            setGitSyncModalOpen(false);
+          }
+        }}
         title={isGitSyncActive ? 'Pause Git Sync' : 'Resume Git Sync'}
         icon={<GitBranch className="h-4 w-4 text-orange-400" />}
       >
@@ -627,42 +655,72 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
             </div>
           )}
 
+          {gitSyncForceWarning && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 leading-relaxed">
+              {gitSyncForceWarning}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="button"
-              onClick={() => setGitSyncModalOpen(false)}
+              disabled={isUpdatingGitSync}
+              onClick={() => {
+                setGitSyncForceWarning('');
+                setGitSyncModalOpen(false);
+              }}
               className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3.5 py-1.5 text-xs text-zinc-300 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
+              disabled={isUpdatingGitSync}
               onClick={async () => {
                 const nextEnabled = !isGitSyncActive;
-                const res = await backendApi.setGitSync(
-                  app.id,
-                  nextEnabled,
-                  nextEnabled ? forceGitSyncResume : false
-                );
-                if (!res.ok && !res.offlineFallback) {
-                  toast.error(res.error || 'Failed to update Git sync');
-                  return;
+                const shouldForce = Boolean(gitSyncForceWarning) || (nextEnabled && forceGitSyncResume);
+                setIsUpdatingGitSync(true);
+                try {
+                  const res = await backendApi.setGitSync(app.id, nextEnabled, shouldForce);
+                  if (res.data?.confirm_needed && !shouldForce) {
+                    setGitSyncForceWarning(
+                      res.data.warning ||
+                        'Confirmation with force required to overwrite local changes.'
+                    );
+                    if (nextEnabled) setForceGitSyncResume(true);
+                    return;
+                  }
+                  if (!res.ok && !res.offlineFallback) {
+                    toast.error(res.error || 'Failed to update Git sync');
+                    return;
+                  }
+                  onUpdateApp({
+                    ...app,
+                    sourceType: nextEnabled ? 'git' : 'compose',
+                    gitSync: nextEnabled,
+                  });
+                  setGitSyncForceWarning('');
+                  setGitSyncModalOpen(false);
+                  toast.success(
+                    nextEnabled
+                      ? 'Git sync resumed — deployments pull from repository'
+                      : 'Git sync paused — workspace files are now active'
+                  );
+                } finally {
+                  setIsUpdatingGitSync(false);
                 }
-                onUpdateApp({
-                  ...app,
-                  sourceType: nextEnabled ? 'git' : 'compose',
-                  gitSync: nextEnabled,
-                });
-                setGitSyncModalOpen(false);
-                toast.success(
-                  nextEnabled
-                    ? 'Git sync resumed — deployments pull from repository'
-                    : 'Git sync paused — workspace files are now active'
-                );
               }}
-              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
-              {isGitSyncActive ? 'Pause Git Sync' : 'Resume Git Sync'}
+              {isUpdatingGitSync
+                ? 'Updating...'
+                : gitSyncForceWarning
+                  ? isGitSyncActive
+                    ? 'Overwrite & Pause Git Sync'
+                    : 'Overwrite & Resume Git Sync'
+                  : isGitSyncActive
+                    ? 'Pause Git Sync'
+                    : 'Resume Git Sync'}
             </button>
           </div>
         </div>
