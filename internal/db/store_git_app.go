@@ -156,13 +156,19 @@ func (s *Store) RecordWebhookDelivery(ctx context.Context, w WebhookDelivery) er
 }
 
 func (s *Store) ListWebhookDeliveries(ctx context.Context, limit int) ([]WebhookDelivery, error) {
-	if limit <= 0 || limit > 50 {
-		limit = 10
+	if limit <= 0 {
+		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT app_id, delivery_id, provider, repo, event, sha, status, latency, created_at
-		 FROM webhook_deliveries
-		 ORDER BY created_at DESC
+		`SELECT w.app_id, w.delivery_id, w.provider,
+		        COALESCE(NULLIF(w.repo, ''), NULLIF(g.repo_full_name, ''), NULLIF(g.repo_url, ''), NULLIF(a.name, ''), '') AS repo,
+		        w.event, w.sha, w.status, w.latency, w.created_at
+		 FROM webhook_deliveries w
+		 LEFT JOIN app_git_configs g ON g.app_id = w.app_id
+		 LEFT JOIN apps a ON a.id = w.app_id
+		 ORDER BY w.created_at DESC
 		 LIMIT ?`, limit)
 	if err != nil {
 		return nil, err

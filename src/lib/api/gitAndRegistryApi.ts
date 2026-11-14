@@ -31,7 +31,7 @@ export const gitAndRegistryApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  webhookDeliveries: (limit = 10) =>
+  webhookDeliveries: (limit = 100) =>
     requestJson<
       Array<{
         app_id: string;
@@ -66,6 +66,7 @@ export const gitAndRegistryApi = {
       repo_url: string;
       branch: string;
       auto_deploy: boolean;
+      webhook_secret?: string;
     }
   ) =>
     requestJson(`/apps/${encodeURIComponent(appId)}/git`, {
@@ -77,6 +78,7 @@ export const gitAndRegistryApi = {
         repo_url: payload.repo_url,
         branch: payload.branch,
         auto_deploy: payload.auto_deploy ? 'on' : '',
+        webhook_secret: payload.webhook_secret ?? '',
       }),
     }),
   deleteAppGit: (appId: string) =>

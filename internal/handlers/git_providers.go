@@ -591,14 +591,17 @@ func (p *Panel) AppSwitchSource(c *fiber.Ctx) error {
 	return c.Redirect("/apps/" + id + "?tab=files")
 }
 
-// APIWebhookDeliveries returns the recent real webhook deliveries (last 10).
+// APIWebhookDeliveries returns the recent real webhook deliveries (last 100).
 func (p *Panel) APIWebhookDeliveries(c *fiber.Ctx) error {
 	u, ok := CurrentUser(c)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
-	limit := 10
-	if l := c.QueryInt("limit", 10); l > 0 && l <= 50 {
+	limit := 100
+	if l := c.QueryInt("limit", 100); l > 0 {
+		if l > 100 {
+			l = 100
+		}
 		limit = l
 	}
 	list := p.visibleWebhookDeliveries(c.UserContext(), u, limit)

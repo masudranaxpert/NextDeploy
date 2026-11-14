@@ -551,8 +551,14 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 		port = 3000
 	}
 	var shieldIDPtr *int64
-	u, _ := currentUser(c)
-	app, _ := p.DB.GetApp(c.UserContext(), id)
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("unauthorized")
+	}
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
 
 	if u.Role == db.RoleAdmin {
 		// Admin: default is Direct Origin, but Admin can select any Shield Node if desired
@@ -607,7 +613,7 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
 	}
-	if p.PHP != nil && p.DB.IsPHPSite(c.UserContext(), id) && !phphosting.ValidHost(d.Domain) {
+	if !phphosting.ValidHost(d.Domain) {
 		return c.Status(400).SendString("invalid domain name")
 	}
 	if !p.userCanDomainFileServer(c) {
@@ -618,6 +624,9 @@ func (p *Panel) AppDomainCreate(c *fiber.Ctx) error {
 	}
 	if err := p.validateAppFileServingPaths(c.UserContext(), id, &d); err != nil {
 		return c.Status(400).SendString(err.Error())
+	}
+	if who, used := p.DB.DomainInUseExceptApp(c.UserContext(), d.Domain, id, 0); used {
+		return c.Status(409).SendString(d.Domain + " is already used by " + who)
 	}
 	newID, err := p.DB.CreateAppDomain(c.UserContext(), d)
 	if err != nil {
@@ -687,8 +696,14 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 		isPrimary = v == "on" || v == "true" || v == "1"
 	}
 	var shieldIDPtr *int64 = nil
-	u, _ := currentUser(c)
-	app, _ := p.DB.GetApp(c.UserContext(), id)
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).SendString("unauthorized")
+	}
+	app, err := p.DB.GetApp(c.UserContext(), id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("app not found")
+	}
 	if u.Role != db.RoleAdmin {
 		if node := p.ResolveAppShield(c.UserContext(), app); node != nil {
 			shieldIDPtr = &node.ID
@@ -750,7 +765,7 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	if d.Service == "" {
 		return c.Status(400).SendString("service required")
 	}
-	if p.PHP != nil && p.DB.IsPHPSite(c.UserContext(), id) && !phphosting.ValidHost(d.Domain) {
+	if !phphosting.ValidHost(d.Domain) {
 		return c.Status(400).SendString("invalid domain name")
 	}
 	if !p.userCanDomainFileServer(c) {
@@ -761,6 +776,9 @@ func (p *Panel) AppDomainEdit(c *fiber.Ctx) error {
 	}
 	if err := p.validateAppFileServingPaths(c.UserContext(), id, &d); err != nil {
 		return c.Status(400).SendString(err.Error())
+	}
+	if who, used := p.DB.DomainInUseExceptApp(c.UserContext(), d.Domain, id, d.ID); used {
+		return c.Status(409).SendString(d.Domain + " is already used by " + who)
 	}
 	if err := p.DB.UpdateAppDomain(c.UserContext(), d); err != nil {
 		return c.Status(500).SendString(err.Error())

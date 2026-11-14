@@ -1,18 +1,28 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { AppStack, AppWorkspaceTab, LogEntry } from '../../../types/nextdeploy';
 
-function parseLogLines(lines: string[], fallbackContainer: string): LogEntry[] {
+interface ParsedLine extends LogEntry {
+  hasExplicitTimestamp: boolean;
+}
+
+function parseLogLines(
+  lines: string[],
+  fallbackContainer: string,
+  nextId: () => string
+): ParsedLine[] {
   const nowIso = new Date().toISOString();
-  const entries: LogEntry[] = [];
+  const entries: ParsedLine[] = [];
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     if (!rawLine || !rawLine.trim()) continue;
     let logTime = nowIso;
+    let hasExplicitTimestamp = false;
     let logMsg = rawLine;
     const tsMatch = rawLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.*)$/);
     if (tsMatch) {
       logTime = tsMatch[1];
       logMsg = tsMatch[2];
+      hasExplicitTimestamp = true;
     }
     let container = fallbackContainer || 'app';
     const composeMatch = logMsg.match(/^([a-zA-Z0-9_-]+)(?:-\d+)?\s*\|\s*(.*)$/);
@@ -36,18 +46,21 @@ function parseLogLines(lines: string[], fallbackContainer: string): LogEntry[] {
         ? 'debug'
         : 'info';
     entries.push({
-      id: `ws-log-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      id: nextId(),
       timestamp: logTime,
       container,
       level,
       message: logMsg,
+      hasExplicitTimestamp,
     });
   }
   return entries;
 }
 
-function logSignature(entry: LogEntry): string {
-  return `${entry.timestamp}|${entry.container}|${entry.message}`;
+function logSignature(entry: LogEntry, hasExplicitTimestamp = true): string {
+  return hasExplicitTimestamp
+    ? `${entry.timestamp}|${entry.container}|${entry.message}`
+    : `__raw__|${entry.container}|${entry.message}`;
 }
 
 export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
@@ -63,6 +76,8 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
   const lastStreamKeyRef = useRef<string>('');
   const hasVisibleLogsRef = useRef(false);
   hasVisibleLogsRef.current = liveStreamLogs.length > 0;
+  const seqRef = useRef(0);
+  const nextLogId = () => `ws-log-${++seqRef.current}`;
 
   // Resolve container name as a primitive string so background bootstrap polling
   // (which creates new app.services array references) never tears down the log stream.
@@ -89,22 +104,63 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
     let ws: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let reconnectAttempt = 0;
+    let wsHasDelivered = false;
+    let pendingWsLines: string[] = [];
+    let rafId: number | undefined;
+    let flushTimer: number | undefined;
 
-    const mergeEntries = (incoming: LogEntry[]) => {
+    const maxLogs = 600;
+    const mergeEntries = (incoming: ParsedLine[], allowNonTimestampDedup: boolean) => {
       if (incoming.length === 0) return;
       setLiveStreamLogs((prev) => {
-        const seen = new Set(prev.slice(-300).map(logSignature));
+        const seen = new Set(prev.slice(-maxLogs).map((entry) => logSignature(entry, true)));
+        const seenNoTime = allowNonTimestampDedup
+          ? new Set(prev.slice(-maxLogs).map((entry) => logSignature(entry, false)))
+          : null;
         const fresh: LogEntry[] = [];
-        for (const item of incoming) {
-          const sig = logSignature(item);
-          if (!seen.has(sig)) {
+        for (const { hasExplicitTimestamp, ...item } of incoming) {
+          if (hasExplicitTimestamp) {
+            const sig = logSignature(item, true);
+            if (seen.has(sig)) continue;
             seen.add(sig);
+            fresh.push(item);
+          } else if (seenNoTime) {
+            const sig = logSignature(item, false);
+            if (seenNoTime.has(sig)) continue;
+            seenNoTime.add(sig);
+            fresh.push(item);
+          } else {
             fresh.push(item);
           }
         }
         if (fresh.length === 0) return prev;
-        return [...prev.slice(-600), ...fresh];
+        const combined = prev.length + fresh.length > maxLogs
+          ? [...prev.slice(-(maxLogs - fresh.length)), ...fresh]
+          : [...prev, ...fresh];
+        return combined;
       });
+    };
+
+    const flushWsBuffer = () => {
+      rafId = undefined;
+      flushTimer = undefined;
+      if (cancelled || pendingWsLines.length === 0) return;
+      const batch = pendingWsLines;
+      pendingWsLines = [];
+      const isInitialBurst = !wsHasDelivered;
+      wsHasDelivered = true;
+      // Only dedup untimestamped lines on the initial/reconnect replay burst
+      const parsed = parseLogLines(batch, resolvedContainerName || 'app', nextLogId);
+      mergeEntries(parsed, isInitialBurst);
+    };
+
+    const scheduleWsFlush = () => {
+      if (rafId !== undefined || flushTimer !== undefined) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        rafId = window.requestAnimationFrame(flushWsBuffer);
+      } else {
+        flushTimer = window.setTimeout(flushWsBuffer, 50);
+      }
     };
 
     const sinceParam = logTimeRange !== 'live' ? `&since=${encodeURIComponent(logTimeRange)}` : '';
@@ -121,11 +177,12 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
         if (cancelled || !res.ok) return;
         const data = (await res.json()) as { ok?: boolean; logs?: string[] };
         if (cancelled || !Array.isArray(data?.logs)) return;
-        const parsed = parseLogLines(data.logs, resolvedContainerName || 'app');
-        if (streamChanged) {
-          setLiveStreamLogs(parsed);
+        const parsed = parseLogLines(data.logs, resolvedContainerName || 'app', nextLogId);
+        // Never overwrite rows already streamed in via WebSocket while REST was in flight
+        if (streamChanged && !wsHasDelivered) {
+          setLiveStreamLogs(parsed.map(({ hasExplicitTimestamp: _h, ...item }) => item));
         } else {
-          mergeEntries(parsed);
+          mergeEntries(parsed, true);
         }
       } catch {
         // Ignore transient fetch errors; WebSocket stream will still connect if live tail is on
@@ -152,8 +209,10 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
           if (cancelled) return;
           const raw = typeof ev.data === 'string' ? ev.data : '';
           if (!raw) return;
-          const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-          mergeEntries(parseLogLines(lines, resolvedContainerName || 'app'));
+          const lines = raw.split(/\r?\n|\r/).filter((l) => l.trim().length > 0);
+          if (lines.length === 0) return;
+          pendingWsLines.push(...lines);
+          scheduleWsFlush();
         };
         ws.onerror = () => {
           // Handled via onclose reconnect
@@ -178,6 +237,8 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
 
     return () => {
       cancelled = true;
+      if (rafId !== undefined) window.cancelAnimationFrame(rafId);
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (ws) {
         try {
@@ -190,7 +251,8 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
   }, [activeTab, logLiveTail, logContainerFilter, app.id, resolvedContainerName, logTimeRange]);
 
   const syntheticLogs: LogEntry[] = useMemo(() => {
-    return [...(app.logs || []), ...liveStreamLogs];
+    if (liveStreamLogs.length > 0) return liveStreamLogs;
+    return app.logs || [];
   }, [app.logs, liveStreamLogs]);
 
   const filteredLogs = useMemo(() => {

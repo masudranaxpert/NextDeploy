@@ -694,21 +694,32 @@ export default function App() {
 
     // 7. Live Registries & Git Providers
     if (Array.isArray(data.registries)) {
+      const inferRegistryProvider = (server: string): RegistryCredential['provider'] => {
+        const host = server.toLowerCase();
+        if (host.includes('ghcr.io')) return 'GHCR';
+        if (host.includes('docker.io')) return 'DockerHub';
+        if (host.includes('gitlab')) return 'GitLab';
+        if (host.includes('.ecr.') || host.includes('amazonaws.com')) return 'AWS ECR';
+        return 'Custom';
+      };
       setRegistries(
-        data.registries.map((r: any) => ({
-          id: String(r.ID ?? r.id),
-          provider: 'Custom' as const,
-          name: r.Name ?? r.name,
-          registryUrl: r.ServerAddress || r.url || 'docker.io',
-          username: r.Username || r.username || '',
-          tokenPreview: '••••••••',
-          scope: (r.UserID ?? r.user_id) == null ? ('global' as const) : ('personal' as const),
-          owner: data.resource_owners?.registries?.[String(r.ID ?? r.id)],
-          connectedApps: 0,
-          imagesCount: 0,
-          status: 'connected' as const,
-          lastVerified: 'Recently',
-        }))
+        data.registries.map((r: any) => {
+          const serverUrl = r.ServerAddress || r.url || 'docker.io';
+          return {
+            id: String(r.ID ?? r.id),
+            provider: inferRegistryProvider(serverUrl),
+            name: r.Name ?? r.name,
+            registryUrl: serverUrl,
+            username: r.Username || r.username || '',
+            tokenPreview: '••••••••',
+            scope: (r.UserID ?? r.user_id) == null ? ('global' as const) : ('personal' as const),
+            owner: data.resource_owners?.registries?.[String(r.ID ?? r.id)],
+            connectedApps: 0,
+            imagesCount: 0,
+            status: 'connected' as const,
+            lastVerified: 'Recently',
+          };
+        })
       );
     }
     if (Array.isArray(data.git_providers)) {

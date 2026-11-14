@@ -105,8 +105,11 @@ func (p *Panel) GitConfigSave(c *fiber.Ctx) error {
 		selectedProvider = provider
 	}
 	old, oldCfgErr := p.DB.GetAppGitConfig(c.UserContext(), appID)
+	formSec := strings.TrimSpace(c.FormValue("webhook_secret"))
 	if oldCfgErr == nil && strings.TrimSpace(old.WebhookSecret) != "" {
 		cfg.WebhookSecret = old.WebhookSecret
+	} else if formSec != "" {
+		cfg.WebhookSecret = formSec
 	} else {
 		cfg.WebhookSecret = RandomHex(16)
 	}
@@ -777,32 +780,38 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 	}
 	eventDesc := "push"
 	commitSHA := ""
+	isPing := false
 
 	if githubMode {
 		provName = "GitHub"
+		isPing = c.Get("X-GitHub-Event") == "ping"
 		if c.Get("X-GitHub-Event") != "push" && c.Get("X-GitHub-Event") != "" {
 			eventDesc = c.Get("X-GitHub-Event")
 		}
 		var payload githubPushPayload
+		var pushBranch string
 		if err := json.Unmarshal(body, &payload); err == nil {
 			if payload.Repository.FullName != "" {
 				repoName = payload.Repository.FullName
 			}
 			if payload.Ref != "" {
-				eventDesc = fmt.Sprintf("push (%s)", NormalizeBranch(payload.Ref))
+				pushBranch = NormalizeBranch(payload.Ref)
+				eventDesc = fmt.Sprintf("push (%s)", pushBranch)
 			}
 			if len(payload.After) >= 7 {
 				commitSHA = payload.After[:7]
 			}
 		}
-		if c.Get("X-GitHub-Event") != "push" {
+		if !isPing && c.Get("X-GitHub-Event") != "push" {
 			return c.SendStatus(fiber.StatusOK)
 		}
-		if cfg.RepoFullName != "" && repoName != "" && !strings.EqualFold(cfg.RepoFullName, repoName) {
-			return c.SendStatus(fiber.StatusAccepted)
-		}
-		if cfg.Branch != "" && NormalizeBranch(eventDesc) != NormalizeBranch(cfg.Branch) && !strings.Contains(eventDesc, cfg.Branch) {
-			return c.SendStatus(fiber.StatusAccepted)
+		if !isPing {
+			if cfg.RepoFullName != "" && repoName != "" && !strings.EqualFold(cfg.RepoFullName, repoName) {
+				return c.SendStatus(fiber.StatusAccepted)
+			}
+			if cfg.Branch != "" && pushBranch != "" && !strings.EqualFold(NormalizeBranch(cfg.Branch), pushBranch) {
+				return c.SendStatus(fiber.StatusAccepted)
+			}
 		}
 	} else {
 		provName = "GitLab"
@@ -811,12 +820,14 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 			eventDesc = "Push Hook"
 		}
 		var payload gitlabPushPayload
+		var pushBranch string
 		if err := json.Unmarshal(body, &payload); err == nil {
 			if payload.Project.PathWithNamespace != "" {
 				repoName = payload.Project.PathWithNamespace
 			}
 			if payload.Ref != "" {
-				eventDesc = fmt.Sprintf("Push Hook (%s)", NormalizeBranch(payload.Ref))
+				pushBranch = NormalizeBranch(payload.Ref)
+				eventDesc = fmt.Sprintf("Push Hook (%s)", pushBranch)
 			}
 			if len(payload.Ref) >= 7 {
 				commitSHA = payload.Ref[:7]
@@ -828,7 +839,7 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		if cfg.RepoFullName != "" && repoName != "" && !strings.EqualFold(cfg.RepoFullName, repoName) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
-		if cfg.Branch != "" && NormalizeBranch(eventDesc) != NormalizeBranch(cfg.Branch) && !strings.Contains(eventDesc, cfg.Branch) {
+		if cfg.Branch != "" && pushBranch != "" && !strings.EqualFold(NormalizeBranch(cfg.Branch), pushBranch) {
 			return c.SendStatus(fiber.StatusAccepted)
 		}
 	}
@@ -846,7 +857,7 @@ func (p *Panel) GitHubWebhook(c *fiber.Ctx) error {
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 
-	if !cfg.AutoDeploy {
+	if isPing || !cfg.AutoDeploy {
 		return c.SendStatus(fiber.StatusAccepted)
 	}
 	p.triggerWebhookDeploy(app, appID)

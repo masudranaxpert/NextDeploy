@@ -465,6 +465,11 @@ func (p *Panel) AppBackupHistory(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
+	if u, ok := currentUser(c); !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	} else if allowed, aerr := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleViewer); aerr != nil || !allowed {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+	}
 
 	perPage := c.QueryInt("per_page", 5)
 	if perPage < 1 {
@@ -632,6 +637,11 @@ func (p *Panel) AppBackupRestoreStatus(c *fiber.Ctx) error {
 	appID := c.Params("id")
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
+	}
+	if u, ok := currentUser(c); !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	} else if allowed, aerr := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleViewer); aerr != nil || !allowed {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
 	}
 	st := p.BackupRestoreSnapshot(appID)
 	return c.JSON(fiber.Map{
@@ -970,6 +980,12 @@ func (p *Panel) AppBackupHistoryLog(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
+	// Backup logs name the remote paths and credentials of this tenant's storage.
+	if u, ok := currentUser(c); !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	} else if allowed, aerr := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleViewer); aerr != nil || !allowed {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+	}
 	historyID, err := c.ParamsInt("historyid")
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid history id"})
@@ -1003,10 +1019,12 @@ func (p *Panel) AppBackupDriveLink(c *fiber.Ctx) error {
 	if _, err := p.DB.GetApp(c.UserContext(), appID); err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "app not found"})
 	}
-	if u, ok := currentUser(c); ok {
-		if allowed, _ := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleDeveloper); !allowed {
-			return c.Status(403).JSON(fiber.Map{"error": "forbidden: developer access required"})
-		}
+	u, ok := currentUser(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	if allowed, _ := p.CanAccessApp(c.UserContext(), u.ID, u.Role, appID, db.CollabRoleDeveloper); !allowed {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden: developer access required"})
 	}
 	historyID, err := c.ParamsInt("historyid")
 	if err != nil {

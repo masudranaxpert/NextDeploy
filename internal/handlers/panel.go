@@ -1113,10 +1113,15 @@ func (p *Panel) PanelBaseURL(c *fiber.Ctx) string {
 	if panelDomain != "" {
 		return "https://" + panelDomain
 	}
-	if c.Protocol() == "https" {
-		return "https://" + c.Hostname()
+	host := strings.TrimSpace(c.Get("Host"))
+	if host == "" {
+		host = c.Hostname()
 	}
-	return "http://" + c.Hostname()
+	proto := c.Protocol()
+	if xfp := strings.TrimSpace(c.Get("X-Forwarded-Proto")); xfp != "" {
+		proto = xfp
+	}
+	return proto + "://" + host
 }
 
 func (p *Panel) AppWebhookURL(c *fiber.Ctx, appID string) string {

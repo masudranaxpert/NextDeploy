@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Search, Clock, WrapText, SlidersHorizontal, Copy, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, LogEntry } from '../../../types/nextdeploy';
 import { copyToClipboard } from '../../../lib/clipboard';
+import { useStickyAutoScroll } from '../utils/useStickyAutoScroll';
 
 interface ProjectLogsTabProps {
   app: AppStack;
@@ -128,16 +129,11 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
   const desktopLogContainerRef = useRef<HTMLDivElement>(null);
   const mobileLogContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll log console to bottom when streaming live logs
-  useEffect(() => {
-    if (!logLiveTail) return;
-    if (desktopLogContainerRef.current) {
-      desktopLogContainerRef.current.scrollTop = desktopLogContainerRef.current.scrollHeight;
-    }
-    if (mobileLogContainerRef.current) {
-      mobileLogContainerRef.current.scrollTop = mobileLogContainerRef.current.scrollHeight;
-    }
-  }, [filteredLogs, logLiveTail]);
+  const tailKey = filteredLogs.length > 0
+    ? `${filteredLogs.length}:${filteredLogs[filteredLogs.length - 1]?.id || ''}`
+    : '0';
+  const { onScroll: onDesktopScroll } = useStickyAutoScroll(desktopLogContainerRef, logLiveTail, tailKey);
+  const { onScroll: onMobileScroll } = useStickyAutoScroll(mobileLogContainerRef, logLiveTail, tailKey);
 
   // Discover all distinct services in the stack and log history
   const availableServices = useMemo(() => {
@@ -313,7 +309,8 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
         <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#07070a]">
           <div
             ref={desktopLogContainerRef}
-            className={`divide-y divide-white/[0.03] font-mono text-xs max-h-[560px] overflow-y-auto ${
+            onScroll={onDesktopScroll}
+            className={`[overflow-anchor:none] [will-change:scroll-position] font-mono text-xs max-h-[560px] overflow-y-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-700/60 scrollbar-track-transparent ${
               logWordWrap ? 'overflow-x-hidden' : 'overflow-x-auto'
             }`}
           >
@@ -329,7 +326,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
               filteredLogs.map((l) => (
                 <div
                   key={l.id}
-                  className={`group flex items-start justify-between gap-3 px-3.5 py-2 hover:bg-white/[0.03] transition-colors ${
+                  className={`group flex items-start justify-between gap-3 px-3.5 py-2 border-b border-white/[0.04] last:border-b-0 [contain:layout_style] hover:bg-white/[0.03] ${
                     l.level === 'error'
                       ? 'bg-rose-500/[0.04]'
                       : l.level === 'warn'
@@ -339,7 +336,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                 >
                   <div className="flex items-start gap-2.5 min-w-0 flex-1">
                     {logShowTimestamps && (
-                      <span className="text-zinc-500 shrink-0 select-none text-[11px]">
+                      <span className="text-zinc-400 shrink-0 select-none text-[11px]">
                         {l.timestamp.slice(11, 23) || l.timestamp}
                       </span>
                     )}
@@ -387,7 +384,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                       );
                       toast.success('Copied log line');
                     }}
-                    className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-200 transition-opacity cursor-pointer shrink-0"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 rounded p-1 text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 cursor-pointer shrink-0"
                     title="Copy log line"
                   >
                     <Copy className="h-3 w-3" />
@@ -585,7 +582,8 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
       <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-[#09090d]">
         <div
           ref={mobileLogContainerRef}
-          className={`divide-y divide-zinc-800/50 max-h-[560px] overflow-y-auto ${
+          onScroll={onMobileScroll}
+          className={`[overflow-anchor:none] [will-change:scroll-position] max-h-[560px] overflow-y-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-700/60 scrollbar-track-transparent ${
             logWordWrap ? 'overflow-x-hidden' : 'overflow-x-auto'
           }`}
         >
@@ -608,12 +606,12 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
               return (
                 <div
                   key={l.id}
-                  className={`group relative px-3.5 py-2.5 border-l-[3px] transition-colors hover:bg-zinc-900/40 ${lvlStyle.borderCls} ${lvlStyle.bgCls}`}
+                  className={`group relative px-3.5 py-2.5 border-l-[3px] border-b border-zinc-800/50 last:border-b-0 [contain:layout_style] hover:bg-zinc-900/40 ${lvlStyle.borderCls} ${lvlStyle.bgCls}`}
                 >
                   {/* Top Meta Header: Index + Time on Left, Badges on Right */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 font-mono text-xs">
-                      <span className="text-zinc-500 select-none font-medium">{idxStr}</span>
+                      <span className="text-zinc-400 select-none font-medium">{idxStr}</span>
                       {logShowTimestamps && timeStr && (
                         <span className="text-zinc-400 select-none">{timeStr}</span>
                       )}
@@ -638,7 +636,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                       <button
                         type="button"
                         onClick={() => handleCopyLog(l)}
-                        className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors cursor-pointer"
+                        className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
                         title="Copy log line"
                       >
                         {isCopied ? (

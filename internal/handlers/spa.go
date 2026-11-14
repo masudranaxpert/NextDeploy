@@ -440,7 +440,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		it.Token, it.RefreshToken = "", "" // provider credentials stay server-side
 		enrichedGitProviders = append(enrichedGitProviders, it)
 	}
-	webhookDeliveries := p.visibleWebhookDeliveries(ctx, u, 10)
+	webhookDeliveries := p.visibleWebhookDeliveries(ctx, u, 100)
 	registries, _ := p.DB.ListPrivateRegistries(ctx, ownerPtr)
 	backupDests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
 	for i := range backupDests {

@@ -44,7 +44,15 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   );
   const [branch, setBranch] = useState<string>(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState<boolean>(Boolean(app.webhookAutoDeploy));
-  const [webhookSecret, setWebhookSecret] = useState<string>(app.webhookSecret || '');
+  const generateRandomSecret = () => {
+    const bytes = new Uint8Array(16);
+    if (typeof window !== 'undefined' && window.crypto) {
+      window.crypto.getRandomValues(bytes);
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  };
+  const [webhookSecret, setWebhookSecret] = useState<string>(() => app.webhookSecret || generateRandomSecret());
   const [showSecret, setShowSecret] = useState<boolean>(false);
 
   useEffect(() => {
@@ -288,6 +296,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       repo_url: repoUrl.trim(),
       branch: branch.trim() || 'main',
       auto_deploy: autoDeploy,
+      webhook_secret: webhookSecret,
     });
     if (!res.ok && !res.offlineFallback) {
       toast.error(res.error || 'Failed to save Git configuration');
@@ -336,8 +345,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
   const isGitHubAppInstall =
     authMode === 'github_app' && selectedProvider?.authMethod === 'GitHub App';
-  const showManualWebhook =
-    (authMode === 'gitlab_token' || authMode === 'public') && autoDeploy;
+  const showManualWebhook = autoDeploy;
 
   return (
     <div className="space-y-4">
@@ -618,10 +626,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                   {isGitHubAppInstall
                     ? `Handled automatically by your connected GitHub App for ${branch}.`
                     : authMode === 'github_app'
-                      ? `Managed automatically via your connected GitHub account for ${branch}.`
+                      ? `Connected via GitHub Token/OAuth. To receive push events for ${branch}, add the Webhook below in your GitHub repository.`
                       : authMode === 'public' && !autoDeploy
                         ? 'Public repositories deploy without requiring a webhook.'
-                        : `Redeploy automatically when commits are pushed to ${branch}.`}
+                        : `Redeploy automatically when commits are pushed to ${branch}. Add the Webhook below in your repository settings.`}
                 </div>
               </div>
               <ShadcnSwitch checked={autoDeploy} onChange={setAutoDeploy} />
@@ -695,8 +703,13 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                     </>
                   ) : (
                     <>
-                      <span className="font-semibold text-zinc-300">Repository Webhook Setup: </span>
-                      In repository <span className="text-zinc-200 font-medium">Settings → Webhooks</span>, set <strong>Payload URL</strong> to the Push Webhook Endpoint, choose <span className="font-mono text-zinc-200">application/json</span>, paste the <strong>Secret</strong>, and select push events.
+                      <span className="font-semibold text-zinc-300">GitHub Webhook Setup: </span>
+                      In your GitHub repository <span className="text-zinc-200 font-medium">Settings → Webhooks → Add webhook</span>, set <strong>Payload URL</strong> to the Push Webhook Endpoint above, choose <span className="font-mono text-zinc-200">application/json</span>, paste the <strong>Secret</strong>, and select <strong>Just the push event</strong>.
+                      {isGitHubAppInstall && (
+                        <div className="mt-1 text-zinc-400">
+                          (Note: If your GitHub App is already installed on this repository with repository push events enabled, GitHub will also deliver pushes automatically to NextDeploy).
+                        </div>
+                      )}
                     </>
                   )}
                 </div>

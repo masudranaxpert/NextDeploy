@@ -107,12 +107,18 @@ var ErrDomainTaken = errors.New("this domain is already used")
 // DomainInUse reports whether a host name is already served by an app, a proxy route or the panel.
 // exceptRouteID lets a route keep its own domain while it is edited.
 func (s *Store) DomainInUse(ctx context.Context, domain string, exceptRouteID int64) (string, bool) {
+	return s.DomainInUseExceptApp(ctx, domain, "", exceptRouteID)
+}
+
+// DomainInUseExceptApp is DomainInUse for a domain being saved on app exceptAppID: the app's
+// own existing rows do not count as a clash (an edit or a second domain on the same app).
+func (s *Store) DomainInUseExceptApp(ctx context.Context, domain, exceptAppID string, exceptRouteID int64) (string, bool) {
 	d := strings.ToLower(strings.TrimSpace(domain))
 	if d == "" {
 		return "", false
 	}
 	var x string
-	if err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE lower(domain) IN (?, ?, ?) LIMIT 1`, d, "www."+d, strings.TrimPrefix(d, "www.")).Scan(&x); err == nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT app_id FROM app_domains WHERE lower(domain) IN (?, ?, ?) AND app_id != ? LIMIT 1`, d, "www."+d, strings.TrimPrefix(d, "www."), strings.TrimSpace(exceptAppID)).Scan(&x); err == nil {
 		return "an app", true
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT id FROM proxy_routes WHERE lower(domain) IN (?, ?, ?) AND id != ? LIMIT 1`, d, "www."+d, strings.TrimPrefix(d, "www."), exceptRouteID).Scan(&x); err == nil {

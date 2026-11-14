@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"panel/internal/db"
 
@@ -65,6 +67,54 @@ func TestProviderGitHubWebhookMatchesAppWithoutFKError(t *testing.T) {
 	}
 	if len(deliveries) != 1 || deliveries[0].AppID != appID {
 		t.Fatalf("expected 1 delivery for %s, got %+v", appID, deliveries)
+	}
+}
+
+func TestGitHubWebhookPingEventRecordsDelivery(t *testing.T) {
+	p, appID := gitSyncTestPanel(t)
+	ctx := context.Background()
+
+	const secret = "whsec-ping-test-123"
+	if err := p.DB.UpsertAppGitConfig(ctx, db.AppGitConfig{
+		AppID:         appID,
+		Provider:      "github",
+		RepoURL:       "https://github.com/acme/demo",
+		RepoFullName:  "acme/demo",
+		Branch:        "main",
+		AuthMode:      "public",
+		WebhookSecret: secret,
+		AutoDeploy:    true,
+	}); err != nil {
+		t.Fatalf("UpsertAppGitConfig: %v", err)
+	}
+
+	payload := []byte(`{"zen":"Responsive is better than fast.","hook_id":12345,"repository":{"full_name":"acme/demo"}}`)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	app := fiber.New()
+	app.Post("/webhooks/github/:id", p.GitHubWebhook)
+
+	req := httptest.NewRequest("POST", "/webhooks/github/"+appID, bytes.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "ping")
+	req.Header.Set("X-GitHub-Delivery", "ping-deliv-1")
+	req.Header.Set("X-Hub-Signature-256", sig)
+
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	if resp.StatusCode != 200 && resp.StatusCode != 202 {
+		t.Fatalf("expected 200/202, got %d", resp.StatusCode)
+	}
+
+	deliveries, err := p.DB.ListWebhookDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListWebhookDeliveries: %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].AppID != appID || deliveries[0].Event != "ping" {
+		t.Fatalf("expected 1 ping delivery for %s, got %+v", appID, deliveries)
 	}
 }
 
@@ -318,5 +368,76 @@ func TestSyncGitAppSourceWordPressPreservesConfig(t *testing.T) {
 	envBytes, err := os.ReadFile(filepath.Join(htdocs, ".env"))
 	if err != nil || string(envBytes) != "APP_ENV=prod\n" {
 		t.Fatalf("expected existing .env preserved, got %q (err=%v)", string(envBytes), err)
+	}
+}
+
+func TestAPIWebhookDeliveriesLast100AndRepoFallback(t *testing.T) {
+	p, appID := gitSyncTestPanel(t)
+	ctx := context.Background()
+
+	u, err := p.DB.GetUserByUsername(ctx, "owner")
+	if err != nil {
+		t.Fatalf("GetUserByUsername: %v", err)
+	}
+
+	if err := p.DB.UpsertAppGitConfig(ctx, db.AppGitConfig{
+		AppID:        appID,
+		Provider:     "github",
+		RepoURL:      "https://github.com/acme/demo",
+		RepoFullName: "acme/demo",
+		Branch:       "main",
+		AuthMode:     "github_app",
+	}); err != nil {
+		t.Fatalf("UpsertAppGitConfig: %v", err)
+	}
+
+	base := time.Now().UTC().Add(-2 * time.Hour)
+	for i := 0; i < 105; i++ {
+		repo := "acme/demo"
+		if i == 104 {
+			repo = "" // simulate MarkWebhookDelivery blank repo on newest delivery
+		}
+		if err := p.DB.RecordWebhookDelivery(ctx, db.WebhookDelivery{
+			AppID:      appID,
+			DeliveryID: fmt.Sprintf("deliv-%03d", i),
+			Provider:   "GitHub",
+			Repo:       repo,
+			Event:      "push (main)",
+			SHA:        "abc1234",
+			Status:     "200 OK",
+			Latency:    "12ms",
+			CreatedAt:  base.Add(time.Duration(i) * time.Second).Format(time.RFC3339),
+		}); err != nil {
+			t.Fatalf("RecordWebhookDelivery(%d): %v", i, err)
+		}
+	}
+
+	app := fiber.New()
+	app.Use(func(c *fiber.Ctx) error {
+		c.Locals(contextUserKey, u)
+		return c.Next()
+	})
+	app.Get("/api/v1/git/webhooks", p.APIWebhookDeliveries)
+
+	req := httptest.NewRequest("GET", "/api/v1/git/webhooks?limit=100", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var got []db.WebhookDelivery
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 100 {
+		t.Fatalf("expected 100 deliveries, got %d", len(got))
+	}
+	if got[0].DeliveryID != "deliv-104" {
+		t.Fatalf("expected newest delivery deliv-104 first, got %s", got[0].DeliveryID)
+	}
+	if got[0].Repo != "acme/demo" {
+		t.Fatalf("expected fallback repo acme/demo for blank row, got %q", got[0].Repo)
 	}
 }

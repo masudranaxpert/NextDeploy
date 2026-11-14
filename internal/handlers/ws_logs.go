@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log"
@@ -182,6 +183,7 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	go func() {
 		defer wg.Done()
 		var ansiAccum []byte
+		var lineAccum []byte
 		buf := make([]byte, 32*1024)
 		for {
 			n, rerr := logReader.Read(buf)
@@ -191,9 +193,14 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 				cleaned, newAccum := logview.StripDockerLogChunk(ansiAccum, chunk)
 				ansiAccum = newAccum
 				if len(cleaned) > 0 {
-					if werr := writeChunk(cleaned); werr != nil {
-						cancel()
-						return
+					lineAccum = append(lineAccum, cleaned...)
+					emit, rest := splitCompleteLogLines(lineAccum)
+					lineAccum = rest
+					if len(emit) > 0 {
+						if werr := writeChunk(emit); werr != nil {
+							cancel()
+							return
+						}
 					}
 				}
 			}
@@ -202,7 +209,10 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 					log.Printf("log websocket read error: %v", rerr)
 				}
 				if flush := logview.FlushDockerLogAccum(ansiAccum); len(flush) > 0 {
-					_ = writeChunk(flush)
+					lineAccum = append(lineAccum, flush...)
+				}
+				if len(lineAccum) > 0 {
+					_ = writeChunk(lineAccum)
 				}
 				return
 			}
@@ -219,6 +229,24 @@ func (p *Panel) AppLogWebSocket(c *fws.Conn) {
 	wg.Wait()
 }
 
+// splitCompleteLogLines emits complete newline-terminated log lines and retains any trailing
+// partial line until the next chunk arrives (unless the partial buffer exceeds 16 KiB).
+func splitCompleteLogLines(buf []byte) (emit, rest []byte) {
+	if idx := bytes.LastIndexByte(buf, '\n'); idx >= 0 {
+		emit = make([]byte, idx+1)
+		copy(emit, buf[:idx+1])
+		rem := buf[idx+1:]
+		if len(rem) > 0 {
+			rest = append([]byte(nil), rem...)
+		}
+		return emit, rest
+	}
+	if len(buf) > 16*1024 {
+		return buf, nil
+	}
+	return nil, buf
+}
+
 // AppLogsREST returns formatted recent log entries for an app or container, supporting ?since=15m|1h|24h&tail=200.
 func (p *Panel) AppLogsREST(c *fiber.Ctx) error {
 	appID := strings.TrimSpace(c.Params("id"))
@@ -230,6 +258,12 @@ func (p *Panel) AppLogsREST(c *fiber.Ctx) error {
 	app, err := p.DB.GetApp(chkCtx, appID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"ok": false, "error": "app not found"})
+	}
+	// Container logs carry env values and request data: only people who can see this app may read them.
+	if u, ok := currentUser(c); !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"ok": false, "error": "unauthorized"})
+	} else if allowed, aerr := p.CanAccessApp(chkCtx, u.ID, u.Role, appID, db.CollabRoleViewer); aerr != nil || !allowed {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden"})
 	}
 
 	container := strings.TrimPrefix(strings.TrimSpace(c.Query("container")), "/")

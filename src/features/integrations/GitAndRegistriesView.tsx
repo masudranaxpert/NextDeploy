@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
+import { PaginationBar } from '../../components/ui/PaginationBar';
 import {
   RefreshCw,
   Copy,
@@ -8,6 +9,7 @@ import {
   CheckCircle2,
   FolderGit2,
   HardDrive,
+  Box,
   Github,
   Lock,
   Play,
@@ -71,8 +73,13 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const [repos, setRepos] = useState<SyncedGitRepository[]>(syncedRepos);
   const [repoProviderFilter, setRepoProviderFilter] = useState<'all' | 'GitHub' | 'GitLab'>('all');
   const [gitSubTab, setGitSubTab] = useState<'repos' | 'webhooks'>('repos');
+  const [reposPage, setReposPage] = useState(1);
+  const [webhooksPage, setWebhooksPage] = useState(1);
+  const [registriesPage, setRegistriesPage] = useState(1);
   const [webhookEvents, setWebhookEvents] = useState<WebhookDeliveryItem[]>([]);
   const [isLoadingWebhooks, setIsLoadingWebhooks] = useState(false);
+  const [webhooksError, setWebhooksError] = useState<string | null>(null);
+  const itemsPerPage = 10;
 
   // Manage GitHub Installation modal state
   const [editInstallProvider, setEditInstallProvider] = useState<GitProviderConnection | null>(null);
@@ -93,13 +100,14 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
     setRepos(syncedRepos);
   }, [syncedRepos]);
 
-  // Load real webhook deliveries from backend
+  // Load real webhook deliveries from backend (last 100)
   useEffect(() => {
     let active = true;
     const fetchWebhooks = async () => {
       setIsLoadingWebhooks(true);
+      setWebhooksError(null);
       try {
-        const res = await backendApi.webhookDeliveries(20);
+        const res = await backendApi.webhookDeliveries(100);
         if (active && res.ok && Array.isArray(res.data)) {
           const mapped: WebhookDeliveryItem[] = res.data.map((item: any, idx: number) => ({
             id: item.delivery_id || item.id || `wh-${idx}`,
@@ -109,12 +117,21 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             sha: (item.sha || 'latest').slice(0, 7),
             status: item.status || '200 OK',
             latency: item.latency || '—',
-            time: item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+            time: item.created_at
+              ? new Date(item.created_at).toLocaleString([], {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : 'Recently',
           }));
           setWebhookEvents(mapped);
+        } else if (active && !res.ok) {
+          setWebhooksError('Failed to load webhook history.');
         }
       } catch {
-        // fail silently
+        if (active) setWebhooksError('Could not reach webhook delivery log.');
       } finally {
         if (active) setIsLoadingWebhooks(false);
       }
@@ -326,9 +343,28 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
   const filteredRepos = repos.filter(
     (r) => repoProviderFilter === 'all' || r.provider === repoProviderFilter
   );
+  const totalRepoPages = Math.max(1, Math.ceil(filteredRepos.length / itemsPerPage));
+  const safeReposPage = Math.min(reposPage, totalRepoPages);
+  const paginatedRepos = filteredRepos.slice(
+    (safeReposPage - 1) * itemsPerPage,
+    safeReposPage * itemsPerPage
+  );
+
+  const totalWebhookPages = Math.max(1, Math.ceil(webhookEvents.length / itemsPerPage));
+  const safeWebhooksPage = Math.min(webhooksPage, totalWebhookPages);
+  const paginatedWebhooks = webhookEvents.slice(
+    (safeWebhooksPage - 1) * itemsPerPage,
+    safeWebhooksPage * itemsPerPage
+  );
 
   const filteredRegistries = registries.filter(
     (r) => regScopeFilter === 'all' || r.scope === regScopeFilter
+  );
+  const totalRegistryPages = Math.max(1, Math.ceil(filteredRegistries.length / itemsPerPage));
+  const safeRegistriesPage = Math.min(registriesPage, totalRegistryPages);
+  const paginatedRegistries = filteredRegistries.slice(
+    (safeRegistriesPage - 1) * itemsPerPage,
+    safeRegistriesPage * itemsPerPage
   );
 
   if (mode === 'git') {
@@ -589,8 +625,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                   <button
                     key={f}
                     type="button"
-                    onClick={() => setRepoProviderFilter(f)}
-                    className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium cursor-pointer transition-colors capitalize ${
+                    onClick={() => {
+                      setRepoProviderFilter(f);
+                      setReposPage(1);
+                    }}
+                    className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium cursor-pointer transition-colors capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
                       repoProviderFilter === f
                         ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                         : 'text-zinc-400 hover:text-zinc-200'
@@ -617,72 +656,89 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
-                    {filteredRepos.map((repo) => (
-                      <tr key={repo.id} className="hover:bg-white/[0.03]">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {repo.provider === 'GitLab' ? (
-                              <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-                            ) : (
-                              <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
-                            )}
-                            <span className="truncate font-mono font-semibold text-zinc-100">
-                              {repo.fullName}
-                            </span>
-                            {repo.private && (
-                              <Lock className="h-3 w-3 text-zinc-500 shrink-0" />
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[11px] text-orange-400">
-                          {repo.defaultBranch}@{repo.lastCommitSha}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[11px]">
-                          {repo.linkedAppSlug ? (
-                            <span className="text-emerald-400">{repo.linkedAppSlug}</span>
-                          ) : (
-                            <span className="text-zinc-500">Unlinked</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <ShadcnSwitch
-                            checked={repo.autoDeploy}
-                            onChange={(next) => {
-                              setRepos((prev) =>
-                                prev.map((item) =>
-                                  item.id === repo.id ? { ...item, autoDeploy: next } : item
-                                )
-                              );
-                              toast.success(
-                                next
-                                  ? `Enabled push webhook for ${repo.fullName}`
-                                  : `Paused webhook for ${repo.fullName}`
-                              );
-                            }}
-                          />
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <ActionMenu
-                            items={[
-                              {
-                                label: 'Trigger Build Now',
-                                icon: <Play className="h-3.5 w-3.5" />,
-                                onClick: () => toast.success(`Building ${repo.fullName}...`),
-                              },
-                              {
-                                label: 'Sync Commits',
-                                icon: <RefreshCw className="h-3.5 w-3.5" />,
-                                onClick: () =>
-                                  toast.success(`Fetched latest HEAD for ${repo.fullName}`),
-                              },
-                            ]}
-                          />
+                    {paginatedRepos.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-400">
+                          {repoProviderFilter === 'all'
+                            ? 'No repositories connected yet.'
+                            : `No ${repoProviderFilter} repositories linked yet.`}
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      paginatedRepos.map((repo) => (
+                        <tr key={repo.id} className="hover:bg-white/[0.03]">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {repo.provider === 'GitLab' ? (
+                                <GitLabIcon className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                              ) : (
+                                <Github className="h-3.5 w-3.5 text-zinc-200 shrink-0" />
+                              )}
+                              <span className="truncate font-mono font-semibold text-zinc-100">
+                                {repo.fullName}
+                              </span>
+                              {repo.private && (
+                                <Lock className="h-3 w-3 text-zinc-400 shrink-0" aria-label="Private repository" />
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[11px] text-orange-400">
+                            {repo.defaultBranch}@{repo.lastCommitSha}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[11px]">
+                            {repo.linkedAppSlug ? (
+                              <span className="text-emerald-400">{repo.linkedAppSlug}</span>
+                            ) : (
+                              <span className="text-zinc-400">Unlinked</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <ShadcnSwitch
+                              checked={repo.autoDeploy}
+                              onChange={(next) => {
+                                setRepos((prev) =>
+                                  prev.map((item) =>
+                                    item.id === repo.id ? { ...item, autoDeploy: next } : item
+                                  )
+                                );
+                                toast.success(
+                                  next
+                                    ? `Enabled push webhook for ${repo.fullName}`
+                                    : `Paused webhook for ${repo.fullName}`
+                                );
+                              }}
+                            />
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            <ActionMenu
+                              items={[
+                                {
+                                  label: 'Trigger Build Now',
+                                  icon: <Play className="h-3.5 w-3.5" />,
+                                  onClick: () => toast.success(`Building ${repo.fullName}...`),
+                                },
+                                {
+                                  label: 'Sync Commits',
+                                  icon: <RefreshCw className="h-3.5 w-3.5" />,
+                                  onClick: () =>
+                                    toast.success(`Fetched latest HEAD for ${repo.fullName}`),
+                                },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
+              <PaginationBar
+                page={safeReposPage}
+                pageSize={itemsPerPage}
+                totalItems={filteredRepos.length}
+                onPageChange={setReposPage}
+                label="Repositories pagination"
+              />
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#111115]/90">
@@ -697,14 +753,20 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.05]">
-                    {webhookEvents.length === 0 ? (
+                    {webhooksError ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-zinc-500 font-sans">
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-rose-400 font-sans">
+                          {webhooksError}
+                        </td>
+                      </tr>
+                    ) : webhookEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-zinc-400 font-sans">
                           {isLoadingWebhooks ? 'Loading webhook deliveries...' : 'No webhook deliveries recorded yet.'}
                         </td>
                       </tr>
                     ) : (
-                      webhookEvents.map((ev) => (
+                      paginatedWebhooks.map((ev) => (
                         <tr key={ev.id} className="hover:bg-white/[0.03] font-mono">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2 min-w-0">
@@ -722,13 +784,20 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
                           <td className="px-4 py-3 text-emerald-400">
                             {ev.status} ({ev.latency})
                           </td>
-                          <td className="px-4 py-3 text-right text-zinc-500">{ev.time}</td>
+                          <td className="px-4 py-3 text-right text-zinc-400">{ev.time}</td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
+              <PaginationBar
+                page={safeWebhooksPage}
+                pageSize={itemsPerPage}
+                totalItems={webhookEvents.length}
+                onPageChange={setWebhooksPage}
+                label="Webhooks history pagination"
+              />
             </div>
           )}
         </div>
@@ -1303,8 +1372,11 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
             <button
               key={sc.id}
               type="button"
-              onClick={() => setRegScopeFilter(sc.id)}
-              className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium transition-colors cursor-pointer ${
+              onClick={() => {
+                setRegScopeFilter(sc.id);
+                setRegistriesPage(1);
+              }}
+              className={`h-9 sm:h-8 rounded-md px-3 text-center text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 ${
                 regScopeFilter === sc.id
                   ? 'bg-zinc-800 text-zinc-100 shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -1330,85 +1402,134 @@ export const GitAndRegistriesView: React.FC<GitAndRegistriesViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {filteredRegistries.map((r) => {
-                const isGlobal = r.scope === 'global';
-                return (
-                  <tr key={r.id} className="hover:bg-white/[0.03]">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="rounded-md border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-orange-400 shrink-0">
-                          {r.provider}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-zinc-100">{r.name}</span>
-                            <OwnerBadge id={r.owner?.id} name={r.owner?.name} role={r.owner?.role} system={r.owner?.system} />
+              {paginatedRegistries.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-xs text-zinc-400">
+                    {regScopeFilter === 'all'
+                      ? 'No container registries configured yet.'
+                      : `No ${regScopeFilter} container registries found.`}
+                  </td>
+                </tr>
+              ) : (
+                paginatedRegistries.map((r) => {
+                  const isGlobal = r.scope === 'global';
+                  const renderProviderIcon = () => {
+                    if (r.provider === 'GHCR') return <Github className="h-4 w-4 text-zinc-100" />;
+                    if (r.provider === 'GitLab') return <GitLabIcon className="h-4 w-4 text-orange-400" />;
+                    if (r.provider === 'DockerHub' || r.provider === 'AWS ECR') {
+                      return <Box className="h-4 w-4 text-orange-400" />;
+                    }
+                    return <HardDrive className="h-4 w-4 text-orange-400" />;
+                  };
+                  return (
+                    <tr key={r.id} className="group hover:bg-white/[0.03]">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900">
+                            {renderProviderIcon()}
                           </div>
-                          <div className="text-[11px] text-zinc-500">
-                            {r.registryUrl}
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-zinc-100 truncate">
+                                {r.name}
+                              </span>
+                              <span className="rounded border border-white/[0.08] bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-orange-400 shrink-0 leading-none">
+                                {r.provider}
+                              </span>
+                              <OwnerBadge
+                                id={r.owner?.id}
+                                name={r.owner?.name}
+                                role={r.owner?.role}
+                                system={r.owner?.system}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate font-mono text-[11px] text-zinc-400">
+                                {r.registryUrl}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Copy server URL ${r.registryUrl}`}
+                                title="Copy server URL"
+                                onClick={async () => {
+                                  const ok = await copyToClipboard(r.registryUrl);
+                                  if (ok) toast.success(`Copied ${r.registryUrl}`);
+                                }}
+                                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-70 hover:bg-white/[0.08] hover:text-zinc-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 cursor-pointer"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-zinc-200">{r.username}</div>
-                      <div className="font-mono text-[10px] text-zinc-500">{r.tokenPreview}</div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {isGlobal ? (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300 whitespace-nowrap">
-                          <Globe className="h-3 w-3 shrink-0" />
-                          Global
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300 whitespace-nowrap">
-                          <User className="h-3 w-3 shrink-0" />
-                          Personal
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <StatusBadge status={r.status} label="Authenticated" />
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[11px] text-zinc-300 whitespace-nowrap">
-                      {r.imagesCount} imgs · {r.connectedApps} apps
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <ActionMenu
-                        items={[
-                          {
-                            label: 'Verify docker login',
-                            icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-                            onClick: () =>
-                              toast.success(`Login succeeded against ${r.registryUrl}`),
-                          },
-                          {
-                            label: 'Copy Server URL',
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: async () => {
-                              const ok = await copyToClipboard(r.registryUrl);
-                              if (ok) toast.success(`Copied ${r.registryUrl}`);
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-zinc-200">{r.username}</div>
+                        <div className="font-mono text-[11px] text-zinc-400">{r.tokenPreview}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {isGlobal ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300 whitespace-nowrap">
+                            <Globe className="h-3 w-3 shrink-0" />
+                            Global
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/25 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300 whitespace-nowrap">
+                            <User className="h-3 w-3 shrink-0" />
+                            Personal
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <StatusBadge status={r.status} label="Authenticated" />
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[11px] text-zinc-300 whitespace-nowrap">
+                        {r.imagesCount} imgs · {r.connectedApps} apps
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <ActionMenu
+                          items={[
+                            {
+                              label: 'Verify docker login',
+                              icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+                              onClick: () =>
+                                toast.success(`Login succeeded against ${r.registryUrl}`),
                             },
-                          },
-                          {
-                            label: 'Remove Registry',
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            variant: 'danger',
-                            onClick: () => {
-                              void backendApi.deleteRegistry(r.id);
-                              if (onDeleteRegistry) onDeleteRegistry(r.id);
-                              toast.success(`Removed ${r.name}`);
+                            {
+                              label: 'Copy Server URL',
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: async () => {
+                                const ok = await copyToClipboard(r.registryUrl);
+                                if (ok) toast.success(`Copied ${r.registryUrl}`);
+                              },
                             },
-                          },
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
+                            {
+                              label: 'Remove Registry',
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              variant: 'danger',
+                              onClick: () => {
+                                void backendApi.deleteRegistry(r.id);
+                                if (onDeleteRegistry) onDeleteRegistry(r.id);
+                                toast.success(`Removed ${r.name}`);
+                              },
+                            },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          page={safeRegistriesPage}
+          pageSize={itemsPerPage}
+          totalItems={filteredRegistries.length}
+          onPageChange={setRegistriesPage}
+          label="Container registries pagination"
+        />
       </div>
 
       {/* Add Container Registry Modal (with Global vs Personal Scope Option!) */}

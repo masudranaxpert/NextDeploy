@@ -436,10 +436,8 @@ func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 	startTime := time.Now()
 	body := c.Body()
 	eventHeader := strings.TrimSpace(c.Get("X-GitHub-Event"))
-	if eventHeader == "ping" {
-		return c.SendStatus(fiber.StatusOK)
-	}
-	if eventHeader != "" && eventHeader != "push" {
+	isPing := eventHeader == "ping"
+	if !isPing && eventHeader != "" && eventHeader != "push" {
 		return c.SendStatus(fiber.StatusOK)
 	}
 	deliveryID := strings.TrimSpace(c.Get("X-GitHub-Delivery"))
@@ -455,9 +453,12 @@ func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusAccepted)
 	}
 	branch := NormalizeBranch(payload.Ref)
-	event := "push"
-	if branch != "" {
-		event = fmt.Sprintf("push (%s)", branch)
+	event := "ping"
+	if !isPing {
+		event = "push"
+		if branch != "" {
+			event = fmt.Sprintf("push (%s)", branch)
+		}
 	}
 	sha := ""
 	if len(payload.After) >= 7 {
@@ -492,7 +493,7 @@ func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 		if !sigOK {
 			continue
 		}
-		if cfg.Branch != "" && branch != "" && !strings.EqualFold(NormalizeBranch(cfg.Branch), branch) {
+		if !isPing && cfg.Branch != "" && branch != "" && !strings.EqualFold(NormalizeBranch(cfg.Branch), branch) {
 			continue
 		}
 		app, aerr := p.DB.GetApp(ctx, cfg.AppID)
@@ -514,7 +515,7 @@ func (p *Panel) ProviderGitHubWebhook(c *fiber.Ctx) error {
 			Latency:    fmt.Sprintf("%dms", time.Since(startTime).Milliseconds()),
 			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 		})
-		if cfg.AutoDeploy {
+		if !isPing && cfg.AutoDeploy {
 			p.triggerWebhookDeploy(app, cfg.AppID)
 		}
 	}
