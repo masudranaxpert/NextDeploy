@@ -41,6 +41,7 @@ interface FileManagerContextMenuProps {
   onMoveOrCopy: (path: string) => void;
   onChmod: (path: string, isFolder: boolean) => void;
   onDelete: (path: string) => void;
+  onRefresh?: () => Promise<void> | void;
   isArchiveFile: (filename: string) => boolean;
   renderFileIcon: (filename: string) => React.ReactNode;
 }
@@ -61,6 +62,7 @@ export const FileManagerContextMenu: React.FC<FileManagerContextMenuProps> = ({
   onMoveOrCopy,
   onChmod,
   onDelete,
+  onRefresh,
   isArchiveFile,
   renderFileIcon,
 }) => {
@@ -142,8 +144,9 @@ export const FileManagerContextMenu: React.FC<FileManagerContextMenuProps> = ({
 
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 onClose();
+                await onRefresh?.();
                 toast.success(
                   `Reloaded /data/apps/${appSlug}${
                     contextMenu.targetPath ? `/${contextMenu.targetPath}` : ''
@@ -272,7 +275,9 @@ export const FileManagerContextMenu: React.FC<FileManagerContextMenuProps> = ({
         <button
           type="button"
           onClick={() => {
-            onDelete(contextMenu.targetPath);
+            onDelete(
+              contextMenu.isFolder ? `dir:${contextMenu.targetPath}` : contextMenu.targetPath
+            );
             onClose();
           }}
           className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-rose-400 hover:bg-rose-500/15 cursor-pointer"

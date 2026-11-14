@@ -138,7 +138,7 @@ export const UploadFileDialog: React.FC<UploadFileDialogProps> = ({
                 </div>
                 {selectedUploadFiles.map((f, fIdx) => (
                   <div
-                    key={fIdx}
+                    key={`${f.name}-${f.size}-${f.lastModified}-${fIdx}`}
                     className="flex items-center justify-between gap-2 px-1 py-0.5 text-xs font-mono text-zinc-300"
                   >
                     <span className="truncate">{f.name}</span>

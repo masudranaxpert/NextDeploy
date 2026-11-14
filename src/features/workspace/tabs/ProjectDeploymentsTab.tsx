@@ -20,9 +20,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppStack, DeploymentRecord } from '../../../types/nextdeploy';
-import { backendApi } from '../../../lib/backendApi';
+import { backendApi, formatSlotPreviewDomain } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { ActionMenu, StatusBadge } from '../../../components/ui/Primitives';
+import { useStickyAutoScroll } from '../utils/useStickyAutoScroll';
 
 interface ProjectDeploymentsTabProps {
   app: AppStack;
@@ -40,6 +41,8 @@ interface ProjectDeploymentsTabProps {
   triggerDeploy: (options?: { noCache?: boolean; rollbackFrom?: DeploymentRecord }) => Promise<void>;
   setBuildLogsDeployment: (dep: DeploymentRecord | null) => void;
   isPinnedProduction: boolean;
+  previewUrl?: string;
+  previewHost?: string;
 }
 
 export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
@@ -54,20 +57,18 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
   triggerDeploy,
   setBuildLogsDeployment,
   isPinnedProduction,
+  previewUrl: propPreviewUrl,
+  previewHost: propPreviewHost,
 }) => {
   const liveDeployLogRef = useRef<HTMLDivElement | null>(null);
-
-  // Auto-scroll live build log to the bottom when new logs stream in
-  useEffect(() => {
-    if (liveDeployLogRef.current) {
-      const el = liveDeployLogRef.current;
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
-  }, [liveDeployState?.output, isBuildLogExpanded, liveDeployState?.running]);
+  const { onScroll: onBuildLogScroll } = useStickyAutoScroll(
+    liveDeployLogRef,
+    Boolean(liveDeployState?.running),
+    `${liveDeployState?.output?.length || 0}:${Boolean(isBuildLogExpanded)}`
+  );
   const [isPinningSlot, setIsPinningSlot] = useState(false);
   const [isPromotingSlot, setIsPromotingSlot] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
   const [deployEnvFilter, setDeployEnvFilter] = useState<'all' | 'production' | 'rollback'>('all');
 
   const activeSlotLower = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
@@ -146,14 +147,16 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
   }, [app.domains]);
 
   const previewUrl = useMemo(() => {
-    const previewDomain = app.domains?.find((d) => d.domain && d.domain.startsWith('preview-'));
-    if (previewDomain) {
-      return `${previewDomain.forceHttps !== false ? 'https' : 'http'}://${previewDomain.domain}`;
+    if (propPreviewUrl) return propPreviewUrl;
+    const base = app.previewHostBase || '';
+    if (base) {
+      const host = formatSlotPreviewDomain(base, standbySlotName);
+      return host ? `https://${host}` : '';
     }
     return '';
-  }, [app.domains]);
+  }, [propPreviewUrl, app.previewHostBase, standbySlotName]);
 
-  const previewHost = previewUrl ? previewUrl.replace(/^https?:\/\//, '') : '';
+  const previewHost = propPreviewHost || (previewUrl ? previewUrl.replace(/^https?:\/\//, '') : '');
 
   const enrichedDeployments = useMemo(() => {
     const currentProdId = activeProductionDeployment?.id;
@@ -203,6 +206,9 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
     activeProductionDeployment,
     latestStandbyDeployment,
     standbySlotHasImage,
+    isPinnedProduction,
+    productionUrl,
+    previewUrl,
   ]);
 
   return (
@@ -350,13 +356,21 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
           {!isPinnedProduction && standbySlotHasImage && latestStandbyDeployment && (
             <button
               type="button"
-              disabled={liveDeployState.running}
-              onClick={() => triggerDeploy({ rollbackFrom: latestStandbyDeployment })}
+              disabled={liveDeployState.running || isRollingBack}
+              onClick={async () => {
+                if (isRollingBack) return;
+                setIsRollingBack(true);
+                try {
+                  await triggerDeploy({ rollbackFrom: latestStandbyDeployment });
+                } finally {
+                  setIsRollingBack(false);
+                }
+              }}
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
               title={`Switch production back to Slot ${standbySlotName.toUpperCase()} (${latestStandbyDeployment.id})`}
             >
-              <RotateCcw className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-              <span>Rollback to {standbySlotName.toUpperCase()}</span>
+              <RotateCcw className={`h-3.5 w-3.5 text-amber-400 shrink-0 ${isRollingBack ? 'animate-spin' : ''}`} />
+              <span>{isRollingBack ? 'Rolling back...' : `Rollback to ${standbySlotName.toUpperCase()}`}</span>
             </button>
           )}
         </div>
@@ -484,6 +498,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
               {isVisible && (
                 <div
                   ref={liveDeployLogRef}
+                  onScroll={onBuildLogScroll}
                   className="max-h-64 overflow-y-auto border-t border-white/[0.06] p-3 font-mono text-[11px]"
                 >
                   {renderStyledBuildLog(liveDeployState.output || 'Waiting for output...')}
@@ -649,7 +664,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
 
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-mono text-[11px] text-zinc-400 truncate">
-                      {dep.status === 'ready' ? 'Ready' : dep.status} · {hasGitConnection ? `${dep.branch}@${dep.commitSha.slice(0, 7)}` : 'Workspace'} · {dep.durationSec}s
+                      {dep.status === 'ready' ? 'Ready' : dep.status} · {hasGitConnection ? `${dep.branch || 'main'}@${(dep.commitSha || 'latest').slice(0, 7)}` : 'Workspace'} · {dep.durationSec}s
                     </span>
                     {isRowLive ? (
                       <a
@@ -741,7 +756,7 @@ export const ProjectDeploymentsTab: React.FC<ProjectDeploymentsTabProps> = ({
                           </span>
                           {hasGitConnection ? (
                             <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-orange-400 shrink-0">
-                              {dep.branch}@{dep.commitSha.slice(0, 7)}
+                              {dep.branch || 'main'}@{(dep.commitSha || 'latest').slice(0, 7)}
                             </span>
                           ) : (
                             <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 shrink-0">

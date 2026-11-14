@@ -193,14 +193,26 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
   const [pvSaving, setPvSaving] = useState(false);
   const standbySlotLower = (app.activeSlot || 'blue').toLowerCase() === 'green' ? 'blue' : 'green';
 
+  const prevAppIdRef = React.useRef(app.id);
   useEffect(() => {
-    if (!pvService && detectedServices[0]) {
+    if (prevAppIdRef.current !== app.id) {
+      prevAppIdRef.current = app.id;
+      setPvProvider(app.preview?.provider || '');
+      setPvBase(app.preview?.base || '');
+      setPvService(app.preview?.service || detectedServices[0]?.name || '');
+      setPvPort(String(app.preview?.port || detectedServices[0]?.port || 3000));
+      setIsCustomPvService(false);
+    }
+  }, [app.id, app.preview, detectedServices]);
+
+  useEffect(() => {
+    if (!pvService && !isCustomPvService && detectedServices[0]) {
       setPvService(detectedServices[0].name);
       if (detectedServices[0].port) {
         setPvPort(String(detectedServices[0].port));
       }
     }
-  }, [detectedServices, pvService]);
+  }, [app.id, detectedServices.length]);
 
   const handleSavePreview = async () => {
     setPvSaving(true);
@@ -349,7 +361,11 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
       };
 
       if (editingDomainId) {
-        await backendApi.domainEdit(app.id, editingDomainId, payload);
+        const res = await backendApi.domainEdit(app.id, editingDomainId, payload);
+        if (!res.ok) {
+          toast.error(res.error || 'Failed to update domain');
+          return;
+        }
         const updatedDomains: DomainRoute[] = app.domains.map((d) =>
           d.id === editingDomainId
             ? {
@@ -377,9 +393,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
         });
         toast.success(`Updated domain ${cleanDomain}`);
       } else {
-        await backendApi.domainCreate(app.id, payload);
+        const res = await backendApi.domainCreate(app.id, payload);
+        if (!res.ok) {
+          toast.error(res.error || 'Failed to add domain');
+          return;
+        }
+        const createdId = res.data?.id != null ? String(res.data.id) : `dom-${Date.now()}`;
         const created: DomainRoute = {
-          id: `dom-${Date.now()}`,
+          id: createdId,
           domain: cleanDomain,
           targetService: cleanService,
           targetPort: cleanPort,
@@ -416,7 +437,11 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
   const handleDeleteDomain = async (d: DomainRoute) => {
     try {
-      await backendApi.domainDelete(app.id, d.id);
+      const res = await backendApi.domainDelete(app.id, d.id);
+      if (!res.ok) {
+        toast.error(res.error || 'Failed to remove domain');
+        return;
+      }
       onUpdateApp({
         ...app,
         domains: app.domains.filter((item) => item.id !== d.id),
@@ -431,7 +456,8 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
     setDnsLoadingId(d.id);
     try {
       const res = await backendApi.domainDnsCheck(app.id, d.id);
-      const resolvedIps = Array.isArray(res?.ips) && res.ips.length > 0 ? res.ips : ['188.114.96.3'];
+      const resolvedIps = Array.isArray(res?.ips) ? res.ips : [];
+      const dnsOk = res?.ok !== false;
       setDnsResults((prev) => ({
         ...prev,
         [d.id]: {
@@ -441,11 +467,15 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
           cf_flexible_loop: Boolean(res?.cf_flexible_loop),
           cf_hint: res?.cf_hint || '',
           internalTLS: Boolean(res?.internalTLS),
-          ok: res?.ok !== false,
+          ok: dnsOk,
           error: res?.error,
         },
       }));
-      toast.success(`DNS checked for ${d.domain}`);
+      if (dnsOk) {
+        toast.success(`DNS verified for ${d.domain}`);
+      } else {
+        toast.error(res?.error || `DNS resolution issue for ${d.domain}`);
+      }
     } catch (err: any) {
       toast.error(err?.message || 'DNS verification failed');
     } finally {

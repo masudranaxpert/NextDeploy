@@ -27,43 +27,77 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
   const [envRawMode, setEnvRawMode] = useState(false);
   const [revealAllEnv, setRevealAllEnv] = useState(false);
   const [revealedEnvIds, setRevealedEnvIds] = useState<Record<string, boolean>>({});
+  const [localEnvVars, setLocalEnvVars] = useState(app.envVars);
   const [envRawText, setEnvRawText] = useState(
     app.envVars.map((e) => `${e.key}=${e.value}`).join('\n')
   );
   const [envSearch, setEnvSearch] = useState('');
   const [isEnvDirty, setIsEnvDirty] = useState(false);
+  const [isSavingEnv, setIsSavingEnv] = useState(false);
+  const prevAppIdRef = React.useRef(app.id);
+
+  React.useEffect(() => {
+    if (prevAppIdRef.current !== app.id) {
+      prevAppIdRef.current = app.id;
+      setLocalEnvVars(app.envVars);
+      setEnvRawText(app.envVars.map((e) => `${e.key}=${e.value}`).join('\n'));
+      setIsEnvDirty(false);
+      setEnvRawMode(false);
+      setRevealedEnvIds({});
+      setEnvSearch('');
+      return;
+    }
+    if (!isEnvDirty && !envRawMode) {
+      setLocalEnvVars(app.envVars);
+    }
+  }, [app.id, app.envVars, isEnvDirty, envRawMode]);
+
+  const parseRawEnvText = (raw: string) =>
+    raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#') && l.includes('='))
+      .map((line, idx) => {
+        const eq = line.indexOf('=');
+        return {
+          id: `ev-raw-${Date.now()}-${idx}`,
+          key: line.slice(0, eq).trim().toUpperCase(),
+          value: line.slice(eq + 1).trim(),
+          isSecret: true,
+        };
+      });
 
   const filteredEnvVars = useMemo(
     () =>
-      app.envVars.filter(
+      localEnvVars.filter(
         (ev) =>
           ev.key.toLowerCase().includes(envSearch.toLowerCase()) ||
           ev.value.toLowerCase().includes(envSearch.toLowerCase())
       ),
-    [app.envVars, envSearch]
+    [localEnvVars, envSearch]
   );
 
   const handleEnvChange = (id: string, field: 'key' | 'value', val: string) => {
     setIsEnvDirty(true);
-    const nextVars = app.envVars.map((ev) =>
-      ev.id === id
-        ? {
-            ...ev,
-            [field]: field === 'key' ? val.toUpperCase().replace(/\s+/g, '_') : val,
-          }
-        : ev
+    setLocalEnvVars((prev) =>
+      prev.map((ev) =>
+        ev.id === id
+          ? {
+              ...ev,
+              [field]: field === 'key' ? val.toUpperCase().replace(/\s+/g, '_') : val,
+            }
+          : ev
+      )
     );
-    onUpdateApp({ ...app, envVars: nextVars });
   };
 
   const handleAddBlankEnvRow = () => {
     setIsEnvDirty(true);
     const newId = `ev-${Date.now()}`;
-    const nextVars = [
-      ...app.envVars,
+    setLocalEnvVars((prev) => [
+      ...prev,
       { id: newId, key: '', value: '', isSecret: true },
-    ];
-    onUpdateApp({ ...app, envVars: nextVars });
+    ]);
   };
 
   const handlePasteMultiEnv = (
@@ -76,7 +110,7 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
     const lines = text
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#') && l.includes('='));
+      .filter((l) => l && !l.startsWith('#') && /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(l));
 
     if (lines.length === 0) return;
 
@@ -98,23 +132,21 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
       };
     });
 
-    const targetIndex = app.envVars.findIndex((ev) => ev.id === targetId);
-    let nextVars = [...app.envVars];
-    if (targetIndex !== -1) {
-      nextVars.splice(targetIndex, 1, ...parsed);
-    } else {
-      nextVars = [...nextVars, ...parsed];
-    }
-    onUpdateApp({ ...app, envVars: nextVars });
+    setLocalEnvVars((prev) => {
+      const targetIndex = prev.findIndex((ev) => ev.id === targetId);
+      const nextVars = [...prev];
+      if (targetIndex !== -1) {
+        nextVars.splice(targetIndex, 1, ...parsed);
+        return nextVars;
+      }
+      return [...nextVars, ...parsed];
+    });
     toast.success(`Pasted ${parsed.length} environment variables`);
   };
 
   const handleDeleteEnv = (id: string) => {
     setIsEnvDirty(true);
-    onUpdateApp({
-      ...app,
-      envVars: app.envVars.filter((e) => e.id !== id),
-    });
+    setLocalEnvVars((prev) => prev.filter((e) => e.id !== id));
   };
 
   return (
@@ -124,7 +156,7 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-zinc-100">Environment Variables</h2>
           <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-            {app.envVars.length}
+            {localEnvVars.length}
           </span>
         </div>
       </div>
@@ -160,7 +192,9 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
               type="button"
               onClick={() => {
                 if (!envRawMode) {
-                  setEnvRawText(app.envVars.map((e) => `${e.key}=${e.value}`).join('\n'));
+                  setEnvRawText(localEnvVars.map((e) => `${e.key}=${e.value}`).join('\n'));
+                } else {
+                  setLocalEnvVars(parseRawEnvText(envRawText));
                 }
                 setEnvRawMode((prev) => !prev);
               }}
@@ -179,39 +213,37 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
             filename=".env"
             language="env"
             value={envRawText}
-            onChange={setEnvRawText}
+            onChange={(val) => {
+              setEnvRawText(val);
+              setIsEnvDirty(true);
+            }}
             height={300}
           />
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={isSavingEnv}
               onClick={async () => {
-                const parsed = envRawText
-                  .split('\n')
-                  .map((l) => l.trim())
-                  .filter((l) => l && !l.startsWith('#') && l.includes('='))
-                  .map((line, idx) => {
-                    const eq = line.indexOf('=');
-                    return {
-                      id: `ev-raw-${Date.now()}-${idx}`,
-                      key: line.slice(0, eq).trim().toUpperCase(),
-                      value: line.slice(eq + 1).trim(),
-                      isSecret: true,
-                    };
-                  });
-                const res = await backendApi.saveAppEnv(app.id, envRawText);
-                if (!res.ok) {
-                  toast.error(res.error || 'Failed to save .env file');
-                  return;
+                setIsSavingEnv(true);
+                try {
+                  const parsed = parseRawEnvText(envRawText);
+                  const res = await backendApi.saveAppEnv(app.id, envRawText);
+                  if (!res.ok) {
+                    toast.error(res.error || 'Failed to save .env file');
+                    return;
+                  }
+                  setLocalEnvVars(parsed);
+                  setIsEnvDirty(false);
+                  onUpdateApp({ ...app, envVars: parsed });
+                  setEnvRawMode(false);
+                  toast.success(`Saved ${parsed.length} variables to .env`);
+                } finally {
+                  setIsSavingEnv(false);
                 }
-                setIsEnvDirty(false);
-                onUpdateApp({ ...app, envVars: parsed });
-                setEnvRawMode(false);
-                toast.success(`Saved ${parsed.length} variables to .env`);
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
-              Apply .env Changes
+              {isSavingEnv ? 'Saving...' : 'Apply .env Changes'}
             </button>
           </div>
         </div>
@@ -219,7 +251,7 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
         <div className="space-y-3">
           {/* Subheaders */}
           <div className="flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 sm:hidden">
-            <span>KEY / VARIABLEVALUE</span>
+            <span>KEY / VARIABLE / VALUE</span>
             <span>ACTIONS</span>
           </div>
           <div className="hidden sm:grid sm:grid-cols-12 gap-2.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -387,23 +419,29 @@ export const ProjectEnvTab: React.FC<ProjectEnvTabProps> = ({
 
             <button
               type="button"
+              disabled={isSavingEnv}
               onClick={async () => {
-                const rawEnv = app.envVars
-                  .filter((e) => e.key.trim().length > 0)
-                  .map((e) => `${e.key}=${e.value}`)
-                  .join('\n');
-                const res = await backendApi.saveAppEnv(app.id, rawEnv);
-                if (!res.ok) {
-                  toast.error(res.error || 'Failed to save .env variables');
-                  return;
+                setIsSavingEnv(true);
+                try {
+                  const cleanVars = localEnvVars.filter((e) => e.key.trim().length > 0);
+                  const rawEnv = cleanVars.map((e) => `${e.key}=${e.value}`).join('\n');
+                  const res = await backendApi.saveAppEnv(app.id, rawEnv);
+                  if (!res.ok) {
+                    toast.error(res.error || 'Failed to save .env variables');
+                    return;
+                  }
+                  setLocalEnvVars(cleanVars);
+                  setIsEnvDirty(false);
+                  onUpdateApp({ ...app, envVars: cleanVars });
+                  toast.success(`Saved ${cleanVars.length} variables to .env`);
+                } finally {
+                  setIsSavingEnv(false);
                 }
-                setIsEnvDirty(false);
-                toast.success(`Saved ${app.envVars.length} variables to .env`);
               }}
-              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all cursor-pointer"
+              className="inline-flex h-9 sm:h-8 items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white shadow-xs transition-all disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
               <Save className="h-3.5 w-3.5" />
-              Save .env {isEnvDirty ? '*' : ''}
+              {isSavingEnv ? 'Saving...' : `Save .env${isEnvDirty ? ' *' : ''}`}
             </button>
           </div>
         </div>

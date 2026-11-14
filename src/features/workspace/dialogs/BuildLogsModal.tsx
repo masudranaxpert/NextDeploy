@@ -36,7 +36,7 @@ export const BuildLogsModal: React.FC<BuildLogsModalProps> = ({
           <span className="text-zinc-300">
             Branch:{' '}
             <strong className="text-orange-400">
-              {deployment.branch}@{deployment.commitSha.slice(0, 7)}
+              {deployment.branch || 'main'}@{(deployment.commitSha || 'latest').slice(0, 7)}
             </strong>
           </span>
           <span className="text-emerald-400">
@@ -72,19 +72,21 @@ export const BuildLogsModal: React.FC<BuildLogsModalProps> = ({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => {
-              onRollback(deployment);
-              onClose();
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/15 px-3 py-1.5 font-sans text-xs font-medium text-orange-300 hover:bg-orange-500/25 cursor-pointer"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Promote / Rollback to this Release
-          </button>
-        </div>
+        {deployment.status === 'ready' && Boolean(deployment.slot) && (
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                onRollback(deployment);
+                onClose();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/15 px-3 py-1.5 font-sans text-xs font-medium text-orange-300 hover:bg-orange-500/25 cursor-pointer"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Promote / Rollback to this Release
+            </button>
+          </div>
+        )}
       </div>
     </ShadcnDialog>
   );

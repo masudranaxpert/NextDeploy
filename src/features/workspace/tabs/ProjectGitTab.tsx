@@ -54,19 +54,21 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   };
   const [webhookSecret, setWebhookSecret] = useState<string>(() => app.webhookSecret || generateRandomSecret());
   const [showSecret, setShowSecret] = useState<boolean>(false);
+  const [isSavingGit, setIsSavingGit] = useState<boolean>(false);
 
   useEffect(() => {
     setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
-    if (app.gitAuthMode) setAuthMode(app.gitAuthMode as any);
-    if (app.gitProviderId) setSelectedProviderId(app.gitProviderId);
-    if (app.gitRepo) {
-      setRepoUrl(app.gitRepo);
-      setSelectedRepoFullName(app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, ''));
-    }
-    if (app.gitBranch) setBranch(app.gitBranch);
-    if (app.webhookAutoDeploy !== undefined) setAutoDeploy(Boolean(app.webhookAutoDeploy));
-    if (app.webhookSecret) setWebhookSecret(app.webhookSecret);
-  }, [app]);
+    setAuthMode((app.gitAuthMode as any) || 'github_app');
+    setSelectedProviderId(app.gitProviderId || '');
+    const nextRepo = app.gitRepo || '';
+    setRepoUrl(nextRepo);
+    setSelectedRepoFullName(
+      nextRepo ? nextRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '') : ''
+    );
+    setBranch(app.gitBranch || 'main');
+    setAutoDeploy(Boolean(app.webhookAutoDeploy));
+    setWebhookSecret(app.webhookSecret || generateRandomSecret());
+  }, [app.id]);
 
   // Dynamic Repos & Branches fetched from /apps/:id/git/providers/:pid/repos & /branches
   const [providerRepos, setProviderRepos] = useState<RepoOption[]>([]);
@@ -289,40 +291,46 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       toast.error('Please enter or select a repository clone URL');
       return;
     }
-    const nextSync = app.gitRepo ? gitSyncEnabled : true;
-    const res = await backendApi.saveAppGit(app.id, {
-      auth_mode: authMode,
-      git_provider_id: authMode === 'public' ? '' : selectedProviderId,
-      repo_url: repoUrl.trim(),
-      branch: branch.trim() || 'main',
-      auto_deploy: autoDeploy,
-      webhook_secret: webhookSecret,
-    });
-    if (!res.ok && !res.offlineFallback) {
-      toast.error(res.error || 'Failed to save Git configuration');
-      return;
+    if (isSavingGit) return;
+    setIsSavingGit(true);
+    try {
+      const nextSync = app.gitRepo ? gitSyncEnabled : true;
+      const res = await backendApi.saveAppGit(app.id, {
+        auth_mode: authMode,
+        git_provider_id: authMode === 'public' ? '' : selectedProviderId,
+        repo_url: repoUrl.trim(),
+        branch: branch.trim() || 'main',
+        auto_deploy: autoDeploy,
+        webhook_secret: webhookSecret,
+      });
+      if (!res.ok && !res.offlineFallback) {
+        toast.error(res.error || 'Failed to save Git configuration');
+        return;
+      }
+      setGitSyncEnabled(nextSync);
+      const savedSecret = (res.data as any)?.webhook_secret || webhookSecret;
+      if (savedSecret) {
+        setWebhookSecret(savedSecret);
+      }
+      onUpdateApp({
+        ...app,
+        sourceType: nextSync ? 'git' : 'compose',
+        gitSync: nextSync,
+        gitAuthMode: authMode,
+        gitProviderId: selectedProviderId,
+        gitRepo: repoUrl.trim(),
+        gitBranch: branch.trim() || 'main',
+        webhookAutoDeploy: autoDeploy,
+        webhookSecret: savedSecret,
+      });
+      toast.success(
+        app.gitRepo
+          ? `Saved Git configuration (${branch.trim() || 'main'})`
+          : `Connected Git repository (${branch.trim() || 'main'})`
+      );
+    } finally {
+      setIsSavingGit(false);
     }
-    setGitSyncEnabled(nextSync);
-    const savedSecret = (res.data as any)?.webhook_secret || webhookSecret;
-    if (savedSecret) {
-      setWebhookSecret(savedSecret);
-    }
-    onUpdateApp({
-      ...app,
-      sourceType: nextSync ? 'git' : 'compose',
-      gitSync: nextSync,
-      gitAuthMode: authMode,
-      gitProviderId: selectedProviderId,
-      gitRepo: repoUrl.trim(),
-      gitBranch: branch.trim() || 'main',
-      webhookAutoDeploy: autoDeploy,
-      webhookSecret: savedSecret,
-    });
-    toast.success(
-      app.gitRepo
-        ? `Saved Git configuration (${branch.trim() || 'main'})`
-        : `Connected Git repository (${branch.trim() || 'main'})`
-    );
   };
 
   const handleDisconnectGit = async () => {
@@ -720,10 +728,15 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="submit"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-400 cursor-pointer"
+              disabled={isSavingGit}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {app.gitRepo ? 'Save Git Configuration' : 'Connect Repository'}
+              {isSavingGit
+                ? 'Saving...'
+                : app.gitRepo
+                  ? 'Save Git Configuration'
+                  : 'Connect Repository'}
             </button>
           </div>
         </form>

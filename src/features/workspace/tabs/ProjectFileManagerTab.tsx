@@ -393,6 +393,12 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
       const fetchPromise = (async () => {
         try {
           const res = await backendApi.fileBlob(app.id, filePath);
+          if (!res.ok) {
+            return null;
+          }
+          if (res.data?.binary || res.data?.too_large) {
+            return null;
+          }
           const text = res.data?.text ?? '';
           loadedPathsRef.current.add(filePath);
 
@@ -413,24 +419,6 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
               });
             }
             return list;
-          });
-
-          onUpdateApp({
-            ...app,
-            files: app.files.some((f) => f.path === filePath)
-              ? app.files.map((f) => (f.path === filePath ? { ...f, content: text } : f))
-              : [
-                  ...app.files,
-                  {
-                    path: filePath,
-                    name: filePath.split('/').pop() || filePath,
-                    content: text,
-                    type: 'file',
-                    language: 'yaml',
-                    sizeBytes: new Blob([text]).size,
-                    updatedAt: 'Just now',
-                  },
-                ],
           });
 
           return text;
@@ -602,6 +590,12 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
     const parent = newFolderTargetDir ? newFolderTargetDir.trim().replace(/^\/+|\/+$/g, '') : '';
     const fullPath = parent ? `${parent}/${raw}` : raw;
 
+    const res = await backendApi.fileMkdir(app.id, fullPath);
+    if (!res.ok) {
+      toast.error(res.error || `Failed to create folder /${fullPath}`);
+      return;
+    }
+
     setCustomFolders((prev) => (prev.includes(fullPath) ? prev : [...prev, fullPath]));
     setDeletedFilePaths((prev) => prev.filter((p) => p !== `dir:${fullPath}`));
     setNewFolderName('');
@@ -735,16 +729,24 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
 
   // Delete Entries
   const deleteEntries = async (entries: string[]) => {
+    let deletedCount = 0;
     for (const entry of entries) {
       const isDir = entry.startsWith('dir:');
       const cleanPath = isDir ? entry.replace(/^dir:/, '') : entry;
-      await backendApi.fileDelete(app.id, cleanPath);
+      const res = await backendApi.fileDelete(app.id, cleanPath);
+      if (!res.ok) {
+        toast.error(res.error || `Failed to delete ${cleanPath}`);
+        continue;
+      }
+      deletedCount++;
       setDeletedFilePaths((prev) => (prev.includes(entry) ? prev : [...prev, entry]));
       if (editingFilePath === cleanPath) setEditingFilePath(null);
       setOpenEditorTabs((prev) => prev.filter((p) => p !== cleanPath));
     }
-    toast.success(`Deleted ${entries.length} item(s)`);
-    await syncWorkspaceFilesFromDisk();
+    if (deletedCount > 0) {
+      toast.success(`Deleted ${deletedCount} item(s)`);
+      await syncWorkspaceFilesFromDisk();
+    }
   };
 
   // Run Local File Upload with Progress
@@ -1090,6 +1092,7 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
         onMoveOrCopy={(p) => openMoveOrCopyModal([p])}
         onChmod={(p) => openChmodFor(p)}
         onDelete={(p) => void deleteEntries([p])}
+        onRefresh={syncWorkspaceFilesFromDisk}
         isArchiveFile={isArchiveFile}
         renderFileIcon={renderFileIcon}
       />

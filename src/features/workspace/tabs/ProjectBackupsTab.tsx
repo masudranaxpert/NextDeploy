@@ -39,6 +39,7 @@ import {
   StatusBadge,
 } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
+import { copyToClipboard } from '../../../lib/clipboard';
 
 interface ProjectBackupsTabProps {
   app: AppStack;
@@ -134,6 +135,29 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     error?: string;
   }>({ status: 'idle', log: '' });
   const restoreTimerRef = useRef<number | null>(null);
+  const prevAppIdRef = useRef<string>(app.id);
+
+  useEffect(() => {
+    if (prevAppIdRef.current !== app.id) {
+      prevAppIdRef.current = app.id;
+      if (restoreTimerRef.current) {
+        window.clearInterval(restoreTimerRef.current);
+        restoreTimerRef.current = null;
+      }
+      const nextCached = backupsCache.get(app.id);
+      setDestinations(nextCached?.destinations ?? []);
+      setSchedules(nextCached?.schedules ?? []);
+      setHistoryItems(nextCached?.history ?? []);
+      setLoaded(!!nextCached);
+      setPage(1);
+      setRestoreTarget(null);
+      setRestoreJobState({ status: 'idle', log: '' });
+      setLogModalData(null);
+      setScheduleModalOpen(false);
+      setManualSelectedVols(app.volumes.map((v) => v.name));
+      setSchedSelectedVols(app.volumes.map((v) => v.name));
+    }
+  }, [app.id, app.volumes]);
 
   useEffect(() => {
     return () => {
@@ -309,7 +333,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
       toast.error('Connect a storage destination on the Backup Connectors page first');
       return;
     }
-    const volCsv = manualType === 'volume' ? manualSelectedVols.join(',') : '';
+    const volCsv =
+      manualType === 'volume'
+        ? manualSelectedVols.join(',')
+        : manualType === 'full'
+          ? app.volumes.map((v) => v.name).join(',')
+          : '';
     if (manualType === 'volume' && !volCsv) {
       toast.error('Select at least one Docker volume to back up');
       return;
@@ -719,8 +748,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
                       <td className="px-4 py-3.5 align-middle">
                         <ShadcnSwitch
                           checked={sc.enabled}
-                          onChange={(next) => {
-                            void backendApi.backupScheduleToggle(app.id, sc.id, next);
+                          onChange={async (next) => {
+                            const res = await backendApi.backupScheduleToggle(app.id, sc.id, next);
+                            if (!res.ok) {
+                              toast.error(res.error || 'Failed to update schedule');
+                              return;
+                            }
                             setSchedules((prev) =>
                               prev.map((item) =>
                                 item.id === sc.id ? { ...item, enabled: next } : item
@@ -741,23 +774,33 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
                             {
                               label: 'Run Schedule Now',
                               icon: <RotateCw className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                void backendApi.triggerManualBackup(
+                              onClick: async () => {
+                                const res = await backendApi.triggerManualBackup(
                                   app.id,
                                   sc.destinationId,
                                   sc.type,
                                   volStr,
                                   sc.pauseContainers
                                 );
+                                if (!res.ok) {
+                                  toast.error(res.error || 'Failed to start scheduled backup');
+                                  return;
+                                }
                                 toast.success('Started scheduled backup job');
+                                setPage(1);
+                                await fetchBackupsData(1, perPage);
                               },
                             },
                             {
                               label: 'Delete Schedule',
                               icon: <Trash2 className="h-3.5 w-3.5" />,
                               variant: 'danger',
-                              onClick: () => {
-                                void backendApi.backupScheduleDelete(app.id, sc.id);
+                              onClick: async () => {
+                                const res = await backendApi.backupScheduleDelete(app.id, sc.id);
+                                if (!res.ok) {
+                                  toast.error(res.error || 'Failed to delete backup schedule');
+                                  return;
+                                }
                                 setSchedules((prev) => prev.filter((item) => item.id !== sc.id));
                                 toast.success('Deleted backup schedule');
                               },
@@ -944,16 +987,6 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
                                   },
                                 ]
                               : []),
-                            {
-                              label: 'Delete Backup',
-                              icon: <Trash2 className="h-3.5 w-3.5" />,
-                              variant: 'danger',
-                              onClick: () => {
-                                void backendApi.backupDelete(app.id, bk.id);
-                                setHistoryItems((prev) => prev.filter((item) => item.id !== bk.id));
-                                toast.success(`Deleted ${bk.archiveName}`);
-                              },
-                            },
                           ]}
                         />
                       </div>
@@ -1375,12 +1408,12 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
             : parsedLines;
 
           const handleCopyFull = async () => {
-            try {
-              await navigator.clipboard.writeText(rawLog);
+            const ok = await copyToClipboard(rawLog);
+            if (ok) {
               setCopiedFullLog(true);
               toast.success('Full backup log copied to clipboard');
               setTimeout(() => setCopiedFullLog(false), 2000);
-            } catch {
+            } else {
               toast.error('Failed to copy log');
             }
           };
@@ -1399,12 +1432,10 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
           };
 
           const handleCopyLine = async (lineText: string, id: number) => {
-            try {
-              await navigator.clipboard.writeText(lineText);
+            const ok = await copyToClipboard(lineText);
+            if (ok) {
               setCopiedLineId(id);
               setTimeout(() => setCopiedLineId(null), 1500);
-            } catch {
-              // ignore
             }
           };
 

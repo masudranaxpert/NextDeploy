@@ -40,6 +40,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
   const [isDeletingContainers, setIsDeletingContainers] = useState(false);
   const [containerFilter, setContainerFilter] = useState<'all' | 'running' | 'stopped'>('all');
   const [restartAllBusy, setRestartAllBusy] = useState(false);
+  const [busyContainer, setBusyContainer] = useState<string | null>(null);
 
   const activeSlotLower = (app.activeSlot || 'blue').toLowerCase() as 'blue' | 'green';
   const containerRunningCount = app.services.filter((s) => s.state === 'running').length;
@@ -50,6 +51,9 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
       : app.services.filter((s) =>
           containerFilter === 'running' ? s.state === 'running' : s.state !== 'running'
         );
+  const allFilteredSelected =
+    filteredServices.length > 0 &&
+    filteredServices.every((s) => selectedContainers.includes(s.name || s.service));
 
   const restartAllContainers = async () => {
     const running = app.services.filter((s) => s.state === 'running');
@@ -115,9 +119,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
       <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#111115]/90 p-3">
         <input
           type="checkbox"
-          checked={
-            filteredServices.length > 0 && selectedContainers.length === filteredServices.length
-          }
+          checked={allFilteredSelected}
           onChange={toggleSelectAllContainers}
           className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 accent-orange-500 cursor-pointer"
           title="Select all containers"
@@ -175,14 +177,26 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
               type="button"
               disabled={restartAllBusy}
               onClick={async () => {
-                for (const name of selectedContainers) {
-                  await backendApi.appContainerAction(app.id, name, 'restart');
+                setRestartAllBusy(true);
+                try {
+                  for (const name of selectedContainers) {
+                    const res = await backendApi.appContainerAction(app.id, name, 'restart');
+                    if (res && res.ok === false) {
+                      toast.error(res.error || `Failed to restart ${name}`);
+                      return;
+                    }
+                  }
+                  toast.success(`Restarted ${selectedContainers.length} container(s)`);
+                  await onRefresh?.();
+                } catch {
+                  toast.error('Failed to restart selected containers');
+                } finally {
+                  setRestartAllBusy(false);
                 }
-                toast.success(`Restarted ${selectedContainers.length} container(s)`);
               }}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
             >
-              <RotateCw className="h-3.5 w-3.5 text-orange-400" /> Restart ({selectedContainers.length})
+              <RotateCw className={`h-3.5 w-3.5 text-orange-400 ${restartAllBusy ? 'animate-spin' : ''}`} /> Restart ({selectedContainers.length})
             </button>
             <button
               type="button"
@@ -205,10 +219,7 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                 <th className="w-9 px-3 py-2.5 text-center">
                   <input
                     type="checkbox"
-                    checked={
-                      filteredServices.length > 0 &&
-                      selectedContainers.length === filteredServices.length
-                    }
+                    checked={allFilteredSelected}
                     onChange={toggleSelectAllContainers}
                     className="rounded border-zinc-700 bg-zinc-900 text-orange-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                   />
@@ -444,31 +455,43 @@ export const ProjectContainersTab: React.FC<ProjectContainersTabProps> = ({
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
+                      disabled={busyContainer === name}
                       onClick={async () => {
-                        await backendApi.appContainerAction(app.id, name, 'restart');
-                        toast.success(`Restarted ${name}`);
-                        await onRefresh?.();
+                        setBusyContainer(name);
+                        try {
+                          await backendApi.appContainerAction(app.id, name, 'restart');
+                          toast.success(`Restarted ${name}`);
+                          await onRefresh?.();
+                        } finally {
+                          setBusyContainer(null);
+                        }
                       }}
                       title="Restart container"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
                     >
-                      <RotateCw className="h-3.5 w-3.5" />
+                      <RotateCw className={`h-3.5 w-3.5 ${busyContainer === name ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                       type="button"
+                      disabled={busyContainer === name}
                       onClick={async () => {
-                        await backendApi.appContainerAction(
-                          app.id,
-                          name,
-                          svc.state === 'running' ? 'stop' : 'start'
-                        );
-                        toast.success(
-                          svc.state === 'running' ? `Stopped ${name}` : `Started ${name}`
-                        );
-                        await onRefresh?.();
+                        setBusyContainer(name);
+                        try {
+                          await backendApi.appContainerAction(
+                            app.id,
+                            name,
+                            svc.state === 'running' ? 'stop' : 'start'
+                          );
+                          toast.success(
+                            svc.state === 'running' ? `Stopped ${name}` : `Started ${name}`
+                          );
+                          await onRefresh?.();
+                        } finally {
+                          setBusyContainer(null);
+                        }
                       }}
                       title={svc.state === 'running' ? 'Stop container' : 'Start container'}
-                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
                         svc.state === 'running'
                           ? 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
                           : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'

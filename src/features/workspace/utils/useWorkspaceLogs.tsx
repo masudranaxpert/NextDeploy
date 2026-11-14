@@ -65,7 +65,7 @@ function logSignature(entry: LogEntry, hasExplicitTimestamp = true): string {
 
 export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
   const [logContainerFilter, setLogContainerFilter] = useState<string>('all');
-  const [terminalService, setTerminalService] = useState<string>(app.services[0]?.service || '');
+  const [terminalService, setTerminalService] = useState<string>(app.services?.[0]?.service || '');
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'debug'>('all');
   const [logTimeRange, setLogTimeRange] = useState<'live' | '15m' | '1h' | '24h'>('live');
   const [logSearch, setLogSearch] = useState('');
@@ -81,14 +81,15 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
 
   // Resolve container name as a primitive string so background bootstrap polling
   // (which creates new app.services array references) never tears down the log stream.
+  const servicesList = app.services || [];
   const targetSvc =
     logContainerFilter !== 'all'
-      ? app.services.find((s) => s.service === logContainerFilter || s.name === logContainerFilter)
-      : app.services[0];
+      ? servicesList.find((s) => s.service === logContainerFilter || s.name === logContainerFilter)
+      : undefined;
   const resolvedContainerName =
     logContainerFilter !== 'all'
       ? targetSvc?.service || targetSvc?.name || logContainerFilter
-      : targetSvc?.service || targetSvc?.name || '';
+      : '';
 
   useEffect(() => {
     if (activeTab !== 'logs') return;
@@ -134,9 +135,11 @@ export function useWorkspaceLogs(app: AppStack, activeTab: AppWorkspaceTab) {
           }
         }
         if (fresh.length === 0) return prev;
-        const combined = prev.length + fresh.length > maxLogs
-          ? [...prev.slice(-(maxLogs - fresh.length)), ...fresh]
-          : [...prev, ...fresh];
+        const keepCount = Math.max(0, maxLogs - fresh.length);
+        const combined =
+          keepCount === 0
+            ? fresh.slice(-maxLogs)
+            : [...prev.slice(-keepCount), ...fresh];
         return combined;
       });
     };

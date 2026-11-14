@@ -54,6 +54,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
   };
 
   const createDb = async () => {
+    if (busy) return;
     setBusy('createdb');
     const res = await backendApi.phpDbCreate(app.id, { name: dbName.trim() });
     setBusy('');
@@ -102,6 +103,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
   const grantsList = () => Object.entries(picked).map(([id, access]) => ({ db_id: Number(id), access }));
 
   const saveUser = async () => {
+    if (busy) return;
     setBusy('saveuser');
     if (editing) {
       const res = await backendApi.phpDbUserGrants(app.id, editing.id, grantsList());
@@ -223,13 +225,23 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
                   <span className="min-w-0 break-all font-mono text-xs text-zinc-100">{d.db_name}</span>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <a
-                      href={backendApi.phpDbExportUrl(app.id, d.id)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-200 transition-colors hover:bg-zinc-800"
-                      title="Download .sql.gz"
+                      href={mysql.ready ? backendApi.phpDbExportUrl(app.id, d.id) : undefined}
+                      aria-disabled={!mysql.ready}
+                      tabIndex={mysql.ready ? undefined : -1}
+                      onClick={(e) => {
+                        if (!mysql.ready) e.preventDefault();
+                      }}
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-200 transition-colors ${
+                        mysql.ready
+                          ? 'hover:bg-zinc-800 cursor-pointer'
+                          : 'opacity-40 pointer-events-none cursor-not-allowed'
+                      }`}
+                      title={mysql.ready ? 'Download .sql.gz' : 'Database server is offline'}
                     >
                       <Download className="h-4 w-4" />
                     </a>
                     <GhostButton
+                      disabled={!mysql.ready}
                       busy={busy === 'imp' + d.id}
                       title="Import .sql / .sql.gz"
                       onClick={() => {
@@ -240,7 +252,7 @@ export const PhpDatabasesTab: React.FC<{ app: AppStack }> = ({ app }) => {
                     >
                       <Upload className="h-4 w-4" />
                     </GhostButton>
-                    <GhostButton tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database" className="!h-9 !w-9 !px-0">
+                    <GhostButton disabled={!mysql.ready} tone="danger" busy={busy === 'deldb' + d.id} onClick={() => removeDb(d.id, d.db_name)} title="Delete database" className="!h-9 !w-9 !px-0">
                       <Trash2 className="h-4 w-4" />
                     </GhostButton>
                   </div>

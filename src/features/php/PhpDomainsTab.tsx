@@ -74,6 +74,7 @@ export const PhpDomainsTab: React.FC<{
   }, []);
 
   const add = async () => {
+    if (busy === 'add') return;
     const d = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     if (!DOMAIN_RE.test(d)) {
       toast.error('Enter a valid domain such as example.com');
@@ -206,8 +207,12 @@ export const PhpDomainsTab: React.FC<{
         return;
       }
       if (onUpdateApp) {
+        const editedTarget = app.domains.find((dom) => dom.id === editingDomain.id);
+        const wasPrimary =
+          Boolean(editedTarget?.isPrimary) || app.primaryDomain === editedTarget?.domain;
         onUpdateApp({
           ...app,
+          primaryDomain: wasPrimary ? nextDomain : app.primaryDomain,
           domains: app.domains.map((dom) =>
             dom.id === editingDomain.id
               ? {

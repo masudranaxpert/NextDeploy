@@ -23,6 +23,7 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
   const [blocked, setBlocked] = useState('');
   const [allow, setAllow] = useState('');
   const [password, setPassword] = useState('');
+  const [savedAuthUser, setSavedAuthUser] = useState('');
   const [clientIp, setClientIp] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -36,6 +37,7 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
     }
     setError('');
     setForm(res.data.security);
+    setSavedAuthUser(res.data.security.basic_auth_user || '');
     setBlocked(toLines(res.data.security.blocked_ips));
     setAllow(toLines(res.data.security.allow_only));
     setClientIp(res.data.client_ip);
@@ -52,23 +54,30 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
   if (error) return <ErrorBlock message={error} onRetry={() => void load()} />;
   if (!form) return <LoadingBlock />;
 
-  const save = async (extra: { remove_password?: boolean } = {}) => {
+  const save = async (extra: { remove_password?: boolean; includeAuth?: boolean } = {}) => {
+    const { includeAuth = false, ...restExtra } = extra;
     setSaving(true);
     try {
       const res = await backendApi.phpSecuritySave(app.id, {
         ...form,
+        basic_auth_user: includeAuth ? form.basic_auth_user : savedAuthUser,
         blocked_ips: fromLines(blocked),
         allow_only: fromLines(allow),
-        basic_auth_password: password || undefined,
-        ...extra,
+        basic_auth_password: includeAuth ? password || undefined : undefined,
+        ...restExtra,
       });
       if (!res.ok || !res.data) {
         toast.error(res.error || 'Could not save');
         return;
       }
       toast.success('Protection updated');
-      setPassword('');
-      setForm(res.data.security);
+      if (includeAuth) setPassword('');
+      setSavedAuthUser(res.data.security.basic_auth_user || '');
+      setForm((prev) =>
+        includeAuth || !prev
+          ? res.data!.security
+          : { ...res.data!.security, basic_auth_user: prev.basic_auth_user }
+      );
       setBlocked(toLines(res.data.security.blocked_ips));
       setAllow(toLines(res.data.security.allow_only));
     } finally {
@@ -137,11 +146,19 @@ export const PhpSecurityTab: React.FC<{ app: AppStack }> = ({ app }) => {
           </Field>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <PrimaryButton busy={saving} onClick={() => save()} disabled={!form.basic_auth_user.trim() || (!form.has_password && password.length < 8)}>
+          <PrimaryButton
+            busy={saving}
+            onClick={() => save({ includeAuth: true })}
+            disabled={
+              !form.basic_auth_user.trim() ||
+              (!form.has_password && password.length < 8) ||
+              (form.has_password && password.length > 0 && password.length < 8)
+            }
+          >
             <Lock className="h-3.5 w-3.5" /> {form.has_password ? 'Update' : 'Turn on'}
           </PrimaryButton>
           {form.has_password && (
-            <GhostButton tone="danger" busy={saving} onClick={() => save({ remove_password: true })}>
+            <GhostButton tone="danger" busy={saving} onClick={() => save({ includeAuth: true, remove_password: true })}>
               Turn off
             </GhostButton>
           )}

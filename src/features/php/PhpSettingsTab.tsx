@@ -83,7 +83,7 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
   const memOptions = choices?.memory_limit ?? ['256M'];
   const sizeOptions = choices?.sizes ?? ['64M'];
   const maxWorkers = detail.limits.max_children || choices?.max_children || 100;
-  const withCurrent = (opts: string[], cur: string) => (opts.includes(cur) ? opts : [...opts, cur]);
+  const withCurrent = <T,>(opts: T[], cur: T) => (opts.includes(cur) ? opts : [...opts, cur]);
 
   const save = async () => {
     setSaving(true);
@@ -307,17 +307,17 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
               </Field>
               <Field label="max_execution_time">
                 <select className={selectCls} value={form.max_execution_time} onChange={(e) => set('max_execution_time', Number(e.target.value))}>
-                  {(choices?.times ?? [30]).map((t) => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                  {withCurrent(choices?.times ?? [30], form.max_execution_time).map((t) => <option key={t} value={t}>{fmtTime(t)}</option>)}
                 </select>
               </Field>
               <Field label="max_input_time">
                 <select className={selectCls} value={form.max_input_time} onChange={(e) => set('max_input_time', Number(e.target.value))}>
-                  {(choices?.times ?? [60]).map((t) => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                  {withCurrent(choices?.times ?? [60], form.max_input_time).map((t) => <option key={t} value={t}>{fmtTime(t)}</option>)}
                 </select>
               </Field>
               <Field label="max_input_vars">
                 <select className={selectCls} value={form.max_input_vars} onChange={(e) => set('max_input_vars', Number(e.target.value))}>
-                  {(choices?.max_input_vars ?? [1000]).map((t) => <option key={t}>{t}</option>)}
+                  {withCurrent(choices?.max_input_vars ?? [1000], form.max_input_vars).map((t) => <option key={t}>{t}</option>)}
                 </select>
               </Field>
               <Field label="post_max_size">
@@ -377,7 +377,6 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         savedValue={detail.settings?.routing}
         onChange={(routing) => setForm((prev) => (prev ? { ...prev, routing } : prev))}
         onSaved={async () => {
-          loadedFor.current = '';
           await reload();
           await onChanged();
         }}
@@ -405,7 +404,6 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
                     const stopped = Boolean(detail.settings?.stopped || detail.runtime.state === 'stopped');
                     const r = stopped ? await backendApi.phpSiteStart(app.id) : await backendApi.phpSiteStop(app.id);
                     if (r.ok) {
-                      loadedFor.current = '';
                       await onChanged();
                     }
                     return r;

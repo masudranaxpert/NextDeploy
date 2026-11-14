@@ -97,8 +97,8 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
   const desktopLogContainerRef = useRef<HTMLDivElement>(null);
   const mobileLogContainerRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setBusy(true);
     try {
       const res = await backendApi.phpLogs(app.id, source, lines);
       if (res.ok && res.data) {
@@ -108,12 +108,12 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
         setError(res.error || 'Could not load logs');
       }
     } finally {
-      setBusy(false);
+      if (!quiet) setBusy(false);
     }
   }, [app.id, source, lines]);
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
       if (inFlight) return;
       inFlight = true;
       try {
-        await load();
+        await load(true);
       } finally {
         inFlight = false;
       }
@@ -143,7 +143,8 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
   const parsedEntries = useMemo(() => {
     if (!text) return [];
     const rawLines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    return rawLines.map((line, idx) => {
+    const seenCounts = new Map<string, number>();
+    return rawLines.map((line) => {
       let ts = '';
       let msg = line;
       let level: 'info' | 'warn' | 'error' | 'debug' = 'info';
@@ -164,8 +165,11 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
         level = 'debug';
       }
 
+      const occ = (seenCounts.get(line) ?? 0) + 1;
+      seenCounts.set(line, occ);
+
       return {
-        id: `php-log-${idx}`,
+        id: `${source}:${line}:${occ}`,
         timestamp: ts,
         container: source === 'php' ? 'php' : 'fpm',
         level,
@@ -409,7 +413,7 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
 
                     <span
                       className={`${
-                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'truncate whitespace-pre'
+                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre'
                       } ${
                         l.level === 'error'
                           ? 'text-rose-300'
@@ -681,7 +685,7 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
                     {/* Bottom Log Message Body */}
                     <div
                       className={`mt-1.5 font-mono text-xs sm:text-[13px] leading-relaxed ${
-                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'truncate whitespace-pre'
+                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre'
                       } ${lvlStyle.textCls}`}
                     >
                       {l.message}

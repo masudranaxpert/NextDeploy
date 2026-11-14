@@ -278,11 +278,11 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                 </span>
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <span className="font-mono text-xs text-zinc-100 break-all">
-                    /data/apps/{app.slug}
+                    /data/apps/{app.id}
                   </span>
                   <button
                     type="button"
-                    onClick={() => handleCopy('workspace-dir', `/data/apps/${app.slug}`)}
+                    onClick={() => handleCopy('workspace-dir', `/data/apps/${app.id}`)}
                     title="Copy workspace directory"
                     className="shrink-0 rounded-md border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-100 cursor-pointer transition-colors"
                   >
@@ -311,7 +311,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"
                 />
                 <span className="min-w-0 flex-1 truncate">
-                  {productionUrl.replace('https://', '')}
+                  {productionUrl.replace(/^https?:\/\//, '')}
                 </span>
                 <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
               </a>
@@ -594,11 +594,11 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
       <ShadcnDialog
         open={gitSyncModalOpen}
         onClose={() => setGitSyncModalOpen(false)}
-        title={app.sourceType === 'git' ? 'Pause Git Sync' : 'Resume Git Sync'}
+        title={isGitSyncActive ? 'Pause Git Sync' : 'Resume Git Sync'}
         icon={<GitBranch className="h-4 w-4 text-orange-400" />}
       >
         <div className="space-y-4">
-          {app.sourceType === 'git' ? (
+          {isGitSyncActive ? (
             <p className="text-xs text-zinc-300 leading-relaxed">
               Copies the current Git checkout into the workspace (newer workspace files are
               preserved) and pauses automatic Git pulls so you can edit files directly in File
@@ -638,7 +638,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
             <button
               type="button"
               onClick={async () => {
-                const nextEnabled = app.sourceType !== 'git';
+                const nextEnabled = !isGitSyncActive;
                 const res = await backendApi.setGitSync(
                   app.id,
                   nextEnabled,
@@ -662,7 +662,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({
               }}
               className="rounded-lg bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
             >
-              {app.sourceType === 'git' ? 'Pause Git Sync' : 'Resume Git Sync'}
+              {isGitSyncActive ? 'Pause Git Sync' : 'Resume Git Sync'}
             </button>
           </div>
         </div>

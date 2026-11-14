@@ -195,8 +195,18 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
         ) : (
           <ul className="space-y-1">
             {(detail.cron_jobs ?? []).map((j) => {
-              const phpFile = j.command.match(/([\w.-]+\.php)/);
-              const label = phpFile ? phpFile[1] : (j.command.trim().split(/\s+/)[0].split('/').pop() || 'cron').slice(0, 18);
+              const cmdStr = j.command.trim();
+              const phpFile = cmdStr.match(/([\w.-]+\.php)/);
+              const effectiveCmd = cmdStr.replace(/^cd\s+\S+\s*&&\s*/i, '');
+              const label = (
+                phpFile
+                  ? phpFile[1]
+                  : effectiveCmd.includes('artisan schedule:run')
+                    ? 'artisan schedule:run'
+                    : effectiveCmd.includes('wp cron')
+                      ? 'wp cron'
+                      : (effectiveCmd.split(/\s+/)[0] || 'cron').split('/').pop() || 'cron'
+              ).slice(0, 20);
               const ran = j.last_run_at && j.last_run_at !== 'never';
               return (
                 <li key={j.id} className="py-3">
@@ -231,7 +241,7 @@ export const PhpCronTab: React.FC<{ app: AppStack }> = ({ app }) => {
                       </GhostButton>
                     </span>
                   </div>
-                  <button type="button" onClick={() => openEdit(j)} className="mt-2 flex w-full items-center justify-between gap-2 text-left cursor-pointer" title="Edit cron job">
+                  <button type="button" onClick={() => openEdit(j)} className="mt-2 flex w-full min-w-0 items-center justify-between gap-2 text-left cursor-pointer" title="Edit cron job">
                     <span className="truncate font-mono text-[11px] text-zinc-500">{j.command}</span>
                   </button>
                   <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">

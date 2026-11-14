@@ -158,7 +158,17 @@ export const ProjectVolumesTab: React.FC<ProjectVolumesTabProps> = ({
     });
     try {
       const res = await backendApi.volumeRestoreUpload(restoreTargetVolume, restoreFile);
-      if (res?.job_id) {
+      if (!res.ok) {
+        setRestoreStatus({
+          status: 'error',
+          extract_percent: 0,
+          done: true,
+          error: res.error || 'Volume restore upload failed',
+        });
+        toast.error(res.error || 'Volume restore upload failed');
+        return;
+      }
+      if (res.job_id) {
         setRestoreJobId(res.job_id);
         setRestoreStatus({
           status: 'extracting',
@@ -242,8 +252,8 @@ export const ProjectVolumesTab: React.FC<ProjectVolumesTabProps> = ({
 
                   <a
                     href={`/volumes/download?name=${encodeURIComponent(vol.name)}`}
-                    onClick={(e) => {
-                      e.preventDefault();
+                    download={`${vol.name}.tar.gz`}
+                    onClick={() => {
                       toast.success(`Downloading ${vol.name}.tar.gz stream`);
                     }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"

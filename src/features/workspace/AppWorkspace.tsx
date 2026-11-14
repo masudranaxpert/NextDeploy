@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Archive as PhpTabArchive,
@@ -116,14 +116,13 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   useEffect(() => {
     const handleUrlTab = () => {
       const tabParam = new URLSearchParams(window.location.search).get('tab');
-      if (tabParam && tabParam !== activeTab) {
-        setActiveTab(tabParam as AppWorkspaceTab);
-      }
+      const nextTab = (tabParam || (app.php ? 'php-settings' : 'overview')) as AppWorkspaceTab;
+      setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
     };
     handleUrlTab();
     window.addEventListener('popstate', handleUrlTab);
     return () => window.removeEventListener('popstate', handleUrlTab);
-  }, []);
+  }, [app.php]);
 
   // Keep open tab in query param (?tab=)
   useEffect(() => {
@@ -160,16 +159,21 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   }>({ running: false, action: '', output: '' });
   const [isBuildLogExpanded, setIsBuildLogExpanded] = useState<boolean | null>(null);
 
+  const appRef = useRef(app);
+  appRef.current = app;
+
   // Refresh current app state from backend bootstrap
   const refreshAppFromBackend = async (shouldApply?: () => boolean) => {
     try {
       const bootRes = await backendApi.bootstrap();
       if (shouldApply && !shouldApply()) return;
       if (!bootRes.ok || !bootRes.data) return;
-      const updates = mapBootstrapApp(app, bootRes.data);
+      const latestApp = appRef.current;
+      const updates = mapBootstrapApp(latestApp, bootRes.data);
       if (updates) {
-        onUpdateApp({ ...app, ...updates });
+        onUpdateApp({ ...latestApp, ...updates });
       }
+      await onRefresh?.();
     } catch {
       // Ignore refresh errors
     }
@@ -379,7 +383,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           onUpdateApp={onUpdateApp}
           hasGitConnection={hasGitConnection}
           isGitSyncActive={isGitSyncActive}
-          detectedBranches={[]}
+          detectedBranches={app.gitBranch ? [app.gitBranch] : []}
           limitsInfo={limitsInfo}
           productionUrl={productionUrl}
           previewUrl={previewUrl}
@@ -413,6 +417,7 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
             logs.setTerminalService(service);
             setActiveTab('terminal');
           }}
+          onOpenDomainModal={() => setActiveTab('domains')}
         />
       )}
 
@@ -428,6 +433,8 @@ export const AppWorkspace: React.FC<AppWorkspaceProps> = ({
           triggerDeploy={triggerDeploy}
           setBuildLogsDeployment={setBuildLogsDeployment}
           isPinnedProduction={isPinnedProduction}
+          previewUrl={previewUrl}
+          previewHost={previewHost}
           onRefresh={refreshAppFromBackend}
         />
       )}

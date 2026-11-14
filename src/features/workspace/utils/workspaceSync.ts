@@ -67,20 +67,25 @@ export function mapBootstrapApp(app: AppStack, bootData: any): Partial<AppStack>
 
   const mappedServices: ContainerService[] =
     appContainers.length > 0
-      ? appContainers.map((c: any, sIdx: number) => ({
-          id: c.ID || `svc-${fresh.id}-${sIdx}`,
-          name: c.Name || `${fresh.name}_${sIdx}`,
-          service: c.ComposeService || (Array.isArray(fresh.services) && fresh.services[sIdx]) || 'app',
-          image: c.Image || `${fresh.name}:latest`,
-          state: ((c.State || '').toLowerCase() === 'running'
-            ? 'running'
-            : 'exited') as any,
-          uptime: c.Status || 'Active',
-          cpuPct: 0,
-          memUsedMB: 0,
-          memLimitMB: 1024,
-          ports: c.Ports || '',
-        }))
+      ? appContainers.map((c: any, sIdx: number) => {
+          const prevSvc = (app.services || []).find(
+            (s) => (c.ID && s.id === c.ID) || (c.Name && s.name === c.Name)
+          );
+          return {
+            id: c.ID || `svc-${fresh.id}-${sIdx}`,
+            name: c.Name || `${fresh.name}_${sIdx}`,
+            service: c.ComposeService || (Array.isArray(fresh.services) && fresh.services[sIdx]) || 'app',
+            image: c.Image || `${fresh.name}:latest`,
+            state: ((c.State || '').toLowerCase() === 'running'
+              ? 'running'
+              : 'exited') as any,
+            uptime: c.Status || 'Active',
+            cpuPct: prevSvc?.cpuPct ?? 0,
+            memUsedMB: prevSvc?.memUsedMB ?? 0,
+            memLimitMB: prevSvc?.memLimitMB ?? 1024,
+            ports: c.Ports || '',
+          };
+        })
       : Array.isArray(fresh.services)
       ? fresh.services.map((s: string, sIdx: number) => ({
           id: `svc-${fresh.id}-${sIdx}`,

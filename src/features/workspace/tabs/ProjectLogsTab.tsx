@@ -135,7 +135,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
   const { onScroll: onDesktopScroll } = useStickyAutoScroll(desktopLogContainerRef, logLiveTail, tailKey);
   const { onScroll: onMobileScroll } = useStickyAutoScroll(mobileLogContainerRef, logLiveTail, tailKey);
 
-  // Discover all distinct services in the stack and log history
+  // Discover all distinct services in the stack and currently visible logs
   const availableServices = useMemo(() => {
     const set = new Set<string>();
     if (app.services && app.services.length > 0) {
@@ -147,11 +147,14 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
     for (const l of filteredLogs) {
       if (l.container) set.add(l.container);
     }
+    if (logContainerFilter !== 'all' && logContainerFilter) {
+      set.add(logContainerFilter);
+    }
     if (set.size === 0) {
       set.add('app');
     }
     return Array.from(set);
-  }, [app.services, filteredLogs]);
+  }, [app.services, filteredLogs, logContainerFilter]);
 
   const handleCopyLog = (l: LogEntry) => {
     void copyToClipboard(
@@ -183,25 +186,30 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
               >
                 All Services
               </button>
-              {(app.services || []).map((s) => (
-                <button
-                  key={s.id || s.service || s.name}
-                  type="button"
-                  onClick={() => setLogContainerFilter(s.service || s.name)}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-xs cursor-pointer transition-colors ${
-                    logContainerFilter === (s.service || s.name)
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      s.state === 'running' ? 'bg-emerald-400' : 'bg-zinc-500'
+              {availableServices.map((svcName) => {
+                const matched = (app.services || []).find(
+                  (s) => (s.service || s.name) === svcName
+                );
+                return (
+                  <button
+                    key={svcName}
+                    type="button"
+                    onClick={() => setLogContainerFilter(svcName)}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-xs cursor-pointer transition-colors ${
+                      logContainerFilter === svcName
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
                     }`}
-                  />
-                  {s.service || s.name}
-                </button>
-              ))}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        matched?.state === 'running' ? 'bg-emerald-400' : 'bg-zinc-500'
+                      }`}
+                    />
+                    {svcName}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Severity Filter Pills */}
@@ -337,7 +345,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                   <div className="flex items-start gap-2.5 min-w-0 flex-1">
                     {logShowTimestamps && (
                       <span className="text-zinc-400 shrink-0 select-none text-[11px]">
-                        {l.timestamp.slice(11, 23) || l.timestamp}
+                        {formatTimestamp(l.timestamp)}
                       </span>
                     )}
 
@@ -361,7 +369,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
                     <span
                       className={`${
-                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'truncate whitespace-pre'
+                        logWordWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre'
                       } ${
                         l.level === 'error'
                           ? 'text-rose-300'
@@ -378,16 +386,15 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      void copyToClipboard(
-                        `${l.timestamp} [${l.level.toUpperCase()}] [${l.container}] ${l.message}`
-                      );
-                      toast.success('Copied log line');
-                    }}
-                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 rounded p-1 text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200 cursor-pointer shrink-0"
+                    onClick={() => handleCopyLog(l)}
+                    className={`rounded p-1 cursor-pointer shrink-0 transition-opacity ${
+                      copiedId === l.id
+                        ? 'opacity-100 text-emerald-400'
+                        : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200'
+                    }`}
                     title="Copy log line"
                   >
-                    <Copy className="h-3 w-3" />
+                    {copiedId === l.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </button>
                 </div>
               ))
@@ -651,7 +658,7 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
                   {/* Bottom Log Message Body */}
                   <div
                     className={`mt-1.5 font-mono text-xs sm:text-[13px] leading-relaxed ${
-                      logWordWrap ? 'break-all whitespace-pre-wrap' : 'truncate whitespace-pre'
+                      logWordWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre'
                     } ${lvlStyle.textCls}`}
                   >
                     {renderLogMessage(l.message)}
