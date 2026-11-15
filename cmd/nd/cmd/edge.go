@@ -966,13 +966,7 @@ func findClosingBraceLine(lines []string, openIdx int) int {
 }
 
 func hasNonCommentCaddyContent(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
-		t := strings.TrimSpace(line)
-		if t != "" && !strings.HasPrefix(t, "#") {
-			return true
-		}
-	}
-	return false
+	return edge.HasNonCommentCaddyContent(s)
 }
 
 func ensureInstallLayout(ctx context.Context, ops *edgeOps, plan caddyfileInstallPlan) error {
@@ -1044,6 +1038,11 @@ func ensureInstallLayout(ctx context.Context, ops *edgeOps, plan caddyfileInstal
 		}
 		if err := edge.WriteFileAtomic(filepath.Join(gen0Panels, edge.PlaceholderFileName), []byte(edge.RenderPlaceholderCaddy()), 0o640); err != nil {
 			return err
+		}
+		if !plan.HasUserSites && !edge.DirHasNonCommentCaddyFiles(ops.paths.UserCaddyDir, edge.PlaceholderFileName) {
+			if err := edge.WriteFileAtomic(filepath.Join(gen0Panels, edge.HealthFileName), []byte(edge.RenderHealthProbeCaddy()), 0o640); err != nil {
+				return err
+			}
 		}
 		if err := edge.SwapDirLinkAtomic(ops.paths.PanelsLink, gen0Panels); err != nil {
 			return err

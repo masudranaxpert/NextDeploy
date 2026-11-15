@@ -157,4 +157,26 @@ func TestReconcileAllAppSlotComposeAndRootCaddySync(t *testing.T) {
 	if len(applied) == 0 || applied[len(applied)-1][1] != "caddy" {
 		t.Fatalf("expected caddy apply trigger when live Caddy bindings differ, got %+v", applied)
 	}
+
+	// Phase 3: Compose on disk is already up to date (changed == false), but running Caddy still holds
+	// legacy caddy.auto_https=disable_redirects (e.g. after SyncRootStackComposeOnStart on panel-only upgrade).
+	beforeLegacy := len(applied)
+	phase1Live = &dockerapi.LivePortState{
+		DirectHostPorts:         map[int]bool{54325: true},
+		CaddyGatewayPorts:       map[int]bool{12002: true, 18080: true},
+		CaddyBoundPorts:         map[int]bool{12002: true, 18080: true},
+		RunningProjects:         map[string]bool{"app-b-running-blue": true},
+		CaddyHasLegacyAutoHTTPS: true,
+	}
+	p.syncAndApplyRootCaddyIfNeeded(ctx)
+	if len(applied) != beforeLegacy+1 || applied[len(applied)-1][1] != "caddy" {
+		t.Fatalf("expected caddy apply trigger when CaddyHasLegacyAutoHTTPS=true, got %+v", applied)
+	}
+
+	// Once Caddy has recreated without caddy.auto_https, subsequent syncs must not re-apply.
+	phase1Live.CaddyHasLegacyAutoHTTPS = false
+	p.syncAndApplyRootCaddyIfNeeded(ctx)
+	if len(applied) != beforeLegacy+1 {
+		t.Fatalf("did not expect duplicate caddy apply once CaddyHasLegacyAutoHTTPS=false, got %+v", applied)
+	}
 }

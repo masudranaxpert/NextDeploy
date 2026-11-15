@@ -74,7 +74,13 @@ func (p *Panel) CaddyOptionsSave(c *fiber.Ctx) error {
 		return phpJSONErr(c, 500, "saved, but the stack file could not be updated: "+err.Error())
 	}
 	if body.Apply {
-		p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+		services := []string{"caddy"}
+		existingTrusted := existing.RealIP == "cloudflare" || existing.RealIP == "custom"
+		newTrusted := o.RealIP == "cloudflare" || o.RealIP == "custom"
+		if strings.TrimSpace(p.DB.GetSetting(ctx, settingPanelDomain)) != "" && existingTrusted != newTrusted {
+			services = append(services, "panel")
+		}
+		p.applyRootStackComposeBackground(p.nextDeployComposePath(), services...)
 	}
 	p.RecordAuditLog(c, "caddy_options", "system", "caddy", "Updated Caddy server options")
 	return c.JSON(fiber.Map{"ok": true, "applying": body.Apply, "options": o})

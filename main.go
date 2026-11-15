@@ -70,14 +70,7 @@ func main() {
 	}
 	spaIndex, _ := fs.ReadFile(distFS, "index.html")
 
-	app := fiber.New(fiber.Config{
-		AppName:                      "NextDeploy",
-		ServerHeader:                 "NextDeploy",
-		BodyLimit:                    2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
-		StreamRequestBody:            true,
-		DisablePreParseMultipartForm: true,
-		IdleTimeout:                  2 * time.Minute, // drop idle keep-alive connections; uploads are not cut short
-	})
+	app := fiber.New(panelFiberConfig())
 
 	p := &handlers.Panel{
 		DB:             database,
@@ -708,4 +701,26 @@ func main() {
 	}
 	log.Printf("listening on %s data=%s workspaces=%s", addr, dataDir, root)
 	log.Fatal(app.Listen(addr))
+}
+
+func panelFiberConfig() fiber.Config {
+	return fiber.Config{
+		AppName:                      "NextDeploy",
+		ServerHeader:                 "NextDeploy",
+		BodyLimit:                    2 * 1024 * 1024 * 1024, // 2 GiB (keep in sync with handlers.maxVolumeRestoreBytes)
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
+		IdleTimeout:                  2 * time.Minute, // drop idle keep-alive connections; uploads are not cut short
+		ProxyHeader:                  fiber.HeaderXForwardedFor,
+		EnableTrustedProxyCheck:      true,
+		EnableIPValidation:           true,
+		TrustedProxies: []string{
+			"127.0.0.1",
+			"::1",
+			"10.0.0.0/8",
+			"172.16.0.0/12",
+			"192.168.0.0/16",
+			"fc00::/7",
+		},
+	}
 }

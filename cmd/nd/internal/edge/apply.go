@@ -498,6 +498,63 @@ func mergeManagedCaddyfile(existing, desiredRegion string) string {
 	return desiredRegion + "\n" + existing
 }
 
+// StripManagedRegion removes the nd-edge managed block from a Caddyfile string.
+func StripManagedRegion(raw string) string {
+	startIdx := strings.Index(raw, ManagedStartMarker)
+	endIdx := strings.Index(raw, ManagedEndMarker)
+	if startIdx >= 0 && endIdx > startIdx {
+		afterEnd := endIdx + len(ManagedEndMarker)
+		if afterEnd < len(raw) && raw[afterEnd] == '\n' {
+			afterEnd++
+		}
+		return raw[:startIdx] + raw[afterEnd:]
+	}
+	return raw
+}
+
+// DirHasNonCommentCaddyFiles reports whether dir contains any .caddy file (other
+// than ignoreNames) with non-empty, non-comment directives.
+func DirHasNonCommentCaddyFiles(dir string, ignoreNames ...string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	ignored := make(map[string]struct{}, len(ignoreNames))
+	for _, n := range ignoreNames {
+		ignored[n] = struct{}{}
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".caddy") {
+			continue
+		}
+		if _, skip := ignored[e.Name()]; skip {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err == nil && HasNonCommentCaddyContent(string(b)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Applier) shouldEmitHealthProbe(panels []PanelRenderArtifact) bool {
+	for _, p := range panels {
+		if HasNonCommentCaddyContent(string(p.CaddyBytes)) {
+			return false
+		}
+	}
+	if b, err := os.ReadFile(a.paths.Caddyfile); err == nil {
+		if HasNonCommentCaddyContent(StripManagedRegion(string(b))) {
+			return false
+		}
+	}
+	if DirHasNonCommentCaddyFiles(a.paths.UserCaddyDir, PlaceholderFileName) {
+		return false
+	}
+	return true
+}
+
 func (a *Applier) compareCurrentGeneration(in ApplyInput) (drifted []string, identical bool) {
 	if b, err := os.ReadFile(a.paths.GlobalOpts); err != nil || !bytes.Equal(b, in.GlobalOpts) {
 		if err == nil {
@@ -526,8 +583,11 @@ func (a *Applier) compareCurrentGeneration(in ApplyInput) (drifted []string, ide
 	if err != nil {
 		return nil, false
 	}
-	expectedCaddy := make(map[string][]byte, len(in.Panels)+1)
+	expectedCaddy := make(map[string][]byte, len(in.Panels)+2)
 	expectedCaddy[PlaceholderFileName] = []byte(RenderPlaceholderCaddy())
+	if a.shouldEmitHealthProbe(in.Panels) {
+		expectedCaddy[HealthFileName] = []byte(RenderHealthProbeCaddy())
+	}
 	expectedPEM := make(map[string][]byte, len(in.Panels))
 	for _, p := range in.Panels {
 		expectedCaddy[p.PanelID+".caddy"] = p.CaddyBytes
@@ -594,6 +654,11 @@ func (a *Applier) stageGeneration(panelDir, originDir string, in ApplyInput, pan
 	}
 	if err := WriteFileAtomic(filepath.Join(panelDir, PlaceholderFileName), []byte(RenderPlaceholderCaddy()), 0o640); err != nil {
 		return err
+	}
+	if a.shouldEmitHealthProbe(panels) {
+		if err := WriteFileAtomic(filepath.Join(panelDir, HealthFileName), []byte(RenderHealthProbeCaddy()), 0o640); err != nil {
+			return err
+		}
 	}
 	for _, p := range panels {
 		if err := WriteFileAtomic(filepath.Join(panelDir, p.PanelID+".caddy"), p.CaddyBytes, 0o640); err != nil {

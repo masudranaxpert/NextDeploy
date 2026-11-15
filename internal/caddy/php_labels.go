@@ -85,6 +85,9 @@ func appendPHPSiteLabels(labels map[string]string, prefix string, d db.AppDomain
 		labels[prefix+".php_fastcgi.dial_timeout"] = "5s"
 		labels[prefix+".php_fastcgi.read_timeout"] = "120s"
 		labels[prefix+".php_fastcgi.write_timeout"] = "120s"
+		if !d.TrustedProxy && d.ShieldNodeID == nil {
+			applyUntrustedDirectProxyHeaders(labels, prefix+".php_fastcgi")
+		}
 		switch routing.FallbackMode {
 		case FallbackStrict404:
 			labels[prefix+".php_fastcgi.try_files"] = "{path} {path}/index.php =404"

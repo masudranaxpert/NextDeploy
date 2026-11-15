@@ -115,7 +115,7 @@ func (m *statefulMockCaddyRunner) Validate(_ context.Context, configPath string)
 					}
 				}
 			}
-			if strings.HasSuffix(mf, ".caddy") && filepath.Base(mf) != edge.PlaceholderFileName {
+			if strings.HasSuffix(mf, ".caddy") && filepath.Base(mf) != edge.PlaceholderFileName && filepath.Base(mf) != edge.HealthFileName {
 				hosts := parseSiteHosts(txt)
 				for _, h := range hosts {
 					if prev, dup := seenHosts[h]; dup {
@@ -150,7 +150,7 @@ func (m *statefulMockCaddyRunner) Reload(_ context.Context, _ string, _ string) 
 	pemFiles := make(map[string]string)
 
 	for _, e := range entries {
-		if e.IsDir() || e.Name() == edge.PlaceholderFileName || !strings.HasSuffix(e.Name(), ".caddy") {
+		if e.IsDir() || e.Name() == edge.PlaceholderFileName || e.Name() == edge.HealthFileName || !strings.HasSuffix(e.Name(), ".caddy") {
 			continue
 		}
 		panelID := strings.TrimSuffix(e.Name(), ".caddy")

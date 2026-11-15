@@ -785,3 +785,33 @@ other.example.com {
 		t.Fatalf("expected [FAIL] caddy-directives, got:\n%s", stdout.String())
 	}
 }
+
+func TestEnsureInstallLayoutHealthProbe(t *testing.T) {
+	ctx := context.Background()
+
+	// Fresh install without user sites creates 01-health.caddy in gen0Panels.
+	opsFresh, _, _ := newTestEdgeOps(t)
+	if err := ensureInstallLayout(ctx, opsFresh, caddyfileInstallPlan{}); err != nil {
+		t.Fatalf("fresh ensureInstallLayout failed: %v", err)
+	}
+	gen0Dir, err := edge.ReadDirLink(opsFresh.paths.PanelsLink)
+	if err != nil {
+		t.Fatalf("ReadDirLink: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(gen0Dir, edge.HealthFileName)); err != nil {
+		t.Fatalf("expected %s in gen0 on fresh install: %v", edge.HealthFileName, err)
+	}
+
+	// Adopted install with user sites skips 01-health.caddy in gen0Panels.
+	opsAdopted, _, _ := newTestEdgeOps(t)
+	if err := ensureInstallLayout(ctx, opsAdopted, caddyfileInstallPlan{HasUserSites: true}); err != nil {
+		t.Fatalf("adopted ensureInstallLayout failed: %v", err)
+	}
+	adoptedDir, err := edge.ReadDirLink(opsAdopted.paths.PanelsLink)
+	if err != nil {
+		t.Fatalf("ReadDirLink adopted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(adoptedDir, edge.HealthFileName)); !os.IsNotExist(err) {
+		t.Fatalf("expected %s omitted when HasUserSites=true, got err=%v", edge.HealthFileName, err)
+	}
+}

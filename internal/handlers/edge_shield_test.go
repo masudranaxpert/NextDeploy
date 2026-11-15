@@ -879,3 +879,79 @@ func TestTrustedProxyEndToEndHandlers(t *testing.T) {
 		t.Fatalf("expected TrustedProxy=true and updated ETag, r1=%s r2=%s routes=%+v (err=%v)", r1.ETag, r2.ETag, r2.Routes, err)
 	}
 }
+
+func TestCaddyOptionsSaveRecreatesPanelWhenPanelTrustChanges(t *testing.T) {
+	setupTempRootCompose(t)
+	wsRoot := t.TempDir()
+	store, err := db.Open(filepath.Join(t.TempDir(), "panel_trust_apply.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	calls := make(chan []string, 8)
+	p := &Panel{
+		DB:             store,
+		Store:          workspace.NewStore(wsRoot),
+		WorkspacesRoot: wsRoot,
+		applyRootStackComposeFn: func(_ string, services ...string) {
+			calls <- append([]string(nil), services...)
+		},
+	}
+
+	ctx := context.Background()
+	adminID, _ := store.CreateUser(ctx, "admin", "hash", db.RoleAdmin)
+	sessTok := "panel_trust_sess"
+	_ = store.CreateSession(ctx, sessTok, adminID, time.Now().Add(time.Hour))
+
+	app := fiber.New()
+	app.Post("/caddy/options", p.RequireAdminMiddleware, p.CaddyOptionsSave)
+
+	postSave := func(payload map[string]any) []string {
+		raw, _ := json.Marshal(payload)
+		req := httptest.NewRequest("POST", "/caddy/options", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Cookie", sessionCookie+"="+sessTok)
+		resp, reqErr := app.Test(req, 5000)
+		if reqErr != nil || resp.StatusCode != 200 {
+			t.Fatalf("CaddyOptionsSave failed: err=%v status=%v", reqErr, resp)
+		}
+		select {
+		case got := <-calls:
+			return got
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out waiting for applyRootStackComposeFn")
+			return nil
+		}
+	}
+
+	// 1. Without panel_domain, changing RealIP only recreates caddy.
+	gotNoDomain := postSave(map[string]any{"profile": "default", "real_ip": "cloudflare", "apply": true})
+	if strings.Join(gotNoDomain, ",") != "caddy" {
+		t.Fatalf("without panel_domain expected [caddy], got %v", gotNoDomain)
+	}
+
+	// Reset to none while panel_domain is set -> none -> cloudflare must recreate caddy + panel.
+	_ = store.SetSetting(ctx, settingPanelDomain, "panel.example.com")
+	gotToNone := postSave(map[string]any{"profile": "default", "real_ip": "none", "apply": true})
+	if strings.Join(gotToNone, ",") != "caddy,panel" {
+		t.Fatalf("cloudflare->none with panel_domain expected [caddy panel], got %v", gotToNone)
+	}
+
+	// Flipping none -> custom also flips trust mode -> recreates caddy + panel.
+	gotToCustom := postSave(map[string]any{
+		"profile":         "default",
+		"real_ip":         "custom",
+		"trusted_proxies": []string{"10.0.0.5"},
+		"apply":           true,
+	})
+	if strings.Join(gotToCustom, ",") != "caddy,panel" {
+		t.Fatalf("none->custom with panel_domain expected [caddy panel], got %v", gotToCustom)
+	}
+
+	// Custom -> cloudflare keeps trust mode true -> only recreates caddy.
+	gotToCF := postSave(map[string]any{"profile": "default", "real_ip": "cloudflare", "apply": true})
+	if strings.Join(gotToCF, ",") != "caddy" {
+		t.Fatalf("custom->cloudflare unchanged trust expected [caddy], got %v", gotToCF)
+	}
+}

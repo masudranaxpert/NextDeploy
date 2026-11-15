@@ -97,6 +97,7 @@ const rootBase = `services:
   caddy:
     image: lucaslorentz/caddy-docker-proxy:ci-alpine
     labels:
+      caddy.auto_https: disable_redirects
       caddy.servers.timeouts.idle: 9m
       caddy.grace_period: 1h
       keep.me: "yes"
@@ -116,7 +117,7 @@ func TestRootComposeCarriesAndRemovesOptionLabels(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "9m") || strings.Contains(s, "caddy.grace_period") {
+	if strings.Contains(s, "9m") || strings.Contains(s, "caddy.grace_period") || strings.Contains(s, "caddy.auto_https") || strings.Contains(s, "disable_redirects") {
 		t.Errorf("stale option labels were not removed:\n%s", s)
 	}
 	back, _ := GenerateRootStackCompose(out, "", true, false, "", "", nil, GlobalOptions{})
@@ -190,5 +191,72 @@ func TestUntrustedDirectProxyHeaderEnforcement(t *testing.T) {
 	rTrusted := RouteLabels(db.ProxyRoute{Kind: "proxy", Domain: "r2.example.com", Target: "http://10.0.0.5:8080", EnableHTTPS: true, TrustedProxy: true})
 	if _, ok := rTrusted["caddy.reverse_proxy.header_up_0"]; ok {
 		t.Fatalf("did not expect untrusted header_up on trusted proxy route: %v", rTrusted)
+	}
+}
+
+func TestRootComposePanelTrustedProxyLabels(t *testing.T) {
+	base := []byte(rootBase)
+
+	// 1. RealIP=none (even with DirectCloudflare=true from an app domain) keeps panel untrusted.
+	outNone, err := GenerateRootStackCompose(
+		base,
+		"panel.example.com",
+		true,
+		false,
+		"ops@example.com",
+		CaddyImage,
+		nil,
+		GlobalOptions{RealIP: "none", DirectCloudflare: true},
+	)
+	if err != nil {
+		t.Fatalf("RealIP=none compose failed: %v", err)
+	}
+	sNone := string(outNone)
+	if !strings.Contains(sNone, "caddy.reverse_proxy.header_up_2: -CF-Connecting-IP") ||
+		!strings.Contains(sNone, "caddy.reverse_proxy.header_up_0: X-Real-IP {remote_host}") {
+		t.Fatalf("expected panel to enforce untrusted direct proxy headers when RealIP=none:\n%s", sNone)
+	}
+
+	// 2. RealIP=cloudflare trusts proxy headers and normalizes client_ip for the panel.
+	outCF, err := GenerateRootStackCompose(
+		base,
+		"panel.example.com",
+		true,
+		false,
+		"ops@example.com",
+		CaddyImage,
+		nil,
+		GlobalOptions{RealIP: "cloudflare"},
+	)
+	if err != nil {
+		t.Fatalf("RealIP=cloudflare compose failed: %v", err)
+	}
+	sCF := string(outCF)
+	if strings.Contains(sCF, "-CF-Connecting-IP") {
+		t.Fatalf("panel must not strip CF-Connecting-IP when RealIP=cloudflare:\n%s", sCF)
+	}
+	if !strings.Contains(sCF, "caddy.reverse_proxy.header_up_0: X-Real-IP {client_ip}") ||
+		!strings.Contains(sCF, "caddy.reverse_proxy.header_up_1: X-Forwarded-For {client_ip}") {
+		t.Fatalf("expected panel to pass {client_ip} headers when RealIP=cloudflare:\n%s", sCF)
+	}
+
+	// 3. RealIP=custom also trusts custom proxy CIDRs and passes {client_ip}.
+	outCustom, err := GenerateRootStackCompose(
+		base,
+		"panel.example.com",
+		true,
+		false,
+		"ops@example.com",
+		CaddyImage,
+		nil,
+		GlobalOptions{RealIP: "custom", TrustedProxies: []string{"10.0.0.5"}},
+	)
+	if err != nil {
+		t.Fatalf("RealIP=custom compose failed: %v", err)
+	}
+	sCustom := string(outCustom)
+	if strings.Contains(sCustom, "-CF-Connecting-IP") ||
+		!strings.Contains(sCustom, "caddy.reverse_proxy.header_up_0: X-Real-IP {client_ip}") {
+		t.Fatalf("expected panel to pass {client_ip} headers when RealIP=custom:\n%s", sCustom)
 	}
 }

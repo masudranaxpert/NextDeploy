@@ -96,7 +96,7 @@ func RebuildClaimsFromCaddyDir(panelsDir string, fallbackTime time.Time) (*Claim
 			continue
 		}
 		name := entry.Name()
-		if name == PlaceholderFileName || !strings.HasSuffix(name, ".caddy") {
+		if name == PlaceholderFileName || name == HealthFileName || !strings.HasSuffix(name, ".caddy") {
 			continue
 		}
 		panelID := strings.TrimSuffix(name, ".caddy")

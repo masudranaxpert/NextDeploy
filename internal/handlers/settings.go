@@ -750,8 +750,9 @@ func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...
 	}()
 }
 
-// syncAndApplyRootCaddyIfNeeded reconciles root compose gateway ports against live container state
-// and recreates Caddy only when root compose bytes changed or live Caddy port bindings differ.
+// syncAndApplyRootCaddyIfNeeded reconciles root compose state against live container state
+// and recreates Caddy when root compose bytes changed, live Caddy port bindings differ,
+// or the running Caddy container still carries a legacy caddy.auto_https label.
 func (p *Panel) syncAndApplyRootCaddyIfNeeded(ctx context.Context) {
 	p.rootApplyMu.Lock()
 	defer p.rootApplyMu.Unlock()
@@ -762,7 +763,7 @@ func (p *Panel) syncAndApplyRootCaddyIfNeeded(ctx context.Context) {
 		return
 	}
 	needsApply := changed
-	if !needsApply && live != nil && !portSetsEqual(wantedPorts, live.CaddyBoundPorts) {
+	if !needsApply && live != nil && (!portSetsEqual(wantedPorts, live.CaddyBoundPorts) || live.CaddyHasLegacyAutoHTTPS) {
 		needsApply = true
 	}
 	if !needsApply {

@@ -190,3 +190,70 @@ func TestNamedMatcherLabelsSurviveCaddyDockerProxyParser(t *testing.T) {
 		}
 	}
 }
+
+func TestPHPUntrustedDirectProxyHeaders(t *testing.T) {
+	hasHeaderKey := func(labels map[string]string, suffix, want string) (found bool, got string) {
+		for k, v := range labels {
+			if len(k) >= len(suffix) && k[len(k)-len(suffix):] == suffix {
+				return true, v
+			}
+		}
+		return false, ""
+	}
+
+	// 1. Direct untrusted PHP site must strip/overwrite proxy headers before php_fastcgi.
+	directUntrusted := PHPSiteLabelsWithRouting(
+		[]db.AppDomain{{Domain: "blog.example.com", EnableHTTPS: true}},
+		"/var/www/html",
+		"/run/php/php8.3-fpm.sock",
+		SiteSecurity{},
+		SiteRouting{},
+	)
+	for suffix, want := range map[string]string{
+		".php_fastcgi.header_up_0": "X-Real-IP {remote_host}",
+		".php_fastcgi.header_up_1": "X-Forwarded-For {remote_host}",
+		".php_fastcgi.header_up_2": "-CF-Connecting-IP",
+	} {
+		ok, got := hasHeaderKey(directUntrusted, suffix, want)
+		if !ok || got != want {
+			t.Fatalf("direct untrusted PHP: %s got=(%v, %q) want=(true, %q); labels=%v", suffix, ok, got, want, directUntrusted)
+		}
+	}
+
+	// 2. Direct trusted proxy PHP site preserves Cloudflare / proxy headers.
+	directTrusted := PHPSiteLabelsWithRouting(
+		[]db.AppDomain{{Domain: "cf.example.com", EnableHTTPS: true, TrustedProxy: true}},
+		"/var/www/html",
+		"/run/php/php8.3-fpm.sock",
+		SiteSecurity{},
+		SiteRouting{},
+	)
+	if ok, got := hasHeaderKey(directTrusted, ".php_fastcgi.header_up_2", ""); ok {
+		t.Fatalf("direct trusted PHP should not strip CF-Connecting-IP, got %q", got)
+	}
+
+	// 3. Shield-backed PHP site preserves headers from Shield node.
+	sid := int64(42)
+	shielded := PHPSiteLabelsWithRouting(
+		[]db.AppDomain{{Domain: "edge.example.com", EnableHTTPS: true, ShieldNodeID: &sid}},
+		"/var/www/html",
+		"/run/php/php8.3-fpm.sock",
+		SiteSecurity{},
+		SiteRouting{},
+	)
+	if ok, got := hasHeaderKey(shielded, ".php_fastcgi.header_up_0", ""); ok {
+		t.Fatalf("shielded PHP should not overwrite proxy headers, got %q", got)
+	}
+
+	// 4. Static site (empty socket) has no php_fastcgi header_up directives.
+	staticSite := PHPSiteLabelsWithRouting(
+		[]db.AppDomain{{Domain: "static.example.com", EnableHTTPS: true}},
+		"/var/www/html",
+		"",
+		SiteSecurity{},
+		SiteRouting{},
+	)
+	if ok, got := hasHeaderKey(staticSite, ".php_fastcgi.header_up_0", ""); ok {
+		t.Fatalf("static site should not emit php_fastcgi.header_up_0, got %q", got)
+	}
+}

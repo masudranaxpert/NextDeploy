@@ -366,3 +366,79 @@ func TestApplierAppliesCaddyGroupOwnershipBeforeReload(t *testing.T) {
 		}
 	}
 }
+
+func TestApplierIdleHealthProbeLifecycle(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 6, 0, 0, 0, time.UTC)
+	paths := NewPaths(t.TempDir())
+	caddy := &fakeCaddyRunner{}
+	applier := NewApplier(paths, caddy)
+	meta := &ApplyMeta{}
+
+	// 1. 0 active routes (comment-only panel) -> emits 01-health.caddy alongside 00-placeholder.caddy.
+	emptyIn := ApplyInput{
+		AdminAddr:   DefaultAdminAddr,
+		GlobalOpts:  []byte(RenderGlobalOpts(DefaultCloudflareRanges)),
+		CommonCaddy: []byte(RenderCommonCaddy()),
+		Panels: []PanelRenderArtifact{
+			{PanelID: "panel-a", CaddyBytes: []byte("# Managed by nd edge (0 routes)\n"), Changed: true},
+		},
+	}
+	res, err := applier.Apply(ctx, emptyIn, meta, now)
+	if err != nil || !res.Applied {
+		t.Fatalf("idle apply failed: res=%+v err=%v", res, err)
+	}
+	curDir, _ := ReadDirLink(paths.PanelsLink)
+	healthBytes, err := os.ReadFile(filepath.Join(curDir, HealthFileName))
+	if err != nil {
+		t.Fatalf("expected %s to exist on 0-route apply: %v", HealthFileName, err)
+	}
+	if !strings.Contains(string(healthBytes), ":80 {") || !strings.Contains(string(healthBytes), `respond "ok" 200`) {
+		t.Fatalf("unexpected %s contents:\n%s", HealthFileName, string(healthBytes))
+	}
+
+	// Second unchanged 0-route apply must remain a NoOp.
+	resNoOp, err := applier.Apply(ctx, emptyIn, meta, now.Add(time.Minute))
+	if err != nil || !resNoOp.NoOp {
+		t.Fatalf("expected NoOp on unchanged 0-route apply, got res=%+v err=%v", resNoOp, err)
+	}
+
+	// 2. Assigning >=1 route removes 01-health.caddy.
+	activeIn := emptyIn
+	activeIn.Panels = []PanelRenderArtifact{
+		{PanelID: "panel-a", CaddyBytes: []byte("app.example.com {\n\trespond \"hi\" 200\n}\n"), Changed: true},
+	}
+	resActive, err := applier.Apply(ctx, activeIn, meta, now.Add(2*time.Minute))
+	if err != nil || !resActive.Applied {
+		t.Fatalf("active route apply failed: res=%+v err=%v", resActive, err)
+	}
+	curDir, _ = ReadDirLink(paths.PanelsLink)
+	if _, statErr := os.Stat(filepath.Join(curDir, HealthFileName)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected %s removed once a route is active, got statErr=%v", HealthFileName, statErr)
+	}
+
+	// 3. Removing the last route restores 01-health.caddy.
+	resBackToIdle, err := applier.Apply(ctx, emptyIn, meta, now.Add(3*time.Minute))
+	if err != nil || !resBackToIdle.Applied {
+		t.Fatalf("return-to-idle apply failed: res=%+v err=%v", resBackToIdle, err)
+	}
+	curDir, _ = ReadDirLink(paths.PanelsLink)
+	if _, statErr := os.Stat(filepath.Join(curDir, HealthFileName)); statErr != nil {
+		t.Fatalf("expected %s restored when 0 routes remain: %v", HealthFileName, statErr)
+	}
+
+	// 4. Adopted external user site suppresses 01-health.caddy even when 0 panel routes exist.
+	userDirPaths := NewPaths(t.TempDir())
+	_ = os.MkdirAll(userDirPaths.UserCaddyDir, 0o750)
+	if err := WriteFileAtomic(filepath.Join(userDirPaths.UserCaddyDir, "custom.caddy"), []byte(":80 {\n\trespond \"custom\" 200\n}\n"), 0o644); err != nil {
+		t.Fatalf("write user caddy: %v", err)
+	}
+	userApplier := NewApplier(userDirPaths, &fakeCaddyRunner{})
+	if resU, err := userApplier.Apply(ctx, emptyIn, &ApplyMeta{}, now); err != nil || !resU.Applied {
+		t.Fatalf("user-dir apply failed: res=%+v err=%v", resU, err)
+	}
+	userCurDir, _ := ReadDirLink(userDirPaths.PanelsLink)
+	if _, statErr := os.Stat(filepath.Join(userCurDir, HealthFileName)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected %s suppressed when user.caddy defines a site, got statErr=%v", HealthFileName, statErr)
+	}
+}

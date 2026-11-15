@@ -976,6 +976,14 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                     )}
                   </div>
                 )}
+
+                <EdgeDomainHints
+                  shieldNodeId={d.shield_node_id}
+                  edgeStatus={d.edge_status}
+                  isCloudflareProxied={dns?.cloudflare}
+                  cfFlexibleLoop={dns?.cf_flexible_loop}
+                  cfHint={dns?.cf_hint}
+                />
               </div>
             );
           })}

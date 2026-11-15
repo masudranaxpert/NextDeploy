@@ -393,6 +393,24 @@ func RenderPlaceholderCaddy() string {
 	return "# Managed by nd edge. Placeholder so Caddy import glob always matches at least one file.\n"
 }
 
+// RenderHealthProbeCaddy renders 01-health.caddy so a freshly installed or
+// empty Shield node binds :80 and responds 200 to panel connectivity probes
+// until active routes or user sites exist.
+func RenderHealthProbeCaddy() string {
+	return "# Managed by nd edge. Temporary :80 health responder while 0 routes are active.\n:80 {\n\trespond \"ok\" 200\n}\n"
+}
+
+// HasNonCommentCaddyContent reports whether s has any non-empty, non-comment lines.
+func HasNonCommentCaddyContent(s string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		t := strings.TrimSpace(line)
+		if t != "" && !strings.HasPrefix(t, "#") {
+			return true
+		}
+	}
+	return false
+}
+
 // ShortPanelID returns a deterministic 8-character identifier safe for Caddy
 // snippet names (e.g. "aaaaaaaa" from a UUIDv4).
 func ShortPanelID(panelID string) string {

@@ -573,7 +573,7 @@ func (r *Reconciler) hasExistingRenderedFiles() bool {
 		return false
 	}
 	for _, e := range entries {
-		if !e.IsDir() && e.Name() != PlaceholderFileName && strings.HasSuffix(e.Name(), ".caddy") {
+		if !e.IsDir() && e.Name() != PlaceholderFileName && e.Name() != HealthFileName && strings.HasSuffix(e.Name(), ".caddy") {
 			return true
 		}
 	}

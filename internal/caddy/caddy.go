@@ -658,14 +658,14 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 			return key == "caddy.email"
 		})
 	}
-	// server-wide options chosen on the Caddy options page (timeouts, real visitor IP, grace period)
-	removeLabels(caddySvc, IsGlobalOptionLabel)
-	// Disable automatic HTTP-to-HTTPS redirect on port 80 globally.
-	// This prevents infinite redirect loops when traffic is SSL-terminated by Edge Shield nodes or Cloudflare.
+	// Strip managed global option labels plus legacy disable_redirects so Caddy opens :80 for HTTP->HTTPS redirects and ACME HTTP-01.
+	// Edge Shield (nd edge) proxies exclusively to origin :443 over TLS, so origin :80 redirects never loop there.
+	removeLabels(caddySvc, func(key string) bool {
+		return IsGlobalOptionLabel(key) || key == "caddy.auto_https"
+	})
 	// Keep Prometheus metrics enabled globally so caddy-docker-proxy never strips /metrics on container events.
 	mergeLabels(caddySvc, map[string]string{
-		"caddy.auto_https": "disable_redirects",
-		"caddy.metrics":    `{{""}}`,
+		"caddy.metrics": `{{""}}`,
 	})
 	if len(opts.Labels()) > 0 {
 		mergeLabels(caddySvc, opts.Labels())
@@ -688,12 +688,19 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	})
 	panelDomain = strings.TrimSpace(panelDomain)
 	if panelDomain != "" {
-		mergeLabels(panelSvc, GenerateLabels(db.AppDomain{
-			Domain:      panelDomain,
-			Port:        8080,
-			EnableHTTPS: enableHTTPS,
-			EnableWWW:   enableWWW,
-		}))
+		panelTrusted := opts.RealIP == "cloudflare" || opts.RealIP == "custom"
+		panelLabels := GenerateLabels(db.AppDomain{
+			Domain:       panelDomain,
+			Port:         8080,
+			EnableHTTPS:  enableHTTPS,
+			EnableWWW:    enableWWW,
+			TrustedProxy: panelTrusted,
+		})
+		if panelTrusted {
+			panelLabels["caddy.reverse_proxy.header_up_0"] = "X-Real-IP {client_ip}"
+			panelLabels["caddy.reverse_proxy.header_up_1"] = "X-Forwarded-For {client_ip}"
+		}
+		mergeLabels(panelSvc, panelLabels)
 	}
 	services["panel"] = panelSvc
 	doc["services"] = services

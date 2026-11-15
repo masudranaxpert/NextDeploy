@@ -274,12 +274,13 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 	return project, "", fmt.Errorf("mount %q not found on container %q", mountDestination, containerName)
 }
 
-// LivePortState summarizes live Docker container port bindings and Caddy gateway labels.
+// LivePortState summarizes live Docker container port bindings, Caddy gateway labels, and legacy Caddy container state.
 type LivePortState struct {
-	DirectHostPorts   map[int]bool    // Host ports currently bound by running non-Caddy containers
-	CaddyGatewayPorts map[int]bool    // Gateway :PORT addresses advertised on running containers' Caddy labels
-	CaddyBoundPorts   map[int]bool    // Host ports (>0, excluding 80/443) currently published by the running Caddy container
-	RunningProjects   map[string]bool // Compose project names with at least one running container
+	DirectHostPorts         map[int]bool    // Host ports currently bound by running non-Caddy containers
+	CaddyGatewayPorts       map[int]bool    // Gateway :PORT addresses advertised on running containers' Caddy labels
+	CaddyBoundPorts         map[int]bool    // Host ports (>0, excluding 80/443) currently published by the running Caddy container
+	RunningProjects         map[string]bool // Compose project names with at least one running container
+	CaddyHasLegacyAutoHTTPS bool            // True if the running Caddy container still carries a caddy.auto_https label
 }
 
 func extractCaddyLabelPorts(labels map[string]string, dst map[int]bool) {
@@ -352,7 +353,11 @@ func InspectLivePortState(ctx context.Context) (*LivePortState, error) {
 				st.DirectHostPorts[port] = true
 			}
 		}
-		if !isCaddy {
+		if isCaddy {
+			if _, ok := c.Labels["caddy.auto_https"]; ok {
+				st.CaddyHasLegacyAutoHTTPS = true
+			}
+		} else {
 			extractCaddyLabelPorts(c.Labels, st.CaddyGatewayPorts)
 		}
 	}

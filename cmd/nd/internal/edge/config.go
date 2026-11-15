@@ -15,6 +15,7 @@ const (
 	DefaultPerPanelQuota = 2000
 	DefaultPollInterval  = 30
 	PlaceholderFileName  = "00-placeholder.caddy"
+	HealthFileName       = "01-health.caddy"
 )
 
 // ErrConfigNotFound is returned when /etc/nd-edge/config.json does not exist yet.
