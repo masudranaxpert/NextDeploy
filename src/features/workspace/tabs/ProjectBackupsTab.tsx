@@ -40,6 +40,7 @@ import {
 } from '../../../components/ui/Primitives';
 import { backendApi } from '../../../lib/backendApi';
 import { copyToClipboard } from '../../../lib/clipboard';
+import { usePersistedState } from '../../../lib/usePersistedState';
 
 interface ProjectBackupsTabProps {
   app: AppStack;
@@ -121,9 +122,13 @@ export const ProjectBackupsTab: React.FC<ProjectBackupsTabProps> = ({ app, onOpe
     errorMessage?: string;
     log: string;
   } | null>(null);
-  const [logViewMode, setLogViewMode] = useState<'formatted' | 'raw'>('formatted');
+  const [logViewMode, setLogViewMode] = usePersistedState<'formatted' | 'raw'>(
+    'nd_backup_log_view_mode',
+    'formatted',
+    { allowed: ['formatted', 'raw'] },
+  );
   const [logFilterQuery, setLogFilterQuery] = useState('');
-  const [logWrapLines, setLogWrapLines] = useState(true);
+  const [logWrapLines, setLogWrapLines] = usePersistedState<boolean>('nd_backup_log_wrap', true);
   const [copiedLineId, setCopiedLineId] = useState<number | null>(null);
   const [copiedFullLog, setCopiedFullLog] = useState(false);
 

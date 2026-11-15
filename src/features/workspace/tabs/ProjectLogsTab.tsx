@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { AppStack, LogEntry } from '../../../types/nextdeploy';
 import { copyToClipboard } from '../../../lib/clipboard';
 import { useStickyAutoScroll } from '../utils/useStickyAutoScroll';
+import { usePersistedState } from '../../../lib/usePersistedState';
 
 interface ProjectLogsTabProps {
   app: AppStack;
@@ -122,8 +123,11 @@ export const ProjectLogsTab: React.FC<ProjectLogsTabProps> = ({
   logCounts,
   renderLogMessage,
 }) => {
-  const [logShowTimestamps, setLogShowTimestamps] = useState(true);
-  const [logWordWrap, setLogWordWrap] = useState(true);
+  const [logShowTimestamps, setLogShowTimestamps] = usePersistedState<boolean>(
+    'nd_logs_show_timestamps',
+    true,
+  );
+  const [logWordWrap, setLogWordWrap] = usePersistedState<boolean>('nd_logs_word_wrap', true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const desktopLogContainerRef = useRef<HTMLDivElement>(null);

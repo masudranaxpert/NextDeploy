@@ -6,6 +6,7 @@ import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi, getCachedShieldNodes } from '../../lib/backendApi';
 import { getServerPublicIp } from '../../lib/api/http';
 import { ShieldNode } from '../../types/shield';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 interface OverviewDashboardProps {
   telemetry: TelemetryPoint[];
@@ -46,7 +47,11 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
   onSelectApp,
   onSelectNav,
 }) => {
-  const [chartMetric, setChartMetric] = useState<'requests' | 'cpu-mem' | 'network'>('requests');
+  const [chartMetric, setChartMetric] = usePersistedState<'requests' | 'cpu-mem' | 'network'>(
+    'nd_overview_chart_metric',
+    'requests',
+    { allowed: ['requests', 'cpu-mem', 'network'] },
+  );
   const cachedShield = getCachedShieldNodes();
   const [shieldNodes, setShieldNodes] = useState<ShieldNode[]>(() => cachedShield.nodes || []);
   const [originIp, setOriginIp] = useState<string>(

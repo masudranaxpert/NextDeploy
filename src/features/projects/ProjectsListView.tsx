@@ -26,6 +26,7 @@ import { backendApi } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { DeleteSiteDialog } from '../php/components/DeleteSiteDialog';
 import { matchesAppSearch, sortStoppedLast } from '../../lib/resourceUtils';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 interface ProjectsListViewProps {
   apps: AppStack[];
@@ -56,7 +57,11 @@ export const ProjectsListView: React.FC<ProjectsListViewProps> = ({
     window.setTimeout(() => void onRefresh(), 2000);
   };
 
-  const [appsLayout, setAppsLayout] = useState<'grid' | 'board' | 'table'>('grid');
+  const [appsLayout, setAppsLayout] = usePersistedState<'grid' | 'board' | 'table'>(
+    'nd_projects_layout',
+    'grid',
+    { allowed: ['grid', 'board', 'table'] },
+  );
   const [appSearch, setAppSearch] = useState('');
   const [appStatusFilter, setAppStatusFilter] = useState<
     'all' | 'running' | 'building' | 'stopped'

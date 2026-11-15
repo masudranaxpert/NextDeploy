@@ -5,6 +5,7 @@ import { backendApi } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 import { toast } from 'sonner';
 import { useStickyAutoScroll } from '../workspace/utils/useStickyAutoScroll';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 interface PhpLogsTabProps {
   app: AppStack;
@@ -90,8 +91,11 @@ export const PhpLogsTab: React.FC<PhpLogsTabProps> = ({ app }) => {
 
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'debug'>('all');
   const [logSearch, setLogSearch] = useState('');
-  const [logShowTimestamps, setLogShowTimestamps] = useState(true);
-  const [logWordWrap, setLogWordWrap] = useState(true);
+  const [logShowTimestamps, setLogShowTimestamps] = usePersistedState<boolean>(
+    'nd_logs_show_timestamps',
+    true,
+  );
+  const [logWordWrap, setLogWordWrap] = usePersistedState<boolean>('nd_logs_word_wrap', true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const desktopLogContainerRef = useRef<HTMLDivElement>(null);

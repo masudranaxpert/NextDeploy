@@ -24,6 +24,7 @@ import { DockerVolumeItem } from '../../types/nextdeploy';
 import { ActionMenu, ShadcnDialog, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 interface VolumesViewProps {
   volumes: DockerVolumeItem[];
@@ -40,7 +41,11 @@ export const VolumesView: React.FC<VolumesViewProps> = ({ volumes, onDeleteVolum
     Array<{ name: string; is_dir: boolean; rel_path: string }> | null
   >(null);
 
-  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [viewMode, setViewMode] = usePersistedState<'table' | 'grid'>(
+    'nd_volumes_view_mode',
+    'table',
+    { allowed: ['table', 'grid'] },
+  );
   const [search, setSearch] = useState('');
 
   // Multipart Volume Restore Modal & Live Progress State (POST /volumes/restore + GET /volumes/restore/status)

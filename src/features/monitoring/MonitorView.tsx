@@ -14,6 +14,7 @@ import { AppStack, TelemetryPoint } from '../../types/nextdeploy';
 import { EvilAreaChart, StatusBadge } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
 import { formatDiskMB, isAppStopped, matchesAppSearch } from '../../lib/resourceUtils';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 interface MonitorViewProps {
   telemetry: TelemetryPoint[];
@@ -28,6 +29,9 @@ interface MonitorViewProps {
 
 type SortKey = 'usage' | 'cpu' | 'memory' | 'disk';
 
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((item) => typeof item === 'string');
+
 export const MonitorView: React.FC<MonitorViewProps> = ({
   telemetry,
   apps,
@@ -38,15 +42,19 @@ export const MonitorView: React.FC<MonitorViewProps> = ({
   onUpdateTelemetry,
   onLiveMetrics,
 }) => {
-  const [pinnedApps, setPinnedApps] = useState<string[]>([]);
+  const [pinnedApps, setPinnedApps] = usePersistedState<string[]>('nd_monitor_pinned_apps', [], {
+    validate: isStringArray,
+  });
   const [monitorSearch, setMonitorSearch] = useState('');
   const [monitorStatusFilter, setMonitorStatusFilter] = useState<
     'all' | 'running' | 'building' | 'stopped'
   >('all');
-  const [sortBy, setSortBy] = useState<SortKey>('usage');
-  const [showCpuChart, setShowCpuChart] = useState(true);
-  const [showMemChart, setShowMemChart] = useState(true);
-  const [showNetChart, setShowNetChart] = useState(true);
+  const [sortBy, setSortBy] = usePersistedState<SortKey>('nd_monitor_sort_by', 'usage', {
+    allowed: ['usage', 'cpu', 'memory', 'disk'],
+  });
+  const [showCpuChart, setShowCpuChart] = usePersistedState<boolean>('nd_monitor_show_cpu', true);
+  const [showMemChart, setShowMemChart] = usePersistedState<boolean>('nd_monitor_show_mem', true);
+  const [showNetChart, setShowNetChart] = usePersistedState<boolean>('nd_monitor_show_net', true);
   const [sessionStart, setSessionStart] = useState(() => Date.now());
   const [isLivePaused, setIsLivePaused] = useState(false);
 

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner';
 import { DevFileIcon } from '../../../components/ui/CodeEditorBox';
 import { backendApi } from '../../../lib/backendApi';
+import { usePersistedState } from '../../../lib/usePersistedState';
 import type { AppStack, ComposeFileNode } from '../../../types/nextdeploy';
 import { Upload } from 'lucide-react';
 import {
@@ -44,22 +45,13 @@ export const ProjectFileManagerTab: React.FC<ProjectFileManagerTabProps> = ({
   const [isDragOverFileManager, setIsDragOverFileManager] = useState(false);
   const [liveFileList, setLiveFileList] = useState<ComposeFileNode[] | null>(null);
 
-  const [showHiddenFiles, setShowHiddenFiles] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('nd_show_hidden_files') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [showHiddenFiles, setShowHiddenFiles] = usePersistedState<boolean>(
+    'nd_show_hidden_files',
+    false,
+  );
 
   const toggleHiddenFiles = () => {
-    const next = !showHiddenFiles;
-    setShowHiddenFiles(next);
-    try {
-      localStorage.setItem('nd_show_hidden_files', String(next));
-    } catch {
-      // ignore
-    }
+    setShowHiddenFiles((prev) => !prev);
   };
 
   // Sync real files from server disk into frontend state

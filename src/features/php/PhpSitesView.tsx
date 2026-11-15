@@ -11,6 +11,7 @@ import { HtmlIcon, PhpIcon, WordPressIcon } from '../../components/ui/BrandIcons
 import { Card, Field, GhostButton, Pill, PrimaryButton, SITE_TYPE_LABEL, inputCls, selectCls, prefetchPhpSite } from './ui';
 import { PhpVersionSelect } from './PhpVersionSelect';
 import { isAppStopped, matchesAppSearch, sortStoppedLast } from '../../lib/resourceUtils';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 type SiteType = 'php' | 'wordpress' | 'static';
 
@@ -36,7 +37,11 @@ const PhpSitesViewComponent: React.FC<Props> = ({ apps, isAdmin, onOpenSite, onD
   const [open, setOpen] = useState(false);
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
   const [creating, setCreating] = useState(false);
-  const [selectorLayout, setSelectorLayout] = useState<'grid' | 'list'>('grid');
+  const [selectorLayout, setSelectorLayout] = usePersistedState<'grid' | 'list'>(
+    'nd_php_selector_layout',
+    'grid',
+    { allowed: ['grid', 'list'] },
+  );
 
   const [name, setName] = useState('');
   const [type, setType] = useState<SiteType>('php');

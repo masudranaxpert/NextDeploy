@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '../../lib/clipboard';
+import { usePersistedState } from '../../lib/usePersistedState';
 
 export type SupportedEditorLanguage =
   | 'yaml'
@@ -1093,10 +1094,12 @@ export const CodeEditorBox: React.FC<CodeEditorBoxProps> = ({
   // pixel-aligned with the highlight layer. Soft wrap makes the two layers break lines at
   // slightly different points (browser textarea wrapping is not matchable exactly), which
   // shows up as misaligned selection — the wrap toggle is there for when it is preferred.
-  const [wordWrap, setWordWrap] = useState(false);
+  const [wordWrap, setWordWrap] = usePersistedState<boolean>('nd_editor_word_wrap', false);
   const [copied, setCopied] = useState(false);
   const [cursorLine, setCursorLine] = useState(1);
-  const [fontSize, setFontSize] = useState<'xs' | 'sm'>('xs');
+  const [fontSize, setFontSize] = usePersistedState<'xs' | 'sm'>('nd_editor_font_size', 'xs', {
+    allowed: ['xs', 'sm'],
+  });
 
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
