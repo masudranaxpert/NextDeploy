@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"panel/internal/db"
@@ -178,5 +179,32 @@ func TestReconcileAllAppSlotComposeAndRootCaddySync(t *testing.T) {
 	p.syncAndApplyRootCaddyIfNeeded(ctx)
 	if len(applied) != beforeLegacy+1 {
 		t.Fatalf("did not expect duplicate caddy apply once CaddyHasLegacyAutoHTTPS=false, got %+v", applied)
+	}
+}
+
+func TestAtomicWriteFileBindMountFallback(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(target, []byte("old-longer-content-line\n"), 0600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	want := "new-content\n"
+	err := atomicWriteFileWithRename(target, []byte(want), 0640, func(oldpath, newpath string) error {
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EBUSY}
+	})
+	if err != nil {
+		t.Fatalf("atomicWriteFileWithRename EBUSY fallback failed: %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(got) != want {
+		t.Fatalf("got %q, want %q", string(got), want)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(dir, ".nextdeploy-atomic-*"))
+	if len(leftovers) != 0 {
+		t.Fatalf("expected temp files to be cleaned up, found %v", leftovers)
 	}
 }

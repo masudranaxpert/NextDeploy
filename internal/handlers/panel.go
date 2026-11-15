@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"panel/internal/agent"
@@ -734,8 +735,30 @@ func (p *Panel) effectiveComposePaths(ctx context.Context, app db.App, id string
 	return p.EffectiveComposePaths(ctx, app, id)
 }
 
+func writeFileInPlace(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 // atomicWriteFile writes data to path using a temp file in the same directory and rename (atomic on POSIX).
+// When the target is a single-file container bind mount (e.g. /stack/docker-compose.yml), rename(2) returns EBUSY/EXDEV;
+// in that case we truncate and rewrite the mounted file inode in place.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	return atomicWriteFileWithRename(path, data, perm, os.Rename)
+}
+
+func atomicWriteFileWithRename(path string, data []byte, perm os.FileMode, renameFn func(oldpath, newpath string) error) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
@@ -762,8 +785,16 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
+	if err := renameFn(tmpPath, path); err != nil {
+		if !errors.Is(err, syscall.EBUSY) && !errors.Is(err, syscall.EXDEV) {
+			return err
+		}
+		if err := writeFileInPlace(path, data, perm); err != nil {
+			return err
+		}
+		if err := os.Remove(tmpPath); err != nil {
+			_ = err
+		}
 	}
 	done = true
 	if err := os.Chmod(path, perm); err != nil {
