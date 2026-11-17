@@ -938,9 +938,16 @@ export function useCopilot() {
 
   // Abort active execution
   const abort = useCallback(async () => {
+    const msgId = activeMessageIdRef.current || lastAssistantMsgIdRef.current;
     await requestJson('/api/v1/copilot/abort', { method: 'POST' });
+    if (msgId) {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === msgId ? { ...msg, isStreaming: false } : msg))
+      );
+    }
     setIsProcessing(false);
     activeMessageIdRef.current = null;
+    thinkingStartRef.current = null;
   }, []);
 
   // Change where omp runs: workspace root, one site, or a throw-away temp dir.
