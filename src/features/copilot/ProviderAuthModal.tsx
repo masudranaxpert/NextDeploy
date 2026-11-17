@@ -281,7 +281,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                     <p className="font-medium break-words">{oauthError}</p>
                     {/interactive prompts|terminal UI|secret input/i.test(oauthError) && (
                       <p className="text-[11.5px] text-muted-foreground">
-                        Sign in from the server terminal (<code className="font-mono">docker exec -it panel omp</code> → <code className="font-mono">/login</code>), or use Google Cloud Code Assist (Gemini CLI) or an API key below.
+                        Sign in from the server terminal (<code className="font-mono">docker exec -it -e HOME=/data/omp/home -e PI_CODING_AGENT_DIR=/data/omp/agent panel omp</code> → <code className="font-mono">/login</code>), or use Google Cloud Code Assist (Gemini CLI) or an API key below.
                       </p>
                     )}
                   </div>
@@ -298,13 +298,13 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                 </div>
               )}
 
-              {oauthPrompt && (oauthPrompt.url || oauthPrompt.launchUrl || oauthPrompt.title) && (
+              {oauthPrompt && (oauthPrompt.url || oauthPrompt.launchUrl || oauthPrompt.title || oauthPrompt.instructions) && (
                 <form onSubmit={submitCode} className="glass-control flex flex-col gap-2 rounded-[6px] p-3">
-                  <p className="text-[13px] font-medium">{oauthPrompt.title || 'Finish signing in'}</p>
+                  <p className="whitespace-pre-line text-[13px] font-medium">{oauthPrompt.title || 'Finish signing in'}</p>
                   {oauthPrompt.instructions && <p className="text-[12px] text-muted-foreground">{oauthPrompt.instructions}</p>}
-                  {(oauthPrompt.launchUrl || oauthPrompt.url) && (
+                  {(oauthPrompt.url || oauthPrompt.launchUrl) && (
                     <a
-                      href={oauthPrompt.launchUrl || oauthPrompt.url}
+                      href={oauthPrompt.url || oauthPrompt.launchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-[12.5px] underline underline-offset-2"
@@ -312,7 +312,7 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                       Open the sign-in page <ExternalLinkIcon className="size-3.5" />
                     </a>
                   )}
-                  {oauthPrompt.title && (
+                  {oauthPrompt.title && oauthPrompt.id && (
                     <div className="flex gap-2">
                       <input
                         type={oauthPrompt.secret ? 'password' : 'text'}

@@ -317,7 +317,9 @@ export function useCopilot() {
         body: JSON.stringify({ id, value }),
       });
       if (res.ok) {
-        setOauthPrompt(null);
+        setOauthPrompt((prev) =>
+          prev ? { id: '', instructions: 'Continuing sign-in…' } : null
+        );
         await refreshEngine();
       }
       return !!res.ok;
@@ -500,10 +502,10 @@ export function useCopilot() {
 
           case 'oauth_open_url': {
             const launchUrl = typeof ev.data?.launchUrl === 'string' ? ev.data.launchUrl : undefined;
-            const targetUrl = launchUrl || ev.url;
+            // Remote panels cannot reach the server's 127.0.0.1 launchUrl shortcut; open the full OAuth URL.
+            const targetUrl = ev.url || launchUrl;
             setOauthError(null);
             setOauthPrompt((prev) => ({
-              ...(prev || { id: ev.token }),
               id: ev.token || prev?.id || 'oauth',
               url: ev.url,
               launchUrl,

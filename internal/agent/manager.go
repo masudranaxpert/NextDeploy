@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -279,24 +280,9 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	env := append(os.Environ(), "PI_RPC_EMIT_TITLE=1") // omp suppresses its generated conversation title in RPC mode otherwise
-	if dir := m.AgentDir(); m.dataDir != "" {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("agent: create omp state dir: %w", err)
-		}
-		env = append(env, "PI_CODING_AGENT_DIR="+dir)
-		// HOME inside the volume too: ~/.ssh keys, ~/.agents/skills, git and docker
-		// config the agent sets up survive container rebuilds.
-		home := m.HomeDir()
-		if err := os.MkdirAll(home, 0o700); err != nil {
-			return nil, fmt.Errorf("agent: create omp home: %w", err)
-		}
-		env = append(env, "HOME="+home)
-	}
-	if m.DB != nil {
-		if all, err := m.DB.GetAllSettings(ctx); err == nil {
-			env = append(env, ProviderEnv(all)...)
-		}
+	env, err := m.baseEnv(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	start := func(env []string, extra ...string) (*omprpc.Client, error) {
@@ -923,13 +909,71 @@ func (m *Manager) GetLoginProviders(ctx context.Context) ([]omprpc.LoginProvider
 	return provs, nil
 }
 
-// Login triggers an OAuth login flow for the given provider via omp.
+// baseEnv builds the subprocess environment shared by omp RPC and CLI flows.
+func (m *Manager) baseEnv(ctx context.Context) ([]string, error) {
+	env := append(os.Environ(), "PI_RPC_EMIT_TITLE=1") // omp suppresses its generated conversation title in RPC mode otherwise
+	if dir := m.AgentDir(); m.dataDir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("agent: create omp state dir: %w", err)
+		}
+		env = append(env, "PI_CODING_AGENT_DIR="+dir)
+		// HOME inside the volume too: ~/.ssh keys, ~/.agents/skills, git and docker
+		// config the agent sets up survive container rebuilds.
+		home := m.HomeDir()
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			return nil, fmt.Errorf("agent: create omp home: %w", err)
+		}
+		env = append(env, "HOME="+home)
+	}
+	if m.DB != nil {
+		if all, err := m.DB.GetAllSettings(ctx); err == nil {
+			env = append(env, ProviderEnv(all)...)
+		}
+	}
+	return env, nil
+}
+
+var (
+	ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	cliURLRe     = regexp.MustCompile(`https://[^\s]+`)
+)
+
+func isRPCUnsupportedLoginErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "requires interactive prompts") || strings.Contains(s, "requires secret input")
+}
+
+func isCLILoginPrompt(line string) bool {
+	if !strings.HasSuffix(line, ": ") {
+		return false
+	}
+	trimmed := strings.TrimSpace(line)
+	return !strings.HasPrefix(trimmed, "Open this URL") && !strings.HasPrefix(trimmed, "Local shortcut")
+}
+
+// Login triggers an OAuth login flow for the given provider via omp, falling back
+// to `omp login <provider>` for providers that require terminal prompts before onAuth.
 func (m *Manager) Login(ctx context.Context, providerID string) (string, error) {
 	client, err := m.EnsureStarted(ctx)
 	if err != nil {
 		return "", err
 	}
 	out, err := client.Login(ctx, omprpc.LoginCommand{ProviderID: providerID})
+	if err != nil && isRPCUnsupportedLoginErr(err) {
+		cliErr := m.loginViaCLI(ctx, providerID)
+		ev := AgentEvent{Type: "login_done", Delta: providerID}
+		if cliErr != nil {
+			ev.IsError, ev.Result = true, cliErr.Error()
+		} else {
+			_ = m.Restart(ctx)
+			_, _ = m.EnsureStarted(ctx)
+		}
+		m.broadcast(ev)
+		return "", cliErr
+	}
 	ev := AgentEvent{Type: "login_done", Delta: providerID}
 	if err != nil {
 		ev.IsError, ev.Result = true, err.Error()
@@ -941,6 +985,155 @@ func (m *Manager) Login(ctx context.Context, providerID string) (string, error) 
 	}
 	m.broadcast(ev)
 	return out, err
+}
+
+func (m *Manager) loginViaCLI(ctx context.Context, providerID string) error {
+	env, err := m.baseEnv(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, m.ompPath, "login", providerID)
+	cmd.Env = env
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return m.runCLILoginStream(ctx, stdout, stdin, func() error {
+		_ = stdin.Close()
+		return cmd.Wait()
+	})
+}
+
+func (m *Manager) runCLILoginStream(ctx context.Context, r io.Reader, w io.Writer, waitFn func() error) error {
+	var pending string
+	var preamble []string
+	var lastNonEmpty string
+	buf := make([]byte, 4096)
+	readErrCh := make(chan struct {
+		n   int
+		err error
+	}, 1)
+
+	for {
+		go func() {
+			n, err := r.Read(buf)
+			readErrCh <- struct {
+				n   int
+				err error
+			}{n: n, err: err}
+		}()
+
+		var n int
+		var readErr error
+		select {
+		case res := <-readErrCh:
+			n, readErr = res.n, res.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		if n > 0 {
+			chunk := ansiEscapeRe.ReplaceAllString(string(buf[:n]), "")
+			chunk = strings.ReplaceAll(chunk, "\r", "")
+			pending += chunk
+
+			for {
+				idx := strings.IndexByte(pending, '\n')
+				if idx < 0 {
+					break
+				}
+				line := strings.TrimSpace(pending[:idx])
+				pending = pending[idx+1:]
+				if line == "" {
+					continue
+				}
+				lastNonEmpty = line
+				if strings.HasPrefix(line, "Local shortcut") || strings.HasPrefix(line, "Open this URL") {
+					continue
+				}
+				if u := cliURLRe.FindString(line); u != "" {
+					m.broadcast(AgentEvent{
+						Type:         "oauth_open_url",
+						URL:          u,
+						Instructions: "Complete the sign-in in your browser, then paste the code or redirect URL below.",
+						Token:        fmt.Sprintf("cli_url_%d", time.Now().UnixNano()),
+						Timestamp:    time.Now().UnixMilli(),
+					})
+					preamble = nil
+					continue
+				}
+				preamble = append(preamble, line)
+			}
+
+			if isCLILoginPrompt(pending) {
+				promptLine := strings.TrimSpace(strings.TrimSuffix(pending, ": "))
+				fullTitle := promptLine
+				if len(preamble) > 0 {
+					fullTitle = strings.Join(append(preamble, promptLine), "\n")
+				}
+				placeholder := ""
+				if strings.Contains(promptLine, `Type "yes"`) {
+					placeholder = "yes"
+				} else if strings.Contains(strings.ToLower(promptLine), "paste") {
+					placeholder = "Paste the code or redirect URL"
+				}
+
+				token := fmt.Sprintf("cli_%d", time.Now().UnixNano())
+				ch := make(chan string, 1)
+				m.mu.Lock()
+				m.pendingInputs[token] = ch
+				m.mu.Unlock()
+
+				m.broadcast(AgentEvent{
+					Type:        "oauth_input_required",
+					Token:       token,
+					Delta:       fullTitle,
+					Placeholder: placeholder,
+					Data:        map[string]any{"secret": false},
+					Timestamp:   time.Now().UnixMilli(),
+				})
+
+				var answer string
+				select {
+				case answer = <-ch:
+				case <-ctx.Done():
+					m.mu.Lock()
+					delete(m.pendingInputs, token)
+					m.mu.Unlock()
+					return ctx.Err()
+				}
+				m.mu.Lock()
+				delete(m.pendingInputs, token)
+				m.mu.Unlock()
+
+				preamble = nil
+				pending = ""
+				if _, err := io.WriteString(w, strings.TrimSpace(answer)+"\n"); err != nil {
+					return err
+				}
+			}
+		}
+
+		if readErr != nil {
+			break
+		}
+	}
+
+	if err := waitFn(); err != nil {
+		if lastNonEmpty != "" {
+			return fmt.Errorf("%s", lastNonEmpty)
+		}
+		return err
+	}
+	return nil
 }
 
 // GetState returns a snapshot of omp session state (current model, thinkingLevel, etc.).

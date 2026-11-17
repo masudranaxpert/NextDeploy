@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -174,5 +176,57 @@ func TestManagePHPRoutingConvertHtaccess(t *testing.T) {
 	raw, _ := json.Marshal(res.Content)
 	if !strings.Contains(string(raw), "/post.php") {
 		t.Fatalf("unexpected convert_htaccess output: %s", string(raw))
+	}
+}
+
+func TestRunCLILoginStreamAntigravityFlow(t *testing.T) {
+	mgr := NewManager(nil, nil, t.TempDir())
+	events, cancel := mgr.Subscribe()
+	defer cancel()
+
+	outR, outW := io.Pipe()
+	var written bytes.Buffer
+	inW := &written
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		done <- mgr.runCLILoginStream(ctx, outR, inW, func() error { return nil })
+	}()
+
+	// Step 1: Risk warning + confirmation prompt
+	_, _ = io.WriteString(outW, "⚠ Antigravity CLI: use at your own risk\n\nType \"yes\" to accept the risk and continue (yes): ")
+	ev1 := <-events
+	if ev1.Type != "oauth_input_required" || ev1.Placeholder != "yes" {
+		t.Fatalf("expected risk confirmation prompt, got %+v", ev1)
+	}
+	if !mgr.SubmitInput(ev1.Token, "yes") {
+		t.Fatal("SubmitInput failed for step 1")
+	}
+
+	// Step 2: Auth URL + paste prompt
+	authURL := "https://accounts.google.com/o/oauth2/auth?client_id=abc&state=xyz"
+	_, _ = io.WriteString(outW, "Preparing the Antigravity CLI...\n\nOpen this URL in your browser:\n"+authURL+"\nPaste the authorization code (or callback URL): ")
+
+	ev2 := <-events
+	if ev2.Type != "oauth_open_url" || ev2.URL != authURL {
+		t.Fatalf("expected oauth_open_url with %q, got %+v", authURL, ev2)
+	}
+	ev3 := <-events
+	if ev3.Type != "oauth_input_required" {
+		t.Fatalf("expected paste code prompt, got %+v", ev3)
+	}
+	if !mgr.SubmitInput(ev3.Token, "https://antigravity.google/oauth-callback?code=4/test") {
+		t.Fatal("SubmitInput failed for step 2")
+	}
+	_ = outW.Close()
+
+	if err := <-done; err != nil {
+		t.Fatalf("runCLILoginStream returned error: %v", err)
+	}
+	gotStdin := written.String()
+	if gotStdin != "yes\nhttps://antigravity.google/oauth-callback?code=4/test\n" {
+		t.Fatalf("unexpected stdin written: %q", gotStdin)
 	}
 }
