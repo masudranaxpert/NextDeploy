@@ -30,6 +30,38 @@ interface ServerSession {
   current: boolean;
 }
 
+export function formatCopilotError(raw: string): { text: string; isQuota: boolean } {
+  const trimmed = (raw || '').trim();
+  const isQuota = /429|resource_exhausted|quota|rate[_\s-]*limit|too many requests|cooldown|credential.*blocked/i.test(
+    trimmed
+  );
+  if (!trimmed) {
+    return { text: 'Engine error', isQuota: false };
+  }
+  if (!isQuota) {
+    return { text: trimmed, isQuota: false };
+  }
+
+  let detail = '';
+  const jsonStart = trimmed.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(jsonStart)) as {
+        error?: { message?: string };
+        message?: string;
+      };
+      detail = (parsed.error?.message || parsed.message || '').trim();
+    } catch {
+      // keep fallback below
+    }
+  }
+  const summary = detail || 'Upstream capacity or quota exhausted.';
+  return {
+    text: `Rate limit / quota reached (429): ${summary} Try switching models below or adding another account in AI Settings.`,
+    isQuota: true,
+  };
+}
+
 export function useCopilot() {
   // Conversations live in omp itself (session files in the persistent volume);
   // the UI only mirrors them.
@@ -57,7 +89,7 @@ export function useCopilot() {
     autoCompaction: true,
     autoRetry: true,
   });
-  const [notice, setNotice] = useState<{ level: string; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ level: string; text: string; isQuota?: boolean } | null>(null);
   const [uiPrompt, setUiPrompt] = useState<UiPrompt | null>(null);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [subagents, setSubagents] = useState<Subagent[]>([]);
@@ -76,6 +108,7 @@ export function useCopilot() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const activeMessageIdRef = useRef<string | null>(null);
+  const lastAssistantMsgIdRef = useRef<string | null>(null);
   const silentCommandRef = useRef(false); // next slash-command output is a notice, not a chat message
   const thinkingStartRef = useRef<number | null>(null);
 
@@ -578,19 +611,39 @@ export function useCopilot() {
 
           case 'retry_end': {
             if (!ev.data?.success) {
-              setNotice({ level: 'error', text: ev.delta || 'Retries exhausted.' });
+              const formatted = formatCopilotError(ev.delta || 'Retries exhausted.');
+              setNotice({ level: 'error', text: formatted.text, isQuota: formatted.isQuota });
+              const msgId = activeMessageIdRef.current || lastAssistantMsgIdRef.current;
+              if (msgId) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === msgId
+                      ? { ...msg, content: msg.content || `Error: ${formatted.text}`, isStreaming: false }
+                      : msg
+                  )
+                );
+              }
+              setIsProcessing(false);
+              activeMessageIdRef.current = null;
             }
             break;
           }
 
+          case 'assistant_error': {
+            const formatted = formatCopilotError(ev.delta || 'Model request failed.');
+            setNotice({ level: 'error', text: formatted.text, isQuota: formatted.isQuota });
+            break;
+          }
+
           case 'error': {
-            setNotice({ level: 'error', text: ev.delta || 'Engine error' });
-            const msgId = activeMessageIdRef.current;
+            const formatted = formatCopilotError(ev.delta || 'Engine error');
+            setNotice({ level: 'error', text: formatted.text, isQuota: formatted.isQuota });
+            const msgId = activeMessageIdRef.current || lastAssistantMsgIdRef.current;
             if (msgId) {
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === msgId
-                    ? { ...msg, content: msg.content || `Error: ${ev.delta}`, isStreaming: false }
+                    ? { ...msg, content: msg.content || `Error: ${formatted.text}`, isStreaming: false }
                     : msg
                 )
               );
@@ -788,6 +841,7 @@ export function useCopilot() {
       };
 
       activeMessageIdRef.current = assistantId;
+      lastAssistantMsgIdRef.current = assistantId;
       thinkingStartRef.current = null;
       setIsProcessing(true);
 

@@ -313,6 +313,20 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
                             <p className="truncate font-mono text-[11px] text-muted-foreground">{status(p.id)?.maskedKey}</p>
                           )}
                         </div>
+                        {!status(p.id)?.maskedKey && (
+                          <button
+                            type="button"
+                            disabled={busy === p.id}
+                            onClick={() => {
+                              setBusy(p.id);
+                              onStartOAuth(p.id);
+                            }}
+                            className={cn(btn, 'glass-chosen shrink-0')}
+                            title="Connect another account for quota pooling"
+                          >
+                            Add account
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={busy === p.id}

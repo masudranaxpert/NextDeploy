@@ -294,6 +294,26 @@ export function HextaAICanvas({
   const [uploading, setUploading] = React.useState(false)
   const attachInput = React.useRef<HTMLInputElement>(null)
 
+  const quotaFallbackModel = React.useMemo(() => {
+    const candidates = models.filter(
+      (m) =>
+        m.id !== activeModel?.id &&
+        !m.id.startsWith("tab_") &&
+        !m.id.endsWith("-image")
+    )
+    if (candidates.length === 0) return null
+    const isGeminiActive = /gemini/i.test(activeModel?.id || "")
+    if (!isGeminiActive) {
+      for (const preferred of ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]) {
+        const hit = candidates.find((m) => m.id === preferred)
+        if (hit) return hit
+      }
+      const anyGemini = candidates.find((m) => /gemini/i.test(m.id))
+      if (anyGemini) return anyGemini
+    }
+    return candidates[0]
+  }, [models, activeModel?.id])
+
   // Local files: images travel inside the prompt (omp image content), everything
   // else is stored with the conversation and referenced with @path.
   const attachLocal = async (files: FileList | File[]) => {
@@ -983,17 +1003,47 @@ export function HextaAICanvas({
         <div className="flex shrink-0 justify-center px-4 pb-4 md:px-6">
           <div className="w-full max-w-[620px]">
             {notice && (
-              <button
-                type="button"
-                onClick={dismissNotice}
+              <div
+                role="status"
                 className={cn(
-                  "glass-panel mb-2 w-full rounded-md px-3 py-1.5 text-left text-[12px]",
+                  "glass-panel mb-2 flex w-full flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-[12px]",
                   notice.level === "error" && "text-destructive",
                   notice.level === "warning" && "text-status-interrupted"
                 )}
               >
-                {notice.text}
-              </button>
+                <span className="min-w-0 flex-1 leading-relaxed">{notice.text}</span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {notice.isQuota && quotaFallbackModel && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void selectModel(quotaFallbackModel.provider, quotaFallbackModel.id)
+                        dismissNotice()
+                      }}
+                      className="glass-chosen rounded-[4px] px-2.5 py-1 text-[11.5px] font-medium text-foreground transition-colors cursor-pointer"
+                    >
+                      Switch to {quotaFallbackModel.name || quotaFallbackModel.id}
+                    </button>
+                  )}
+                  {notice.isQuota && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSettingsOpen(true)}
+                      className="rounded-[4px] border border-white/15 px-2.5 py-1 text-[11.5px] font-medium text-foreground/90 hover:bg-white/10 transition-colors cursor-pointer"
+                    >
+                      AI Settings
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={dismissNotice}
+                    aria-label="Dismiss notice"
+                    className="rounded p-1 text-current/70 hover:bg-white/10 hover:text-current transition-colors cursor-pointer"
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </div>
+              </div>
             )}
             {/* Queued Message Banner */}
             {queuedMessage && (
