@@ -484,12 +484,23 @@ func (m *Manager) processEvents(client *omprpc.Client) {
 		case omprpc.AutoCompactionStartEvent:
 			m.broadcast(AgentEvent{Type: "compaction_start", Data: map[string]any{"reason": v.Reason, "action": v.Action}})
 
+		case omprpc.ManualCompactionStartEvent:
+			m.broadcast(AgentEvent{Type: "compaction_start", Data: map[string]any{"mode": derefStr(v.Mode)}})
+
 		case omprpc.AutoCompactionEndEvent:
 			msg := ""
 			if v.ErrorMessage != nil {
 				msg = *v.ErrorMessage
 			}
 			m.broadcast(AgentEvent{Type: "compaction_end", Data: map[string]any{"aborted": v.Aborted, "willRetry": v.WillRetry, "error": msg}})
+			go m.pushState(client)
+
+		case omprpc.ManualCompactionEndEvent:
+			msg := ""
+			if v.ErrorMessage != nil {
+				msg = *v.ErrorMessage
+			}
+			m.broadcast(AgentEvent{Type: "compaction_end", Data: map[string]any{"aborted": v.Aborted, "skipped": v.Skipped != nil && *v.Skipped, "error": msg}})
 			go m.pushState(client)
 
 		case omprpc.RetryFallbackAppliedEvent:
@@ -608,11 +619,16 @@ func (m *Manager) handleExtensionUI(client *omprpc.Client, req omprpc.ExtensionU
 		if ui.Instructions != nil {
 			instructions = *ui.Instructions
 		}
+		var data map[string]any
+		if ui.LaunchURL != nil && *ui.LaunchURL != "" {
+			data = map[string]any{"launchUrl": *ui.LaunchURL}
+		}
 		m.broadcast(AgentEvent{
 			Type:         "oauth_open_url",
 			URL:          ui.URL,
 			Instructions: instructions,
 			Token:        ui.ID,
+			Data:         data,
 			Timestamp:    time.Now().UnixMilli(),
 		})
 

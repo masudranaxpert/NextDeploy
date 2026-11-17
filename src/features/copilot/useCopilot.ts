@@ -83,6 +83,7 @@ export function useCopilot() {
   const [providers, setProviders] = useState<ProvidersConfig | null>(null);
   const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
   const [oauthPrompt, setOauthPrompt] = useState<OAuthPrompt | null>(null);
+  const [oauthError, setOauthError] = useState<string | null>(null);
   const [workDir, setWorkDirState] = useState<WorkDir | null>(null);
   const [engineSettings, setEngineSettings] = useState<EngineSettings>({
     fastMode: false,
@@ -298,10 +299,14 @@ export function useCopilot() {
 
   // Start OAuth Login for provider
   const startOAuthLogin = useCallback(async (providerId: string) => {
-    await requestJson('/api/v1/copilot/login', {
+    setOauthError(null);
+    const res = await requestJson('/api/v1/copilot/login', {
       method: 'POST',
       body: JSON.stringify({ providerId }),
     });
+    if (!res.ok) {
+      setOauthError(res.error || 'Could not start sign-in');
+    }
   }, []);
 
   // Submit OAuth prompt/code
@@ -494,14 +499,18 @@ export function useCopilot() {
           }
 
           case 'oauth_open_url': {
+            const launchUrl = typeof ev.data?.launchUrl === 'string' ? ev.data.launchUrl : undefined;
+            const targetUrl = launchUrl || ev.url;
+            setOauthError(null);
             setOauthPrompt((prev) => ({
               ...(prev || { id: ev.token }),
               id: ev.token || prev?.id || 'oauth',
               url: ev.url,
+              launchUrl,
               instructions: ev.instructions,
             }));
-            if (ev.url) {
-              window.open(ev.url, '_blank', 'noopener,noreferrer');
+            if (targetUrl) {
+              window.open(targetUrl, '_blank', 'noopener,noreferrer');
             }
             break;
           }
@@ -730,8 +739,14 @@ export function useCopilot() {
 
           case 'login_done': {
             setOauthPrompt(null);
-            if (ev.isError) setNotice({ level: 'error', text: `Sign-in failed: ${ev.result || ev.delta}` });
-            else setNotice({ level: 'info', text: 'Signed in.' });
+            if (ev.isError) {
+              const msg = ev.result || ev.delta || 'Sign-in failed.';
+              setOauthError(msg);
+              setNotice({ level: 'error', text: `Sign-in failed: ${msg}` });
+            } else {
+              setOauthError(null);
+              setNotice({ level: 'info', text: 'Signed in.' });
+            }
             refreshEngine();
             break;
           }
@@ -1071,6 +1086,7 @@ export function useCopilot() {
   }, []);
 
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const clearOAuthError = useCallback(() => setOauthError(null), []);
 
   const clearCurrentChat = createNewChat;
 
@@ -1111,6 +1127,8 @@ export function useCopilot() {
     providers,
     loginProviders,
     oauthPrompt,
+    oauthError,
+    clearOAuthError,
     startOAuthLogin,
     submitOAuthInput,
     saveProviders,

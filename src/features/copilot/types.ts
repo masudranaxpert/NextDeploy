@@ -40,6 +40,7 @@ export interface ApprovalRequest {
 export interface OAuthPrompt {
   id: string;
   url?: string;
+  launchUrl?: string;
   instructions?: string;
   title?: string;
   placeholder?: string;

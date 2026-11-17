@@ -281,6 +281,8 @@ export function HextaAICanvas({
     providers,
     loginProviders,
     oauthPrompt,
+    oauthError,
+    clearOAuthError,
     startOAuthLogin,
     submitOAuthInput,
     saveProviders,
@@ -1319,10 +1321,15 @@ export function HextaAICanvas({
       {isSettingsOpen && (
         <ProviderAuthModal
           isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
+          onClose={() => {
+            clearOAuthError()
+            setIsSettingsOpen(false)
+          }}
           providers={providers}
           loginProviders={loginProviders}
           oauthPrompt={oauthPrompt}
+          oauthError={oauthError}
+          onClearOAuthError={clearOAuthError}
           onStartOAuth={startOAuthLogin}
           onSubmitOAuthInput={submitOAuthInput}
           onRemoveProvider={removeProvider}

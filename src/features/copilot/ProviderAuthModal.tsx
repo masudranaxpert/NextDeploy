@@ -25,6 +25,8 @@ interface ProviderAuthModalProps {
   providers: ProvidersConfig | null;
   loginProviders: LoginProvider[];
   oauthPrompt: OAuthPrompt | null;
+  oauthError?: string | null;
+  onClearOAuthError?: () => void;
   onStartOAuth: (providerId: string) => void;
   onSubmitOAuthInput: (id: string, value: string) => Promise<boolean>;
   onRemoveProvider: (providerId: string) => Promise<void>;
@@ -40,6 +42,8 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   providers,
   loginProviders,
   oauthPrompt,
+  oauthError,
+  onClearOAuthError,
   onStartOAuth,
   onSubmitOAuthInput,
   onRemoveProvider,
@@ -60,8 +64,12 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (oauthPrompt) setBusy(null);
-  }, [oauthPrompt]);
+    if (oauthPrompt || oauthError) setBusy(null);
+  }, [oauthPrompt, oauthError]);
+
+  useEffect(() => {
+    setBusy(null);
+  }, [loginProviders]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -267,13 +275,36 @@ export const ProviderAuthModal: React.FC<ProviderAuthModalProps> = ({
           {/* TAB 1: MODEL PROVIDERS */}
           {activeTab === 'providers' && (
             <div className="flex flex-col gap-4">
-              {oauthPrompt && (oauthPrompt.url || oauthPrompt.title) && (
+              {oauthError && (
+                <div role="alert" className="glass-control flex items-start justify-between gap-2 rounded-[6px] border border-destructive/30 bg-destructive/10 p-3 text-[12.5px] text-destructive">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="font-medium break-words">{oauthError}</p>
+                    {/interactive prompts|terminal UI|secret input/i.test(oauthError) && (
+                      <p className="text-[11.5px] text-muted-foreground">
+                        Sign in from the server terminal (<code className="font-mono">docker exec -it panel omp</code> → <code className="font-mono">/login</code>), or use Google Cloud Code Assist (Gemini CLI) or an API key below.
+                      </p>
+                    )}
+                  </div>
+                  {onClearOAuthError && (
+                    <button
+                      type="button"
+                      onClick={onClearOAuthError}
+                      aria-label="Dismiss sign-in error"
+                      className="rounded p-1 text-current/70 hover:bg-white/10 hover:text-current cursor-pointer"
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {oauthPrompt && (oauthPrompt.url || oauthPrompt.launchUrl || oauthPrompt.title) && (
                 <form onSubmit={submitCode} className="glass-control flex flex-col gap-2 rounded-[6px] p-3">
                   <p className="text-[13px] font-medium">{oauthPrompt.title || 'Finish signing in'}</p>
                   {oauthPrompt.instructions && <p className="text-[12px] text-muted-foreground">{oauthPrompt.instructions}</p>}
-                  {oauthPrompt.url && (
+                  {(oauthPrompt.launchUrl || oauthPrompt.url) && (
                     <a
-                      href={oauthPrompt.url}
+                      href={oauthPrompt.launchUrl || oauthPrompt.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-[12.5px] underline underline-offset-2"
