@@ -1,0 +1,88 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "sites": [
+    {
+      "id": "php:docs-1",
+      "app_id": "docs-1",
+      "domain_id": 60,
+      "hosts": [
+        "docs.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ],
+      "kind": "static",
+      "php": {
+        "doc_root": "/data/workspaces/docs-1/htdocs/dist",
+        "site_type": "static",
+        "fallback_mode": "custom",
+        "fallback_entry": "index.html",
+        "routing": [
+          {
+            "id": "s1",
+            "kind": "redir",
+            "match_type": "exact",
+            "pattern": "/old",
+            "target": "/new",
+            "status": 302,
+            "enabled": true
+          }
+        ],
+        "compression": [
+          "zstd",
+          "gzip"
+        ],
+        "precompressed": [
+          "gzip",
+          "zstd"
+        ],
+        "hide_patterns": [
+          ".git",
+          ".env*",
+          "*.sql",
+          "*.db",
+          "*.sqlite",
+          "*.key",
+          "*.sock"
+        ],
+        "cache": {
+          "media_cache_control": "public, max-age=2592000, immutable",
+          "code_cache_control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+        "https": true
+      },
+      "security": {
+        "blocked_ips": null,
+        "allow_only": null,
+        "basic_auth_user": "",
+        "basic_auth_hash": "",
+        "block_xmlrpc": false,
+        "block_upload_php": false,
+        "block_scanners": false,
+        "hsts": false,
+        "frame_protection": true
+      }
+    }
+  ],
+  "generation": "9d2a474679646c18ef9b02b4fa5c577f29aa17b66b00501cba3e3b561fdc1164"
+}

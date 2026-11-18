@@ -1,0 +1,16 @@
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+localhost:8443 {
+	tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
+	handle_path /static/* {
+		root * /srv
+		file_server
+	}
+	handle {
+		reverse_proxy app:8080
+	}
+}

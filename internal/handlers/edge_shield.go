@@ -9,11 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/proxy/pki"
 	"panel/internal/runutil"
 	"panel/internal/sysinfo"
 
@@ -236,6 +238,12 @@ func (p *Panel) ReadOriginCaddyRootCA(ctx context.Context) (pem string, sha256He
 		if data, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
 			return format(string(data))
 		}
+	}
+
+	// 2b. On Angie/Ferron the Caddy container is gone: the internal PKI root is the same Caddy
+	//     root (see alignPKIWithCaddyRoot) or, on a server that never ran Caddy, the panel's own.
+	if data, rerr := os.ReadFile(filepath.Join(pki.DefaultCADir, pki.CACertFilename)); rerr == nil && strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
+		return format(string(data))
 	}
 
 	// 3. Fallback: query Caddy Admin API on internal docker network
@@ -1556,7 +1564,7 @@ func (p *Panel) syncShieldProxiesToCaddy(ctx context.Context, removedIPs ...stri
 		raw, _ := json.Marshal(opts)
 		_ = p.DB.SetCaddyConfig(ctx, caddyOptionsKey, string(raw))
 		if err := p.syncRootStackCompose(ctx); err == nil {
-			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 		}
 	}
 }

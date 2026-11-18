@@ -208,6 +208,22 @@ networks:
 	}
 }
 
+func TestValidateAndClampCompose_AllowedExternalNetworks(t *testing.T) {
+	for _, netName := range []string{"nextdeploy", "caddy"} {
+		composeYAML := `
+services:
+  web:
+    image: nginx:alpine
+networks:
+  ` + netName + `:
+    external: true
+`
+		if _, err := ValidateAndClampCompose([]byte(composeYAML), 2.0, 1024); err != nil {
+			t.Fatalf("expected external network %q to be allowed, got: %v", netName, err)
+		}
+	}
+}
+
 func TestValidateAndClampCompose_DirectoryTraversalBlock(t *testing.T) {
 	composeYAML := `
 services:

@@ -1,6 +1,18 @@
 import { AppStack, MigrationExportBundle } from '../types/nextdeploy';
 import { normalizeCpuPct } from './resourceUtils';
 
+// How the app's repository was connected, as the server stored it. Older rows may say
+// "token" (resolved by provider); a repo without a linked provider is a public URL.
+function gitAuthModeFromConfig(cfg: any): AppStack['gitAuthMode'] {
+  if (!cfg?.repo_url) return undefined;
+  const mode = String(cfg.auth_mode || '').trim();
+  if (mode === 'public' || mode === 'github_app' || mode === 'gitlab_token') return mode;
+  if (Number(cfg.git_provider_id) > 0 || mode === 'token') {
+    return cfg.provider === 'gitlab' ? 'gitlab_token' : 'github_app';
+  }
+  return 'public';
+}
+
 export function mapMigrateExports(raw: any[]): MigrationExportBundle[] {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   if (!Array.isArray(raw)) return [];
@@ -147,6 +159,9 @@ export function mapRawAppToStack(
     sourceType: (a.source_type || 'compose') as any,
     gitRepo: a.git_config?.repo_url || a.git_repo || '',
     gitBranch: a.git_config?.branch || a.git_branch || 'main',
+    gitAuthMode: gitAuthModeFromConfig(a.git_config),
+    gitProviderId:
+      Number(a.git_config?.git_provider_id) > 0 ? String(a.git_config.git_provider_id) : undefined,
     gitCommitSha: a.git_config?.last_commit_sha || a.active_slot || 'main',
     gitCommitMessage: a.git_config?.last_commit_msg || 'Production build',
     webhookAutoDeploy: a.git_config?.auto_deploy ?? false,

@@ -1,0 +1,38 @@
+# Managed by nd edge (ferron). DO NOT EDIT.
+{
+    admin {
+        listen "127.0.0.1:8081"
+        auth_token "{{env.ND_FERRON_ADMIN_TOKEN}}"
+    }
+    http {
+        protocols h1 h2
+        timeout "3660s"
+    }
+    client_ip_from_header x-forwarded-for {
+        trusted_proxy "103.21.244.0/22"
+        trusted_proxy "103.22.200.0/22"
+        trusted_proxy "103.31.4.0/22"
+        trusted_proxy "104.16.0.0/13"
+        trusted_proxy "104.24.0.0/14"
+        trusted_proxy "107.189.6.222"
+        trusted_proxy "108.162.192.0/18"
+        trusted_proxy "131.0.72.0/22"
+        trusted_proxy "141.101.64.0/18"
+        trusted_proxy "162.158.0.0/15"
+        trusted_proxy "172.64.0.0/13"
+        trusted_proxy "173.245.48.0/20"
+        trusted_proxy "188.114.96.0/20"
+        trusted_proxy "190.93.240.0/20"
+        trusted_proxy "197.234.240.0/22"
+        trusted_proxy "198.41.128.0/17"
+        trusted_proxy "2001:db8::10"
+        trusted_proxy "2400:cb00::/32"
+        trusted_proxy "2405:8100::/32"
+        trusted_proxy "2405:b500::/32"
+        trusted_proxy "2606:4700::/32"
+        trusted_proxy "2803:f800::/32"
+        trusted_proxy "2a06:98c0::/29"
+        trusted_proxy "2c0f:f248::/32"
+    }
+    strict_hosts
+}

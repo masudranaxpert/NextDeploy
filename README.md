@@ -51,12 +51,34 @@ curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/inst
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--domain` | *(none)* | Your panel domain (automatic Let's Encrypt TLS via Caddy) |
+| `--domain` | *(none)* | Your panel domain (automatic Let's Encrypt TLS via the selected proxy engine) |
 | `--email` | *(none)* | ACME registration & expiration notices |
 | `--dir` | `/opt/nextdeploy` | Host installation and configuration directory |
 | `--data-dir` | `/data` | Persistent data directory (apps, databases, TLS certs) |
+| `--proxy` | `caddy` | Reverse proxy engine: `caddy`, `angie` or `ferron` (experimental). Prompts on a TTY when omitted. See [Proxy engines](#proxy-engines) |
 
 After installation completes, navigate to **`http://<server-ip>:8080`** (or your domain) to create your initial administrator account.
+
+---
+
+## Proxy Engines
+
+NextDeploy runs on **Caddy** by default. You can pick another engine at install time or switch later:
+
+| Engine | Status | Best for |
+|---|---|---|
+| **Caddy 2** | Default, stable | Simplest setup, all features |
+| **Angie 1.12.4** | Supported | Small VPS and Edge Shield nodes, many idle HTTP/2 connections |
+| **Ferron 3.0.0-rc.11** | Experimental | Trying the fastest engine; has timeout and reload gaps |
+
+```bash
+sudo bash install.sh --proxy angie          # at install
+nd proxy engine preflight angie             # later: check what would break
+nd proxy engine set angie --yes             # switch, with automatic rollback
+nd edge install --panel-url URL --token-stdin --proxy angie   # Shield node
+```
+
+Benchmarks, the decision guide, switching and rollback details are in [docs/proxy-engines.md](docs/proxy-engines.md). The design is recorded in [ADR 001](docs/adr/001-multi-proxy-drivers.md).
 
 ---
 
@@ -66,7 +88,7 @@ After installation completes, navigate to **`http://<server-ip>:8080`** (or your
 |---|---|
 | **PHP & WordPress** | Instant runtimes (PHP 7.4 to 8.5), MariaDB database & user provisioning, php-fpm pools, automated `.htaccess` to Caddy rule scanner, WP-CLI, and cron management. |
 | **Compose & Stacks** | Git webhook auto-deploy or local delta push (`nd push`), automatic blue/green container deployments, and environment variable vaults. |
-| **Edge Shield (DDoS/Proxy)** | Multi-panel edge CDN architecture. Route traffic through distributed edge VPS nodes with automatic Caddy TLS synchronization. |
+| **Edge Shield (DDoS/Proxy)** | Multi-panel edge CDN architecture. Route traffic through distributed edge VPS nodes with automatic TLS synchronization on Caddy, Angie or Ferron. |
 | **CLI Companion (`nd`)** | Inspect resources (`nd top`), stream container & Caddy logs (`nd logs`, `nd proxy logs -f`), delta sync files (`nd push --deploy`), and run interactive shell sessions (`nd shell`). |
 | **AI Agent MCP Server** | Built-in SSE MCP endpoint (`/mcp/sse`) allowing Cursor, Claude Code, and Windsurf to safely inspect containers, manage apps, and run builds. |
 | **Disaster Recovery** | Manual snapshots & scheduled backups with direct S3/Rclone cloud sync, plus `.nd-migrate` single-archive VPS-to-VPS migrations. |

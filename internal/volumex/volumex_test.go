@@ -14,3 +14,33 @@ func TestFilterForAppSiblingSlug(t *testing.T) {
 		t.Fatalf("FilterForApp(diu-test) = %v, want %v", diuTest, want)
 	}
 }
+
+func TestIsInfraBackupVolumeName(t *testing.T) {
+	infra := []string{
+		"nextdeploy_caddy_data",
+		"nextdeploy_caddy_config",
+		"letsencrypt_certs",
+		"nextdeploy_angie_acme",
+		"nextdeploy_ferron_acme",
+		"nd-proxy-state",
+		"nextdeploy_nd_proxy",
+		"nd_pki",
+		"nd-pki-certs",
+	}
+	for _, name := range infra {
+		if !isInfraBackupVolumeName(name) {
+			t.Errorf("isInfraBackupVolumeName(%q) = false, want true", name)
+		}
+	}
+
+	appVols := []string{
+		"blog_db_data",
+		"shop_uploads",
+		"api_cache",
+	}
+	for _, name := range appVols {
+		if isInfraBackupVolumeName(name) {
+			t.Errorf("isInfraBackupVolumeName(%q) = true, want false", name)
+		}
+	}
+}

@@ -1,0 +1,87 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "sites": [
+    {
+      "id": "php:wp-blog",
+      "app_id": "wp-blog",
+      "domain_id": 40,
+      "hosts": [
+        "blog.example.com",
+        "www.blog.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ],
+      "kind": "php",
+      "php": {
+        "doc_root": "/data/workspaces/wp-blog/htdocs",
+        "socket": "/data/workspaces/.nd-php/u7-v83/run/wp-blog.sock",
+        "php_version": "8.3",
+        "site_type": "wordpress",
+        "compression": [
+          "zstd",
+          "gzip"
+        ],
+        "precompressed": [
+          "gzip",
+          "zstd"
+        ],
+        "hide_patterns": [
+          ".git",
+          ".env*",
+          "*.sql",
+          "*.db",
+          "*.sqlite",
+          "*.key",
+          "*.sock"
+        ],
+        "cache": {
+          "wordpress_page_cache": true,
+          "media_cache_control": "public, max-age=2592000, immutable",
+          "code_cache_control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+        "fastcgi_dial_timeout": "5s",
+        "fastcgi_read_timeout": "120s",
+        "fastcgi_write_timeout": "120s",
+        "https": true
+      },
+      "security": {
+        "blocked_ips": [
+          "1.2.3.4",
+          "10.0.0.0/8"
+        ],
+        "allow_only": [
+          "203.0.113.0/24"
+        ],
+        "basic_auth_user": "admin",
+        "basic_auth_hash": "$2y$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy",
+        "block_xmlrpc": true,
+        "block_upload_php": true,
+        "block_scanners": true,
+        "hsts": true,
+        "frame_protection": true
+      }
+    }
+  ],
+  "generation": "c82c5997f9d1ddcea23e418a177ba02350d5aeb972b5daeec20f670f18a53ec8"
+}

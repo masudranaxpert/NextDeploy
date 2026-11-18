@@ -138,23 +138,41 @@ interface ShadcnSwitchProps {
   onChange: (next: boolean) => void;
   label?: string;
   ariaLabel?: string;
+  disabled?: boolean;
+  title?: string;
 }
 
-export const ShadcnSwitch: React.FC<ShadcnSwitchProps> = ({ checked, onChange, label, ariaLabel }) => {
+export const ShadcnSwitch: React.FC<ShadcnSwitchProps> = ({
+  checked,
+  onChange,
+  label,
+  ariaLabel,
+  disabled = false,
+  title,
+}) => {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel || label}
-      onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 rounded-md cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
+      title={title}
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
+      className={`inline-flex items-center gap-2 rounded-md select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+      }`}
     >
       <span
         className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
           checked
             ? 'border-orange-500/50 bg-orange-500'
-            : 'border-white/[0.1] bg-zinc-900 group-hover:border-white/[0.2]'
+            : disabled
+              ? 'border-white/[0.08] bg-zinc-900'
+              : 'border-white/[0.1] bg-zinc-900 group-hover:border-white/[0.2]'
         }`}
       >
         <span
@@ -163,7 +181,11 @@ export const ShadcnSwitch: React.FC<ShadcnSwitchProps> = ({ checked, onChange, l
           }`}
         />
       </span>
-      {label && <span className="text-xs font-medium text-zinc-300">{label}</span>}
+      {label && (
+        <span className={`text-xs font-medium ${disabled ? 'text-zinc-400' : 'text-zinc-300'}`}>
+          {label}
+        </span>
+      )}
     </button>
   );
 };

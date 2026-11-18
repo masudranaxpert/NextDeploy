@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/proxy"
 	"panel/internal/runutil"
 )
 
@@ -26,6 +27,12 @@ type Manager struct {
 
 	IngressNetwork string // network Caddy watches for labelled containers
 	DBNetwork      string // private network shared by PHP containers and MariaDB
+
+	// ProxyEngineFunc returns the active proxy engine ("caddy", "angie", "ferron").
+	// When unset or returning "caddy" (or empty), Caddy route holders and reload are used.
+	ProxyEngineFunc func() string
+	// ProxySyncFunc synchronizes non-Caddy proxy drivers instead of managing busybox holders.
+	ProxySyncFunc func(ctx context.Context, reason proxy.Reason) error
 
 	locks     sync.Map // runtimeKey -> *sync.Mutex
 	fixTimers sync.Map // appID -> *time.Timer
@@ -198,11 +205,14 @@ func translateHostPath(mounts []mountInfo, p string) string {
 }
 
 func loadSelfMounts(ctx context.Context) []mountInfo {
-	if _, err := os.Stat("/.dockerenv"); err != nil {
-		return nil // panel runs natively on the host: paths are already host paths
-	}
+	// The hostname (container ID) is tried even without /.dockerenv, which some runtimes
+	// omit; "panel" is only a fallback when we know we run in a container.
 	host, _ := os.Hostname()
-	for _, ref := range []string{host, "panel"} {
+	refs := []string{host}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		refs = append(refs, "panel")
+	}
+	for _, ref := range refs {
 		if ref == "" {
 			continue
 		}

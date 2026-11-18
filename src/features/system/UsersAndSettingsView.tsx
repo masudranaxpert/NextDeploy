@@ -35,6 +35,8 @@ import {
   StatusBadge,
 } from '../../components/ui/Primitives';
 import { backendApi } from '../../lib/backendApi';
+import type { ProxyBootstrapInfo } from '../../lib/api/http';
+import { formatProxyEngineLabel } from '../../components/shield/shieldProxyDisplay';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
 
 interface UsersAndSettingsViewProps {
@@ -47,6 +49,8 @@ interface UsersAndSettingsViewProps {
   /** The signed-in user: they cannot demote, suspend or delete themselves. */
   currentUserId?: string;
   settings?: Record<string, string>;
+  proxyInfo?: ProxyBootstrapInfo | null;
+  onProxySwitched?: () => void;
 }
 
 const fmtMb = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : mb >= 1 ? `${Math.round(mb)} MB` : mb > 0 ? `${Math.max(1, Math.round(mb * 1024))} KB` : '0 MB');
@@ -127,6 +131,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   currentUserId,
   host,
   settings: initialSettings,
+  proxyInfo,
+  onProxySwitched,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialAuditLogs);
@@ -577,8 +583,13 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   // Filtered + Paginated Audit Logs
   const filteredAuditLogs = useMemo(() => {
     return auditLogs.filter((log) => {
+      const actionLower = log.action.toLowerCase();
       const matchesCategory =
-        auditCategory === 'all' || log.action.toLowerCase().startsWith(auditCategory);
+        auditCategory === 'all'
+          ? true
+          : auditCategory === 'proxy.'
+          ? actionLower.startsWith('proxy.') || actionLower.startsWith('caddy.')
+          : actionLower.startsWith(auditCategory);
       const q = auditSearch.trim().toLowerCase();
       if (!q) return matchesCategory;
       const matchesQuery =
@@ -1257,8 +1268,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-[#09090b] px-3.5 py-3">
                 <div className="min-w-0 pr-2">
                   <div className="text-xs font-medium text-zinc-200">Static &amp; Media Server</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    Serve static assets and uploads directly via Caddy
+                  <div className="mt-0.5 text-[11px] text-zinc-400">
+                    Serve static assets and uploads directly via reverse proxy
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -1415,7 +1426,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
               { id: 'app.', label: 'Apps' },
               { id: 'user.', label: 'Users & Quotas' },
               { id: 'backup.', label: 'Backups' },
-              { id: 'caddy.', label: 'Caddy Proxy' },
+              { id: 'proxy.', label: 'Reverse Proxy' },
               { id: 'system.', label: 'System' },
             ].map((cat) => (
               <button

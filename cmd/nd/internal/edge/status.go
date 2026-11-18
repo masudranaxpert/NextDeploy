@@ -51,11 +51,18 @@ func BuildStatusForPanel(
 	}
 	if !caddyRunning && caddyErr != "" {
 		if lastApplyErr == "" {
-			lastApplyErr = "caddy not running: " + caddyErr
+			engineLabel := EngineCaddy
+			if cfg != nil && cfg.EngineName() != "" {
+				engineLabel = cfg.EngineName()
+			}
+			lastApplyErr = engineLabel + " not running: " + caddyErr
 		}
 	}
 
 	diskPath := paths.CaddyNDDir
+	if cfg != nil && cfg.EngineName() != EngineCaddy {
+		diskPath = paths.EnginePathsFor(cfg.EngineName()).ManagedDir
+	}
 	if diskPath == "" {
 		diskPath = string(filepath.Separator)
 	}

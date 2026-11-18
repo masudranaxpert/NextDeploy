@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 // SiteSettings are the per-site PHP knobs shown on the Settings tab.
@@ -25,7 +25,7 @@ type SiteSettings struct {
 	DisableFunctions    string            `json:"disable_functions"`     // custom disabled functions list (empty = use default)
 	Additional          string            `json:"additional"`            // extra php.ini directives, one per line
 	Stopped             bool              `json:"stopped,omitempty"`
-	Routing             caddy.SiteRouting `json:"routing,omitempty"`
+	Routing             proxy.SiteRouting `json:"routing,omitempty"`
 }
 
 var (
@@ -259,7 +259,7 @@ func (s *SiteSettings) ValidateForSite(c Ceilings, isStatic bool) error {
 			return err
 		}
 	}
-	return caddy.ValidateRouting(&s.Routing, isStatic)
+	return proxy.ValidateRouting(&s.Routing, isStatic)
 }
 
 var directiveKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.]{0,63}$`)

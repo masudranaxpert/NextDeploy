@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 var (
@@ -38,7 +38,7 @@ type blockFrame struct {
 // fileRelPath is the path relative to document root (e.g. ".htaccess" or "api/.htaccess").
 func (c *Converter) Parse(content, fileRelPath string) Result {
 	res := Result{
-		Rules:        make([]caddy.RoutingRule, 0),
+		Rules:        make([]proxy.RoutingRule, 0),
 		FilesScanned: 1,
 		Diagnostics:  make([]Diagnostic, 0),
 	}
@@ -73,13 +73,13 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 		})
 	}
 
-	addRule := func(lineNo int, dir string, rule caddy.RoutingRule) {
+	addRule := func(lineNo int, dir string, rule proxy.RoutingRule) {
 		if len(res.Rules) >= c.maxRules {
 			addDiag(lineNo, SeverityWarning, dir, fmt.Sprintf("skipped rule because max rules limit (%d) was reached", c.maxRules))
 			return
 		}
-		probe := caddy.SiteRouting{Rules: []caddy.RoutingRule{rule}}
-		if err := caddy.ValidateRouting(&probe, false); err != nil {
+		probe := proxy.SiteRouting{Rules: []proxy.RoutingRule{rule}}
+		if err := proxy.ValidateRouting(&probe, false); err != nil {
 			addDiag(lineNo, SeverityWarning, dir, fmt.Sprintf("could not convert cleanly (%v)", err))
 			return
 		}
@@ -106,7 +106,7 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 						pat = globToRegex(pat)
 					}
 					pat = scopeFileRegex(basePrefix, pat)
-					addRule(lineNo, "<Files>", caddy.RoutingRule{
+					addRule(lineNo, "<Files>", proxy.RoutingRule{
 						ID:        fmt.Sprintf("ht-%d", len(res.Rules)+1),
 						Kind:      "block",
 						MatchType: mt,
@@ -227,7 +227,7 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 			if len(args) >= 2 && basePrefix == "" {
 				entryFile := strings.TrimPrefix(strings.TrimSpace(args[1]), "/")
 				if entryFile != "" && entryFile != "index.php" && entryFile != "index.html" && !strings.Contains(entryFile, "/") {
-					res.FallbackMode = caddy.FallbackCustom
+					res.FallbackMode = proxy.FallbackCustom
 					res.FallbackEntry = entryFile
 					addDiag(lineNo, SeverityConverted, "DirectoryIndex", fmt.Sprintf("set custom fallback entry to %q", entryFile))
 				}
@@ -254,7 +254,7 @@ func (c *Converter) Parse(content, fileRelPath string) Result {
 			if isDenyAll && basePrefix != "" {
 				if !subfolderDenied {
 					subfolderDenied = true
-					addRule(lineNo, args[0], caddy.RoutingRule{
+					addRule(lineNo, args[0], proxy.RoutingRule{
 						ID:        fmt.Sprintf("ht-%d", len(res.Rules)+1),
 						Kind:      "block",
 						MatchType: "prefix",
@@ -283,7 +283,7 @@ func (c *Converter) convertRewriteRule(
 	rewriteBase string,
 	basePrefix string,
 	fileRelPath string,
-) (*caddy.RoutingRule, string, Severity) {
+) (*proxy.RoutingRule, string, Severity) {
 	if len(args) < 3 {
 		return nil, "RewriteRule requires pattern and substitution", SeverityWarning
 	}
@@ -328,7 +328,7 @@ func (c *Converter) convertRewriteRule(
 
 	// Handle block flags [F], [G], or [R=403|404|410]
 	if upperFlags["F"] {
-		return &caddy.RoutingRule{
+		return &proxy.RoutingRule{
 			Kind:      "block",
 			MatchType: matchType,
 			Pattern:   pattern,
@@ -338,7 +338,7 @@ func (c *Converter) convertRewriteRule(
 		}, warnNote, SeverityConverted
 	}
 	if upperFlags["G"] {
-		return &caddy.RoutingRule{
+		return &proxy.RoutingRule{
 			Kind:      "block",
 			MatchType: matchType,
 			Pattern:   pattern,
@@ -349,7 +349,7 @@ func (c *Converter) convertRewriteRule(
 	}
 	if code, hasR := parseRedirectFlag(flags); hasR {
 		if code == 403 || code == 404 || code == 410 {
-			return &caddy.RoutingRule{
+			return &proxy.RoutingRule{
 				Kind:      "block",
 				MatchType: matchType,
 				Pattern:   pattern,
@@ -362,7 +362,7 @@ func (c *Converter) convertRewriteRule(
 			return nil, "redirect rule with '-' target cannot be converted", SeverityWarning
 		}
 		target := scopeTarget(effectiveBase, rawSub, true)
-		return &caddy.RoutingRule{
+		return &proxy.RoutingRule{
 			Kind:          "redir",
 			MatchType:     matchType,
 			Pattern:       pattern,
@@ -389,7 +389,7 @@ func (c *Converter) convertRewriteRule(
 			unlessFile = true
 		}
 	}
-	return &caddy.RoutingRule{
+	return &proxy.RoutingRule{
 		Kind:              "rewrite",
 		MatchType:         matchType,
 		Pattern:           pattern,
@@ -438,7 +438,7 @@ func tightenExtensionlessPhpPattern(pattern, target string) (string, bool) {
 	return m[1] + "([^.]+)$", true
 }
 
-func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath string) (*caddy.RoutingRule, string) {
+func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath string) (*proxy.RoutingRule, string) {
 	status := 302
 	idx := 1
 	switch dir {
@@ -462,7 +462,7 @@ func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath
 			case "gone":
 				if len(args) >= 3 {
 					pat := scopeLiteralPath(basePrefix, args[2])
-					return &caddy.RoutingRule{
+					return &proxy.RoutingRule{
 						Kind:      "block",
 						MatchType: "exact",
 						Pattern:   pat,
@@ -487,7 +487,7 @@ func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath
 	if status != 301 && status != 302 && status != 307 && status != 308 {
 		status = 302
 	}
-	return &caddy.RoutingRule{
+	return &proxy.RoutingRule{
 		Kind:      "redir",
 		MatchType: "prefix",
 		Pattern:   src,
@@ -498,7 +498,7 @@ func convertRedirectDirective(dir string, args []string, basePrefix, fileRelPath
 	}, ""
 }
 
-func convertRedirectMatchDirective(args []string, basePrefix, fileRelPath string) (*caddy.RoutingRule, string) {
+func convertRedirectMatchDirective(args []string, basePrefix, fileRelPath string) (*proxy.RoutingRule, string) {
 	status := 302
 	idx := 1
 	if len(args) >= 2 {
@@ -522,7 +522,7 @@ func convertRedirectMatchDirective(args []string, basePrefix, fileRelPath string
 	}
 	pat, _ := buildScopedPattern(basePrefix, args[idx], false)
 	dst := scopeTarget(basePrefix, args[idx+1], true)
-	return &caddy.RoutingRule{
+	return &proxy.RoutingRule{
 		Kind:      "redir",
 		MatchType: "regex",
 		Pattern:   pat,

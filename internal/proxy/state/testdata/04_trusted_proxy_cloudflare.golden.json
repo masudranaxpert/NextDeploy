@@ -1,0 +1,152 @@
+{
+  "global": {
+    "profile": "custom",
+    "read_header": "15s",
+    "read_body_idle": "",
+    "idle": "2m",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "cloudflare",
+    "trusted_proxies": null,
+    "trusted_strict": true,
+    "shield_proxies": [
+      "107.189.6.222"
+    ],
+    "direct_cloudflare": true
+  },
+  "sites": [
+    {
+      "id": "app:tp-app:dom:21",
+      "app_id": "tp-app",
+      "domain_id": 21,
+      "slot": "blue",
+      "hosts": [
+        "cf.example.com"
+      ],
+      "tls": "auto",
+      "trusted_proxy": true,
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tp_app_web_3000_blue",
+        "service": "web",
+        "container": "tp-app-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tp-app:dom:22",
+      "app_id": "tp-app",
+      "domain_id": 22,
+      "slot": "blue",
+      "hosts": [
+        "direct.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tp_app_web_3000_blue",
+        "service": "web",
+        "container": "tp-app-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tp-app:dom:23",
+      "app_id": "tp-app",
+      "domain_id": 23,
+      "slot": "blue",
+      "hosts": [
+        "shield.example.com"
+      ],
+      "tls": "internal",
+      "behind_shield": true,
+      "trusted_proxy": true,
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tp_app_web_3000_blue",
+        "service": "web",
+        "container": "tp-app-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    }
+  ],
+  "generation": "1262f23382839e38e99f07e71568af4c26bb62c0d59517d6ebd32263bf500c6c"
+}

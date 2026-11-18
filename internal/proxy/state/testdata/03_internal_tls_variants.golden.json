@@ -1,0 +1,278 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false,
+    "shield_proxies": [
+      "198.51.100.10"
+    ]
+  },
+  "sites": [
+    {
+      "id": "app:tls-app:dom:11",
+      "app_id": "tls-app",
+      "domain_id": 11,
+      "slot": "blue",
+      "hosts": [
+        "localhost"
+      ],
+      "tls": "internal",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tls-app:dom:12",
+      "app_id": "tls-app",
+      "domain_id": 12,
+      "slot": "blue",
+      "hosts": [
+        "dev.localhost"
+      ],
+      "tls": "internal",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tls-app:dom:13",
+      "app_id": "tls-app",
+      "domain_id": 13,
+      "slot": "blue",
+      "hosts": [
+        "app-192-168-1-10.sslip.io"
+      ],
+      "tls": "internal",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tls-app:dom:14",
+      "app_id": "tls-app",
+      "domain_id": 14,
+      "slot": "blue",
+      "hosts": [
+        "pub-203-0-113-42.sslip.io"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tls-app:dom:15",
+      "app_id": "tls-app",
+      "domain_id": 15,
+      "slot": "blue",
+      "hosts": [
+        "shielded.example.com"
+      ],
+      "tls": "internal",
+      "behind_shield": true,
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "app:tls-app:dom:16",
+      "app_id": "tls-app",
+      "domain_id": 16,
+      "slot": "blue",
+      "hosts": [
+        "plain.example.com"
+      ],
+      "tls": "none",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_tls_app_web_8080_blue",
+        "service": "web",
+        "container": "tls-app-blue-web-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    }
+  ],
+  "generation": "196775769ba783737d9005df41a28b95f94ab42af72df215b124a54116fac634"
+}

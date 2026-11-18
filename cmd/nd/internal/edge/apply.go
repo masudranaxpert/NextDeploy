@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -100,6 +101,43 @@ func (r *ExecCaddyRunner) CheckAdmin(ctx context.Context, adminAddr string) erro
 	return d.CheckTCP(ctx, hostPort, 3*time.Second)
 }
 
+// Version returns the installed caddy binary version (e.g. "v2.8.4").
+func (r *ExecCaddyRunner) Version(ctx context.Context) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(cctx, r.bin(), "version").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("caddy version failed: %w: %s", err, truncateStr(string(out), 256))
+	}
+	ver := parseCaddyVersionString(string(out))
+	if ver == "" {
+		return "", fmt.Errorf("unexpected caddy version output: %q", truncateStr(string(out), 256))
+	}
+	return ver, nil
+}
+
+func parseCaddyVersionString(out string) string {
+	var fallback string
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "{") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields[0]) >= 2 && fields[0][0] == 'v' && fields[0][1] >= '0' && fields[0][1] <= '9' {
+			return fields[0]
+		}
+		if fallback == "" {
+			fallback = fields[0]
+		}
+	}
+	return fallback
+}
+
 // ExecSystemdRunner invokes systemctl / journalctl on Linux.
 type ExecSystemdRunner struct{}
 
@@ -160,13 +198,15 @@ type PanelRenderArtifact struct {
 	Changed    bool   // true if panel snapshot changed since last apply (for E-MP-5 isolation)
 }
 
-// ApplyInput contains all files for an atomic Caddy generation swap (§5.5).
+// ApplyInput contains all files for an atomic proxy generation swap (§5.5).
 type ApplyInput struct {
 	AdminAddr   string
 	ACMEEmail   string
 	CaddyGroup  string
 	GlobalOpts  []byte
 	CommonCaddy []byte
+	GlobalFiles map[string]string
+	CommonFiles map[string]string
 	Panels      []PanelRenderArtifact
 	Force       bool
 }
@@ -183,10 +223,12 @@ type ApplyResult struct {
 }
 
 // Applier manages atomic generation directories, validation, symlink swaps,
-// Caddy reload, rollback, and old-generation pruning (§5.5).
+// proxy reload, rollback, and old-generation pruning (§5.5).
 type Applier struct {
 	paths      Paths
 	caddy      CaddyRunner
+	runner     Runner
+	engine     Engine
 	chownGroup func(path, group string, recursive bool) error
 }
 
@@ -198,8 +240,45 @@ func NewApplier(paths Paths, caddy CaddyRunner) *Applier {
 	return &Applier{
 		paths:      paths,
 		caddy:      caddy,
+		runner:     RunnerFromCaddyRunner(caddy, paths.Caddyfile, ""),
 		chownGroup: ChownGroup,
 	}
+}
+
+// NewApplierWithRunner constructs an Applier backed by a generalized Runner.
+func NewApplierWithRunner(paths Paths, runner Runner) *Applier {
+	if runner == nil {
+		runner = RunnerFromCaddyRunner(&ExecCaddyRunner{}, paths.Caddyfile, "")
+	}
+	return &Applier{
+		paths:      paths,
+		caddy:      CaddyRunnerFromRunner(runner),
+		runner:     runner,
+		chownGroup: ChownGroup,
+	}
+}
+
+// NewApplierForEngine constructs an Applier bound to a specific proxy Engine.
+func NewApplierForEngine(paths Paths, eng Engine) *Applier {
+	if eng == nil {
+		eng = NewCaddyEngine(paths, nil)
+	}
+	r := eng.Runner()
+	return &Applier{
+		paths:      paths,
+		caddy:      CaddyRunnerFromRunner(r),
+		runner:     r,
+		engine:     eng,
+		chownGroup: ChownGroup,
+	}
+}
+
+// Runner returns the generalized Runner used by this Applier.
+func (a *Applier) Runner() Runner {
+	if a.runner != nil {
+		return a.runner
+	}
+	return RunnerFromCaddyRunner(a.caddy, a.paths.Caddyfile, "")
 }
 
 func (a *Applier) applyGroup(path, group string, recursive bool) {
@@ -217,6 +296,12 @@ func DesiredHash(in ApplyInput) string {
 	h.Write([]byte{0})
 	h.Write(in.CommonCaddy)
 	h.Write([]byte{0})
+	if len(in.GlobalFiles) > 0 {
+		writeMapHash(h, in.GlobalFiles)
+	}
+	if len(in.CommonFiles) > 0 {
+		writeMapHash(h, in.CommonFiles)
+	}
 	sorted := make([]PanelRenderArtifact, len(in.Panels))
 	copy(sorted, in.Panels)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].PanelID < sorted[j].PanelID })
@@ -231,9 +316,26 @@ func DesiredHash(in ApplyInput) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Apply performs the §5.5 atomic generation swap and Caddy reload, with
+func writeMapHash(h io.Writer, m map[string]string) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(m[k]))
+		_, _ = h.Write([]byte{0})
+	}
+}
+
+// Apply performs the §5.5 atomic generation swap and proxy reload, with
 // E-MP-5 offending-panel isolation and E-CADDY-3 automatic rollback.
 func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now time.Time) (ApplyResult, error) {
+	if a.engine != nil && a.engine.Name() != EngineCaddy {
+		return a.applyForEngine(ctx, in, meta, now)
+	}
 	var res ApplyResult
 	if meta == nil {
 		meta = &ApplyMeta{}

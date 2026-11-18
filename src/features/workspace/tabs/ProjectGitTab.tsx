@@ -179,8 +179,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       if (app.gitAuthMode) {
         nextMode = app.gitAuthMode as 'public' | 'github_app' | 'gitlab_token';
       } else if (app.gitRepo) {
-        if (app.gitRepo.includes('gitlab.com')) nextMode = 'gitlab_token';
-        else if (app.gitRepo.includes('github.com')) nextMode = 'github_app';
+        // A repo without a linked provider was added as a plain public URL.
+        if (!app.gitProviderId) nextMode = 'public';
+        else if (app.gitRepo.includes('gitlab.com')) nextMode = 'gitlab_token';
+        else nextMode = 'github_app';
       } else {
         const hasGitHub = list.some((p) => p.provider === 'GitHub');
         const hasGitLab = list.some((p) => p.provider === 'GitLab');
@@ -366,6 +368,9 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const webhookUrl = `${window.location.origin}/webhooks/${webhookEndpoint}/${encodeURIComponent(app.id)}`;
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
+  // The saved repo may not belong to this account (e.g. it was added as a public URL);
+  // then the picker shows a placeholder instead of silently showing the first repo.
+  const selectedRepoListed = providerRepos.some((r) => r.full_name === selectedRepoFullName);
   const isGitHubAppInstall =
     authMode === 'github_app' && selectedProvider?.authMethod === 'GitHub App';
   const showManualWebhook = autoDeploy;
@@ -530,9 +535,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                   Select Repository ({providerRepos.length} available)
                 </label>
                 <select
-                  value={selectedRepoFullName}
+                  value={selectedRepoListed ? selectedRepoFullName : ''}
                   onChange={(e) => {
                     const full = e.target.value;
+                    if (!full) return;
                     setSelectedRepoFullName(full);
                     const matched = providerRepos.find((r) => r.full_name === full);
                     if (matched) {
@@ -546,7 +552,15 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                   }}
                   className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
                 >
-                  {providerRepos.length === 0 && <option value="">No repositories found</option>}
+                  {providerRepos.length === 0 ? (
+                    <option value="">No repositories found</option>
+                  ) : (
+                    !selectedRepoListed && (
+                      <option value="" disabled>
+                        Select a repository
+                      </option>
+                    )
+                  )}
                   {providerRepos.map((r) => (
                     <option key={r.full_name} value={r.full_name}>
                       {r.full_name} {r.private ? '(Private)' : '(Public)'}

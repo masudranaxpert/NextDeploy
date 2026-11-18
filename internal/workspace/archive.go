@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 	"panel/internal/sandbox"
 )
 
@@ -96,7 +96,7 @@ func (s *Store) extractTarStream(wsID, base string, r io.Reader, headerBuf []byt
 
 		baseName := filepath.Base(cleanRel)
 		if baseName == ".panel-meta" || cleanRel == ".panel-meta" || strings.HasPrefix(cleanRel, ".panel-meta/") ||
-			baseName == caddy.GeneratedCompose || cleanRel == ReservedDir || strings.HasPrefix(cleanRel, ReservedDir+"/") ||
+			baseName == proxy.GeneratedCompose || cleanRel == ReservedDir || strings.HasPrefix(cleanRel, ReservedDir+"/") ||
 			IsProtectedEnvFile(cleanRel) {
 			continue
 		}
@@ -203,7 +203,7 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 
 		baseName := filepath.Base(cleanRel)
 		if baseName == ".panel-meta" || cleanRel == ".panel-meta" || strings.HasPrefix(cleanRel, ".panel-meta/") ||
-			baseName == caddy.GeneratedCompose || cleanRel == ReservedDir || strings.HasPrefix(cleanRel, ReservedDir+"/") ||
+			baseName == proxy.GeneratedCompose || cleanRel == ReservedDir || strings.HasPrefix(cleanRel, ReservedDir+"/") ||
 			IsProtectedEnvFile(cleanRel) {
 			continue
 		}

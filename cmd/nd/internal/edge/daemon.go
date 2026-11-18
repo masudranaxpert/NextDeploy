@@ -25,6 +25,7 @@ type DaemonOptions struct {
 	Paths            Paths
 	EdgeVersion      string
 	CaddyVersion     string
+	Engine           Engine
 	Caddy            CaddyRunner
 	Systemd          SystemdRunner
 	DNSResolver      DNSResolver
@@ -41,6 +42,7 @@ type DaemonOptions struct {
 type Daemon struct {
 	opts       DaemonOptions
 	cfg        *Config
+	engine     Engine
 	cfIPs      *CFIPStore
 	dnsGate    *DNSGate
 	applier    *Applier
@@ -102,10 +104,20 @@ func NewDaemon(opts DaemonOptions) (*Daemon, *FileLock, error) {
 		panelStates[p.PanelID] = st
 	}
 
-	panelsDir, _ := ReadDirLink(opts.Paths.PanelsLink)
+	eng := opts.Engine
+	if eng == nil {
+		eng, err = NewEngineForPaths(cfg.EngineName(), opts.Paths, cfg, opts.Caddy)
+		if err != nil {
+			_ = lock.Release()
+			return nil, nil, err
+		}
+	}
+	ep := eng.Paths()
+
+	panelsDir, _ := ReadDirLink(ep.PanelsLink)
 	claims, clErr := LoadClaims(opts.Paths.ClaimsFile, panelsDir, now)
 	if clErr != nil {
-		// E-STATE-2: corrupt claims rebuilt from rendered Caddy files.
+		// E-STATE-2: corrupt claims rebuilt from rendered proxy files.
 		opts.Logger.Printf("warning: %v", clErr)
 	}
 
@@ -122,16 +134,23 @@ func NewDaemon(opts DaemonOptions) (*Daemon, *FileLock, error) {
 		ACMEEmail: cfg.ACMEEmail,
 		Off:       cfg.DNSGateOff,
 	})
-	applier := NewApplier(opts.Paths, opts.Caddy)
+	var applier *Applier
+	if eng.Name() == EngineCaddy && opts.Caddy != nil {
+		applier = NewApplier(opts.Paths, opts.Caddy)
+	} else {
+		applier = NewApplierForEngine(opts.Paths, eng)
+	}
 	probe := opts.CertProbe
 	if probe == nil {
-		probe = NewCertProbe(opts.Paths.CaddyCertsDir, opts.Systemd)
+		probe = NewCertProbe(ep.CertsDir, opts.Systemd)
+		probe.ManualCertsDir = ep.ManualCertsDir
 	}
-	reconciler := NewReconciler(opts.Paths, dnsGate, applier, probe, opts.Systemd, cfIPs)
+	reconciler := NewReconcilerWithEngine(opts.Paths, eng, dnsGate, applier, probe, opts.Systemd, cfIPs)
 
 	d := &Daemon{
 		opts:        opts,
 		cfg:         cfg,
+		engine:      eng,
 		cfIPs:       cfIPs,
 		dnsGate:     dnsGate,
 		applier:     applier,
@@ -179,6 +198,21 @@ func (d *Daemon) ReloadConfig() error {
 	now := time.Now().UTC()
 	d.cfg = cfg
 	d.dnsGate.SetOff(cfg.DNSGateOff)
+	if d.opts.Engine == nil && (d.engine == nil || d.engine.Name() != cfg.EngineName()) {
+		if newEng, engErr := NewEngineForPaths(cfg.EngineName(), d.opts.Paths, cfg, d.opts.Caddy); engErr == nil {
+			d.engine = newEng
+			if newEng.Name() == EngineCaddy && d.opts.Caddy != nil {
+				d.applier = NewApplier(d.opts.Paths, d.opts.Caddy)
+			} else {
+				d.applier = NewApplierForEngine(d.opts.Paths, newEng)
+			}
+			if d.opts.CertProbe == nil {
+				d.probe = NewCertProbe(newEng.Paths().CertsDir, d.opts.Systemd)
+				d.probe.ManualCertsDir = newEng.Paths().ManualCertsDir
+			}
+			d.reconciler = NewReconcilerWithEngine(d.opts.Paths, newEng, d.dnsGate, d.applier, d.probe, d.opts.Systemd, d.cfIPs)
+		}
+	}
 	newStates := make(map[string]*PanelState, len(cfg.Panels))
 	for _, p := range cfg.Panels {
 		if existing, ok := d.panelStates[p.PanelID]; ok {
@@ -199,12 +233,26 @@ func (d *Daemon) ReloadConfig() error {
 func (d *Daemon) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 
-	// Initial Caddy status check on boot.
+	// Initial proxy service status check on boot.
 	if d.opts.Systemd != nil {
-		active, detail, _ := d.opts.Systemd.IsActive(ctx, "caddy.service")
+		unit := "caddy.service"
+		if d.engine != nil && d.engine.Paths().ServiceUnit != "" {
+			unit = d.engine.Paths().ServiceUnit
+		}
+		active, detail, _ := d.opts.Systemd.IsActive(ctx, unit)
 		d.mu.Lock()
 		d.lastCaddyOK = active
 		d.lastCaddyEr = detail
+		d.mu.Unlock()
+	} else if d.engine != nil && d.engine.Name() != EngineCaddy {
+		err := d.engine.Runner().CheckAlive(ctx)
+		d.mu.Lock()
+		d.lastCaddyOK = err == nil
+		if err != nil {
+			d.lastCaddyEr = err.Error()
+		} else {
+			d.lastCaddyEr = ""
+		}
 		d.mu.Unlock()
 	}
 
@@ -415,18 +463,35 @@ func (d *Daemon) runStatusLoop(ctx context.Context) {
 func (d *Daemon) pushAllStatuses(ctx context.Context) {
 	d.mu.Lock()
 	cfg := d.cfg
+	eng := d.engine
 	meta := d.meta
 	caddyOK := d.lastCaddyOK
 	caddyErr := d.lastCaddyEr
 	panels := append([]PanelConfig(nil), cfg.Panels...)
 	d.mu.Unlock()
 
+	proxyVersion := d.opts.CaddyVersion
+	if eng != nil && (proxyVersion == "" || eng.Name() != EngineCaddy) {
+		if v, err := eng.Runner().Version(ctx); err == nil && v != "" {
+			proxyVersion = v
+		}
+	}
+	if d.opts.Systemd == nil && eng != nil && eng.Name() != EngineCaddy {
+		if err := eng.Runner().CheckAlive(ctx); err != nil {
+			caddyOK = false
+			caddyErr = err.Error()
+		} else {
+			caddyOK = true
+			caddyErr = ""
+		}
+	}
+
 	uptime := int64(time.Since(d.startedAt).Seconds())
 	for _, p := range panels {
 		d.mu.Lock()
 		st := d.panelStates[p.PanelID]
 		client := d.clients[p.PanelID]
-		doc := BuildStatusForPanel(cfg, st, meta, d.opts.EdgeVersion, d.opts.CaddyVersion, caddyOK, caddyErr, uptime, 0, d.opts.Paths)
+		doc := BuildStatusForPanel(cfg, st, meta, d.opts.EdgeVersion, proxyVersion, caddyOK, caddyErr, uptime, 0, d.opts.Paths)
 		d.mu.Unlock()
 
 		if client == nil {

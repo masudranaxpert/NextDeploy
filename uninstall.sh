@@ -233,19 +233,19 @@ confirm() {
   echo -e "${BOLD}${RED}WARNING: This will remove NextDeploy from your system.${RESET}"
   echo ""
   echo -e "  Will remove:"
-  echo -e "    ${RED}-${RESET}  Panel stack (caddy, panel)"
+  echo -e "    ${RED}-${RESET}  Panel stack (caddy / nd-proxy, panel)"
   echo -e "    ${RED}-${RESET}  ${BOLD}All deployed apps${RESET} (containers, networks"
   if [[ "$KEEP_DATA" == false ]]; then
     echo -e "        and Docker volumes/images for those apps)"
   else
     echo -e "        — app data volumes kept on disk with ${CYAN}--keep-data${RESET})"
   fi
-  echo -e "    ${RED}-${RESET}  Docker images (nextdeploy, caddy-docker-proxy)"
+  echo -e "    ${RED}-${RESET}  Docker images (nextdeploy, caddy-docker-proxy, angie, ferron)"
   echo -e "    ${RED}-${RESET}  Install directory: ${INSTALL_DIR}"
   echo -e "    ${RED}-${RESET}  Systemd service: nextdeploy.service"
   echo -e "    ${RED}-${RESET}  Helper scripts: nextdeploy-update, nextdeploy-logs"
   if [[ "$KEEP_DATA" == false ]]; then
-    echo -e "    ${RED}-${RESET}  ${BOLD}Data directory: ${DATA_DIR} (workspaces, panel DB, backups)${RESET}"
+    echo -e "    ${RED}-${RESET}  ${BOLD}Data directory: ${DATA_DIR} (workspaces, proxy/PKI data, panel DB, backups)${RESET}"
   else
     echo -e "    ${GREEN}+${RESET}  Data directory: ${DATA_DIR} (keeping files on disk)"
   fi
@@ -268,15 +268,14 @@ confirm() {
 stop_services() {
   info "Stopping NextDeploy panel stack..."
   if [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
-    cd "$INSTALL_DIR"
-    docker compose down --remove-orphans 2>/dev/null || true
+    (cd "$INSTALL_DIR" && docker compose down --remove-orphans 2>/dev/null || true)
     success "Panel stack stopped"
   else
     warn "No docker-compose.yml at $INSTALL_DIR — stopping containers by name..."
-    docker stop panel caddy 2>/dev/null || true
-    docker rm -f panel caddy 2>/dev/null || true
-    success "Panel containers stopped"
   fi
+  docker stop panel caddy nd-proxy 2>/dev/null || true
+  docker rm -f panel caddy nd-proxy 2>/dev/null || true
+  success "Panel and proxy containers stopped"
 }
 
 remove_images() {
@@ -290,14 +289,22 @@ remove_images() {
   done
 
   docker rmi lucaslorentz/caddy-docker-proxy:ci-alpine 2>/dev/null || true
+  docker rmi docker.angie.software/angie:1.12.4 2>/dev/null || true
+  docker rmi ferronserver/ferron:3.0.0-rc.11-alpine 2>/dev/null || true
 
-  LEFTOVER=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'nextdeploy|panel-local' || true)
+  local proxy_imgs
+  proxy_imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^(docker\.angie\.software/angie|ferronserver/ferron|lucaslorentz/caddy-docker-proxy):' || true)
+  if [[ -n "$proxy_imgs" ]]; then
+    echo "$proxy_imgs" | xargs -r docker rmi --force 2>/dev/null || true
+  fi
+
+  LEFTOVER=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E 'nextdeploy|panel-local' || true)
   if [[ -n "$LEFTOVER" ]]; then
     echo "$LEFTOVER" | xargs -r docker rmi --force 2>/dev/null || true
     info "Removed leftover panel images"
   fi
 
-  success "Panel images cleaned up"
+  success "Panel and proxy images cleaned up"
 }
 
 remove_networks() {
@@ -307,10 +314,21 @@ remove_networks() {
 }
 
 remove_volumes() {
-  info "Removing Caddy data volume..."
-  docker volume rm nextdeploy_caddy_data 2>/dev/null || \
-  docker volume rm caddy_data 2>/dev/null || true
-  success "Caddy volume removed (or did not exist)"
+  if [[ "$KEEP_DATA" == true ]]; then
+    warn "Keeping proxy Docker volumes (--keep-data)"
+    return
+  fi
+  info "Removing proxy data/ACME Docker volumes..."
+  local vol
+  for vol in nextdeploy_caddy_data caddy_data nextdeploy_angie_acme angie_acme nextdeploy_ferron_acme ferron_acme; do
+    docker volume rm "$vol" 2>/dev/null || true
+  done
+  local matching_vols
+  matching_vols=$(docker volume ls -q 2>/dev/null | grep -E '(^|_)(caddy_data|angie_acme|ferron_acme)$' || true)
+  if [[ -n "$matching_vols" ]]; then
+    echo "$matching_vols" | xargs -r docker volume rm 2>/dev/null || true
+  fi
+  success "Proxy data volumes removed (or did not exist)"
 }
 
 disable_systemd() {
@@ -343,8 +361,13 @@ remove_install_dir() {
 
 remove_data_dir() {
   if [[ "$KEEP_DATA" == true ]]; then
-    warn "Keeping data directory: $DATA_DIR"
+    warn "Keeping data directory (including ${DATA_DIR}/proxy): $DATA_DIR"
     return
+  fi
+
+  if [[ -d "${DATA_DIR}/proxy" ]]; then
+    info "Removing proxy/PKI directory: ${DATA_DIR}/proxy ..."
+    rm -rf "${DATA_DIR}/proxy"
   fi
 
   if [[ -d "$DATA_DIR" ]]; then
@@ -405,4 +428,6 @@ main() {
   print_summary
 }
 
-main "$@"
+if [[ "${ND_SOURCE_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi

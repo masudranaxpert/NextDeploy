@@ -15,6 +15,7 @@ import (
 
 	"panel/internal/caddy"
 	"panel/internal/db"
+	"panel/internal/proxy"
 )
 
 // runtimeSpecVersion is mixed into the container hash: bump it whenever the `docker run`
@@ -254,13 +255,37 @@ func (m *Manager) SiteLabels(ctx context.Context, site db.PHPSite) map[string]st
 	return caddy.PHPSiteLabelsWithRouting(domains, DocRoot(site.AppID, site.RootDir), socket, m.siteSecurity(ctx, site.AppID), settings.Routing)
 }
 
-// SyncRoutes (re)creates the label-carrying holder container of a site. Only this site's
-// holder is touched, so other sites keep serving while one site's domains change.
+// SetProxySync configures the engine lookup and config sync hook used by non-Caddy proxy engines.
+func (m *Manager) SetProxySync(engineFn func() string, syncFn func(context.Context, proxy.Reason) error) {
+	m.ProxyEngineFunc = engineFn
+	m.ProxySyncFunc = syncFn
+}
+
+func (m *Manager) isNonCaddyEngine() bool {
+	if m == nil || m.ProxyEngineFunc == nil {
+		return false
+	}
+	eng := strings.ToLower(strings.TrimSpace(m.ProxyEngineFunc()))
+	return eng != "" && eng != string(proxy.EngineCaddy)
+}
+
+func (m *Manager) syncNonCaddy(ctx context.Context, reason proxy.Reason) error {
+	if m.ProxySyncFunc == nil {
+		return nil
+	}
+	return m.ProxySyncFunc(ctx, reason)
+}
+
+// SyncRoutes (re)creates the label-carrying holder container of a site (Caddy) or triggers
+// a proxy driver sync (Angie/Ferron). Only this site is synced, so sibling sites keep serving.
 func (m *Manager) SyncRoutes(ctx context.Context, appID string) error {
 	m.SweepSymlinks(appID)
 	site, err := m.DB.GetPHPSite(ctx, appID)
 	if err != nil {
 		return err
+	}
+	if m.isNonCaddyEngine() {
+		return m.syncNonCaddy(ctx, proxy.Reason{Kind: "php_site", ID: appID})
 	}
 	name := RouteContainer(appID)
 	labels := m.SiteLabels(ctx, site)
@@ -323,6 +348,9 @@ func (m *Manager) StartSite(ctx context.Context, appID string) error {
 // changes when the labels are identical to the running holder, so other routes keep serving
 // while one route is edited. It is used for PHP sites and for the admin's proxy routes.
 func (m *Manager) PublishHolder(ctx context.Context, name string, labels map[string]string, extra map[string]string) error {
+	if m.isNonCaddyEngine() {
+		return m.syncNonCaddy(ctx, proxy.Reason{Kind: "route_holder", ID: name})
+	}
 	hash := labelsHash(labels)
 	ci := inspectContainer(ctx, name)
 	if ci.Exists && ci.Running && ci.Labels["nd.php.hash"] == hash {
@@ -365,14 +393,46 @@ func (m *Manager) PublishHolder(ctx context.Context, name string, labels map[str
 
 // RemoveHolder deletes a label holder (no error when it does not exist).
 func (m *Manager) RemoveHolder(ctx context.Context, name string) {
+	// Always drop the carrier container, also on Angie/Ferron: a holder created while Caddy ran
+	// keeps its caddy.* labels, and caddy-docker-proxy would serve the deleted route again (and
+	// merge it into the upstream pool of a recreated route) after a switch back to Caddy.
 	removeContainer(ctx, name)
+	if m.isNonCaddyEngine() {
+		_ = m.syncNonCaddy(ctx, proxy.Reason{Kind: "route_holder", ID: name})
+		return
+	}
 	m.ReloadCaddy(ctx)
+}
+
+// PruneHolders removes label-carrier containers matching a `docker ps --filter` expression
+// (e.g. "label=nd.proxy=route" or "name=^nd-phpr-") whose name is not in keep — holders left
+// behind by routes or sites deleted while another proxy engine was active. It returns the
+// names it removed.
+func (m *Manager) PruneHolders(ctx context.Context, filter string, keep map[string]bool) []string {
+	res := docker(ctx, "ps", "-a", "--filter", filter, "--format", "{{.Names}}")
+	if !res.OK {
+		return nil
+	}
+	var removed []string
+	for _, name := range strings.Fields(res.Output) {
+		if keep[name] {
+			continue
+		}
+		removeContainer(ctx, name)
+		removed = append(removed, name)
+	}
+	return removed
 }
 
 var caddyReloadDebounce atomic.Int64
 
-// ReloadCaddy triggers a debounced graceful reload of Caddy to flush idle reverse-proxy pools.
+// ReloadCaddy triggers a debounced graceful reload of Caddy to flush idle reverse-proxy pools,
+// or invokes ProxySyncFunc when running a non-Caddy proxy engine.
 func (m *Manager) ReloadCaddy(ctx context.Context) {
+	if m.isNonCaddyEngine() {
+		_ = m.syncNonCaddy(ctx, proxy.Reason{Kind: "php_reload"})
+		return
+	}
 	now := time.Now().UnixNano()
 	caddyReloadDebounce.Store(now)
 	go func(triggerTime int64) {
@@ -450,6 +510,8 @@ func (m *Manager) TeardownSite(ctx context.Context, appID string) error {
 	if err != nil {
 		return nil // not a PHP site
 	}
+	// Always remove the route holder: one left behind on Angie/Ferron still carries caddy.*
+	// labels and would serve the deleted site's domains again after a switch back to Caddy.
 	removeContainer(ctx, RouteContainer(appID))
 	dbs, _ := m.DB.ListPHPDatabases(ctx, appID)
 	users, _ := m.DB.ListPHPDBUsers(ctx, appID)
@@ -483,6 +545,9 @@ func (m *Manager) TeardownSite(ctx context.Context, appID string) error {
 			return err
 		}
 	}
+	if m.isNonCaddyEngine() {
+		return m.syncNonCaddy(ctx, proxy.Reason{Kind: "php_site", ID: appID})
+	}
 	m.ReloadCaddy(ctx)
 	return nil
 }
@@ -494,7 +559,23 @@ func (m *Manager) Reconcile(ctx context.Context) {
 	m.ApplyServerTuning(ctx)
 	m.ApplyQueryLimits(ctx)
 	sites, err := m.DB.ListPHPSites(ctx)
-	if err != nil || len(sites) == 0 {
+	if err != nil {
+		return
+	}
+	// Route holders of sites that no longer exist (deleted while Angie/Ferron ran) would make
+	// caddy-docker-proxy merge a dead upstream into whichever site now owns that domain.
+	// On Angie/Ferron no holder is wanted at all: they only carry Caddy labels.
+	keep := make(map[string]bool, len(sites))
+	for _, s := range sites {
+		if !m.isNonCaddyEngine() {
+			keep[RouteContainer(s.AppID)] = true
+		}
+	}
+	if removed := m.PruneHolders(ctx, "name=^"+RouteContainer(""), keep); len(removed) > 0 {
+		fmt.Fprintf(os.Stderr, "php reconcile: removed %d orphaned route holder(s): %s\n", len(removed), strings.Join(removed, ", "))
+		m.ReloadCaddy(ctx)
+	}
+	if len(sites) == 0 {
 		return
 	}
 	seen := map[string]bool{}

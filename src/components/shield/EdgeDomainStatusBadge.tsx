@@ -65,7 +65,7 @@ export const EdgeDomainStatusBadge: React.FC<EdgeDomainStatusProps> = ({
     return (
       <span
         className="inline-flex items-center gap-1 rounded-md border border-cyan-500/25 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] font-medium text-cyan-300"
-        title="Updating origin Caddy internal TLS before exposing host on Shield"
+        title="Updating origin reverse proxy internal TLS before exposing host on Shield"
       >
         <Loader2 className="h-3 w-3 animate-spin shrink-0" />
         Applying origin TLS…

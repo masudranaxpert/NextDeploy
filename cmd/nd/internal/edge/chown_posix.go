@@ -11,7 +11,9 @@ import (
 	"strconv"
 )
 
-// ChownGroup sets group ownership (keeping root uid 0) on rootPath, recursively if requested.
+// ChownGroup sets group ownership on rootPath, recursively if requested. The owner is left
+// untouched (uid -1): some paths belong to the proxy itself, e.g. Caddy's certificate storage
+// owned by the caddy user with 0600/0700 modes, and forcing root there locks Caddy out.
 func ChownGroup(rootPath, groupName string, recursive bool) error {
 	if groupName == "" {
 		return nil
@@ -28,9 +30,9 @@ func ChownGroup(rootPath, groupName string, recursive bool) error {
 			return walkErr
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			return os.Lchown(p, 0, gid)
+			return os.Lchown(p, -1, gid)
 		}
-		return os.Chown(p, 0, gid)
+		return os.Chown(p, -1, gid)
 	})
 }
 
@@ -47,7 +49,7 @@ func lookupGroupGID(groupName string) (int, error) {
 
 func chownPathGID(p string, gid int) error {
 	if info, err := os.Lstat(p); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return os.Lchown(p, 0, gid)
+		return os.Lchown(p, -1, gid)
 	}
-	return os.Chown(p, 0, gid)
+	return os.Chown(p, -1, gid)
 }

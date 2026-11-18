@@ -162,6 +162,8 @@ func main() {
 	if err := p.SyncRootStackComposeOnStart(); err != nil {
 		log.Printf("nextdeploy root compose sync skipped: %v", err)
 	}
+	// Wire the proxy engine (PHP hooks; Angie/Ferron render+apply the full config once).
+	p.StartProxyRuntime()
 	p.StartBackgroundJobs()
 	go p.ReapplyUserCgroupLimitsOnStart()
 	go p.ReapplyAppCgroupLimitsOnStart()
@@ -307,9 +309,12 @@ func main() {
 	app.Delete("/api/v1/proxy/routes/:id", p.APIAuthMiddleware, p.CaddyRouteDelete)
 	app.Post("/api/v1/proxy/reload", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APIProxyReload)
 	app.Get("/api/v1/proxy/logs", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyLogs)
-	app.Get("/api/v1/proxy/status", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyOverview)
+	app.Get("/api/v1/proxy/status", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxyOverview)
 	app.Get("/api/v1/proxy/options", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyOptionsGet)
-	app.Post("/api/v1/proxy/options", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CaddyOptionsSave)
+	app.Post("/api/v1/proxy/options", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxyOptionsSave)
+	app.Get("/api/v1/proxy/engine", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxyEngineStatus)
+	app.Post("/api/v1/proxy/preflight", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxyPreflight)
+	app.Post("/api/v1/proxy/switch", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxySwitch)
 
 	// AI Copilot (omp RPC headless harness)
 	app.Get("/api/v1/copilot/status", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.CopilotStatus)
@@ -386,6 +391,13 @@ func main() {
 	app.Use("/caddy/logs", p.RequireAdminMiddleware)
 	app.Use("/caddy/overview", p.RequireAdminMiddleware)
 	app.Use("/caddy/options", p.RequireAdminMiddleware)
+	// Proxy routes are multi-tenant (users manage their own routes): register them before the
+	// admin-only /proxy prefix guard so non-admin users are not rejected with 403.
+	app.Get("/proxy/routes", p.CaddyRoutesList)
+	app.Post("/proxy/routes", p.CaddyRouteSave)
+	app.Post("/proxy/routes/:id", p.CaddyRouteSave)
+	app.Post("/proxy/routes/:id/toggle", p.CaddyRouteToggle)
+	app.Post("/proxy/routes/:id/delete", p.CaddyRouteDelete)
 	app.Use("/proxy", p.RequireAdminMiddleware)
 	app.Use("/proxy-options", p.RequireAdminMiddleware)
 	app.Use("/migrate", p.RequireAdminMiddleware)
@@ -553,6 +565,7 @@ func main() {
 	app.Post("/apps/:id/domains/:did/primary", p.AppDomainSetPrimary)
 	app.Post("/apps/:id/preview", p.AppPreviewSave)
 	app.Get("/apps/:id/domains/:did/labels", p.AppDomainLabels)
+	app.Get("/apps/:id/domains/:did/config", p.AppDomainProxyConfig)
 	app.Get("/apps/:id/domains/:did/dns-check", p.AppDomainDNSCheck)
 
 	// PHP hosting
@@ -623,6 +636,16 @@ func main() {
 	app.Post("/caddy/routes/:id", p.CaddyRouteSave)
 	app.Post("/caddy/routes/:id/toggle", p.CaddyRouteToggle)
 	app.Post("/caddy/routes/:id/delete", p.CaddyRouteDelete)
+	// Engine-neutral proxy management (Caddy / Angie / Ferron); admin-only via the /proxy guard.
+	app.Get("/proxy/engine", p.ProxyEngineStatus)
+	app.Post("/proxy/preflight", p.ProxyPreflight)
+	app.Post("/proxy/switch", p.ProxySwitch)
+	app.Get("/proxy/overview", p.ProxyOverview)
+	app.Get("/proxy/logs", p.CaddyLogs)
+	app.Post("/proxy/container", p.CaddyContainerAction)
+	app.Post("/proxy/config", p.ProxySaveConfig)
+	app.Get("/proxy/options", p.CaddyOptionsGet)
+	app.Post("/proxy/options", p.ProxyOptionsSave)
 	app.Post("/nextdeploy/panel", p.SaveNextDeployPanelConfig)
 	app.Post("/nextdeploy/shared-volumes", p.SaveNextDeploySharedVolumes)
 

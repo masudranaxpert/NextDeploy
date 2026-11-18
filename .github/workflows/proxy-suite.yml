@@ -1,0 +1,127 @@
+# Nightly verification of the multi-proxy drivers (Caddy, Angie, Ferron).
+#
+# - Go unit + race tests for internal/proxy/... and the cmd/nd module
+# - Docker-backed Go integration tests (-tags=integration), which run
+#   `angie -t` / `ferron validate` against rendered configs
+# - Installer shell tests (tests/install/test_install_proxy.sh)
+# - tests/proxy-suite/run-all.sh per engine (dnsrestart, reloadmem, abort,
+#   timeouts, throughput, connection-memory benchmark)
+#
+# Not run on every push: the proxy-suite jobs take a long time. Use
+# workflow_dispatch to run on demand or to change the benchmark size.
+name: Proxy suite (nightly)
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      bench_conns:
+        description: "Idle HTTP/2 connections for the memory benchmark (docs target is 20000)"
+        required: false
+        default: "5000"
+      bench_hold:
+        description: "Seconds to hold the benchmark connections"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proxy-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-tests:
+    name: Go unit + race tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test internal/proxy
+        run: |
+          go vet ./internal/proxy/...
+          go test -race -count=1 ./internal/proxy/...
+
+      - name: Vet and test cmd/nd
+        working-directory: cmd/nd
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+
+  go-integration:
+    name: Go integration tests (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Pre-pull engine images
+        run: |
+          docker pull docker.angie.software/angie:1.12.4
+          docker pull ferronserver/ferron:3.0.0-rc.11-alpine
+
+      - name: internal/proxy integration tests
+        run: go test -tags=integration -count=1 -v ./internal/proxy/...
+
+      - name: cmd/nd integration tests
+        working-directory: cmd/nd
+        run: go test -tags=integration -count=1 -v ./...
+
+  installer-tests:
+    name: Installer shell tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n install.sh uninstall.sh tests/install/test_install_proxy.sh
+
+      - name: Run installer tests
+        run: bash tests/install/test_install_proxy.sh
+
+  proxy-suite:
+    name: proxy-suite (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [caddy, angie, ferron]
+    env:
+      BENCH_CONNS: ${{ github.event.inputs.bench_conns || '5000' }}
+      BENCH_HOLD: ${{ github.event.inputs.bench_hold || '60' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Make suite scripts executable
+        run: chmod +x tests/proxy-suite/*.sh
+
+      - name: Run full suite for ${{ matrix.engine }}
+        working-directory: tests/proxy-suite
+        run: ./run-all.sh "${{ matrix.engine }}" 2>&1 | tee "$RUNNER_TEMP/proxy-suite-${{ matrix.engine }}.log"
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-suite-${{ matrix.engine }}
+          path: ${{ runner.temp }}/proxy-suite-${{ matrix.engine }}.log
+          if-no-files-found: ignore

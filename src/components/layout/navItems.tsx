@@ -128,7 +128,7 @@ export function buildNavGroups(params: {
       ],
     },
     {
-      group: 'Caddy',
+      group: 'Proxy',
       items: [
         { id: 'proxy', label: 'Proxy & TLS', icon: <Globe className="h-3.5 w-3.5" /> },
         { id: 'proxy-options', label: 'Server Options', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Menu, ChevronRight, Server, Plus } from 'lucide-react';
 import { AppStack, NavigationSection } from '../../types/nextdeploy';
+import { formatProxyEngineLabel } from '../shield/shieldProxyDisplay';
 
 export interface AppHeaderProps {
   setMobileMenuOpen: (open: boolean) => void;
@@ -9,7 +10,7 @@ export interface AppHeaderProps {
   currentNavLabel: string;
   isAdminUser: boolean;
   dockerVersion: string;
-  caddyInfo: { up: boolean; status: string; config?: Record<string, string> } | null;
+  caddyInfo: { up: boolean; status: string; engine?: string; config?: Record<string, string> } | null;
   setNewAppModalOpen: (open: boolean) => void;
 }
 
@@ -72,7 +73,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <span>Docker {dockerVersion}</span>
             <span className="text-zinc-600">·</span>
             <span className={caddyInfo?.up === false ? 'text-amber-400' : 'text-emerald-400'}>
-              {caddyInfo?.up === false ? 'Caddy down' : 'Caddy'}
+              {formatProxyEngineLabel(caddyInfo?.engine)}
+              {caddyInfo?.up === false ? ' down' : ''}
             </span>
           </div>
         )}

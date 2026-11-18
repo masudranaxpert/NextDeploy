@@ -32,6 +32,7 @@ type ReconcileOutcome struct {
 type Reconciler struct {
 	mu                    sync.Mutex
 	paths                 Paths
+	engine                Engine
 	dnsGate               *DNSGate
 	applier               *Applier
 	probe                 *CertProbe
@@ -42,26 +43,57 @@ type Reconciler struct {
 
 // NewReconciler constructs a Reconciler.
 func NewReconciler(paths Paths, dnsGate *DNSGate, applier *Applier, probe *CertProbe, systemd SystemdRunner, cfIPs *CFIPStore) *Reconciler {
+	return NewReconcilerWithEngine(paths, nil, dnsGate, applier, probe, systemd, cfIPs)
+}
+
+// NewReconcilerWithEngine constructs a Reconciler bound to a specific proxy Engine.
+func NewReconcilerWithEngine(paths Paths, eng Engine, dnsGate *DNSGate, applier *Applier, probe *CertProbe, systemd SystemdRunner, cfIPs *CFIPStore) *Reconciler {
 	if cfIPs == nil {
 		cfIPs = NewCFIPStore()
 	}
 	if applier == nil {
-		applier = NewApplier(paths, nil)
+		if eng != nil {
+			applier = NewApplierForEngine(paths, eng)
+		} else {
+			applier = NewApplier(paths, nil)
+		}
 	}
 	if probe == nil {
-		probe = NewCertProbe(paths.CaddyCertsDir, systemd)
+		certsDir := paths.CaddyCertsDir
+		manualCertsDir := ""
+		if eng != nil {
+			certsDir = eng.Paths().CertsDir
+			manualCertsDir = eng.Paths().ManualCertsDir
+		}
+		probe = NewCertProbe(certsDir, systemd)
+		probe.ManualCertsDir = manualCertsDir
 	}
 	if dnsGate == nil {
 		dnsGate = NewDNSGate(DNSGateOptions{CFIPs: cfIPs, CachePath: paths.DNSCacheFile})
 	}
 	return &Reconciler{
 		paths:   paths,
+		engine:  eng,
 		dnsGate: dnsGate,
 		applier: applier,
 		probe:   probe,
 		systemd: systemd,
 		cfIPs:   cfIPs,
 	}
+}
+
+// SetEngine updates the proxy Engine used by this Reconciler.
+func (r *Reconciler) SetEngine(eng Engine) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.engine = eng
+}
+
+func (r *Reconciler) activeEnginePaths() EnginePaths {
+	if r.engine != nil {
+		return r.engine.Paths()
+	}
+	return CaddyEnginePaths(r.paths)
 }
 
 // ReconcileOnce runs a single full reconciliation across cfg.Panels, updating
@@ -90,17 +122,23 @@ func (r *Reconciler) ReconcileOnce(
 		meta = &ApplyMeta{}
 	}
 
-	// 1. Check Caddy service status (E-BOOT-4, E-CADDY-1).
+	ep := r.activeEnginePaths()
+	serviceUnit := ep.ServiceUnit
+	if serviceUnit == "" {
+		serviceUnit = "caddy.service"
+	}
+
+	// 1. Check active proxy service status (E-BOOT-4, E-CADDY-1).
 	out.CaddyRunning = true
 	if r.systemd != nil {
-		active, detail, _ := r.systemd.IsActive(ctx, "caddy.service")
+		active, detail, _ := r.systemd.IsActive(ctx, serviceUnit)
 		out.CaddyRunning = active
 		out.CaddyStatusError = detail
 		if !active {
 			if r.lastCaddyStartAttempt.IsZero() || now.Sub(r.lastCaddyStartAttempt) >= caddyStartCooldown {
 				r.lastCaddyStartAttempt = now
-				if err := r.systemd.Start(ctx, "caddy.service"); err == nil {
-					if active2, detail2, _ := r.systemd.IsActive(ctx, "caddy.service"); active2 {
+				if err := r.systemd.Start(ctx, serviceUnit); err == nil {
+					if active2, detail2, _ := r.systemd.IsActive(ctx, serviceUnit); active2 {
 						out.CaddyRunning = true
 						out.CaddyStatusError = ""
 					} else {
@@ -446,16 +484,23 @@ func (r *Reconciler) ReconcileOnce(
 			}
 		}
 
-		rendered, err := RenderPanelCaddy(RenderPanelInput{
+		renderInput := RenderPanelInput{
 			PanelID:     p.PanelID,
 			PanelName:   p.PanelName,
 			ETag:        pp.st.LastGoodETag,
 			OriginIPs:   pp.originIPs,
 			OriginPort:  pp.originPort,
 			CAStatus:    pp.caStatus,
-			OriginsLink: r.paths.OriginsLink,
+			OriginsLink: ep.OriginsLink,
 			Routes:      finalRoutes,
-		})
+		}
+		var rendered string
+		var err error
+		if r.engine != nil {
+			rendered, err = r.engine.RenderPanel(renderInput)
+		} else {
+			rendered, err = RenderPanelCaddy(renderInput)
+		}
 		if err != nil {
 			pp.st.SyncState = SyncStateError
 			pp.st.LastError = err.Error()
@@ -473,19 +518,40 @@ func (r *Reconciler) ReconcileOnce(
 		})
 	}
 
-	// 7. Atomic Caddy generation apply (§5.5).
-	caddyGroup := strings.TrimSpace(cfg.CaddyUser)
-	if caddyGroup == "" && r.systemd != nil {
-		caddyGroup = r.systemd.CaddyUser(ctx)
-	}
-	applyIn := ApplyInput{
-		AdminAddr:   cfg.AdminAddr,
-		ACMEEmail:   cfg.ACMEEmail,
-		CaddyGroup:  caddyGroup,
-		GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges(), anyTrustedProxy)),
-		CommonCaddy: []byte(RenderCommonCaddy()),
-		Panels:      artifacts,
-		Force:       force,
+	// 7. Atomic proxy generation apply (§5.5).
+	var applyIn ApplyInput
+	if r.engine != nil && r.engine.Name() != EngineCaddy {
+		globalFiles, gErr := r.engine.RenderGlobal(cfg, r.cfIPs.Ranges(), anyTrustedProxy)
+		if gErr != nil {
+			return out, gErr
+		}
+		commonFiles, cErr := r.engine.RenderCommon()
+		if cErr != nil {
+			return out, cErr
+		}
+		applyIn = ApplyInput{
+			AdminAddr:   cfg.AdminAddr,
+			ACMEEmail:   cfg.ACMEEmail,
+			CaddyGroup:  ep.ServiceUser,
+			GlobalFiles: globalFiles,
+			CommonFiles: commonFiles,
+			Panels:      artifacts,
+			Force:       force,
+		}
+	} else {
+		caddyGroup := strings.TrimSpace(cfg.CaddyUser)
+		if caddyGroup == "" && r.systemd != nil {
+			caddyGroup = r.systemd.CaddyUser(ctx)
+		}
+		applyIn = ApplyInput{
+			AdminAddr:   cfg.AdminAddr,
+			ACMEEmail:   cfg.ACMEEmail,
+			CaddyGroup:  caddyGroup,
+			GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges(), anyTrustedProxy)),
+			CommonCaddy: []byte(RenderCommonCaddy()),
+			Panels:      artifacts,
+			Force:       force,
+		}
 	}
 	applyRes, applyErr := r.applier.Apply(ctx, applyIn, meta, now)
 	out.ApplyResult = applyRes
@@ -564,7 +630,8 @@ func (r *Reconciler) ReconcileOnce(
 }
 
 func (r *Reconciler) hasExistingRenderedFiles() bool {
-	panelsDir, err := ReadDirLink(r.paths.PanelsLink)
+	ep := r.activeEnginePaths()
+	panelsDir, err := ReadDirLink(ep.PanelsLink)
 	if err != nil || panelsDir == "" {
 		return false
 	}
@@ -572,8 +639,15 @@ func (r *Reconciler) hasExistingRenderedFiles() bool {
 	if err != nil {
 		return false
 	}
+	ext := ep.PanelExt
+	if ext == "" {
+		ext = ".caddy"
+	}
 	for _, e := range entries {
-		if !e.IsDir() && e.Name() != PlaceholderFileName && e.Name() != HealthFileName && strings.HasSuffix(e.Name(), ".caddy") {
+		if !e.IsDir() &&
+			e.Name() != PlaceholderFileName && e.Name() != HealthFileName &&
+			e.Name() != PlaceholderAngieFileName && e.Name() != HealthAngieFileName &&
+			strings.HasSuffix(e.Name(), ext) {
 			return true
 		}
 	}
@@ -581,12 +655,13 @@ func (r *Reconciler) hasExistingRenderedFiles() bool {
 }
 
 func (r *Reconciler) loadCurrentRenderedHosts() map[string]map[string]struct{} {
+	ep := r.activeEnginePaths()
 	out := make(map[string]map[string]struct{})
-	panelsDir, err := ReadDirLink(r.paths.PanelsLink)
+	panelsDir, err := ReadDirLink(ep.PanelsLink)
 	if err != nil || panelsDir == "" {
 		return out
 	}
-	cs, err := RebuildClaimsFromCaddyDir(panelsDir, time.Now().UTC())
+	cs, err := RebuildClaimsFromDir(panelsDir, ep.PanelExt, time.Now().UTC())
 	if err != nil || cs == nil {
 		return out
 	}
@@ -600,16 +675,21 @@ func (r *Reconciler) loadCurrentRenderedHosts() map[string]map[string]struct{} {
 }
 
 func (r *Reconciler) readExistingPanelFiles(panelID string) ([]byte, []byte, bool) {
-	panelsDir, err := ReadDirLink(r.paths.PanelsLink)
+	ep := r.activeEnginePaths()
+	ext := ep.PanelExt
+	if ext == "" {
+		ext = ".caddy"
+	}
+	panelsDir, err := ReadDirLink(ep.PanelsLink)
 	if err != nil || panelsDir == "" {
 		return nil, nil, false
 	}
-	cb, err := os.ReadFile(filepath.Join(panelsDir, panelID+".caddy"))
+	cb, err := os.ReadFile(filepath.Join(panelsDir, panelID+ext))
 	if err != nil {
 		return nil, nil, false
 	}
 	var pb []byte
-	if originsDir, oErr := ReadDirLink(r.paths.OriginsLink); oErr == nil && originsDir != "" {
+	if originsDir, oErr := ReadDirLink(ep.OriginsLink); oErr == nil && originsDir != "" {
 		pb, _ = os.ReadFile(filepath.Join(originsDir, panelID+".pem"))
 	}
 	return cb, pb, true
@@ -661,5 +741,5 @@ func pruneTimestamps(in []time.Time, cutoff time.Time) []time.Time {
 
 func renderedCaddyUsesTrustedProxy(caddyBytes []byte) bool {
 	s := string(caddyBytes)
-	return strings.Contains(s, "_tp)")
+	return strings.Contains(s, "_tp)") || strings.Contains(s, "X-Real-IP $remote_addr;")
 }

@@ -213,67 +213,12 @@ var (
 	lastNetOut uint64
 	lastNetAt  time.Time
 
-	caddyClient = &http.Client{
-		Timeout: 2 * time.Second,
-	}
 	lastCaddyTotal uint64
 	lastCaddyAt    time.Time
 )
 
 func queryCaddyRequestsTotal() (uint64, bool) {
-	urls := []string{"http://caddy:2019/metrics", "http://127.0.0.1:2019/metrics"}
-	for _, u := range urls {
-		resp, err := caddyClient.Get(u)
-		if err != nil {
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			continue
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-		resp.Body.Close()
-		if err != nil {
-			continue
-		}
-		total, found := parseCaddyHttpRequestsTotal(string(body))
-		if !found {
-			go enableCaddyMetricsOnce(u)
-			continue
-		}
-		return total, true
-	}
-	return 0, false
-}
-
-func enableCaddyMetricsOnce(metricsURL string) {
-	configURL := strings.Replace(metricsURL, "/metrics", "/config/apps/http/metrics", 1)
-	req, err := http.NewRequest(http.MethodPost, configURL, strings.NewReader("{}"))
-	if err == nil {
-		req.Header.Set("Content-Type", "application/json")
-		if resp, err := caddyClient.Do(req); err == nil && resp != nil {
-			resp.Body.Close()
-		}
-	}
-}
-
-func parseCaddyHttpRequestsTotal(metricsData string) (uint64, bool) {
-	found := false
-	var sum uint64
-	lines := strings.Split(metricsData, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "caddy_http_requests_total") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				if val, err := strconv.ParseFloat(parts[len(parts)-1], 64); err == nil {
-					sum += uint64(val)
-					found = true
-				}
-			}
-		}
-	}
-	return sum, found
+	return queryProxyRequestsTotal()
 }
 
 // RecordRequest increments the live request counter for throughput calculations.

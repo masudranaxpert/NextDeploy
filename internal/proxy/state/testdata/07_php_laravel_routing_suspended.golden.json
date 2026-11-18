@@ -1,0 +1,179 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "sites": [
+    {
+      "id": "php:lar-app",
+      "app_id": "lar-app",
+      "domain_id": 41,
+      "hosts": [
+        "laravel.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ],
+      "kind": "php",
+      "php": {
+        "doc_root": "/data/workspaces/lar-app/htdocs/public",
+        "socket": "/data/workspaces/.nd-php/u3-v84/run/lar-app.sock",
+        "php_version": "8.4",
+        "site_type": "php",
+        "fallback_mode": "custom",
+        "fallback_entry": "index.php",
+        "routing": [
+          {
+            "id": "r1",
+            "kind": "rewrite",
+            "match_type": "exact",
+            "pattern": "/health",
+            "target": "/health.php",
+            "status": 0,
+            "enabled": true
+          },
+          {
+            "id": "r2",
+            "kind": "rewrite",
+            "match_type": "prefix",
+            "pattern": "/v1/*",
+            "target": "/api.php",
+            "status": 0,
+            "enabled": true
+          },
+          {
+            "id": "r3",
+            "kind": "rewrite",
+            "match_type": "regex",
+            "pattern": "^/([^.]+)$",
+            "target": "/$1.php?src=$0",
+            "status": 0,
+            "enabled": true,
+            "unless_exists": true,
+            "require_target_file": true,
+            "preserve_query": true
+          },
+          {
+            "id": "r4",
+            "kind": "redir",
+            "match_type": "prefix",
+            "pattern": "/legacy/*",
+            "target": "https://docs.example.com/new?ref=old",
+            "status": 301,
+            "enabled": true,
+            "preserve_query": true
+          },
+          {
+            "id": "r5",
+            "kind": "block",
+            "match_type": "exact",
+            "pattern": "/xmlrpc.php",
+            "target": "",
+            "status": 403,
+            "enabled": true
+          }
+        ],
+        "compression": [
+          "zstd",
+          "gzip"
+        ],
+        "precompressed": [
+          "gzip",
+          "zstd"
+        ],
+        "hide_patterns": [
+          ".git",
+          ".env*",
+          "*.sql",
+          "*.db",
+          "*.sqlite",
+          "*.key",
+          "*.sock"
+        ],
+        "cache": {
+          "wordpress_page_cache": true,
+          "media_cache_control": "public, max-age=2592000, immutable",
+          "code_cache_control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+        "fastcgi_dial_timeout": "5s",
+        "fastcgi_read_timeout": "120s",
+        "fastcgi_write_timeout": "120s",
+        "https": true
+      }
+    },
+    {
+      "id": "php:lar-susp",
+      "app_id": "lar-susp",
+      "domain_id": 42,
+      "hosts": [
+        "suspended.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ],
+      "kind": "php",
+      "php": {
+        "doc_root": "/data/workspaces/lar-susp/htdocs",
+        "socket": "/data/workspaces/.nd-php/u9-v82/run/lar-susp.sock",
+        "php_version": "8.2",
+        "site_type": "php",
+        "suspended": true,
+        "fallback_mode": "strict_404",
+        "compression": [
+          "zstd",
+          "gzip"
+        ],
+        "precompressed": [
+          "gzip",
+          "zstd"
+        ],
+        "hide_patterns": [
+          ".git",
+          ".env*",
+          "*.sql",
+          "*.db",
+          "*.sqlite",
+          "*.key",
+          "*.sock"
+        ],
+        "cache": {
+          "wordpress_page_cache": true,
+          "media_cache_control": "public, max-age=2592000, immutable",
+          "code_cache_control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+        "fastcgi_dial_timeout": "5s",
+        "fastcgi_read_timeout": "120s",
+        "fastcgi_write_timeout": "120s",
+        "https": true
+      }
+    }
+  ],
+  "generation": "00b7c3fab37ec6a023aebc4d3406785de5d6e6251959dd9725a3b40a4cfc8329"
+}

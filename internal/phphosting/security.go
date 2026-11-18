@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 var authUserRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
@@ -15,11 +15,11 @@ var authUserRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 func ValidAuthUser(name string) bool { return authUserRe.MatchString(name) }
 
 // siteSecurity loads a site's protection settings; a missing or damaged record means "none".
-func (m *Manager) siteSecurity(ctx context.Context, appID string) caddy.SiteSecurity {
+func (m *Manager) siteSecurity(ctx context.Context, appID string) proxy.SiteSecurity {
 	raw := m.DB.GetPHPSecurityJSON(ctx, appID)
-	var s caddy.SiteSecurity
+	var s proxy.SiteSecurity
 	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &s) != nil {
-		return caddy.SiteSecurity{}
+		return proxy.SiteSecurity{}
 	}
 	if !ValidAuthUser(s.BasicAuthUser) || !strings.HasPrefix(s.BasicAuthHash, "$2") {
 		s.BasicAuthUser, s.BasicAuthHash = "", ""
@@ -28,12 +28,12 @@ func (m *Manager) siteSecurity(ctx context.Context, appID string) caddy.SiteSecu
 }
 
 // SiteSecurity is the exported read used by the API.
-func (m *Manager) SiteSecurity(ctx context.Context, appID string) caddy.SiteSecurity {
+func (m *Manager) SiteSecurity(ctx context.Context, appID string) proxy.SiteSecurity {
 	return m.siteSecurity(ctx, appID)
 }
 
-// SaveSiteSecurity stores the settings and publishes them to Caddy.
-func (m *Manager) SaveSiteSecurity(ctx context.Context, appID string, s caddy.SiteSecurity) error {
+// SaveSiteSecurity stores the settings and synchronizes routes with the active proxy.
+func (m *Manager) SaveSiteSecurity(ctx context.Context, appID string, s proxy.SiteSecurity) error {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return err

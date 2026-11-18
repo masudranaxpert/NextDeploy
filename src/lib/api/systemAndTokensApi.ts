@@ -1,59 +1,12 @@
 import { requestJson, toFormBody } from './http';
+import { proxyApi } from './proxyApi';
 
 export const systemAndTokensApi = {
-  // Caddy & NextDeploy Root Stack
-  caddySaveConfig: (
-    payload:
-      | string
-      | {
-          admin_api: string;
-          email: string;
-          caddy_image: string;
-        },
-    _mode?: string
-  ) => {
-    if (typeof payload === 'string') {
-      return requestJson('/caddy/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: toFormBody({
-          admin_api: 'off',
-          email: 'masud132213@gmail.com',
-          caddy_image: 'lucaslorentz/caddy-docker-proxy:2.9-alpine',
-        }),
-      });
-    }
-    return requestJson('/caddy/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody(payload),
-    });
-  },
-  caddyContainerAction: (action: 'start' | 'force_start' | 'restart' | 'stop' | 'reconcile_network') =>
-    requestJson('/caddy/container', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: toFormBody({ action }),
-    }),
-  caddyLogs: async (tail = 300) => {
-    const res = await requestJson<{ ok: boolean; lines: string[] }>(`/caddy/logs?tail=${tail}`);
-    return {
-      ok: res.ok,
-      lines: res.data?.lines,
-      logs: res.data?.lines ? res.data.lines.join('\n') : undefined,
-    };
-  },
-  caddyOverview: () =>
-    requestJson<{
-      ok: boolean;
-      live_config: string;
-      root_compose: string;
-      panel_domain: string;
-      panel_enable_https: boolean;
-      panel_enable_www: boolean;
-      shared_mount_prefix: string;
-      shared_volumes: string[];
-    }>('/caddy/overview'),
+  // Reverse Proxy & NextDeploy Root Stack (compatibility aliases backed by proxyApi)
+  caddySaveConfig: proxyApi.proxySaveConfig,
+  caddyContainerAction: proxyApi.proxyContainerAction,
+  caddyLogs: proxyApi.proxyLogs,
+  caddyOverview: proxyApi.proxyOverview,
   savePanelConfig: (
     payloadOrDomain:
       | string

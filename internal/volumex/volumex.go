@@ -312,9 +312,26 @@ func matchesVolumeKey(name, key string) bool {
 	return resmatch.MatchesVolumeName(name, key)
 }
 
+var infraBackupVolumeMarkers = []string{
+	"caddy",
+	"letsencrypt",
+	"acme",
+	"angie_acme",
+	"ferron_acme",
+	"nd-proxy",
+	"nd_proxy",
+	"nd-pki",
+	"nd_pki",
+}
+
 func isInfraBackupVolumeName(v string) bool {
 	l := strings.ToLower(v)
-	return strings.Contains(l, "caddy") || strings.Contains(l, "letsencrypt") || strings.Contains(l, "acme")
+	for _, m := range infraBackupVolumeMarkers {
+		if strings.Contains(l, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveBackupDataVolumeName picks the Docker volume for panel "volume" backup and restore.

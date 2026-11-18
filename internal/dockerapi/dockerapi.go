@@ -274,13 +274,14 @@ func ContainerComposeProjectAndMountSource(ctx context.Context, containerName, m
 	return project, "", fmt.Errorf("mount %q not found on container %q", mountDestination, containerName)
 }
 
-// LivePortState summarizes live Docker container port bindings, Caddy gateway labels, and legacy Caddy container state.
+// LivePortState summarizes live Docker container port bindings, Caddy gateway labels, and active proxy container state.
 type LivePortState struct {
-	DirectHostPorts         map[int]bool    // Host ports currently bound by running non-Caddy containers
+	DirectHostPorts         map[int]bool    // Host ports currently bound by running non-proxy containers
 	CaddyGatewayPorts       map[int]bool    // Gateway :PORT addresses advertised on running containers' Caddy labels
-	CaddyBoundPorts         map[int]bool    // Host ports (>0, excluding 80/443) currently published by the running Caddy container
+	CaddyBoundPorts         map[int]bool    // Host ports (>0, excluding 80/443) currently published by the running proxy container
 	RunningProjects         map[string]bool // Compose project names with at least one running container
 	CaddyHasLegacyAutoHTTPS bool            // True if the running Caddy container still carries a caddy.auto_https label
+	ProxyContainer          string          // Name of the running proxy container ("caddy", "nd-proxy", etc.), empty if none
 }
 
 func extractCaddyLabelPorts(labels map[string]string, dst map[int]bool) {
@@ -322,46 +323,7 @@ func InspectLivePortState(ctx context.Context) (*LivePortState, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &LivePortState{
-		DirectHostPorts:   make(map[int]bool),
-		CaddyGatewayPorts: make(map[int]bool),
-		CaddyBoundPorts:   make(map[int]bool),
-		RunningProjects:   make(map[string]bool),
-	}
-	for _, c := range list {
-		if !strings.EqualFold(c.State, "running") {
-			continue
-		}
-		proj := strings.TrimSpace(c.Labels[composeProjectLabel])
-		if proj != "" {
-			st.RunningProjects[proj] = true
-		}
-		name := containerName(c)
-		isCaddy := strings.EqualFold(name, "caddy") ||
-			(strings.EqualFold(proj, "nextdeploy") && strings.EqualFold(strings.TrimSpace(c.Labels["com.docker.compose.service"]), "caddy"))
-
-		for _, p := range c.Ports {
-			if p.PublicPort == 0 {
-				continue
-			}
-			port := int(p.PublicPort)
-			if isCaddy {
-				if port != 80 && port != 443 {
-					st.CaddyBoundPorts[port] = true
-				}
-			} else {
-				st.DirectHostPorts[port] = true
-			}
-		}
-		if isCaddy {
-			if _, ok := c.Labels["caddy.auto_https"]; ok {
-				st.CaddyHasLegacyAutoHTTPS = true
-			}
-		} else {
-			extractCaddyLabelPorts(c.Labels, st.CaddyGatewayPorts)
-		}
-	}
-	return st, nil
+	return classifyLivePortState(list), nil
 }
 
 func ListContainerUsage(ctx context.Context) ([]ContainerUsageRow, string) {
@@ -941,11 +903,8 @@ func containerIDByName(ctx context.Context, name string) (string, error) {
 	}
 	name = strings.TrimSpace(name)
 	for _, c := range list {
-		for _, n := range c.Names {
-			trimmed := strings.TrimPrefix(n, "/")
-			if trimmed == name || (name == "caddy" && (trimmed == "nextdeploy_caddy" || strings.Contains(trimmed, "caddy"))) {
-				return c.ID, nil
-			}
+		if matchContainerName(c.Names, name) {
+			return c.ID, nil
 		}
 	}
 	return "", fmt.Errorf("container %q not found", name)
@@ -1029,25 +988,7 @@ func EnsureContainerNetwork(ctx context.Context, containerName, networkName stri
 // EnsureCaddySharedNetwork ensures that the Caddy container shares the same Docker network
 // as the NextDeploy panel container (default "NextDeploy").
 func EnsureCaddySharedNetwork(ctx context.Context) error {
-	panelNet := "NextDeploy"
-	if cli, err := apiClient(); err == nil {
-		candNames := []string{"panel", os.Getenv("HOSTNAME")}
-		for _, name := range candNames {
-			if strings.TrimSpace(name) == "" {
-				continue
-			}
-			if insp, err := cli.ContainerInspect(ctx, name); err == nil && insp.NetworkSettings != nil {
-				for netName := range insp.NetworkSettings.Networks {
-					if netName != "bridge" && netName != "host" && netName != "none" {
-						panelNet = netName
-						break
-					}
-				}
-				break
-			}
-		}
-	}
-	return EnsureContainerNetwork(ctx, "caddy", panelNet)
+	return EnsureProxySharedNetwork(ctx, "caddy")
 }
 
 func RemoveContainerByName(ctx context.Context, name string) error {
@@ -1084,12 +1025,24 @@ func RemoveVolumeByName(ctx context.Context, name string) error {
 
 // protectedImageMarkers lists platform runtime images that must survive "Delete Unused":
 // PHP version images are pulled on demand and have no container until a site uses them.
-var protectedImageMarkers = []string{"nextdeploy-php", "alpine", "caddy-docker-proxy", "phpmyadmin", "mariadb", "busybox"}
+var protectedImageMarkers = []string{
+	"nextdeploy-php",
+	"alpine",
+	"caddy-docker-proxy",
+	"docker.angie.software/angie",
+	"angie",
+	"ferronserver/ferron",
+	"ferron",
+	"phpmyadmin",
+	"mariadb",
+	"busybox",
+}
 
 func isProtectedImage(tags []string) bool {
 	for _, t := range tags {
+		lower := strings.ToLower(t)
 		for _, m := range protectedImageMarkers {
-			if strings.Contains(t, m) {
+			if strings.Contains(lower, m) {
 				return true
 			}
 		}

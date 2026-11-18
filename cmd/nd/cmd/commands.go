@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.8.1"
+var Version = "2.9.0"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"panel/internal/agent/omprpc"
-	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/htaccess"
 	"panel/internal/phphosting"
+	"panel/internal/proxy"
 )
 
 func (m *Manager) recordAgentAudit(ctx context.Context, action, appID, details string) {
@@ -62,7 +62,7 @@ func (m *Manager) toolManagePHPRouting() omprpc.HostTool {
 			var p struct {
 				AppID    string             `json:"app_id"`
 				Action   string             `json:"action"`
-				Routing  *caddy.SiteRouting `json:"routing"`
+				Routing  *proxy.SiteRouting `json:"routing"`
 				Content  string             `json:"content"`
 				FilePath string             `json:"file_path"`
 				Apply    bool               `json:"apply"`
@@ -122,7 +122,7 @@ func (m *Manager) toolManagePHPRouting() omprpc.HostTool {
 				}
 				s := phphosting.SettingsFor(site)
 				if strings.EqualFold(strings.TrimSpace(p.Mode), "append") {
-					s.Routing.Rules = caddy.MergeUniqueRoutingRules(s.Routing.Rules, res.Rules)
+					s.Routing.Rules = proxy.MergeUniqueRoutingRules(s.Routing.Rules, res.Rules)
 				} else {
 					s.Routing.Rules = res.Rules
 				}
@@ -130,7 +130,7 @@ func (m *Manager) toolManagePHPRouting() omprpc.HostTool {
 					s.Routing.FallbackMode = res.FallbackMode
 					s.Routing.FallbackEntry = res.FallbackEntry
 				}
-				if err := caddy.ValidateRouting(&s.Routing, isStatic); err != nil {
+				if err := proxy.ValidateRouting(&s.Routing, isStatic); err != nil {
 					return omprpc.TextResult(fmt.Sprintf("Invalid converted routing: %v", err)), nil
 				}
 				site.SettingsJSON = s.JSON()
@@ -149,7 +149,7 @@ func (m *Manager) toolManagePHPRouting() omprpc.HostTool {
 				if p.Routing == nil {
 					return omprpc.TextResult("routing object is required for action=set"), nil
 				}
-				if err := caddy.ValidateRouting(p.Routing, isStatic); err != nil {
+				if err := proxy.ValidateRouting(p.Routing, isStatic); err != nil {
 					return omprpc.TextResult(fmt.Sprintf("Validation failed: %v", err)), nil
 				}
 				if !m.requestApproval(ctx, "manage_php_routing", "Update PHP URL routing",

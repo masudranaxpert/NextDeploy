@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 var skippedScanDirs = map[string]bool{
@@ -97,7 +97,7 @@ func (c *Converter) ScanDir(ctx context.Context, htdocsRoot string) (Result, err
 	})
 
 	merged := Result{
-		Rules:       make([]caddy.RoutingRule, 0),
+		Rules:       make([]proxy.RoutingRule, 0),
 		Files:       make([]string, 0, len(found)),
 		Diagnostics: make([]Diagnostic, 0),
 	}

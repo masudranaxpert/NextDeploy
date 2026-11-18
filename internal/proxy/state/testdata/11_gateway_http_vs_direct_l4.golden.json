@@ -1,0 +1,50 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "gateways": [
+    {
+      "port": 4013,
+      "container_port": 3000,
+      "bind_ip": "0.0.0.0",
+      "protocol": "tcp",
+      "app_id": "gw-app",
+      "upstream": {
+        "name": "nd_gw_app_web_3000_blue",
+        "service": "web",
+        "container": "gw-app-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "port": 8090,
+      "container_port": 8080,
+      "bind_ip": "127.0.0.1",
+      "protocol": "tcp",
+      "app_id": "gw-app",
+      "upstream": {
+        "name": "nd_gw_app_api_8080_blue",
+        "service": "api",
+        "container": "gw-app-blue-api-1",
+        "port": 8080,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    }
+  ],
+  "generation": "e01fd935724c5783585ccfe7ffa74fc0ddc6e853f7cfadf7b0e1d02871080d16"
+}

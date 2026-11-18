@@ -5,7 +5,7 @@ package htaccess
 import (
 	"errors"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 var (
@@ -61,7 +61,7 @@ type Summary struct {
 
 // Result contains the converted Caddy rules, suggested fallback mode, and diagnostics.
 type Result struct {
-	Rules         []caddy.RoutingRule `json:"rules"`
+	Rules         []proxy.RoutingRule `json:"rules"`
 	FallbackMode  string              `json:"fallback_mode,omitempty"`
 	FallbackEntry string              `json:"fallback_entry,omitempty"`
 	FilesScanned  int                 `json:"files_scanned"`

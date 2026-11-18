@@ -1,0 +1,61 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "acme_email": "ops@example.com",
+  "sites": [
+    {
+      "id": "app:web-a1b2:dom:1",
+      "app_id": "web-a1b2",
+      "domain_id": 1,
+      "slot": "blue",
+      "hosts": [
+        "example.com",
+        "www.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_web_a1b2_web_3000_blue",
+        "service": "web",
+        "container": "web-a1b2-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    }
+  ],
+  "generation": "c93a37537dc55973cddb6c64eceb4b7035a9fce8dcb77f3f93b7e624ddff276e"
+}

@@ -25,6 +25,8 @@ var ErrConfigNotFound = errors.New("nd-edge config not found")
 // gives the production Linux layout (§1); tests can construct a rooted layout
 // with NewPaths(t.TempDir()).
 type Paths struct {
+	RootDir string
+
 	Caddyfile     string
 	CaddyNDDir    string
 	GlobalOpts    string
@@ -72,6 +74,8 @@ func DefaultPaths() Paths {
 // NewPaths roots every nd-edge path inside rootDir for isolated testing.
 func NewPaths(rootDir string) Paths {
 	return Paths{
+		RootDir: rootDir,
+
 		Caddyfile:     filepath.Join(rootDir, "etc", "caddy", "Caddyfile"),
 		CaddyNDDir:    filepath.Join(rootDir, "etc", "caddy", "nd"),
 		GlobalOpts:    filepath.Join(rootDir, "etc", "caddy", "nd", "global.opts"),
@@ -93,6 +97,43 @@ func NewPaths(rootDir string) Paths {
 	}
 }
 
+// RootDirPath returns the test/staging root directory when Paths was constructed
+// with NewPaths (or inferred from ConfigFile), or "" for production root "/".
+func (p Paths) RootDirPath() string {
+	if strings.TrimSpace(p.RootDir) != "" {
+		return p.RootDir
+	}
+	suffix := filepath.Join("etc", "nd-edge", "config.json")
+	if p.ConfigFile != "" && p.ConfigFile != "/etc/nd-edge/config.json" && strings.HasSuffix(p.ConfigFile, suffix) {
+		root := strings.TrimSuffix(p.ConfigFile, suffix)
+		root = strings.TrimRight(root, `/\`)
+		return root
+	}
+	return ""
+}
+
+// EnginePathsFor returns EnginePaths for the given engine name rooted identically
+// to p.
+func (p Paths) EnginePathsFor(engineName string) EnginePaths {
+	switch strings.ToLower(strings.TrimSpace(engineName)) {
+	case EngineAngie:
+		if root := p.RootDirPath(); root != "" {
+			return NewAngieEnginePaths(root)
+		}
+		return DefaultAngieEnginePaths()
+	case EngineFerron:
+		if root := p.RootDirPath(); root != "" {
+			return NewFerronEnginePaths(root)
+		}
+		return DefaultFerronEnginePaths()
+	default:
+		if strings.TrimSpace(p.Caddyfile) == "" {
+			return DefaultCaddyEnginePaths()
+		}
+		return CaddyEnginePaths(p)
+	}
+}
+
 // PanelGenDir returns the generation directory path for panels (e.g. panels.gen-000123).
 func (p Paths) PanelGenDir(gen int) string {
 	return filepath.Join(p.CaddyNDDir, fmt.Sprintf("panels.gen-%06d", gen))
@@ -111,6 +152,7 @@ func (p Paths) StateFile(panelID string) string {
 // Config represents /etc/nd-edge/config.json (0600).
 type Config struct {
 	EdgeID          string        `json:"edge_id"`
+	ProxyEngine     string        `json:"proxy_engine,omitempty"`
 	ACMEEmail       string        `json:"acme_email,omitempty"`
 	AdminAddr       string        `json:"admin_addr,omitempty"`
 	DNSGateOff      bool          `json:"dns_gate_off,omitempty"`
@@ -121,6 +163,18 @@ type Config struct {
 	TrustedProxies  bool          `json:"skip_trusted_proxies,omitempty"`
 	PreservedGlobal string        `json:"preserved_global,omitempty"`
 	Panels          []PanelConfig `json:"panels"`
+}
+
+// EngineName returns the configured proxy engine name, defaulting to "caddy".
+func (c *Config) EngineName() string {
+	if c == nil {
+		return EngineCaddy
+	}
+	eng := strings.ToLower(strings.TrimSpace(c.ProxyEngine))
+	if eng == "" {
+		return EngineCaddy
+	}
+	return eng
 }
 
 // PanelConfig stores one registered NextDeploy panel connection.
@@ -180,6 +234,7 @@ func SaveConfig(path string, cfg *Config) error {
 }
 
 func (c *Config) applyDefaults() {
+	c.ProxyEngine = c.EngineName()
 	if strings.TrimSpace(c.AdminAddr) == "" {
 		c.AdminAddr = DefaultAdminAddr
 	}

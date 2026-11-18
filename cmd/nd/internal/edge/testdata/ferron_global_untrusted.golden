@@ -1,0 +1,13 @@
+# Managed by nd edge (ferron). DO NOT EDIT.
+{
+    admin {
+        listen "127.0.0.1:8081"
+        auth_token "{{env.ND_FERRON_ADMIN_TOKEN}}"
+    }
+    http {
+        protocols h1 h2
+        timeout "3660s"
+    }
+    # nd-edge: proxy trust disabled (no domains require proxy trust)
+    strict_hosts
+}

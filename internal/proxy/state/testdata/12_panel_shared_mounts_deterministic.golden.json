@@ -1,0 +1,79 @@
+{
+  "global": {
+    "profile": "balanced",
+    "read_header": "15s",
+    "read_body_idle": "",
+    "idle": "2m",
+    "grace_period": "30s",
+    "max_header_size": "",
+    "real_ip": "cloudflare",
+    "trusted_proxies": null,
+    "trusted_strict": true
+  },
+  "acme_email": "admin@example.com",
+  "panel": {
+    "id": "panel",
+    "hosts": [
+      "panel.example.com",
+      "www.panel.example.com"
+    ],
+    "tls": "auto",
+    "trusted_proxy": true,
+    "headers": [
+      {
+        "action": "set",
+        "name": "Referrer-Policy",
+        "value": "strict-origin-when-cross-origin"
+      },
+      {
+        "action": "set",
+        "name": "X-Content-Type-Options",
+        "value": "nosniff"
+      },
+      {
+        "action": "set",
+        "name": "X-Frame-Options",
+        "value": "SAMEORIGIN"
+      },
+      {
+        "action": "set",
+        "name": "X-XSS-Protection",
+        "value": "1; mode=block"
+      }
+    ],
+    "kind": "app_proxy",
+    "upstream": {
+      "name": "nd_panel",
+      "service": "panel",
+      "container": "panel",
+      "port": 8080,
+      "scheme": "http",
+      "long_streams": true,
+      "request_headers": [
+        {
+          "action": "set",
+          "name": "X-Real-IP",
+          "value": "{client_ip}"
+        },
+        {
+          "action": "set",
+          "name": "X-Forwarded-For",
+          "value": "{client_ip}"
+        }
+      ]
+    }
+  },
+  "shared_mounts": [
+    {
+      "volume_name": "assets_vol",
+      "target": "/mnt/shared/assets_vol",
+      "read_only": true
+    },
+    {
+      "volume_name": "media_vol",
+      "target": "/mnt/shared/media_vol",
+      "read_only": true
+    }
+  ],
+  "generation": "d7d23a2aff729e0f5aadc7d3dbea47d885e8fd3cd04e0e23422e16d906f3fa47"
+}

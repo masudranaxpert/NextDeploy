@@ -1,0 +1,11 @@
+{
+	admin off
+	servers {
+		protocols h1 h2
+	}
+}
+
+localhost:8443 {
+	tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
+	respond "proxy-suite ok" 200
+}

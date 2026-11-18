@@ -700,6 +700,9 @@ CREATE TABLE IF NOT EXISTS allocated_ports (
 	if err := s.migrateShieldNodes(); err != nil {
 		return err
 	}
+	if err := s.migrateProxyTables(); err != nil {
+		return err
+	}
 	if _, err := s.EnsurePanelID(context.Background()); err != nil {
 		return err
 	}

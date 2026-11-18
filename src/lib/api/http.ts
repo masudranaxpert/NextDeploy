@@ -69,6 +69,8 @@ function progressLabel(path: string): string {
     [/restore/, 'Restoring…'],
     [/backup/, 'Backing up…'],
     [/deploy|rollback/, 'Deploying…'],
+    [/switch/, 'Switching…'],
+    [/preflight/, 'Checking…'],
     [/install|pull|build/, 'Installing…'],
     [/sync|refresh/, 'Syncing…'],
     [/delete|remove|prune/, 'Removing…'],
@@ -165,6 +167,23 @@ export interface DomainFormPayload {
   media_url_prefix?: string;
   trusted_proxy?: boolean;
   shield_node_id?: number | null;
+}
+
+export interface ProxyBootstrapInfo {
+  up: boolean;
+  running?: boolean;
+  status: string;
+  engine?: string;
+  version?: string;
+  experimental?: boolean;
+  capabilities?: Record<string, boolean>;
+  config?: Record<string, string>;
+  panel_domain?: string;
+  panel_enable_https?: boolean;
+  panel_enable_www?: boolean;
+  shared_mount_prefix?: string;
+  shared_volumes?: string[];
+  last_switch?: Record<string, unknown> | null;
 }
 
 export interface BootstrapData {
@@ -325,11 +344,8 @@ export interface BootstrapData {
     created_at: string;
   }>;
   settings?: Record<string, string>;
-  caddy?: {
-    up: boolean;
-    status: string;
-    config?: Record<string, string>;
-  };
+  proxy?: ProxyBootstrapInfo;
+  caddy?: ProxyBootstrapInfo;
   mcp_enabled?: boolean;
   panel_id?: string;
   public_ip?: string;

@@ -1,0 +1,5 @@
+# Managed by nd edge (ferron). DO NOT EDIT.
+include "/etc/ferron/nd-edge/global.conf"
+include "/etc/ferron/nd-edge/common.conf"
+include "/etc/ferron/nd-edge/user/*.conf"
+include "/etc/ferron/nd-edge/panels/*.conf"

@@ -24,8 +24,6 @@ services:
     panel:
         build: .
         container_name: panel
-        depends_on:
-            - caddy
         environment:
             DATA_DIR: /data
             LISTEN_ADDR: :8080

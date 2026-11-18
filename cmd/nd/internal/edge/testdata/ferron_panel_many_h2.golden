@@ -1,0 +1,62 @@
+# Managed by nd edge for panel "vps-1" (aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee). DO NOT EDIT. etag=etag-many
+alpha.example.com, zeta.example.com {
+    use nd_common
+    tls {
+        provider acme
+        challenge http-01
+        cache "/var/cache/ferron-acme"
+    }
+    proxy {
+        upstream "https://204.136.10.51:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        upstream "https://204.136.10.52:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        algorithm round_robin
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        ca "/etc/ferron/nd-edge/origins/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.pem"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Real-IP "{{remote.ip}}"
+        request_header X-Forwarded-For "{{remote.ip}}"
+        request_header -CF-Connecting-IP
+    }
+}
+
+grpc.example.com {
+    use nd_common
+    tls {
+        provider acme
+        challenge http-01
+        cache "/var/cache/ferron-acme"
+    }
+    # note: Ferron 3 does not enforce per-route MaxBodyMB (64MB)
+    proxy {
+        upstream "https://204.136.10.51:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        upstream "https://204.136.10.52:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        algorithm round_robin
+        http2
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        ca "/etc/ferron/nd-edge/origins/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.pem"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Real-IP "{{remote.ip}}"
+        request_header X-Forwarded-For "{{remote.ip}}"
+        request_header -CF-Connecting-IP
+    }
+}

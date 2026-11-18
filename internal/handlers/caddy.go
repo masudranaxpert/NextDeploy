@@ -20,6 +20,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/phphosting"
 	"panel/internal/dockerx"
+	"panel/internal/proxy"
 	"panel/internal/sandbox"
 
 	"github.com/gofiber/fiber/v2"
@@ -246,11 +247,14 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	project := p.ActiveComposeProjectName(projCtx, app, appID)
 	cancel()
 	panelEnv, _ := p.DB.GetPanelEnv(ctx, appID)
-	content, err := caddy.GenerateMergedCompose(base, project, domains, panelEnv, cgroupParent)
+	content, err := caddy.GenerateMergedComposeWithLabeler(base, project, appID, domains, panelEnv, cgroupParent, p.proxyAppLabeler())
 	if err != nil {
 		return fmt.Errorf("generate merged compose: %w", err)
 	}
-	return atomicWriteFile(overridePath, content, 0640)
+	if err := atomicWriteFile(overridePath, content, 0640); err != nil {
+		return err
+	}
+	return p.ProxySync(ctx, proxy.Reason{Kind: "app_domain", ID: appID})
 }
 
 // ComposeSlotOverridePath returns the filepath for a specific slot override.
@@ -324,7 +328,7 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 	if isPreviewOnly {
 		preview = p.previewSite(ctx, app, slot)
 	}
-	content, bindings, err := caddy.GenerateSlotMergedComposeWithEnv(base, project, slot, domains, panelEnv, dotenvContent, cgroupParent, preview, isPreviewOnly)
+	content, bindings, err := caddy.GenerateSlotMergedComposeWithEnvAndLabeler(base, project, slot, appID, domains, panelEnv, dotenvContent, cgroupParent, preview, p.proxyAppLabeler(), isPreviewOnly)
 	if err != nil {
 		return nil, fmt.Errorf("generate slot merged compose: %w", err)
 	}
@@ -350,6 +354,7 @@ func (p *Panel) SyncAppSlotComposeCtx(ctx context.Context, appID, slot string, p
 		return nil, err
 	}
 	_ = atomicWriteFile(p.composeOverridePath(ctx, appID), content, 0640)
+	_ = p.ProxySync(ctx, proxy.Reason{Kind: "app_slot", ID: appID, Detail: slot})
 	return bindings, nil
 }
 
@@ -474,9 +479,9 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	case "reconcile_network":
 		err = dockerapi.EnsureCaddySharedNetwork(ctx)
 	case "start":
-		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+		err = dockerapi.StartContainerByName(ctx, p.proxyServiceKey())
 		if err != nil && p.nextDeployComposePath() != "" {
-			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 			err = nil
 		} else if err == nil {
 			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
@@ -505,23 +510,23 @@ sleep 0.3
 		cancel()
 
 		// Attempt to start or restart the existing container first
-		err = dockerapi.StartContainerByName(ctx, caddy.CaddyContainerName)
+		err = dockerapi.StartContainerByName(ctx, p.proxyServiceKey())
 		if err != nil {
-			err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
+			err = dockerapi.RestartContainerByName(ctx, p.proxyServiceKey())
 		}
 		if err != nil && p.nextDeployComposePath() != "" {
-			p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+			p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 			err = nil
 		} else if err == nil {
 			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
 		}
 	case "restart":
-		err = dockerapi.RestartContainerByName(ctx, caddy.CaddyContainerName)
+		err = dockerapi.RestartContainerByName(ctx, p.proxyServiceKey())
 		if err == nil {
 			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
 		}
 	case "stop":
-		err = dockerapi.StopContainerByName(ctx, caddy.CaddyContainerName)
+		err = dockerapi.StopContainerByName(ctx, p.proxyServiceKey())
 	default:
 		return c.Status(400).SendString("invalid action")
 	}
@@ -946,7 +951,7 @@ func (p *Panel) CaddyLogs(c *fiber.Ctx) error {
 	if tail <= 0 || tail > 2000 {
 		tail = 300
 	}
-	res := dockerx.DockerLogs(c.UserContext(), caddy.CaddyContainerName, tail)
+	res := dockerx.DockerLogs(c.UserContext(), p.proxyServiceKey(), tail)
 	lines := splitLogLines(res.Output)
 	return c.JSON(fiber.Map{"ok": res.OK, "lines": lines})
 }

@@ -35,18 +35,33 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
   {
     id: 'install',
     name: 'nd edge install',
-    syntax: 'nd edge install --panel-url <url> --token-stdin [flags]',
+    syntax: 'nd edge install --panel-url <url> --token-stdin [--proxy <engine>] [flags]',
     category: 'lifecycle',
-    descEn: 'Install Caddy and nd-edge daemon, and link this Shield VPS to NextDeploy.',
-    descBn: 'Caddy ও nd-edge ডেমন ইনস্টল করে এই Shield VPS-টিকে NextDeploy প্যানেলে যুক্ত করে।',
+    descEn: 'Install the edge proxy (Caddy, Angie, or Ferron) and nd-edge daemon, and link this Shield VPS to NextDeploy.',
+    descBn: 'এজ প্রক্সি (Caddy, Angie বা Ferron) ও nd-edge ডেমন ইনস্টল করে এই Shield VPS-টিকে NextDeploy প্যানেলে যুক্ত করে।',
     flags: [
       { flag: '--panel-url <url>', required: true, descEn: 'HTTPS URL of NextDeploy panel', descBn: 'প্যানেলের সম্পূর্ণ HTTPS URL' },
       { flag: '--token-stdin', required: true, descEn: 'Read bearer token securely from standard input (recommended)', descBn: 'stdin থেকে নিরাপদে সিক্রেট টোকেন গ্রহণ করে (পরামর্শিত)' },
+      { flag: '--proxy <caddy|angie|ferron>', descEn: 'Select edge proxy engine (default caddy; angie recommended for 1 GB VPS; ferron is experimental)', descBn: 'এজ প্রক্সি ইঞ্জিন বেছে নিন (ডিফল্ট caddy; ১ GB VPS-এ angie পরামর্শিত; ferron এক্সপেরিমেন্টাল)' },
       { flag: '--name <name>', descEn: 'Friendly alias name for this shield node', descBn: 'নোডের জন্য পরিচিত নাম/অ্যালিয়াস' },
       { flag: '--token <token>', descEn: 'Pass token directly via command-line argument', descBn: 'সরাসরি কমান্ড লাইনে টোকেন ইনপুট' },
       { flag: '--insecure-skip-tls-verify', descEn: 'Skip TLS certificate verification (testing only)', descBn: 'TLS ভেরিফিকেশন স্কিপ (শুধুমাত্র টেস্টের জন্য)' },
     ],
-    example: 'printf \'%s\\n\' \'<TOKEN>\' | nd edge install --panel-url "https://panel.example.com" --token-stdin',
+    example: 'printf \'%s\\n\' \'<TOKEN>\' | nd edge install --panel-url "https://panel.example.com" --proxy angie --token-stdin',
+  },
+  {
+    id: 'switch-proxy',
+    name: 'nd edge switch-proxy',
+    syntax: 'nd edge switch-proxy --to <caddy|angie|ferron> [--yes] [--experimental]',
+    category: 'maintenance',
+    descEn: 'Run edge preflight checks, re-render all linked panel configs, and switch the Shield proxy engine safely.',
+    descBn: 'এজ প্রি-ফ্লাইট চেক চালিয়ে সকল প্যানেলের কনফিগ রেন্ডার করে এবং Shield প্রক্সি ইঞ্জিন নিরাপদে সুইচ করে।',
+    flags: [
+      { flag: '--to <caddy|angie|ferron>', required: true, descEn: 'Target edge proxy engine to switch to', descBn: 'টার্গেট এজ প্রক্সি ইঞ্জিনের নাম' },
+      { flag: '--yes', descEn: 'Skip interactive confirmation prompt', descBn: 'কনফার্মেশন প্রম্পট স্কিপ করতে' },
+      { flag: '--experimental', descEn: 'Acknowledge experimental driver risk when switching to Ferron', descBn: 'Ferron-এ সুইচ করার সময় এক্সপেরিমেন্টাল ঝুঁকি স্বীকার করতে' },
+    ],
+    example: 'nd edge switch-proxy --to angie --yes',
   },
   {
     id: 'add-panel',
@@ -67,7 +82,7 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
     name: 'nd edge remove-panel',
     syntax: 'nd edge remove-panel <panel_id|name>',
     category: 'panel',
-    descEn: 'Unregister a panel and clean up its dedicated Caddy route file.',
+    descEn: 'Unregister a panel and clean up its dedicated edge proxy route file.',
     descBn: 'একটি প্যানেল নোড থেকে আনরেজিস্টার করে এবং এর রাউটিং ফাইল মুছে ফেলে।',
     flags: [
       { flag: '<panel_id|name>', required: true, descEn: 'Target panel ID or registered name', descBn: 'টার্গেট প্যানেল আইডি বা নাম' },
@@ -91,8 +106,8 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
     name: 'nd edge status',
     syntax: 'nd edge status [domain] [--json]',
     category: 'diagnostics',
-    descEn: 'Inspect real-time TLS readiness, Let\'s Encrypt cert status, and upstream routes.',
-    descBn: 'ডোমেইনের রিয়েল-টাইম TLS সার্টিফিকেট, Caddy রুট ও আপস্ট্রিম স্ট্যাটাস পরীক্ষা করে।',
+    descEn: 'Inspect real-time TLS readiness, certificate status, and upstream proxy routes.',
+    descBn: 'ডোমেইনের রিয়েল-টাইম TLS সার্টিফিকেট, প্রক্সি রুট ও আপস্ট্রিম স্ট্যাটাস পরীক্ষা করে।',
     flags: [
       { flag: '[domain]', descEn: 'Specific domain to inspect (omit to inspect all hosts)', descBn: 'নির্দিষ্ট কোনো ডোমেইন চেক করার নাম' },
       { flag: '--json', descEn: 'Output routing and cert state as JSON', descBn: 'JSON ফরম্যাটে আউটপুট' },
@@ -104,11 +119,11 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
     name: 'nd edge sync',
     syntax: 'nd edge sync [--panel <id>] [--force]',
     category: 'lifecycle',
-    descEn: 'Trigger immediate reconciliation with panel(s) and reload Caddy zero-downtime.',
-    descBn: 'প্যানেলের সাথে তাৎক্ষণিক সিঙ্ক করে এবং ডাউনটাইম ছাড়া Caddy রিলোড করে।',
+    descEn: 'Trigger immediate reconciliation with panel(s) and reload the active edge proxy with zero downtime.',
+    descBn: 'প্যানেলের সাথে তাৎক্ষণিক সিঙ্ক করে এবং ডাউনটাইম ছাড়া সক্রিয় এজ প্রক্সি রিলোড করে।',
     flags: [
       { flag: '--panel <id>', descEn: 'Reconcile only the specified panel ID', descBn: 'নির্দিষ্ট কোনো প্যানেলের রুট সিঙ্ক করতে' },
-      { flag: '--force', descEn: 'Force full Caddyfile rewrite and immediate reload', descBn: 'সম্পূর্ণ Caddyfile পুনর্লিখন ও তাৎক্ষণিক রিলোড' },
+      { flag: '--force', descEn: 'Force full proxy config rewrite and immediate reload', descBn: 'সম্পূর্ণ প্রক্সি কনফিগ পুনর্লিখন ও তাৎক্ষণিক রিলোড' },
     ],
     example: 'nd edge sync --force',
   },
@@ -166,8 +181,8 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
     name: 'nd edge uninstall',
     syntax: 'nd edge uninstall [--all]',
     category: 'maintenance',
-    descEn: 'Stop nd-edge service, clean up systemd daemon units, and restore Caddy configuration.',
-    descBn: 'nd-edge সার্ভিস বন্ধ করে, সিস্টেম ইউনিট ও কনফিগ পরিষ্কার করে Caddy রিস্টোর করে।',
+    descEn: 'Stop nd-edge service, clean up systemd daemon units, and restore the edge proxy configuration.',
+    descBn: 'nd-edge সার্ভিস বন্ধ করে, সিস্টেম ইউনিট ও কনফিগ পরিষ্কার করে এজ প্রক্সি কনফিগারেশন রিস্টোর করে।',
     flags: [
       { flag: '--all', descEn: 'Purge all panel configs and edge working directories', descBn: 'সকল প্যানেল কনফিগ ও এজ ডিরেক্টরি সম্পূর্ণ মুছে ফেলতে' },
     ],
@@ -287,7 +302,7 @@ export const ShieldDocsModal: React.FC<ShieldDocsModalProps> = ({
             }`}
           >
             <Terminal className="h-3.5 w-3.5" />
-            <span>{docsLang === 'en' ? 'nd edge CLI (11)' : 'কমান্ড রেফারেন্স (১১)'}</span>
+            <span>{docsLang === 'en' ? 'nd edge CLI (12)' : 'কমান্ড রেফারেন্স (১২)'}</span>
           </button>
           <button
             type="button"
@@ -742,7 +757,7 @@ export const ShieldDocsModal: React.FC<ShieldDocsModalProps> = ({
                 </h4>
                 <p className="text-zinc-400 leading-relaxed text-[11px]">
                   {docsLang === 'en'
-                    ? 'One Shield VPS can front multiple independent NextDeploy panels simultaneously. Each panel maintains its own isolated route configuration in /etc/caddy/nd-edge/panels/ with domain conflict protection.'
+                    ? 'One Shield VPS can front multiple independent NextDeploy panels simultaneously. Each panel maintains its own isolated route configuration in /etc/<engine>/nd-edge/panels/ with domain conflict protection.'
                     : 'একটিমাত্র Shield VPS একই সাথে একাধিক NextDeploy প্যানেলের প্রক্সি হিসেবে কাজ করতে পারে। প্রতিটি প্যানেলের জন্য আলাদা রুট ফাইল তৈরি হয় এবং ডোমেইন কনফ্লিক্ট সুরক্ষা বজায় থাকে।'}
                 </p>
               </div>
@@ -752,14 +767,14 @@ export const ShieldDocsModal: React.FC<ShieldDocsModalProps> = ({
                   <Lock className="h-4 w-4 text-amber-400" />
                   <span>
                     {docsLang === 'en'
-                      ? '3. Autonomous Caddy TLS & Zero Downtime'
+                      ? '3. Autonomous TLS & Zero Downtime'
                       : '৩. স্বয়ংক্রিয় TLS ও জিরো ডাউনটাইম'}
                   </span>
                 </h4>
                 <p className="text-zinc-400 leading-relaxed text-[11px]">
                   {docsLang === 'en'
-                    ? 'Caddy issues and renews Let’s Encrypt / ZeroSSL certificates independently. Even if the NextDeploy panel is restarted or undergoes maintenance, the Shield VPS continues serving existing traffic seamlessly.'
-                    : 'Caddy স্বয়ংক্রিয়ভাবে Let’s Encrypt ও ZeroSSL সার্টিফিকেট ইস্যু ও রিনিউ করে। প্যানেল রিবুট বা আপগ্রেড চলাকালীনও ট্রাফিকে কোনো ব্যাঘাত বা ডাউনটাইম ঘটে না।'}
+                    ? 'The edge proxy (Caddy, Angie, or Ferron) issues and renews ACME / Let’s Encrypt certificates independently. Even if the NextDeploy panel restarts or upgrades, the Shield VPS keeps serving existing traffic.'
+                    : 'এজ প্রক্সি (Caddy, Angie বা Ferron) স্বয়ংক্রিয়ভাবে ACME ও Let’s Encrypt সার্টিফিকেট ইস্যু ও রিনিউ করে। প্যানেল রিবুট বা আপগ্রেড চলাকালীনও ট্রাফিকে কোনো ব্যাঘাত বা ডাউনটাইম ঘটে না।'}
                 </p>
               </div>
 

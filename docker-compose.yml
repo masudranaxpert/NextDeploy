@@ -25,8 +25,6 @@ services:
             - /data/workspaces:/data/workspaces:ro
     panel:
         container_name: panel
-        depends_on:
-            - caddy
         environment:
             DATA_DIR: /data
             DOCKER_API_VERSION: "1.44"

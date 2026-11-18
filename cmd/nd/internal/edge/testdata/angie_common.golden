@@ -1,0 +1,23 @@
+# Managed by nd edge (angie). DO NOT EDIT.
+server_tokens off;
+
+map $http_upgrade $nd_connection_upgrade {
+	default upgrade;
+	'' '';
+}
+
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 5;
+gzip_min_length 256;
+gzip_types text/plain text/css text/xml application/json application/javascript application/xml application/rss+xml image/svg+xml;
+
+resolver 1.1.1.1 8.8.8.8 valid=300s ipv6=off;
+resolver_timeout 10s;
+
+server {
+	listen 443 ssl default_server;
+	listen [::]:443 ssl default_server;
+	ssl_reject_handshake on;
+}

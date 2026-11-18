@@ -43,6 +43,9 @@ export interface ShieldNode {
   last_heartbeat_at?: string;
   edge_id?: string;
   edge_version?: string;
+  proxy_engine?: 'caddy' | 'angie' | 'ferron' | string;
+  proxy_version?: string;
+  proxy_running?: boolean;
   caddy_version?: string;
   registered_at?: string;
   last_sync_at?: string;

@@ -44,29 +44,32 @@ const (
 // edgeOps abstracts OS/systemd/caddy/network interactions for nd edge commands so
 // install, doctor, sync, upgrade, and uninstall are deterministic and unit-testable.
 type edgeOps struct {
-	paths          edge.Paths
-	unitPath       string
-	binaryPath     string
-	osReleasePath  string
-	stdin          io.Reader
-	stdout         io.Writer
-	stderr         io.Writer
-	caddy          edge.CaddyRunner
-	systemd        edge.SystemdRunner
-	httpClient     *http.Client
-	now            func() time.Time
-	getEUID        func() int
-	goos           string
-	goarch         string
-	hasSystemd     func() bool
-	diskFreeBytes  func(path string) (uint64, error)
-	runCmd         func(ctx context.Context, name string, args ...string) (string, error)
-	lookPath       func(file string) (string, error)
-	chownGroup     func(path, group string, recursive bool) error
-	getenforce     func() string
-	signalReload   func(pid int) error
-	hostname       func() (string, error)
-	localPublicIPs func() ([]string, []string)
+	paths           edge.Paths
+	unitPath        string
+	binaryPath      string
+	osReleasePath   string
+	stdin           io.Reader
+	stdout          io.Writer
+	stderr          io.Writer
+	caddy           edge.CaddyRunner
+	angie           edge.Runner
+	ferron          edge.Runner
+	systemd         edge.SystemdRunner
+	httpClient      *http.Client
+	now             func() time.Time
+	getEUID         func() int
+	goos            string
+	goarch          string
+	hasSystemd      func() bool
+	diskFreeBytes   func(path string) (uint64, error)
+	runCmd          func(ctx context.Context, name string, args ...string) (string, error)
+	lookPath        func(file string) (string, error)
+	chownGroup      func(path, group string, recursive bool) error
+	getenforce      func() string
+	signalReload    func(pid int) error
+	hostname        func() (string, error)
+	localPublicIPs  func() ([]string, []string)
+	probeSwitchHost func(ctx context.Context, host string) error
 }
 
 func defaultEdgeOps() *edgeOps {
@@ -135,6 +138,8 @@ func runEdgeWithOps(ops *edgeOps, args []string) error {
 	switch sub {
 	case "install":
 		return runEdgeInstall(ops, rest)
+	case "switch-proxy":
+		return runEdgeSwitchProxy(ops, rest)
 	case "add-panel":
 		return runEdgeAddPanel(ops, rest)
 	case "remove-panel":
@@ -165,7 +170,8 @@ func runEdgeWithOps(ops *edgeOps, args []string) error {
 func printEdgeHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage: nd edge <command> [args...]")
 	fmt.Fprintln(w, "\nManage NextDeploy Multi-Panel Edge Shield on a Shield VPS:")
-	fmt.Fprintln(w, "  install       --panel-url URL [--token TOKEN | --token-stdin] [flags]  Install Caddy + nd-edge daemon")
+	fmt.Fprintln(w, "  install       --panel-url URL [--token TOKEN | --token-stdin] [flags]  Install Caddy, Angie, or Ferron (--experimental) + nd-edge")
+	fmt.Fprintln(w, "  switch-proxy  <caddy|angie|ferron> [--experimental] [--yes]             Switch the active Shield reverse proxy engine")
 	fmt.Fprintln(w, "  add-panel     --panel-url URL [--token TOKEN | --token-stdin] [flags]  Register an additional panel")
 	fmt.Fprintln(w, "  remove-panel  <panel_id|name>                                          Unregister and remove one panel")
 	fmt.Fprintln(w, "  list          [--json]                                                 List registered panels & sync state")
@@ -284,6 +290,8 @@ type edgeInstallOpts struct {
 	insecureHTTP  bool
 	dnsGateOff    bool
 	force         bool
+	proxy         string
+	experimental  bool
 }
 
 func parseEdgeInstallArgs(args []string) (edgeInstallOpts, error) {
@@ -319,6 +327,13 @@ func parseEdgeInstallArgs(args []string) (edgeInstallOpts, error) {
 			o.insecureHTTP = true
 		case a == "--force":
 			o.force = true
+		case a == "--proxy" && i+1 < len(args):
+			o.proxy = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--proxy="):
+			o.proxy = strings.TrimSpace(strings.TrimPrefix(a, "--proxy="))
+		case a == "--experimental":
+			o.experimental = true
 		case a == "--dns-gate" && i+1 < len(args):
 			off, err := parseOnOff(args[i+1])
 			if err != nil {
@@ -352,11 +367,15 @@ func parseOnOff(val string) (off bool, err error) {
 
 func runEdgeInstall(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge install --panel-url URL [--token TOKEN | --token-stdin] [--acme-email E] [--adopt-existing] [--panel-ca-sha256 S] [--insecure-http] [--dns-gate on|off] [--force]")
+		fmt.Fprintln(ops.stdout, "Usage: nd edge install --panel-url URL [--token TOKEN | --token-stdin] [--proxy caddy|angie|ferron] [--experimental] [--acme-email E] [--adopt-existing] [--panel-ca-sha256 S] [--insecure-http] [--dns-gate on|off] [--force]")
 		return nil
 	}
 
 	opts, err := parseEdgeInstallArgs(args)
+	if err != nil {
+		return err
+	}
+	proxyEngine, err := validateProxyInstallChoice(opts.proxy, opts.experimental, opts.adoptExisting)
 	if err != nil {
 		return err
 	}
@@ -374,6 +393,9 @@ func runEdgeInstall(ops *edgeOps, args []string) error {
 	}
 
 	ctx := context.Background()
+	if proxyEngine == edge.EngineAngie || proxyEngine == edge.EngineFerron {
+		return runEdgeInstallForEngine(ctx, ops, proxyEngine, opts, panelURL, token, caPin)
+	}
 
 	// Step 1: Preconditions (root, systemd, OS, ports 80/443, clock skew, disk > 1GB).
 	fmt.Fprintln(ops.stdout, "==> [1/10] Checking system preconditions...")
@@ -1124,24 +1146,7 @@ func loadOrInitEdgeConfig(ops *edgeOps, plan caddyfileInstallPlan, caddyUser str
 }
 
 func renderSystemdUnit(binaryPath string) string {
-	if strings.TrimSpace(binaryPath) == "" {
-		binaryPath = edgeDefaultBinaryPath
-	}
-	return fmt.Sprintf(`[Unit]
-Description=NextDeploy edge sync
-After=network-online.target caddy.service
-Wants=network-online.target caddy.service
-
-[Service]
-ExecStart=%s edge run
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=always
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-`, binaryPath)
+	return renderSystemdUnitForEngine(binaryPath, "caddy.service")
 }
 
 // --- 2. `nd edge add-panel` (§4.2) ---
@@ -1229,7 +1234,7 @@ func runEdgeAddPanel(ops *edgeOps, args []string) error {
 		panelCASHA256: caPin,
 		insecureHTTP:  insecureHTTP,
 		force:         force,
-		caddyVersion:  detectCaddyVersionWithOps(ctx, ops),
+		caddyVersion:  detectProxyVersionForEngine(ctx, ops, cfg.EngineName()),
 	})
 	if err != nil {
 		return err
@@ -1540,10 +1545,15 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		meta = &edge.ApplyMeta{}
 	}
 
-	caddyActive := false
-	caddyDetail := ""
+	ep := ops.paths.EnginePathsFor(cfg.EngineName())
+	serviceUnit := ep.ServiceUnit
+	if serviceUnit == "" {
+		serviceUnit = "caddy.service"
+	}
+	proxyActive := false
+	proxyDetail := ""
 	if ops.systemd != nil {
-		caddyActive, caddyDetail, _ = ops.systemd.IsActive(context.Background(), "caddy.service")
+		proxyActive, proxyDetail, _ = ops.systemd.IsActive(context.Background(), serviceUnit)
 	}
 
 	type hostRow struct {
@@ -1591,8 +1601,9 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 	if jsonOut {
 		b, _ := json.MarshalIndent(map[string]interface{}{
 			"edge_id":          cfg.EdgeID,
-			"caddy_running":    caddyActive,
-			"caddy_status":     caddyDetail,
+			"proxy_engine":     cfg.EngineName(),
+			"caddy_running":    proxyActive,
+			"caddy_status":     proxyDetail,
 			"current_gen":      meta.CurrentGen,
 			"last_apply_at":    meta.LastApplyAt,
 			"last_apply_error": meta.LastApplyError,
@@ -1602,8 +1613,13 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "Edge ID: %s | Panels: %d | Gen: %d | Caddy running: %v\n",
-		cfg.EdgeID, len(cfg.Panels), meta.CurrentGen, caddyActive)
+	if cfg.EngineName() == edge.EngineCaddy {
+		fmt.Fprintf(ops.stdout, "Edge ID: %s | Panels: %d | Gen: %d | Caddy running: %v\n",
+			cfg.EdgeID, len(cfg.Panels), meta.CurrentGen, proxyActive)
+	} else {
+		fmt.Fprintf(ops.stdout, "Edge ID: %s | Engine: %s | Panels: %d | Gen: %d | Proxy running: %v\n",
+			cfg.EdgeID, cfg.EngineName(), len(cfg.Panels), meta.CurrentGen, proxyActive)
+	}
 	if meta.LastApplyError != "" {
 		fmt.Fprintf(ops.stdout, "Last Apply Error: %s\n", meta.LastApplyError)
 	}
@@ -1715,7 +1731,12 @@ func runSyncReconcileLocked(ctx context.Context, ops *edgeOps, cfg *edge.Config,
 }
 
 func reconcileWithLoadedStates(ctx context.Context, ops *edgeOps, cfg *edge.Config, panelStates map[string]*edge.PanelState, force bool, now time.Time) (string, error) {
-	panelsDir, _ := edge.ReadDirLink(ops.paths.PanelsLink)
+	eng, err := buildEdgeEngineWithOps(ops, cfg.EngineName(), cfg)
+	if err != nil {
+		return "", err
+	}
+	ep := eng.Paths()
+	panelsDir, _ := edge.ReadDirLink(ep.PanelsLink)
 	claims, _ := edge.LoadClaims(ops.paths.ClaimsFile, panelsDir, now)
 	meta, _ := edge.LoadApplyMeta(ops.paths.ApplyMeta)
 	cfIPs := edge.LoadOrInitCFIPStore(ops.paths.CFIPsFile)
@@ -1725,9 +1746,15 @@ func reconcileWithLoadedStates(ctx context.Context, ops *edgeOps, cfg *edge.Conf
 		ACMEEmail: cfg.ACMEEmail,
 		Off:       cfg.DNSGateOff,
 	})
-	applier := edge.NewApplier(ops.paths, ops.caddy)
-	probe := edge.NewCertProbe(ops.paths.CaddyCertsDir, ops.systemd)
-	rec := edge.NewReconciler(ops.paths, dnsGate, applier, probe, ops.systemd, cfIPs)
+	var applier *edge.Applier
+	if eng.Name() == edge.EngineCaddy && ops.caddy != nil {
+		applier = edge.NewApplier(ops.paths, ops.caddy)
+	} else {
+		applier = edge.NewApplierForEngine(ops.paths, eng)
+	}
+	probe := edge.NewCertProbe(ep.CertsDir, ops.systemd)
+	probe.ManualCertsDir = ep.ManualCertsDir
+	rec := edge.NewReconcilerWithEngine(ops.paths, eng, dnsGate, applier, probe, ops.systemd, cfIPs)
 
 	out, err := rec.ReconcileOnce(ctx, cfg, panelStates, claims, meta, force, false, now)
 	if err != nil {
@@ -1778,11 +1805,20 @@ func runEdgeDaemon(ops *edgeOps, args []string) error {
 	reloadCh, stopCh, cleanupSignals := edgeDaemonSignalNotify()
 	defer cleanupSignals()
 
-	caddyVer := detectCaddyVersionWithOps(context.Background(), ops)
+	engineName := edge.EngineCaddy
+	var eng edge.Engine
+	if cfg, cfgErr := edge.LoadConfig(ops.paths.ConfigFile); cfgErr == nil && cfg != nil {
+		engineName = cfg.EngineName()
+		if built, buildErr := buildEdgeEngineWithOps(ops, engineName, cfg); buildErr == nil {
+			eng = built
+		}
+	}
+	proxyVer := detectProxyVersionForEngine(context.Background(), ops, engineName)
 	d, lock, err := edge.NewDaemon(edge.DaemonOptions{
 		Paths:        ops.paths,
 		EdgeVersion:  Version,
-		CaddyVersion: caddyVer,
+		CaddyVersion: proxyVer,
+		Engine:       eng,
 		Caddy:        ops.caddy,
 		Systemd:      ops.systemd,
 		HTTPClient:   ops.httpClient,
@@ -1883,57 +1919,8 @@ func runEdgeDoctor(ops *edgeOps, args []string) error {
 		}
 	}
 
-	// 3. Caddy binary, service, admin endpoint, Caddyfile directives
-	if caddyVer := detectCaddyVersionWithOps(ctx, ops); caddyVer != "" {
-		add("caddy-binary", "PASS", caddyVer)
-	} else {
-		add("caddy-binary", "FAIL", "caddy binary not found or failed to run")
-	}
-
-	if ops.systemd != nil {
-		if active, detail, _ := ops.systemd.IsActive(ctx, "caddy.service"); active {
-			add("caddy.service", "PASS", "active")
-		} else {
-			add("caddy.service", "FAIL", detail)
-		}
-		if active, detail, _ := ops.systemd.IsActive(ctx, "nd-edge.service"); active {
-			add("nd-edge.service", "PASS", "active")
-		} else {
-			add("nd-edge.service", "WARN", detail)
-		}
-	}
-
-	adminAddr := edge.DefaultAdminAddr
-	if cfg != nil && cfg.AdminAddr != "" {
-		adminAddr = cfg.AdminAddr
-	}
-	if ops.caddy != nil {
-		if err := ops.caddy.CheckAdmin(ctx, adminAddr); err != nil {
-			add("caddy-admin", "FAIL", fmt.Sprintf("%s unreachable: %v", adminAddr, err))
-		} else {
-			add("caddy-admin", "PASS", fmt.Sprintf("%s reachable", adminAddr))
-		}
-	}
-
-	// Directive check + caddy validate
-	if rawCF, err := os.ReadFile(ops.paths.Caddyfile); err != nil {
-		add("Caddyfile", "FAIL", err.Error())
-	} else {
-		cfText := string(rawCF)
-		if strings.Contains(cfText, legacyCatchAllStartMarker) || strings.Contains(cfText, "/api/v1/edge/verify-domain") {
-			add("caddy-directives", "FAIL", "legacy catch-all or NextDeploy on_demand_tls directives still present")
-		} else if !strings.Contains(cfText, edge.ManagedStartMarker) || !strings.Contains(cfText, edge.ManagedEndMarker) {
-			add("caddy-directives", "FAIL", "nd-edge managed markers missing from Caddyfile")
-		} else if ops.caddy != nil {
-			if valOut, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr != nil {
-				add("caddy-directives", "FAIL", fmt.Sprintf("caddy validate failed: %v %s", valErr, valOut))
-			} else {
-				add("caddy-directives", "PASS", "managed markers present and caddy validate passed")
-			}
-		} else {
-			add("caddy-directives", "PASS", "managed markers present")
-		}
-	}
+	// 3. Reverse proxy binary, service, readiness/admin endpoint, config validation
+	runDoctorForEngine(ctx, ops, cfg, add)
 
 	// 4. Clock skew vs registered panels
 	if cfg != nil && len(cfg.Panels) > 0 {
@@ -2372,19 +2359,47 @@ func runEdgeUninstall(ops *edgeOps, args []string) error {
 	_ = os.Remove(ops.unitPath)
 	_, _ = ops.runCmd(ctx, "systemctl", "daemon-reload")
 
-	// Restore backup Caddyfile if adopted, otherwise strip nd-edge managed region.
-	caddyInstalledByND := false
-	if _, err := os.Stat(edgeCaddyInstalledMarker(ops.paths)); err == nil {
-		caddyInstalledByND = true
+	nonCaddyEngine := ""
+	if cfg != nil && cfg.EngineName() != edge.EngineCaddy {
+		nonCaddyEngine = cfg.EngineName()
+	} else if _, markerErr := os.Stat(edgeFerronInstalledMarker(ops.paths)); markerErr == nil {
+		nonCaddyEngine = edge.EngineFerron
+	} else if _, markerErr := os.Stat(edgeAngieInstalledMarker(ops.paths)); markerErr == nil {
+		nonCaddyEngine = edge.EngineAngie
 	}
 
-	restoredBackup := findLatestCaddyfileBackup(ops.paths.Caddyfile)
-	if restoredBackup != "" {
-		if b, err := os.ReadFile(restoredBackup); err == nil {
-			cleanBackup, _ := stripManagedRegion(string(b))
-			_ = os.Remove(restoredBackup)
-			if hasNonCommentCaddyContent(strings.TrimSpace(cleanBackup)) {
-				if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(strings.TrimLeft(cleanBackup, "\r\n")), 0o644); err != nil {
+	if nonCaddyEngine != "" {
+		uninstallNonCaddyEdge(ctx, ops, nonCaddyEngine, all)
+	} else {
+		// Restore backup Caddyfile if adopted, otherwise strip nd-edge managed region.
+		caddyInstalledByND := false
+		if _, err := os.Stat(edgeCaddyInstalledMarker(ops.paths)); err == nil {
+			caddyInstalledByND = true
+		}
+
+		restoredBackup := findLatestCaddyfileBackup(ops.paths.Caddyfile)
+		if restoredBackup != "" {
+			if b, err := os.ReadFile(restoredBackup); err == nil {
+				cleanBackup, _ := stripManagedRegion(string(b))
+				_ = os.Remove(restoredBackup)
+				if hasNonCommentCaddyContent(strings.TrimSpace(cleanBackup)) {
+					if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(strings.TrimLeft(cleanBackup, "\r\n")), 0o644); err != nil {
+						return err
+					}
+					if _, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr == nil {
+						_, _ = ops.runCmd(ctx, "systemctl", "reload", "caddy")
+					}
+				} else {
+					_ = os.Remove(ops.paths.Caddyfile)
+					if caddyInstalledByND {
+						_, _ = ops.runCmd(ctx, "systemctl", "disable", "--now", "caddy")
+					}
+				}
+			}
+		} else if raw, err := os.ReadFile(ops.paths.Caddyfile); err == nil {
+			outside, _ := stripManagedRegion(string(raw))
+			if hasNonCommentCaddyContent(strings.TrimSpace(outside)) {
+				if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(strings.TrimLeft(outside, "\r\n")), 0o644); err != nil {
 					return err
 				}
 				if _, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr == nil {
@@ -2397,28 +2412,13 @@ func runEdgeUninstall(ops *edgeOps, args []string) error {
 				}
 			}
 		}
-	} else if raw, err := os.ReadFile(ops.paths.Caddyfile); err == nil {
-		outside, _ := stripManagedRegion(string(raw))
-		if hasNonCommentCaddyContent(strings.TrimSpace(outside)) {
-			if err := edge.WriteFileAtomic(ops.paths.Caddyfile, []byte(strings.TrimLeft(outside, "\r\n")), 0o644); err != nil {
-				return err
-			}
-			if _, valErr := ops.caddy.Validate(ctx, ops.paths.Caddyfile); valErr == nil {
-				_, _ = ops.runCmd(ctx, "systemctl", "reload", "caddy")
-			}
-		} else {
-			_ = os.Remove(ops.paths.Caddyfile)
-			if caddyInstalledByND {
-				_, _ = ops.runCmd(ctx, "systemctl", "disable", "--now", "caddy")
-			}
+
+		if all {
+			_ = os.RemoveAll(ops.paths.CaddyCertsDir)
 		}
-	}
 
-	if all {
-		_ = os.RemoveAll(ops.paths.CaddyCertsDir)
+		_ = os.RemoveAll(ops.paths.CaddyNDDir)
 	}
-
-	_ = os.RemoveAll(ops.paths.CaddyNDDir)
 	_ = os.RemoveAll(filepath.Dir(ops.paths.ConfigFile))
 	_ = os.RemoveAll(filepath.Dir(ops.paths.ClaimsFile))
 	_ = os.Remove(ops.paths.LockFile)

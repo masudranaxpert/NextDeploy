@@ -1,0 +1,13 @@
+# Managed by nd edge (angie). DO NOT EDIT.
+client_header_timeout 10s;
+client_body_timeout 15s;
+keepalive_timeout 20s;
+send_timeout 60s;
+client_max_body_size 0;
+
+variables_hash_max_size 8192;
+variables_hash_bucket_size 128;
+server_names_hash_max_size 8192;
+server_names_hash_bucket_size 128;
+
+# nd-edge: trusted_proxies disabled (no domains require proxy trust)

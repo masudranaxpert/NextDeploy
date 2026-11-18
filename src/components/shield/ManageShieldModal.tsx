@@ -335,7 +335,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
               />
 
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Upgrades keep active Caddy routes serving without interruption.
+                Upgrades keep active reverse proxy routes serving without interruption.
               </p>
             </div>
           )}
@@ -368,7 +368,7 @@ export const ManageShieldModal: React.FC<ManageShieldModalProps> = ({
               />
 
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Unlinking deletes this panel&apos;s Caddy routes and origin CA from the VPS without affecting other panels.
+                Unlinking deletes this panel&apos;s reverse proxy routes and origin CA from the VPS without affecting other panels.
               </p>
             </div>
           )}

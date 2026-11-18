@@ -37,6 +37,10 @@ type Panel struct {
 	SPAIndexHTML     []byte
 	QoS              *qos.Manager
 	deployMu         sync.Mutex
+	// hostMounts caches the panel container's own mounts for panel→host path translation.
+	hostMountsMu     sync.Mutex
+	hostMounts       []selfMount
+	hostMountsLoaded bool
 	deployRuns       map[string]*DeployRun
 	deployJobs       map[string]*DeployJobRecord
 	VolRestoreMu     sync.Mutex
@@ -84,6 +88,9 @@ type Panel struct {
 
 	// AI Copilot module (omp RPC harness).
 	Copilot *agent.Manager
+
+	// Reverse-proxy engine runtime (Caddy labels, or Angie/Ferron rendered configs).
+	proxyRT proxyRuntime
 }
 
 type edgeRateWindow struct {

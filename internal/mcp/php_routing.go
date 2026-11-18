@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/htaccess"
 	"panel/internal/phphosting"
+	"panel/internal/proxy"
 )
 
 func (h *Handler) recordMCPAudit(u db.User, action, appID, details string) {
@@ -98,7 +98,7 @@ func (h *Handler) handlePHPRouting(ctx context.Context, u db.User, args map[stri
 		}
 		s := phphosting.SettingsFor(site)
 		if strings.EqualFold(getStringArg(args, "mode"), "append") {
-			s.Routing.Rules = caddy.MergeUniqueRoutingRules(s.Routing.Rules, res.Rules)
+			s.Routing.Rules = proxy.MergeUniqueRoutingRules(s.Routing.Rules, res.Rules)
 		} else {
 			s.Routing.Rules = res.Rules
 		}
@@ -106,7 +106,7 @@ func (h *Handler) handlePHPRouting(ctx context.Context, u db.User, args map[stri
 			s.Routing.FallbackMode = res.FallbackMode
 			s.Routing.FallbackEntry = res.FallbackEntry
 		}
-		if err := caddy.ValidateRouting(&s.Routing, isStatic); err != nil {
+		if err := proxy.ValidateRouting(&s.Routing, isStatic); err != nil {
 			return errorResult(err)
 		}
 		site.SettingsJSON = s.JSON()
@@ -137,13 +137,13 @@ func (h *Handler) handlePHPRouting(ctx context.Context, u db.User, args map[stri
 			if err != nil {
 				return errorResult(fmt.Errorf("invalid rules array: %w", err))
 			}
-			var rules []caddy.RoutingRule
+			var rules []proxy.RoutingRule
 			if err := json.Unmarshal(b, &rules); err != nil {
 				return errorResult(fmt.Errorf("invalid rules array: %w", err))
 			}
 			next.Rules = rules
 		}
-		if err := caddy.ValidateRouting(&next, isStatic); err != nil {
+		if err := proxy.ValidateRouting(&next, isStatic); err != nil {
 			return errorResult(err)
 		}
 		s.Routing = next

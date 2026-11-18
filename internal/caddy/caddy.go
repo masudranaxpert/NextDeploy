@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"panel/internal/db"
+	"panel/internal/proxy"
 
 	"gopkg.in/yaml.v3"
 )
@@ -50,16 +50,7 @@ func ndSharedComposeKey(volName string) string {
 
 // ValidNDSharedTarget checks that a mount path is safe for the Caddy container (absolute Unix path, no "..").
 func ValidNDSharedTarget(target string) bool {
-	t := strings.TrimSpace(target)
-	if t == "" || t[0] != '/' {
-		return false
-	}
-	for _, seg := range strings.Split(t, "/") {
-		if seg == ".." {
-			return false
-		}
-	}
-	return true
+	return proxy.ValidSharedTarget(target)
 }
 
 func stripNDSharedVolumeMounts(caddySvc map[string]interface{}) {
@@ -163,21 +154,7 @@ func mergeNDSharedMountsIntoDoc(doc map[string]interface{}, caddySvc map[string]
 
 // CleanQuotedValue strips surrounding quotes (single, double, backtick) from a string.
 func CleanQuotedValue(v string) string {
-	v = strings.TrimSpace(v)
-	for len(v) >= 2 {
-		first := v[0]
-		last := v[len(v)-1]
-		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
-			if unquoted, err := strconv.Unquote(v); err == nil {
-				v = strings.TrimSpace(unquoted)
-				continue
-			}
-			v = strings.TrimSpace(v[1 : len(v)-1])
-			continue
-		}
-		break
-	}
-	return v
+	return proxy.CleanQuotedValue(v)
 }
 
 func cleanQuotedValue(v string) string {
@@ -321,44 +298,7 @@ func normalizedRoutes(d db.AppDomain) []db.AppDomainRoute {
 
 // ParseComposeServiceNames extracts service names from compose YAML, supporting any indentation.
 func ParseComposeServiceNames(data []byte) []string {
-	var doc map[string]interface{}
-	if err := yaml.Unmarshal(data, &doc); err == nil {
-		if services, ok := toStringMap(doc["services"]); ok && len(services) > 0 {
-			names := make([]string, 0, len(services))
-			for name := range services {
-				names = append(names, name)
-			}
-			sort.Strings(names)
-			return names
-		}
-	}
-	// Fallback regex for loose or templated compose YAML with arbitrary indentation.
-	lines := strings.Split(string(data), "\n")
-	inServices := false
-	serviceRe := regexp.MustCompile(`^[ \t]+([a-zA-Z0-9_\-]+)\s*:`)
-	var names []string
-	seen := map[string]bool{}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "services:" {
-			inServices = true
-			continue
-		}
-		if inServices {
-			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
-				inServices = false
-				continue
-			}
-			if m := serviceRe.FindStringSubmatch(line); len(m) == 2 {
-				name := m[1]
-				if !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-	}
-	sort.Strings(names)
-	return names
+	return proxy.ParseComposeServiceNames(data)
 }
 
 // GenerateMergedCompose returns a merged compose YAML with normalized volumes, Caddy labels,
@@ -367,6 +307,12 @@ func ParseComposeServiceNames(data []byte) []string {
 // When cgroupParent is non-empty it is forced onto every service so all of the owner's
 // containers run under a single cgroup with a shared, kernel-enforced resource limit.
 func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDomain, panelEnv string, cgroupParent string) ([]byte, error) {
+	return GenerateMergedComposeWithLabeler(base, projectName, "", domains, panelEnv, cgroupParent, nil)
+}
+
+// GenerateMergedComposeWithLabeler merges a Compose file using labeler (or default Caddy
+// labels when labeler is nil) for services with attached domains.
+func GenerateMergedComposeWithLabeler(base []byte, projectName, appID string, domains []db.AppDomain, panelEnv, cgroupParent string, labeler AppLabeler) ([]byte, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, err
@@ -436,7 +382,15 @@ func GenerateMergedCompose(base []byte, projectName string, domains []db.AppDoma
 				return nil, fmt.Errorf("service %q has invalid compose structure", service)
 			}
 			attachNetwork(svc, PanelNetworkKey)
-			mergeLabels(svc, GenerateServiceLabels(serviceDomains))
+			var labels map[string]string
+			if labeler != nil {
+				labels = buildServiceLabelsWithLabeler(appID, projectName, "", service, serviceDomains, nil, nil, false, labeler)
+			} else {
+				labels = GenerateServiceLabels(serviceDomains)
+			}
+			if len(labels) > 0 {
+				mergeLabels(svc, labels)
+			}
 			services[service] = svc
 		}
 	}
@@ -570,7 +524,7 @@ func MergeCaddyGatewayPorts(caddySvc map[string]interface{}, ports []db.Allocate
 	if raw, ok := caddySvc["ports"]; ok {
 		if list, ok := raw.([]interface{}); ok {
 			for _, item := range list {
-				if b, ok, err := parsePortString("caddy", fmt.Sprint(item)); err == nil && ok && (b.HostPort == 80 || b.HostPort == 443) {
+				if b, ok, err := proxy.ParsePortString("caddy", fmt.Sprint(item)); err == nil && ok && (b.HostPort == 80 || b.HostPort == 443) {
 					key := fmt.Sprint(item)
 					if !seen[key] {
 						seen[key] = true
@@ -843,131 +797,28 @@ func IsBehindCloudflare(domain string) bool {
 
 // ShouldUseInternalTLS checks if a domain should use internal/self-signed TLS.
 func ShouldUseInternalTLS(domain string) bool {
-	domain = strings.TrimSpace(strings.ToLower(CleanQuotedValue(domain)))
-	if domain == "" {
-		return false
-	}
-	if !strings.Contains(domain, ".") {
-		return true
-	}
-	devSuffixes := []string{
-		".local",
-		".localhost",
-		".internal",
-		".test",
-		".example",
-		".invalid",
-	}
-	for _, suffix := range devSuffixes {
-		if strings.HasSuffix(domain, suffix) {
-			return true
-		}
-	}
-	if ip := ExtractWildcardDomainIP(domain); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return true
-		}
-	}
-	return false
+	return proxy.ShouldUseInternalTLS(domain)
 }
-
-var (
-	wildcardDotIPv4Re  = regexp.MustCompile(`(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
-	wildcardDashIPv4Re = regexp.MustCompile(`(\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3})`)
-)
 
 // ExtractWildcardDomainIP extracts the embedded IPv4 address from a sslip.io or nip.io hostname.
 func ExtractWildcardDomainIP(domain string) net.IP {
-	d := strings.TrimSpace(strings.ToLower(domain))
-	if !strings.HasSuffix(d, ".sslip.io") && !strings.HasSuffix(d, ".nip.io") {
-		return nil
-	}
-	if matches := wildcardDashIPv4Re.FindAllString(d, -1); len(matches) > 0 {
-		if ip := net.ParseIP(strings.ReplaceAll(matches[len(matches)-1], "-", ".")); ip != nil {
-			return ip
-		}
-	}
-	if matches := wildcardDotIPv4Re.FindAllString(d, -1); len(matches) > 0 {
-		if ip := net.ParseIP(matches[len(matches)-1]); ip != nil {
-			return ip
-		}
-	}
-	return nil
+	return proxy.ExtractWildcardDomainIP(domain)
 }
 
 // ShortPanelID returns a 6-character lowercase alphanumeric identifier derived from a panel UUID.
 func ShortPanelID(panelID string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(panelID)) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			if b.Len() == 6 {
-				break
-			}
-		}
-	}
-	return b.String()
+	return proxy.ShortPanelID(panelID)
 }
 
 // FormatWildcardDomain builds a public sslip.io or nip.io hostname using dashed IPv4 notation
 // so Let's Encrypt can issue certificates without hitting public suffix depth edge cases.
-// When an optional panelID is passed (for shielded apps), a 6-character panel prefix is included
-// (<app>-<pid6>-<dashed-ip>.sslip.io) so two panels on the same Shield IP never collide.
-// If the host prefix ends with digits (e.g. "api-2" or numeric pid6), "-app" is appended before
-// the dashed IP so sslip.io / nip.io do not misparse the trailing digit as the first IPv4 octet.
 func FormatWildcardDomain(slug, ipStr, provider string, panelID ...string) string {
-	slug = strings.Trim(strings.ToLower(strings.TrimSpace(slug)), "-.")
-	if slug == "" {
-		slug = "app"
-	}
-	prefix := slug
-	if len(panelID) > 0 {
-		if pid6 := ShortPanelID(panelID[0]); pid6 != "" {
-			prefix = slug + "-" + pid6
-		}
-	}
-	last := prefix[len(prefix)-1]
-	if last >= '0' && last <= '9' {
-		prefix = prefix + "-app"
-	}
-	ipStr = strings.TrimSpace(ipStr)
-	if ipStr == "" {
-		ipStr = "127.0.0.1"
-	}
-	dashedIP := strings.ReplaceAll(ipStr, ".", "-")
-	provider = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(provider)), ".")
-	if provider != "nip.io" {
-		provider = "sslip.io"
-	}
-	return fmt.Sprintf("%s-%s.%s", prefix, dashedIP, provider)
+	return proxy.FormatWildcardDomain(slug, ipStr, provider, panelID...)
 }
 
 // LabelsToYAML converts a labels map to a YAML snippet for display.
 func LabelsToYAML(labels map[string]string) string {
-	if len(labels) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("labels:\n")
-	// sort keys for stable output
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		v := labels[k]
-		if v == "" {
-			sb.WriteString("  " + k + ": \"\"\n")
-		} else {
-			sb.WriteString("  " + k + ": \"" + escapeYAML(v) + "\"\n")
-		}
-	}
-	return sb.String()
-}
-
-func escapeYAML(s string) string {
-	return strings.ReplaceAll(s, `"`, `\"`)
+	return proxy.LabelsToYAML(labels)
 }
 
 func sortedDomains(domains []db.AppDomain) []db.AppDomain {

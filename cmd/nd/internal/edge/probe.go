@@ -25,11 +25,12 @@ const (
 // CertProbe verifies locally served TLS certificates via 127.0.0.1:443 SNI
 // and inspects Caddy's journald logs when issuance stalls > 15m (§3.7).
 type CertProbe struct {
-	TargetAddr string
-	RootCAs    *x509.CertPool
-	Systemd    SystemdRunner
-	DialTimout time.Duration
-	CertsDir   string
+	TargetAddr     string
+	RootCAs        *x509.CertPool
+	Systemd        SystemdRunner
+	DialTimout     time.Duration
+	CertsDir       string
+	ManualCertsDir string
 }
 
 // NewCertProbe builds a CertProbe using system root CAs by default.
@@ -195,10 +196,19 @@ func (p *CertProbe) UpdateHostStatusFromProbe(ctx context.Context, st *PanelStat
 	return hs
 }
 
-// HasValidStoredCert checks Caddy's cert storage directory for an existing valid
-// non-expired certificate for host (so admission throttle exempts renewals/re-adds, §3.4).
+// HasValidStoredCert checks manual imported certs, Caddy's cert storage, and
+// Angie's ACME storage for an existing valid non-expired certificate for host
+// (so admission throttle exempts renewals/re-adds, §3.4).
 func (p *CertProbe) HasValidStoredCert(host string, now time.Time) bool {
-	if p == nil || p.CertsDir == "" {
+	if p == nil {
+		return false
+	}
+	if p.ManualCertsDir != "" {
+		if _, _, _, ok := LoadUsableManualCert(p.ManualCertsDir, host, now, 0); ok {
+			return true
+		}
+	}
+	if p.CertsDir == "" {
 		return false
 	}
 	certsRoot := filepath.Join(p.CertsDir, "certificates")
@@ -210,24 +220,51 @@ func (p *CertProbe) HasValidStoredCert(host string, now time.Time) bool {
 		if d.Name() != host+".crt" {
 			return nil
 		}
-		raw, rErr := os.ReadFile(path)
-		if rErr != nil {
-			return nil
-		}
-		block, _ := pem.Decode(raw)
-		if block == nil {
-			return nil
-		}
-		cert, cErr := x509.ParseCertificate(block.Bytes)
-		if cErr != nil {
-			return nil
-		}
-		if now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
+		if certFileValidForHost(path, host, now) {
 			found = true
 		}
 		return nil
 	})
-	return found
+	if found {
+		return true
+	}
+
+	// Angie http_acme stores certificates at <CertsDir>/<client_id>/certificate.pem.
+	entries, err := os.ReadDir(p.CertsDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "certificates" {
+			continue
+		}
+		if certFileValidForHost(filepath.Join(p.CertsDir, e.Name(), "certificate.pem"), host, now) {
+			return true
+		}
+	}
+	return false
+}
+
+func certFileValidForHost(path, host string, now time.Time) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	if !now.After(cert.NotBefore) || !now.Before(cert.NotAfter) {
+		return false
+	}
+	if host != "" && cert.VerifyHostname(host) != nil {
+		return false
+	}
+	return true
 }
 
 func (p *CertProbe) classifyCertErrorFromJournal(ctx context.Context, host string) string {

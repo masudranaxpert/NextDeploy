@@ -27,6 +27,9 @@ import { backendApi, getPanelId } from '../../lib/backendApi';
 import { RotateShieldTokenResponse, ShieldNode } from '../../types/shield';
 import { copyToClipboard } from '../../lib/clipboard';
 import { ShadcnDialog, ActionMenu, ActionMenuItem } from '../../components/ui/Primitives';
+import { ShadcnSelect } from '../../components/ui/ShadcnSelect';
+import { ProxyEngineBadge } from '../../components/proxy/ProxyEngineBadge';
+import { resolveShieldProxyDisplay } from '../../components/shield/shieldProxyDisplay';
 import { ManageShieldModal } from '../../components/shield/ManageShieldModal';
 import { ShieldDocsModal } from '../../components/shield/ShieldDocsModal';
 import {
@@ -89,8 +92,8 @@ const SYNC_STATE_STYLES: Record<string, { label: string; cls: string; dot: strin
 const NodeConnectionBadge: React.FC<{ status: ShieldNode['status'] }> = ({ status }) => {
   if (status === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20 shrink-0">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/20 shrink-0">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
         Connected
       </span>
     );
@@ -412,7 +415,7 @@ export function ShieldProxiesView() {
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 h-9 min-h-[36px] px-4 rounded-lg bg-emerald-600 text-xs font-medium text-white shadow-sm hover:bg-emerald-500 transition-colors cursor-pointer"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[36px] sm:h-9 px-4 rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-950 shadow-sm hover:bg-zinc-200 transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Add Shield Node</span>
@@ -565,10 +568,22 @@ export function ShieldProxiesView() {
                         </td>
 
                         <td className="px-4 py-3.5 align-middle font-mono tabular-nums text-xs">
-                          <div className="space-y-0.5">
-                            <div className="text-zinc-200">edge: {node.edge_version || <span className="text-zinc-500">—</span>}</div>
-                            <div className="text-[11px] text-zinc-400">caddy: {node.caddy_version || <span className="text-zinc-500">—</span>}</div>
-                          </div>
+                          {(() => {
+                            const proxy = resolveShieldProxyDisplay(node);
+                            return (
+                              <div className="space-y-1">
+                                <div className="text-zinc-200">
+                                  edge: {node.edge_version || <span className="text-zinc-400">-</span>}
+                                </div>
+                                <ProxyEngineBadge
+                                  engine={proxy.engine}
+                                  version={proxy.version}
+                                  running={proxy.running}
+                                  size="xs"
+                                />
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         <td className="px-4 py-3.5 align-middle">
@@ -666,10 +681,20 @@ export function ShieldProxiesView() {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400 font-mono tabular-nums">
-                      <span>
-                        {node.edge_version ? `edge ${node.edge_version}` : 'edge -'}
-                        {node.caddy_version ? ` · caddy ${node.caddy_version}` : ''}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{node.edge_version ? `edge ${node.edge_version}` : 'edge -'}</span>
+                        {(() => {
+                          const proxy = resolveShieldProxyDisplay(node);
+                          return (
+                            <ProxyEngineBadge
+                              engine={proxy.engine}
+                              version={proxy.version}
+                              running={proxy.running}
+                              size="xs"
+                            />
+                          );
+                        })()}
+                      </div>
                       <span className="font-sans" title={syncTime?.full}>
                         {syncTime ? `Synced ${syncTime.short}` : 'Awaiting sync'}
                       </span>
@@ -816,7 +841,7 @@ export function ShieldProxiesView() {
               Rotating generates a new <code className="font-mono text-amber-100">shld_</code> token immediately. The previous token stays valid for <strong>10 minutes</strong> so you can run <code className="font-mono">nd edge set-token --token-stdin</code> on the Shield VPS without dropping sync.
             </div>
             <p className="text-zinc-400">
-              After 10 minutes, any Shield still using the old token will enter <span className="text-rose-300 font-medium">Auth Failed</span> state (existing Caddy routes keep serving).
+              After 10 minutes, any Shield still using the old token will enter <span className="text-rose-300 font-medium">Auth Failed</span> state (existing reverse proxy routes keep serving).
             </p>
           </div>
         )}
@@ -927,24 +952,27 @@ export function ShieldProxiesView() {
               <label htmlFor="reassign-target-shield" className="block text-xs font-medium text-zinc-300">
                 New Destination
               </label>
-              <select
+              <ShadcnSelect
                 id="reassign-target-shield"
-                value={targetShieldId === null ? 'direct' : targetShieldId}
-                onChange={(e) => {
-                  const val = e.target.value;
+                value={targetShieldId === null ? 'direct' : String(targetShieldId)}
+                onChange={(val) => {
                   setTargetShieldId(val === 'direct' ? null : Number(val));
                 }}
-                className="w-full h-9 rounded-lg border border-white/[0.08] bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 cursor-pointer"
-              >
-                <option value="direct">Direct Origin (Server IP)</option>
-                {nodes
-                  .filter((n) => n.id !== reassignModalNode.id)
-                  .map((n) => (
-                    <option key={n.id} value={n.id} disabled={n.status !== 'connected'}>
-                      {n.name} ({n.ip}){n.status === 'connected' ? '' : ` • ${n.status}`}
-                    </option>
-                  ))}
-              </select>
+                options={[
+                  {
+                    value: 'direct',
+                    label: 'Direct Origin (Server IP)',
+                  },
+                  ...nodes
+                    .filter((n) => n.id !== reassignModalNode.id)
+                    .map((n) => ({
+                      value: String(n.id),
+                      label: `${n.name} (${n.ip})`,
+                      sublabel: n.status === 'connected' ? undefined : n.status,
+                      disabled: n.status !== 'connected',
+                    })),
+                ]}
+              />
             </div>
           </form>
         )}
@@ -987,7 +1015,7 @@ export function ShieldProxiesView() {
                 </button>
               </div>
               <p className="text-[11px] text-zinc-400">
-                Removes this panel&apos;s Caddy routes and origin CA from the Shield VPS without exposing tokens in shell history or URLs.
+                Removes this panel&apos;s reverse proxy routes and origin CA from the Shield VPS without exposing tokens in shell history or URLs.
               </p>
             </div>
 

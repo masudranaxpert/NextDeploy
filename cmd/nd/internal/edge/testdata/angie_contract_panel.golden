@@ -1,0 +1,60 @@
+# Managed by nd edge for panel "vps-1" (aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee). DO NOT EDIT. etag=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+upstream nd_up_aaaaaaaa_feac {
+	zone nd_up_aaaaaaaa_feac 64k;
+	server 204.136.10.51:443;
+	keepalive 64;
+}
+
+acme_client nd_feaccd_dom_12_4f09cd https://acme-v02.api.letsencrypt.org/directory email=ops@example.com account_key=/var/lib/angie/acme/nd_account.key;
+
+server {
+	listen 80;
+	listen [::]:80;
+	server_name app.example.com www.app.example.com;
+	status_zone nd_feaccd_dom_12_4f09cd_http;
+	return 308 https://$host$request_uri;
+}
+
+server {
+	listen 443 ssl;
+	listen [::]:443 ssl;
+	listen 443 quic;
+	listen [::]:443 quic;
+	http2 on;
+	server_name app.example.com www.app.example.com;
+	status_zone nd_feaccd_dom_12_4f09cd;
+
+	acme nd_feaccd_dom_12_4f09cd;
+	ssl_certificate $acme_cert_nd_feaccd_dom_12_4f09cd;
+	ssl_certificate_key $acme_cert_key_nd_feaccd_dom_12_4f09cd;
+
+	add_header Alt-Svc 'h3=":443"; ma=86400' always;
+	client_max_body_size 0;
+
+	error_page 502 503 504 =503 @nd_origin_unavailable;
+	location @nd_origin_unavailable {
+		add_header Cache-Control "no-store" always;
+		return 503 "Origin is temporarily unavailable. Please retry shortly.\n";
+	}
+
+	location / {
+		proxy_pass https://nd_up_aaaaaaaa_feac;
+		proxy_http_version 1.1;
+		proxy_set_header Connection $nd_connection_upgrade;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $realip_remote_addr;
+		proxy_set_header X-Forwarded-For $realip_remote_addr;
+		proxy_set_header CF-Connecting-IP "";
+		proxy_set_header X-Forwarded-Proto https;
+		proxy_connect_timeout 10s;
+		proxy_send_timeout 600s;
+		proxy_read_timeout 1h;
+		proxy_buffering off;
+		proxy_ssl_server_name on;
+		proxy_ssl_name $host;
+		proxy_ssl_verify on;
+		proxy_ssl_verify_depth 2;
+		proxy_ssl_trusted_certificate /etc/angie/nd-edge/origins/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.pem;
+	}
+}

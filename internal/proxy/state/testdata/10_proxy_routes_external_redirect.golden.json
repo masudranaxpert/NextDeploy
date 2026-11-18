@@ -1,0 +1,66 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false,
+    "direct_cloudflare": true
+  },
+  "sites": [
+    {
+      "id": "route:1",
+      "route_id": 1,
+      "hosts": [
+        "ext.example.com",
+        "www.ext.example.com"
+      ],
+      "tls": "auto",
+      "kind": "external_proxy",
+      "upstream": {
+        "name": "nd_route_1",
+        "port": 8443,
+        "scheme": "https",
+        "skip_verify": true,
+        "external": "https://10.0.0.50:8443",
+        "long_streams": true
+      }
+    },
+    {
+      "id": "route:2",
+      "route_id": 2,
+      "hosts": [
+        "plain.example.com"
+      ],
+      "tls": "auto",
+      "trusted_proxy": true,
+      "kind": "external_proxy",
+      "upstream": {
+        "name": "nd_route_2",
+        "port": 8080,
+        "scheme": "http",
+        "external": "http://10.0.0.51:8080",
+        "long_streams": true
+      }
+    },
+    {
+      "id": "route:3",
+      "route_id": 3,
+      "hosts": [
+        "go.example.com"
+      ],
+      "tls": "auto",
+      "kind": "redirect",
+      "redirect": {
+        "code": 302,
+        "target": "https://target.example.com/docs",
+        "keep_path": true
+      }
+    }
+  ],
+  "generation": "90010df4e189c73c45f3f7ab5678c8ac4228daf3e98d021f95748adc45427185"
+}

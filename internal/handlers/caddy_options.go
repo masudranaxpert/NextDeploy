@@ -112,8 +112,20 @@ func (p *Panel) ReconcileProxyRoutes(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	keep := make(map[string]bool, len(routes))
 	for _, r := range routes {
+		if r.Enabled && p.isCaddyEngine() {
+			keep[proxyRouteContainer(r.ID)] = true
+		}
 		_ = p.syncProxyRoute(ctx, r)
+	}
+	// Holders of routes that were deleted or disabled while Angie/Ferron ran are still around;
+	// caddy-docker-proxy would merge their stale upstreams into live routes.
+	if p.PHP != nil {
+		if removed := p.PHP.PruneHolders(ctx, "label=nd.proxy=route", keep); len(removed) > 0 {
+			log.Printf("proxy routes: removed %d orphaned route holder(s): %s", len(removed), strings.Join(removed, ", "))
+			p.PHP.ReloadCaddy(ctx)
+		}
 	}
 }
 

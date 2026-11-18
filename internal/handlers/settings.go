@@ -18,6 +18,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/migrate"
+	"panel/internal/proxy"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
 	"panel/internal/volumex"
@@ -490,7 +491,12 @@ func (p *Panel) syncRootStackComposeState(ctx context.Context) (changed bool, wa
 	email := p.DB.GetCaddyConfig(ctx, "email")
 	caddyImage := p.DB.GetCaddyConfig(ctx, "caddy_image")
 	sharedMounts := p.caddySharedMountsFromSettings(ctx)
-	merged, err := caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts, p.caddyGlobalOptions(ctx), gatewayPorts...)
+	var merged []byte
+	if p.isCaddyEngine() {
+		merged, err = caddy.GenerateRootStackCompose(base, panelDomain, enableHTTPS, enableWWW, email, caddyImage, sharedMounts, p.caddyGlobalOptions(ctx), gatewayPorts...)
+	} else {
+		merged, err = p.generateEngineRootCompose(ctx, p.ProxyEngine(), base, panelDomain, enableHTTPS, enableWWW, email, sharedMounts, gatewayPorts)
+	}
 	if err != nil {
 		return false, nil, live, err
 	}
@@ -771,7 +777,10 @@ func (p *Panel) syncAndApplyRootCaddyIfNeeded(ctx context.Context) {
 	}
 	applyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	p.runRootStackComposeLocked(applyCtx, p.nextDeployComposePath(), "caddy")
+	p.runRootStackComposeLocked(applyCtx, p.nextDeployComposePath(), p.proxyServiceKey())
+	if !p.isCaddyEngine() {
+		_ = p.ProxySync(applyCtx, proxy.Reason{Kind: "root_stack"})
+	}
 }
 
 // triggerRootCaddySync reconciles root Caddy gateway ports in a serialized background goroutine
@@ -1173,7 +1182,7 @@ func (p *Panel) SaveNextDeploySharedVolumes(c *fiber.Ctx) error {
 		return c.Redirect("/nextdeploy")
 	}
 
-	p.applyRootStackComposeBackground(p.nextDeployComposePath(), "caddy")
+	p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 	if wantsJSON {
 		return c.JSON(fiber.Map{"ok": true, "queued": true})
 	}

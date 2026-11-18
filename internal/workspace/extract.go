@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"panel/internal/caddy"
+	"panel/internal/proxy"
 )
 
 func (s *Store) ClearAllUserFiles(wsID string) error {
@@ -97,7 +97,7 @@ func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64)
 		if p == "." || strings.HasPrefix(p, "..") {
 			continue
 		}
-		if filepath.Base(p) == caddy.GeneratedCompose || IsProtectedEnvFile(p) {
+		if filepath.Base(p) == proxy.GeneratedCompose || IsProtectedEnvFile(p) {
 			continue
 		}
 		dest := filepath.Join(base, p)
@@ -227,7 +227,7 @@ func (s *Store) ListChildren(wsID, rel string) ([]FileEntry, error) {
 	var list []FileEntry
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".panel-meta" || name == ReservedDir || name == caddy.GeneratedCompose || IsProtectedEnvFile(name) {
+		if name == ".panel-meta" || name == ReservedDir || name == proxy.GeneratedCompose || IsProtectedEnvFile(name) {
 			continue
 		}
 		relPath := name

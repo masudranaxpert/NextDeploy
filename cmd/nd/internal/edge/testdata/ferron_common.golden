@@ -1,0 +1,4 @@
+# Managed by nd edge (ferron). DO NOT EDIT.
+snippet nd_common {
+    dynamic_compressed
+}

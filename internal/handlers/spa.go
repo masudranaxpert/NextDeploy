@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -185,12 +186,32 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 				return
 			}
 			caddyStatusMu.Unlock()
+			if !p.isCaddyEngine() {
+				// Angie/Ferron have no Caddy admin API: ask the active driver instead.
+				caddyUp, caddyStatus = false, "proxy driver unavailable"
+				if drv, err := p.ProxyDriver(); err == nil {
+					sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					st, serr := drv.Status(sctx)
+					cancel()
+					caddyUp = serr == nil && st.Running
+					caddyStatus = drv.Name() + " stopped"
+					if caddyUp {
+						caddyStatus = drv.Name() + " running"
+					} else if serr != nil {
+						caddyStatus = serr.Error()
+					}
+				}
+				caddyStatusMu.Lock()
+				caddyStatusUp, caddyStatusText, caddyStatusAt = caddyUp, caddyStatus, time.Now()
+				caddyStatusMu.Unlock()
+				return
+			}
 			adminAPI := strings.TrimSpace(caddyCfg["admin_api"])
 			if adminAPI == "" {
 				adminAPI = caddy.DefaultAdminAPI
 			}
 			caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
-			if !caddyUp && (strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {
+			if !caddyUp &&(strings.Contains(caddyStatus, "lookup caddy") || strings.Contains(caddyStatus, "dial tcp") || strings.Contains(caddyStatus, "server misbehaving") || strings.Contains(caddyStatus, "no such host")) {
 				if err := dockerapi.EnsureCaddySharedNetwork(ctx); err == nil {
 					caddyUp, caddyStatus = caddy.AdminStatus(ctx, adminAPI)
 				}
@@ -608,6 +629,7 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"migrate_exports":     enrichedMigrateExports,
 		"docker_version":      dockerVersion,
 		"caddy": fiber.Map{
+			"engine": p.ProxyEngine(),
 			"up":     caddyUp,
 			"status": caddyStatus,
 			"config": caddyCfg,

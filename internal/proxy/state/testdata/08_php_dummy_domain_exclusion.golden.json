@@ -1,0 +1,113 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "sites": [
+    {
+      "id": "app:node-1:dom:52",
+      "app_id": "node-1",
+      "domain_id": 52,
+      "slot": "blue",
+      "hosts": [
+        "node1.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "upstream": {
+        "name": "nd_node_1_web_3000_blue",
+        "service": "web",
+        "container": "node-1-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    },
+    {
+      "id": "php:php-1",
+      "app_id": "php-1",
+      "domain_id": 50,
+      "hosts": [
+        "php1.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ],
+      "kind": "php",
+      "php": {
+        "doc_root": "/data/workspaces/php-1/htdocs",
+        "socket": "/data/workspaces/.nd-php/u1-v83/run/php-1.sock",
+        "php_version": "8.3",
+        "site_type": "php",
+        "compression": [
+          "zstd",
+          "gzip"
+        ],
+        "precompressed": [
+          "gzip",
+          "zstd"
+        ],
+        "hide_patterns": [
+          ".git",
+          ".env*",
+          "*.sql",
+          "*.db",
+          "*.sqlite",
+          "*.key",
+          "*.sock"
+        ],
+        "cache": {
+          "wordpress_page_cache": true,
+          "media_cache_control": "public, max-age=2592000, immutable",
+          "code_cache_control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+        "fastcgi_dial_timeout": "5s",
+        "fastcgi_read_timeout": "120s",
+        "fastcgi_write_timeout": "120s",
+        "https": true
+      }
+    }
+  ],
+  "generation": "cccdc6a7678bbe45d0e708bb2b9d546f621520875c5a6a521fa5ddfc89a6b373"
+}

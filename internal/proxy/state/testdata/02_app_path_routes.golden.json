@@ -1,0 +1,118 @@
+{
+  "global": {
+    "profile": "default",
+    "read_header": "",
+    "read_body_idle": "",
+    "idle": "",
+    "grace_period": "",
+    "max_header_size": "",
+    "real_ip": "none",
+    "trusted_proxies": null,
+    "trusted_strict": false
+  },
+  "sites": [
+    {
+      "id": "app:store-1:dom:2",
+      "app_id": "store-1",
+      "domain_id": 2,
+      "slot": "blue",
+      "hosts": [
+        "shop.example.com"
+      ],
+      "tls": "auto",
+      "headers": [
+        {
+          "action": "set",
+          "name": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "action": "set",
+          "name": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "action": "set",
+          "name": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "action": "set",
+          "name": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ],
+      "kind": "app_proxy",
+      "paths": [
+        {
+          "prefix": "/assets/*",
+          "strip_prefix": true,
+          "priority": 1,
+          "handler": {
+            "kind": "static_dir",
+            "static": {
+              "root": "/data/workspaces/store-1/dist/assets",
+              "hide": [
+                ".git",
+                ".env*",
+                "*.sql",
+                "*.db",
+                "*.sqlite",
+                "*.key",
+                "*.sock"
+              ]
+            }
+          }
+        },
+        {
+          "prefix": "/media/*",
+          "strip_prefix": true,
+          "priority": 2,
+          "handler": {
+            "kind": "static_dir",
+            "static": {
+              "root": "/data/workspaces/store-1/uploads",
+              "hide": [
+                ".git",
+                ".env*",
+                "*.sql",
+                "*.db",
+                "*.sqlite",
+                "*.key",
+                "*.sock"
+              ]
+            }
+          }
+        },
+        {
+          "prefix": "/api/*",
+          "priority": 3,
+          "handler": {
+            "kind": "proxy",
+            "upstream": {
+              "name": "nd_store_1_api_4000_blue",
+              "service": "api",
+              "container": "store-1-blue-api-1",
+              "port": 4000,
+              "scheme": "http",
+              "long_streams": true,
+              "lb_try_duration": "5s",
+              "fail_duration": "5s"
+            }
+          }
+        }
+      ],
+      "upstream": {
+        "name": "nd_store_1_web_3000_blue",
+        "service": "web",
+        "container": "store-1-blue-web-1",
+        "port": 3000,
+        "scheme": "http",
+        "long_streams": true,
+        "lb_try_duration": "5s",
+        "fail_duration": "5s"
+      }
+    }
+  ],
+  "generation": "c026a51cd8db9cccd639be26d3790a59239ad81a22b457d774de43457f7105e1"
+}

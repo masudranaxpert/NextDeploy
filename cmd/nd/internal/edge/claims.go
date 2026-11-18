@@ -76,6 +76,15 @@ func SaveClaims(path string, cs *ClaimsStore) error {
 // RebuildClaimsFromCaddyDir reconstructs host -> panel_id claims by reading the
 // currently active <panel_id>.caddy files (E-STATE-2).
 func RebuildClaimsFromCaddyDir(panelsDir string, fallbackTime time.Time) (*ClaimsStore, error) {
+	return RebuildClaimsFromDir(panelsDir, ".caddy", fallbackTime)
+}
+
+// RebuildClaimsFromDir reconstructs host -> panel_id claims by reading the
+// currently active panel config files matching ext (".caddy" or ".conf").
+func RebuildClaimsFromDir(panelsDir, ext string, fallbackTime time.Time) (*ClaimsStore, error) {
+	if ext == "" {
+		ext = ".caddy"
+	}
 	cs := NewClaimsStore()
 	if panelsDir == "" {
 		return cs, nil
@@ -96,10 +105,12 @@ func RebuildClaimsFromCaddyDir(panelsDir string, fallbackTime time.Time) (*Claim
 			continue
 		}
 		name := entry.Name()
-		if name == PlaceholderFileName || name == HealthFileName || !strings.HasSuffix(name, ".caddy") {
+		if name == PlaceholderFileName || name == HealthFileName ||
+			name == PlaceholderAngieFileName || name == HealthAngieFileName ||
+			!strings.HasSuffix(name, ext) {
 			continue
 		}
-		panelID := strings.TrimSuffix(name, ".caddy")
+		panelID := strings.TrimSuffix(name, ext)
 		if panelID == "" {
 			continue
 		}
@@ -109,7 +120,12 @@ func RebuildClaimsFromCaddyDir(panelsDir string, fallbackTime time.Time) (*Claim
 		if err == nil && !info.ModTime().IsZero() {
 			claimedAt = info.ModTime().UTC()
 		}
-		hosts, err := parseHostsFromPanelCaddy(fullPath)
+		var hosts []string
+		if ext == ".conf" {
+			hosts, err = parseHostsFromPanelAngie(fullPath)
+		} else {
+			hosts, err = parseHostsFromPanelCaddy(fullPath)
+		}
 		if err != nil {
 			continue
 		}
@@ -123,6 +139,69 @@ func RebuildClaimsFromCaddyDir(panelsDir string, fallbackTime time.Time) (*Claim
 		}
 	}
 	return cs, nil
+}
+
+func parseHostsFromPanelAngie(path string) ([]string, error) {
+	f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+	defer f.Close()
+
+	var hosts []string
+	seen := make(map[string]struct{})
+	scanner := bufio.NewScanner(f)
+	depth := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "server_name ") || strings.HasPrefix(line, "server_name\t") {
+			stmt := strings.TrimSuffix(line, ";")
+			fields := strings.Fields(stmt)
+			if len(fields) >= 2 {
+				for _, part := range fields[1:] {
+					h := strings.ToLower(strings.TrimSpace(part))
+					if h == "" || h == "_" {
+						continue
+					}
+					if _, ok := seen[h]; !ok {
+						seen[h] = struct{}{}
+						hosts = append(hosts, h)
+					}
+				}
+			}
+		} else if depth == 0 && strings.HasSuffix(line, "{") {
+			header := strings.TrimSpace(strings.TrimSuffix(line, "{"))
+			low := strings.ToLower(header)
+			if header != "" &&
+				!strings.HasPrefix(header, "(") &&
+				!strings.HasPrefix(low, "snippet ") &&
+				!strings.HasPrefix(low, "match ") &&
+				!strings.HasPrefix(low, "server") &&
+				!strings.HasPrefix(low, "upstream ") &&
+				!strings.HasPrefix(low, "http ") {
+				for _, part := range strings.Split(header, ",") {
+					for _, tok := range strings.Fields(part) {
+						h := strings.ToLower(strings.TrimSpace(tok))
+						if h == "" || strings.HasPrefix(h, "*:") {
+							continue
+						}
+						if _, ok := seen[h]; !ok {
+							seen[h] = struct{}{}
+							hosts = append(hosts, h)
+						}
+					}
+				}
+			}
+		}
+		depth += strings.Count(line, "{") - strings.Count(line, "}")
+		if depth < 0 {
+			depth = 0
+		}
+	}
+	return hosts, scanner.Err()
 }
 
 func parseHostsFromPanelCaddy(path string) ([]string, error) {

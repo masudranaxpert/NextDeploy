@@ -20,13 +20,13 @@ import (
 	"sync"
 	"time"
 
-	"panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
 	"panel/internal/handlers"
 	"panel/internal/phphosting"
+	"panel/internal/proxy"
 	"panel/internal/quota"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
@@ -389,7 +389,7 @@ func sanitizeDomain(raw string) (string, error) {
 	if idx := strings.IndexAny(d, "/\\?#:"); idx != -1 {
 		d = d[:idx]
 	}
-	d = strings.TrimSpace(strings.ToLower(caddy.CleanQuotedValue(d)))
+	d = strings.TrimSpace(strings.ToLower(proxy.CleanQuotedValue(d)))
 	d = strings.TrimSuffix(d, ".")
 	if d == "" {
 		return "", errors.New("domain name cannot be empty")
@@ -480,7 +480,7 @@ func (h *Handler) handleDomainAdd(ctx context.Context, u db.User, args map[strin
 			service = "web"
 		}
 	}
-	service = caddy.CleanQuotedValue(service)
+	service = proxy.CleanQuotedValue(service)
 
 	port := getIntArg(args, "port", 80)
 	if port <= 0 || port > 65535 {

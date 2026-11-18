@@ -9,53 +9,15 @@ import (
 	"time"
 )
 
-func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(trusted_proxy,0),COALESCE(pending_origin_apply,0),created_at
-		 FROM app_domains WHERE app_id=?
-		 ORDER BY COALESCE(is_primary,0) DESC, id ASC`, appID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []AppDomain
-	for rows.Next() {
-		var d AppDomain
-		var isPrim, https, www, static, media, trustedProxy, pending int
-		var shieldID sql.NullInt64
-		var created string
-		if err := rows.Scan(&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
-			&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &trustedProxy, &pending, &created); err != nil {
-			return nil, err
-		}
-		if shieldID.Valid {
-			d.ShieldNodeID = &shieldID.Int64
-		}
-		d.IsPrimary = isPrim != 0
-		d.EnableHTTPS = https != 0
-		d.EnableWWW = www != 0
-		d.ServeStatic = static != 0
-		d.ServeMedia = media != 0
-		d.TrustedProxy = trustedProxy != 0
-		d.PendingOriginApply = pending != 0
-		t, _ := time.Parse(time.RFC3339, created)
-		d.CreatedAt = t
-		out = append(out, d)
-	}
-	return out, rows.Err()
-}
+const appDomainCols = `id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(trusted_proxy,0),COALESCE(pending_origin_apply,0),created_at`
 
-func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
+func scanAppDomain(row interface{ Scan(...any) error }) (AppDomain, error) {
 	var d AppDomain
 	var isPrim, https, www, static, media, trustedProxy, pending int
 	var shieldID sql.NullInt64
 	var created string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id,app_id,domain,service,port,COALESCE(is_primary,0),enable_https,enable_www,serve_static,static_path,static_url_prefix,serve_media,media_path,media_url_prefix,COALESCE(route_rules_json,'[]'),shield_node_id,COALESCE(trusted_proxy,0),COALESCE(pending_origin_apply,0),created_at
-		 FROM app_domains WHERE id=?`, id).Scan(
-		&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
-		&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &trustedProxy, &pending, &created)
-	if err != nil {
+	if err := row.Scan(&d.ID, &d.AppID, &d.Domain, &d.Service, &d.Port, &isPrim,
+		&https, &www, &static, &d.StaticPath, &d.StaticURLPrefix, &media, &d.MediaPath, &d.MediaURLPrefix, &d.RouteRulesJSON, &shieldID, &trustedProxy, &pending, &created); err != nil {
 		return AppDomain{}, err
 	}
 	if shieldID.Valid {
@@ -71,6 +33,42 @@ func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
 	t, _ := time.Parse(time.RFC3339, created)
 	d.CreatedAt = t
 	return d, nil
+}
+
+func (s *Store) listAppDomains(ctx context.Context, query string, args ...any) ([]AppDomain, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AppDomain
+	for rows.Next() {
+		d, err := scanAppDomain(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ListAppDomains returns all domain records configured for a single app.
+func (s *Store) ListAppDomains(ctx context.Context, appID string) ([]AppDomain, error) {
+	return s.listAppDomains(ctx,
+		`SELECT `+appDomainCols+` FROM app_domains WHERE app_id=? ORDER BY COALESCE(is_primary,0) DESC, id ASC`,
+		appID)
+}
+
+// ListAllAppDomains returns all domain records across all apps in deterministic order.
+func (s *Store) ListAllAppDomains(ctx context.Context) ([]AppDomain, error) {
+	return s.listAppDomains(ctx,
+		`SELECT `+appDomainCols+` FROM app_domains ORDER BY app_id ASC, COALESCE(is_primary,0) DESC, id ASC`)
+}
+
+// GetAppDomain fetches a single app domain record by ID.
+func (s *Store) GetAppDomain(ctx context.Context, id int64) (AppDomain, error) {
+	return scanAppDomain(s.db.QueryRowContext(ctx,
+		`SELECT `+appDomainCols+` FROM app_domains WHERE id=?`, id))
 }
 
 func (s *Store) CreateAppDomain(ctx context.Context, d AppDomain) (int64, error) {
