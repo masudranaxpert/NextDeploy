@@ -1023,28 +1023,42 @@ func RemoveVolumeByName(ctx context.Context, name string) error {
 	return cli.VolumeRemove(ctx, name, false)
 }
 
-// protectedImageMarkers lists platform runtime images that must survive "Delete Unused":
-// PHP version images are pulled on demand and have no container until a site uses them.
-var protectedImageMarkers = []string{
-	"nextdeploy-php",
-	"alpine",
-	"caddy-docker-proxy",
-	"docker.angie.software/angie",
-	"angie",
-	"ferronserver/ferron",
-	"ferron",
-	"phpmyadmin",
-	"mariadb",
-	"busybox",
+// protectedImageRepos are the platform runtime images that must survive "Delete Unused": PHP
+// version images are pulled on demand and have no container until a site uses them, the proxy
+// engines are not running while another engine is active, and so on. They are matched on the
+// image name (the last path segment of the repository), never on the tag: a backup tag such as
+// "nextdeploy:backup-angie503" must not be protected just because its tag mentions an engine.
+var protectedImageRepos = map[string]bool{
+	"nextdeploy-php":     true,
+	"caddy-docker-proxy": true,
+	"angie":              true,
+	"ferron":             true,
+	"phpmyadmin":         true,
+	"mariadb":            true,
+}
+
+// protectedImageRefs are helper images the panel runs on demand under one exact tag. Other tags of
+// the same repository (for example a stray "busybox:1") are ordinary images and can be pruned.
+var protectedImageRefs = map[string]bool{
+	"alpine:3.20":    true, // volume, backup and migration helpers
+	"busybox:stable": true, // PHP holder containers
 }
 
 func isProtectedImage(tags []string) bool {
 	for _, t := range tags {
-		lower := strings.ToLower(t)
-		for _, m := range protectedImageMarkers {
-			if strings.Contains(lower, m) {
-				return true
-			}
+		ref := strings.ToLower(strings.TrimSpace(t))
+		if protectedImageRefs[strings.TrimPrefix(ref, "docker.io/")] || protectedImageRefs[strings.TrimPrefix(ref, "docker.io/library/")] {
+			return true
+		}
+		repo := ref
+		if at := strings.Index(repo, "@"); at >= 0 {
+			repo = repo[:at]
+		}
+		if colon := strings.LastIndex(repo, ":"); colon > strings.LastIndex(repo, "/") {
+			repo = repo[:colon]
+		}
+		if protectedImageRepos[repo[strings.LastIndex(repo, "/")+1:]] {
+			return true
 		}
 	}
 	return false
