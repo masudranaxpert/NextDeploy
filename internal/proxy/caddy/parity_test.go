@@ -1011,7 +1011,7 @@ func TestDriver_ContractRegistryRenderValidateApplyAndRuntime(t *testing.T) {
 		RegexRouting: true, RequireTargetFile: true, H2IdleTimeout: true,
 		WriteTimeout: true, ReadHeaderTimeout: true, ReadBodyTimeout: true,
 		GracePeriod: true, MaxHeaderSizeHTTP1: true, TrustedStrict: true,
-		LongStreamsOnReload: true, AdminAPI: true, Experimental: false,
+		LongStreamsOnReload: true, WordPressPageCache: true, AdminAPI: true, Experimental: false,
 	}
 	if caps != wantCaps {
 		t.Fatalf("Capabilities mismatch:\ngot:  %+v\nwant: %+v", caps, wantCaps)

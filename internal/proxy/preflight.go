@@ -149,6 +149,11 @@ func EvaluateCapabilities(st *State, target Capabilities) PreflightDiff {
 			}
 		}
 
+		if s.Kind == SiteKindPHP && s.PHP != nil && s.PHP.Cache != nil && s.PHP.Cache.WordPressPageCache && !target.WordPressPageCache {
+			warnings.add("wordpress_page_cache",
+				"Target proxy cannot serve WordPress static page-cache files (WP Fastest Cache, WP Super Cache, Cache Enabler, WP Rocket) straight from disk; every page is rendered by PHP. The site keeps working, only slower.", &ref)
+		}
+
 		if !target.LongStreamsOnReload && siteHasLongStreams(s) {
 			warnings.add("long_streams_on_reload", "Target proxy may close HTTP/2 streams on reload instead of draining long-lived connections.", &ref)
 		}

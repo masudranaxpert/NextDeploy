@@ -20,6 +20,7 @@ func testCaddyCaps() Capabilities {
 		MaxHeaderSizeHTTP1:      true,
 		TrustedStrict:           true,
 		LongStreamsOnReload:     true,
+		WordPressPageCache:      true,
 		AdminAPI:                true,
 		Experimental:            false,
 	}

@@ -213,6 +213,8 @@ export interface PhpSiteDetail {
   provision?: PhpProvision | null;
   installed_versions: string[];
   min_cron_interval_minutes: number;
+  proxy_engine?: 'caddy' | 'angie' | 'ferron';
+  page_cache_supported?: boolean;
   wp_cache_plugins?: Array<{
     slug: string;
     name: string;

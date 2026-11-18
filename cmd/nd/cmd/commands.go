@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.9.1"
+var Version = "2.9.2"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -3194,10 +3194,10 @@ PHP & Database Hosting:
   nd php create <name> [domain] [flags] Create a PHP/WordPress/static site (--domain, --no-default-domain, --db)
   nd php info [app_id]               Show PHP runtime, extensions, docroot, and pool status
   nd php set [app_id] [flags]        Update PHP version, upload limits, memory, extensions
-  nd php stop [app_id]               Stop a PHP or static site (removes Caddy route & frees pool)
-  nd php start [app_id]              Start a stopped PHP or static site and restore Caddy route
+  nd php stop [app_id]               Stop a PHP or static site (removes its proxy route & frees the pool)
+  nd php start [app_id]              Start a stopped PHP or static site and restore its proxy route
   nd php restart [app_id]            Restart PHP-FPM runtime container
-  nd php rules list|scan|fallback|add|import|export|rm  Manage Caddy routing rules & batch .htaccess
+  nd php rules list|scan|fallback|add|import|export|rm  Manage routing rules & batch .htaccess import
   nd php import-manifest <file.json> Batch provision sites, custom domains, DBs & routing
   nd php fix-perms [app_id]          Repair file ownership & POSIX permissions (755/775/644)
   nd php pma [app_id]                Generate one-click auto-login SSO URL for phpMyAdmin
@@ -3221,14 +3221,14 @@ Backups:
   nd backup dest list|add            Manage remote S3/storage backup destinations
 
 Proxy & Edge Shield:
-  nd proxy list [--json]             List Caddy reverse proxy upstream routes
+  nd proxy list [--json]             List reverse proxy routes (Caddy, Angie or Ferron)
   nd proxy add <domain> <upstream>   Add custom reverse proxy or redirect (--shield <id>, --direct)
   nd proxy enable|disable|toggle <id> Enable, disable, or flip a proxy route
   nd proxy rm <id>                   Remove proxy route
-  nd proxy reload                    Reload Caddy configuration without downtime
-  nd proxy logs [-n N] [-f]          View or stream Caddy reverse proxy logs
-  nd proxy status [--json]           Show panel proxy status and live Caddy config
-  nd proxy options [show|set]        View or update global Caddy timeouts and Real-IP mode
+  nd proxy reload                    Re-apply the proxy configuration without downtime
+  nd proxy logs [-n N] [-f]          View or stream the reverse proxy logs
+  nd proxy status [--json]           Show the active proxy engine and its live status
+  nd proxy options [show|set]        View or update global proxy timeouts and Real-IP mode
   nd shield list [--json]            List edge shield proxy nodes
   nd shield add <name> <ip>          Register a new edge shield node
   nd shield update <id> [flags]      Update an edge shield node (--name, --ip)
@@ -3237,7 +3237,7 @@ Proxy & Edge Shield:
   nd shield test <node_id>           Test edge shield proxy node connectivity
   nd shield setup-script [id]        Output bash setup command for edge shield server
   nd shield reassign <src> [dst]     Reassign domains from source shield to target (or direct)
-  nd edge <subcommand>               Manage multi-panel Edge Shield daemon on Shield VPS (run 'nd edge --help')
+  nd edge <subcommand>               Manage the multi-panel Edge Shield daemon and its proxy (Caddy, Angie, Ferron) on a Shield VPS (run 'nd edge --help')
 
 System Monitoring & Maintenance:
   nd top / stats                     Live system resource monitor (CPU, RAM, disk, containers)

@@ -18,7 +18,13 @@ interface WordPressOptimizationModalProps {
   plugins?: WordPressCachePluginInfo[];
   onRefresh?: () => void;
   onPurge?: () => Promise<void>;
+  /** Active reverse proxy engine; the page cache is served by the proxy, so it matters. */
+  proxyEngine?: 'caddy' | 'angie' | 'ferron';
+  /** False when the active engine cannot serve cache files from disk (Ferron). */
+  pageCacheSupported?: boolean;
 }
+
+const ENGINE_LABEL: Record<string, string> = { caddy: 'Caddy', angie: 'Angie', ferron: 'Ferron' };
 
 type TabKey = 'cache' | 'object-cache' | 'assets';
 
@@ -48,7 +54,10 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
   plugins = [],
   onRefresh,
   onPurge,
+  proxyEngine,
+  pageCacheSupported = true,
 }) => {
+  const engineLabel = ENGINE_LABEL[proxyEngine || ''] || 'The proxy';
   const [activeTab, setActiveTab] = useState<TabKey>('cache');
   const [refreshing, setRefreshing] = useState(false);
   const [purging, setPurging] = useState(false);
@@ -91,7 +100,7 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
       open={open}
       onClose={onClose}
       title="WordPress Optimization & Performance"
-      description={`Site: ${siteName} · Caddy zero-overhead disk caching & traffic guide`}
+      description={`Site: ${siteName} · static disk caching & traffic guide`}
       icon={<WordPressIcon className="h-5 w-5 text-[#3858E9]" />}
       maxWidth="2xl"
       footer={
@@ -189,7 +198,21 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
         {activeTab === 'cache' && (
           <div className="space-y-3.5">
             {/* Live Detection Summary Banner */}
-            {activePlugin ? (
+            {!pageCacheSupported ? (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-semibold text-amber-200">Static disk caching is not available on {engineLabel}</p>
+                    <p className="mt-0.5 text-amber-300/80">
+                      {engineLabel} cannot serve the cache files of these plugins straight from disk, so every page is rendered by PHP. The site works normally, only slower. Switch the proxy engine to Caddy or Angie (Proxy page) to serve cached pages without PHP-FPM.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : activePlugin ? (
               <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3.5">
                 <div className="flex items-start gap-2.5">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
@@ -197,10 +220,10 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
                   </div>
                   <div className="text-xs leading-relaxed">
                     <p className="font-semibold text-emerald-200">
-                      Caddy Static Disk Caching is Active
+                      Static Disk Caching is Active
                     </p>
                     <p className="mt-0.5 text-emerald-300/80">
-                      <span className="font-medium text-emerald-100">{activePlugin.name}</span> is installed and generating static HTML on disk. Caddy serves matching visitor requests directly in &lt; 0.5 ms without running PHP-FPM or MariaDB.
+                      <span className="font-medium text-emerald-100">{activePlugin.name}</span> is installed and generating static HTML on disk. {engineLabel} serves matching visitor requests straight from disk without running PHP-FPM or MariaDB.
                     </p>
                   </div>
                 </div>
@@ -229,10 +252,10 @@ export const WordPressOptimizationModal: React.FC<WordPressOptimizationModalProp
                   </div>
                   <div className="text-xs leading-relaxed">
                     <p className="font-medium text-zinc-100">
-                      How Caddy Zero-Overhead Disk Caching Works
+                      How Static Disk Caching Works
                     </p>
                     <p className="mt-0.5 text-zinc-400">
-                      Install any one of the 4 supported caching plugins below in WP Admin. When the plugin writes static HTML files to disk, Caddy automatically serves them via its internal file server in 0.5 ms, bypassing PHP-FPM and MariaDB entirely.
+                      Install any one of the 4 supported caching plugins below in WP Admin. When the plugin writes static HTML files to disk, {engineLabel} serves them directly for anonymous visitors, bypassing PHP-FPM and MariaDB entirely.
                     </p>
                   </div>
                 </div>

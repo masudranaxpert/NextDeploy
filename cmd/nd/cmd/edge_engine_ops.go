@@ -107,6 +107,15 @@ func runDoctorForManagedEngine(ctx context.Context, ops *edgeOps, engineName str
 	} else {
 		add(engineName+"-binary", "FAIL", fmt.Sprintf("%s binary not found or failed to run", engineName))
 	}
+	if engineName == edge.EngineAngie {
+		if out, err := ops.runCmd(ctx, "angie", "-V"); err == nil {
+			if w := angieOpenSSLWarning(out); w != "" {
+				add("angie-openssl", "WARN", w)
+			} else {
+				add("angie-openssl", "PASS", "OpenSSL 3.5+ (post-quantum origin connections work)")
+			}
+		}
+	}
 
 	if ops.systemd != nil {
 		if active, detail, _ := ops.systemd.IsActive(ctx, ep.ServiceUnit); active {
@@ -180,7 +189,48 @@ func uninstallNonCaddyEdge(ctx context.Context, ops *edgeOps, engineName string,
 	if all && ep.CertsDir != "" {
 		_ = os.RemoveAll(ep.CertsDir)
 	}
+	if engineName == edge.EngineAngie {
+		unitDir := filepath.Dir(ops.unitPath)
+		_ = os.Remove(filepath.Join(unitDir, "angie.service.d", "nd-edge.conf"))
+		_ = os.Remove(filepath.Join(unitDir, "angie.service.d"))
+		_, _ = ops.runCmd(ctx, "systemctl", "daemon-reload")
+	}
 	if ep.ManagedDir != "" {
-		_ = os.RemoveAll(ep.ManagedDir)
+		removeManagedDirKeepUser(ep.ManagedDir, ep.UserDir)
+	}
+}
+
+// removeManagedDirKeepUser deletes everything nd edge generated under managedDir but keeps the
+// user directory when it holds any file other than nd's own placeholder: those are hand-written
+// sites the operator added next to nd's (Caddy's uninstall keeps Caddyfile content outside the
+// managed region for the same reason).
+func removeManagedDirKeepUser(managedDir, userDir string) {
+	userDir = filepath.Clean(strings.TrimSpace(userDir))
+	hasUserFiles := false
+	if userDir != "" && userDir != "." {
+		if entries, err := os.ReadDir(userDir); err == nil {
+			for _, e := range entries {
+				if e.Name() == edge.PlaceholderAngieFileName || strings.HasPrefix(e.Name(), "00-placeholder") {
+					_ = os.Remove(filepath.Join(userDir, e.Name()))
+					continue
+				}
+				hasUserFiles = true
+			}
+		}
+	}
+	if !hasUserFiles {
+		_ = os.RemoveAll(managedDir)
+		return
+	}
+	entries, err := os.ReadDir(managedDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		full := filepath.Join(managedDir, e.Name())
+		if filepath.Clean(full) == userDir {
+			continue
+		}
+		_ = os.RemoveAll(full)
 	}
 }

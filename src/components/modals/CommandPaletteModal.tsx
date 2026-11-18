@@ -157,16 +157,16 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
       {
         id: 'act-restart-caddy',
         category: 'Actions',
-        title: 'Restart Caddy Proxy & TLS',
-        subtitle: 'Gracefully restart Caddy reverse proxy to reload routes & certificates',
+        title: 'Restart Proxy & TLS',
+        subtitle: 'Gracefully restart the reverse proxy to reload routes & certificates',
         keywords: ['caddy', 'proxy', 'restart', 'reload', 'ssl', 'tls', 'cert'],
         icon: <RefreshCw className="h-4 w-4 text-blue-400" />,
-        badge: { text: 'Caddy', variant: 'blue' },
+        badge: { text: 'Proxy', variant: 'blue' },
         onSelect: async () => {
           onClose();
           try {
             await backendApi.caddyContainerAction('restart');
-            toast.success('Restarted Caddy reverse proxy');
+            toast.success('Restarted the reverse proxy');
           } catch {
             // ignore
           }
@@ -176,7 +176,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
         id: 'act-backup',
         category: 'Actions',
         title: 'Create System Backup Snapshot',
-        subtitle: 'Export SQLite databases, environments, and Caddy rules',
+        subtitle: 'Export SQLite databases, environments, and proxy rules',
         keywords: ['backup', 'export', 'snapshot', 'disaster', 'restore'],
         icon: <Archive className="h-4 w-4 text-amber-400" />,
         badge: { text: 'Backup', variant: 'zinc' },
@@ -349,8 +349,8 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
       { id: 'terminal', label: 'VPS Host Terminal', desc: 'Full interactive root PTY terminal with direct shell access', icon: <Terminal className="h-4 w-4 text-emerald-400" />, kw: ['shell', 'bash', 'pty', 'exec'] },
       { id: 'git', label: 'Git Providers & Webhooks', desc: 'Connect GitHub and GitLab for push-to-deploy automations', icon: <FolderGit2 className="h-4 w-4 text-orange-400" />, kw: ['github', 'gitlab', 'tokens', 'webhooks'] },
       { id: 'registries', label: 'Container Registries', desc: 'Configure Docker Hub, GHCR, and private registry credentials', icon: <Database className="h-4 w-4 text-blue-400" />, kw: ['ghcr', 'dockerhub', 'auth', 'pull'] },
-      { id: 'proxy', label: 'Caddy Proxy & TLS', desc: 'Manage automated HTTPS/SSL reverse proxy and custom domains', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['caddy', 'proxy', 'ssl', 'tls', 'https'] },
-      { id: 'proxy-options', label: 'Caddy Server Options', desc: 'Timeouts, header limits and the real visitor IP behind a CDN', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['caddy', 'timeouts', 'cloudflare', 'trusted', 'real ip'] },
+      { id: 'proxy', label: 'Proxy & TLS', desc: 'Manage automated HTTPS/SSL reverse proxy and custom domains', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['caddy', 'proxy', 'ssl', 'tls', 'https'] },
+      { id: 'proxy-options', label: 'Proxy Server Options', desc: 'Timeouts, header limits and the real visitor IP behind a CDN', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['caddy', 'timeouts', 'cloudflare', 'trusted', 'real ip'] },
       { id: 'proxy-routes', label: 'Routes & Redirects', desc: 'Reverse proxy a domain to another address, or redirect it', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['reverse proxy', 'redirect', 'domain', 'upstream'] },
       { id: 'backup', label: 'Backups & Snapshots', desc: 'Automated backups and disaster recovery', icon: <Archive className="h-4 w-4 text-amber-400" />, kw: ['backups', 'snapshots', 's3', 'restore'] },
       { id: 'migrate', label: 'Server Migration', desc: 'Full server clone and export to another NextDeploy instance', icon: <Database className="h-4 w-4 text-violet-400" />, kw: ['migrate', 'transfer', 'clone'] },

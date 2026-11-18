@@ -289,3 +289,29 @@ func TestGlobalOptionsNormalize(t *testing.T) {
 		t.Fatalf("unexpected CloudflareRanges: %v", CloudflareRanges)
 	}
 }
+
+func TestPreflightWarnsWhenTargetCannotServeWordPressPageCache(t *testing.T) {
+	st := &State{Sites: []Site{{
+		ID: "wp", Hosts: []string{"blog.test"}, Kind: SiteKindPHP, TLS: TLSNone,
+		PHP: &PHPSpec{Cache: &PHPCacheSpec{WordPressPageCache: true}},
+	}}}
+	with := EvaluateCapabilities(st, Capabilities{PHPFastCGI: true, WordPressPageCache: true})
+	for _, w := range with.SoftWarnings {
+		if w.Capability == "wordpress_page_cache" {
+			t.Fatalf("no page-cache warning expected when supported: %+v", w)
+		}
+	}
+	without := EvaluateCapabilities(st, Capabilities{PHPFastCGI: true})
+	if !without.CanSwitch {
+		t.Fatal("a missing page cache must not block the switch")
+	}
+	found := false
+	for _, w := range without.SoftWarnings {
+		if w.Capability == "wordpress_page_cache" && len(w.AffectedSites) == 1 && w.AffectedSites[0].Label == "blog.test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want a wordpress_page_cache warning for blog.test, got %+v", without.SoftWarnings)
+	}
+}

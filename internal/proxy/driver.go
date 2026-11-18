@@ -64,6 +64,7 @@ type Capabilities struct {
 	MaxHeaderSizeHTTP1      bool `json:"max_header_size_http1"`
 	TrustedStrict           bool `json:"trusted_strict"`
 	LongStreamsOnReload     bool `json:"long_streams_on_reload"`
+	WordPressPageCache      bool `json:"wordpress_page_cache"`
 	AdminAPI                bool `json:"admin_api"`
 	Experimental            bool `json:"experimental"`
 }

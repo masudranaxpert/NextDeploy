@@ -53,7 +53,7 @@ func TestDriverIdentityRegistryAndCapabilities(t *testing.T) {
 		GracePeriod:             true,
 		MaxHeaderSizeHTTP1:      true,
 		TrustedStrict:           true,
-		LongStreamsOnReload:     true,
+		LongStreamsOnReload: true, WordPressPageCache: true,
 		AdminAPI:                false,
 		Experimental:            false,
 	}

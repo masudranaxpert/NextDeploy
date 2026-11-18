@@ -509,6 +509,8 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 		"installed_versions":        p.PHP.InstalledVersions(ctx),
 		"min_cron_interval_minutes": p.PHP.MinCronIntervalMinutes(ctx),
 		"wp_cache_plugins":          wpCachePlugins,
+		"proxy_engine":              p.ProxyEngine(),
+		"page_cache_supported":      p.pageCacheSupported(),
 		"limits": fiber.Map{
 			"max_memory_mb":  ceil.MemoryMB,
 			"max_storage_mb": ceil.StorageMB,
@@ -739,4 +741,14 @@ func (p *Panel) deletePHPSiteResources(ctx context.Context, id string) error {
 	p.InvalidateAfterAppDeployChange(id)
 	p.CleanupWorkspaceDir(id)
 	return nil
+}
+
+// pageCacheSupported reports whether the active proxy engine can serve WordPress static
+// page-cache files straight from disk (Caddy and Angie can; Ferron cannot).
+func (p *Panel) pageCacheSupported() bool {
+	d, err := p.proxyDriverFor(p.ProxyEngine())
+	if err != nil || d == nil {
+		return p.ProxyEngine() != "ferron"
+	}
+	return d.Capabilities().WordPressPageCache
 }

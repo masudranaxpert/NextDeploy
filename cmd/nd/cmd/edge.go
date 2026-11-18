@@ -169,21 +169,34 @@ func runEdgeWithOps(ops *edgeOps, args []string) error {
 
 func printEdgeHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage: nd edge <command> [args...]")
-	fmt.Fprintln(w, "\nManage NextDeploy Multi-Panel Edge Shield on a Shield VPS:")
-	fmt.Fprintln(w, "  install       --panel-url URL [--token TOKEN | --token-stdin] [flags]  Install Caddy, Angie, or Ferron (--experimental) + nd-edge")
-	fmt.Fprintln(w, "  switch-proxy  <caddy|angie|ferron> [--experimental] [--yes]             Switch the active Shield reverse proxy engine")
-	fmt.Fprintln(w, "  add-panel     --panel-url URL [--token TOKEN | --token-stdin] [flags]  Register an additional panel")
-	fmt.Fprintln(w, "  remove-panel  <panel_id|name>                                          Unregister and remove one panel")
-	fmt.Fprintln(w, "  list          [--json]                                                 List registered panels & sync state")
-	fmt.Fprintln(w, "  status        [--json] [host]                                          Show per-host TLS & routing status")
-	fmt.Fprintln(w, "  sync          [--panel ID] [--force]                                   Trigger immediate reconciliation")
-	fmt.Fprintln(w, "  run                                                                    Run nd-edge daemon (systemd ExecStart)")
-	fmt.Fprintln(w, "  doctor                                                                 Run Shield health & firewall diagnostics")
-	fmt.Fprintln(w, "  set-token     <panel_id|name> [--token TOKEN | --token-stdin]          Update bearer token for a panel")
-	fmt.Fprintln(w, "  set-url       <panel_id|name> --panel-url URL [flags]                  Update panel API URL")
-	fmt.Fprintln(w, "  upgrade       [--url URL] [--sha256 HEX]                               Self-update nd binary safely")
-	fmt.Fprintln(w, "  uninstall     [--all]                                                  Remove nd-edge and restore Caddyfile")
-	fmt.Fprintln(w, "\nToken input also honors ND_EDGE_TOKEN environment variable.")
+	fmt.Fprintln(w, "\nnd edge turns a VPS into a Shield for one or more NextDeploy panels: it installs a reverse")
+	fmt.Fprintln(w, "proxy (Caddy, Angie or Ferron), keeps its routes and certificates in sync with the panels,")
+	fmt.Fprintln(w, "and reloads it safely.")
+	fmt.Fprintln(w, "\nCommands:")
+	short := map[string]string{
+		"install":      "Install the proxy + nd-edge daemon and register with a panel",
+		"switch-proxy": "Switch the reverse proxy engine (caddy, angie, ferron) with automatic rollback",
+		"add-panel":    "Register one more panel on this Shield",
+		"remove-panel": "Unregister a panel",
+		"list":         "List registered panels and their sync state",
+		"status":       "Show per-host TLS and routing status",
+		"sync":         "Re-sync with the panels now",
+		"run":          "Run the sync daemon (started by systemd; not for manual use)",
+		"doctor":       "Check this Shield (services, config, certificates, disk, firewall hints)",
+		"set-token":    "Replace a panel's bearer token",
+		"set-url":      "Change a panel's API address",
+		"upgrade":      "Update the nd binary",
+		"uninstall":    "Remove nd-edge (your own proxy sites are kept)",
+	}
+	for _, name := range edgeCommandOrder {
+		fmt.Fprintf(w, "  %-13s %s\n", name, short[name])
+	}
+	fmt.Fprintln(w, "\nRun 'nd edge <command> --help' for the flags and examples of one command.")
+	fmt.Fprintln(w, "The token can also be given in the ND_EDGE_TOKEN environment variable.")
+	fmt.Fprintln(w, "\nWhere things live:")
+	fmt.Fprintln(w, "  Caddy   /etc/caddy/Caddyfile (your own sites stay outside the nd-managed block)")
+	fmt.Fprintln(w, "  Angie   /etc/angie/angie.conf, nd's files in /etc/angie/nd-edge/, your own sites in /etc/angie/nd-edge/user/*.conf")
+	fmt.Fprintln(w, "  Ferron  /etc/ferron/ferron.conf, nd's files in /etc/ferron/nd-edge/, your own sites in /etc/ferron/nd-edge/user/*.conf")
 }
 
 // --- Shared Flag & Token Helpers ---
@@ -367,7 +380,7 @@ func parseOnOff(val string) (off bool, err error) {
 
 func runEdgeInstall(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge install --panel-url URL [--token TOKEN | --token-stdin] [--proxy caddy|angie|ferron] [--experimental] [--acme-email E] [--adopt-existing] [--panel-ca-sha256 S] [--insecure-http] [--dns-gate on|off] [--force]")
+		printEdgeCommandHelp(ops.stdout, "install")
 		return nil
 	}
 
@@ -1162,7 +1175,7 @@ type addPanelParams struct {
 
 func runEdgeAddPanel(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge add-panel --panel-url URL [--token TOKEN | --token-stdin] [--force] [--panel-ca-sha256 S] [--insecure-http]")
+		printEdgeCommandHelp(ops.stdout, "add-panel")
 		return nil
 	}
 
@@ -1327,7 +1340,7 @@ func saveInitialPanelState(paths edge.Paths, panelCfg edge.PanelConfig, snap *ed
 
 func runEdgeRemovePanel(ops *edgeOps, args []string) error {
 	if len(args) == 0 || hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge remove-panel <panel_id|name>")
+		printEdgeCommandHelp(ops.stdout, "remove-panel")
 		return nil
 	}
 
@@ -1456,7 +1469,7 @@ func purgeUnusedHostCerts(certsDir string, removedHosts []string, keepHosts map[
 
 func runEdgeList(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge list [--json]")
+		printEdgeCommandHelp(ops.stdout, "list")
 		return nil
 	}
 	jsonOut, _ := extractJSONFlag(args)
@@ -1527,7 +1540,7 @@ func runEdgeList(ops *edgeOps, args []string) error {
 
 func runEdgeStatus(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge status [--json] [host]")
+		printEdgeCommandHelp(ops.stdout, "status")
 		return nil
 	}
 	jsonOut, cleanArgs := extractJSONFlag(args)
@@ -1602,7 +1615,9 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		b, _ := json.MarshalIndent(map[string]interface{}{
 			"edge_id":          cfg.EdgeID,
 			"proxy_engine":     cfg.EngineName(),
-			"caddy_running":    proxyActive,
+			"proxy_running":    proxyActive,
+			"proxy_status":     proxyDetail,
+			"caddy_running":    proxyActive, // kept for scripts written before multi-proxy
 			"caddy_status":     proxyDetail,
 			"current_gen":      meta.CurrentGen,
 			"last_apply_at":    meta.LastApplyAt,
@@ -1644,7 +1659,7 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 
 func runEdgeSync(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge sync [--panel ID] [--force]")
+		printEdgeCommandHelp(ops.stdout, "sync")
 		return nil
 	}
 	var panelFilter string
@@ -1799,7 +1814,7 @@ func signalDaemonReload(ctx context.Context, ops *edgeOps) bool {
 
 func runEdgeDaemon(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge run")
+		printEdgeCommandHelp(ops.stdout, "run")
 		return nil
 	}
 	reloadCh, stopCh, cleanupSignals := edgeDaemonSignalNotify()
@@ -1863,7 +1878,7 @@ type doctorResult struct {
 
 func runEdgeDoctor(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge doctor")
+		printEdgeCommandHelp(ops.stdout, "doctor")
 		return nil
 	}
 
@@ -1994,7 +2009,7 @@ func runEdgeDoctor(ops *edgeOps, args []string) error {
 
 func runEdgeSetToken(ops *edgeOps, args []string) error {
 	if len(args) == 0 || hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge set-token <panel_id|name> [--token TOKEN | --token-stdin]")
+		printEdgeCommandHelp(ops.stdout, "set-token")
 		return nil
 	}
 	var target, tokenFlag string
@@ -2059,7 +2074,7 @@ func runEdgeSetToken(ops *edgeOps, args []string) error {
 
 func runEdgeSetURL(ops *edgeOps, args []string) error {
 	if len(args) == 0 || hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge set-url <panel_id|name> --panel-url URL [--panel-ca-sha256 S] [--insecure-http]")
+		printEdgeCommandHelp(ops.stdout, "set-url")
 		return nil
 	}
 	var target, panelURL, caPinRaw string
@@ -2148,7 +2163,7 @@ func runEdgeSetURL(ops *edgeOps, args []string) error {
 
 func runEdgeUpgrade(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge upgrade [--url URL] [--sha256 HEX]")
+		printEdgeCommandHelp(ops.stdout, "upgrade")
 		return nil
 	}
 	var downloadURL, expectedSHA string
@@ -2323,7 +2338,7 @@ func resolveLatestNDDownload(ctx context.Context, httpClient *http.Client, goos,
 
 func runEdgeUninstall(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge uninstall [--all]")
+		printEdgeCommandHelp(ops.stdout, "uninstall")
 		return nil
 	}
 	var all bool

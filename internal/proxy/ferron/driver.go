@@ -166,6 +166,7 @@ func (d *Driver) Capabilities() proxy.Capabilities {
 		MaxHeaderSizeHTTP1:      false,
 		TrustedStrict:           false,
 		LongStreamsOnReload:     true,
+		WordPressPageCache:      false, // no way to test that the cached file exists before serving it
 		AdminAPI:                true,
 		Experimental:            true,
 	}

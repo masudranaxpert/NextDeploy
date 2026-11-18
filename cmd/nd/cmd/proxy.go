@@ -63,10 +63,10 @@ func printProxyHelp() {
 	fmt.Println("  disable <route_id>                           Disable a proxy route and reload Caddy")
 	fmt.Println("  toggle <route_id> [on|off]                   Toggle or explicitly set route state")
 	fmt.Println("  rm <route_id>                                Delete a proxy route")
-	fmt.Println("  reload                                       Reload Caddy configuration and routes")
+	fmt.Println("  reload                                       Re-apply the proxy configuration and routes")
 	fmt.Println("  logs [-n lines] [-f|--follow] [--json]       View or stream Caddy proxy logs")
-	fmt.Println("  status [--json]                              Show panel proxy status and live Caddy config")
-	fmt.Println("  options [show|set [flags]] [--json]          View or update global Caddy timeouts & Real-IP")
+	fmt.Println("  status [--json]                              Show the active proxy engine and its live status")
+	fmt.Println("  options [show|set [flags]] [--json]          View or update global proxy timeouts & Real-IP")
 }
 
 func runProxyList(cl *client.Client, args []string) error {

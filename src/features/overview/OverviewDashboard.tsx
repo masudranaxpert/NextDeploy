@@ -674,7 +674,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
               <div className="hidden sm:flex items-center gap-3 text-[11px] font-medium text-zinc-400">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-orange-500 shadow-sm" />
-                  Site Traffic (Caddy)
+                  Site Traffic
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-sky-400 shadow-sm" />
@@ -740,7 +740,7 @@ const OverviewDashboardComponent: React.FC<OverviewDashboardProps> = ({
             secondaryColor="#38bdf8"
             unit=" req/m"
             height={210}
-            label="Site Traffic (Caddy)"
+            label="Site Traffic"
             secondaryLabel="Panel Traffic"
           />
         )}

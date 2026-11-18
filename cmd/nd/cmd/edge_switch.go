@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -54,7 +56,7 @@ func parseSwitchProxyArgs(args []string) (switchProxyOpts, error) {
 
 func runEdgeSwitchProxy(ops *edgeOps, args []string) error {
 	if hasHelpFlag(args) {
-		fmt.Fprintln(ops.stdout, "Usage: nd edge switch-proxy <caddy|angie|ferron> [--experimental] [--yes]")
+		printEdgeCommandHelp(ops.stdout, "switch-proxy")
 		return nil
 	}
 	opts, err := parseSwitchProxyArgs(args)
@@ -88,6 +90,14 @@ func runEdgeSwitchProxy(ops *edgeOps, args []string) error {
 	if sourceEngine == targetEngine {
 		ui.Success("Edge node is already using proxy engine %q", targetEngine)
 		return nil
+	}
+
+	if !opts.yes && stdinIsTerminal(ops.stdin) {
+		fmt.Fprintf(ops.stdout, "Switch this Shield's proxy %s -> %s? Ports 80/443 are interrupted for a short moment.\nType 'yes' to continue: ", sourceEngine, targetEngine)
+		line, _ := bufio.NewReader(stdinOrDefault(ops.stdin)).ReadString('\n')
+		if !strings.EqualFold(strings.TrimSpace(line), "yes") && !strings.EqualFold(strings.TrimSpace(line), "y") {
+			return errors.New("aborted: nothing was changed")
+		}
 	}
 
 	sourcePaths := ops.paths.EnginePathsFor(sourceEngine)
@@ -521,4 +531,21 @@ func probeSwitchHost(ctx context.Context, ops *edgeOps, host string) error {
 	}
 	_ = resp.Body.Close()
 	return nil
+}
+
+func stdinOrDefault(r io.Reader) io.Reader {
+	if r == nil {
+		return os.Stdin
+	}
+	return r
+}
+
+// stdinIsTerminal reports whether a person is typing on stdin; scripts and pipes are never asked.
+func stdinIsTerminal(r io.Reader) bool {
+	f, ok := stdinOrDefault(r).(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }

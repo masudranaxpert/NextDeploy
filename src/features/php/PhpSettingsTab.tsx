@@ -483,6 +483,8 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         onClose={() => setOptModalOpen(false)}
         siteName={app.name || (detail.site as any)?.primary_domain || 'WordPress'}
         plugins={detail.wp_cache_plugins || []}
+        proxyEngine={detail.proxy_engine}
+        pageCacheSupported={detail.page_cache_supported !== false}
         onRefresh={() => void reload()}
         onPurge={async () => {
           await backendApi.phpPurgeCache(app.id);

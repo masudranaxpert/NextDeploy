@@ -160,6 +160,7 @@ func (d *Driver) Capabilities() proxy.Capabilities {
 		MaxHeaderSizeHTTP1:      true,
 		TrustedStrict:           true,
 		LongStreamsOnReload:     true,
+		WordPressPageCache:      true,
 		AdminAPI:                false,
 		Experimental:            false,
 	}
