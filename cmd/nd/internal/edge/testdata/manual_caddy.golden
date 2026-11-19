@@ -1,0 +1,98 @@
+# Managed by nd edge (manual domains). DO NOT EDIT.
+*.custom.example.com {
+	tls /etc/nd-certs/_wildcard_.custom.example.com.crt /etc/nd-certs/_wildcard_.custom.example.com.key
+	import nd_common
+	reverse_proxy http://10.0.0.9:9000 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-Proto {scheme}
+		flush_interval -1
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 300s
+			keepalive 90s
+			keepalive_idle_conns 256
+			keepalive_idle_conns_per_host 32
+		}
+	}
+}
+
+(nd_m_d0c43d388506) {
+	import nd_common
+	reverse_proxy https://10.0.0.6:443 https://10.0.0.7:443 {
+		lb_policy least_conn
+		header_up Host {upstream_hostport}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-Proto {scheme}
+		flush_interval -1
+		transport http {
+			tls
+			tls_insecure_skip_verify
+			tls_server_name backend.internal
+			dial_timeout 10s
+			response_header_timeout 300s
+			keepalive 90s
+			keepalive_idle_conns 256
+			keepalive_idle_conns_per_host 64
+		}
+	}
+}
+
+http://api.example.com, http://www.api.example.com {
+	import nd_m_d0c43d388506
+}
+
+api.example.com, www.api.example.com {
+	import nd_m_d0c43d388506
+}
+
+http://plain.example.com {
+	import nd_common
+	reverse_proxy http://10.0.0.2:8080 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-Proto {scheme}
+		header_up -Upgrade
+		header_up -Connection
+		flush_interval -1
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 60s
+			keepalive off
+		}
+	}
+}
+
+www.shop.example.com {
+	redir https://shop.example.com{uri} 308
+}
+
+shop.example.com, reused.example.com {
+	import nd_common
+	request_body {
+		max_size 104857600
+	}
+	header X-Frame-Options "SAMEORIGIN"
+	reverse_proxy http://10.0.0.5:8080 {
+		header_up Host {host}
+		header_up X-Real-IP {client_ip}
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Edge-Mode "shield"
+		flush_interval -1
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 300s
+			keepalive 90s
+			keepalive_idle_conns 256
+			keepalive_idle_conns_per_host 32
+		}
+	}
+}
+

@@ -70,6 +70,10 @@ type edgeOps struct {
 	hostname        func() (string, error)
 	localPublicIPs  func() ([]string, []string)
 	probeSwitchHost func(ctx context.Context, host string) error
+	dnsResolver     edge.DNSResolver
+	dnsInspectFn    func(ctx context.Context, cfg *edge.Config, shieldIPs []netip.Addr, host string) edge.FreshDNSInspection
+	originCheckFn   func(ctx context.Context, entry *edge.ManualDomainEntry, urls []string, hostHdr, sni string, noVerify bool) edge.OriginHealthResult
+	tlsCheckFn      func(ctx context.Context, probe *edge.CertProbe, entry *edge.ManualDomainEntry, host string, now time.Time) edge.TLSHealthResult
 }
 
 func defaultEdgeOps() *edgeOps {
@@ -140,6 +144,8 @@ func runEdgeWithOps(ops *edgeOps, args []string) error {
 		return runEdgeInstall(ops, rest)
 	case "switch-proxy":
 		return runEdgeSwitchProxy(ops, rest)
+	case "domain":
+		return runEdgeDomain(ops, rest)
 	case "add-panel":
 		return runEdgeAddPanel(ops, rest)
 	case "remove-panel":
@@ -176,6 +182,7 @@ func printEdgeHelp(w io.Writer) {
 	short := map[string]string{
 		"install":      "Install the proxy + nd-edge daemon and register with a panel",
 		"switch-proxy": "Switch the reverse proxy engine (caddy, angie, ferron) with automatic rollback",
+		"domain":       "Add, manage, check, and prune manual (non-panel) domains",
 		"add-panel":    "Register one more panel on this Shield",
 		"remove-panel": "Unregister a panel",
 		"list":         "List registered panels and their sync state",
@@ -1572,6 +1579,7 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 	type hostRow struct {
 		PanelID      string `json:"panel_id"`
 		PanelName    string `json:"panel_name"`
+		Source       string `json:"source"`
 		Host         string `json:"host"`
 		State        string `json:"state"`
 		Detail       string `json:"detail,omitempty"`
@@ -1579,9 +1587,10 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		Issuer       string `json:"issuer,omitempty"`
 	}
 
+	now := ops.now()
 	var rows []hostRow
 	for _, p := range cfg.Panels {
-		st, _ := edge.LoadPanelState(ops.paths.StateFile(p.PanelID), p.PanelID, p.PanelName, ops.now())
+		st, _ := edge.LoadPanelState(ops.paths.StateFile(p.PanelID), p.PanelID, p.PanelName, now)
 		if st == nil {
 			continue
 		}
@@ -1596,6 +1605,7 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 			rows = append(rows, hostRow{
 				PanelID:      p.PanelID,
 				PanelName:    p.PanelName,
+				Source:       p.PanelName,
 				Host:         hs.Host,
 				State:        hs.State,
 				Detail:       hs.Detail,
@@ -1604,6 +1614,40 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 			})
 		}
 	}
+
+	if manualFile, mErr := edge.LoadManualDomains(ops.paths.DomainsFile); mErr == nil && len(manualFile.Domains) > 0 {
+		claims := loadClaimsSnapshot(ops, cfg, now)
+		cfIPs := edge.LoadOrInitCFIPStore(ops.paths.CFIPsFile)
+		dnsGate := edge.NewDNSGate(edge.DNSGateOptions{
+			CFIPs:     cfIPs,
+			CachePath: ops.paths.DNSCacheFile,
+			Off:       cfg.DNSGateOff,
+			Resolver:  ops.dnsResolver,
+		})
+		shieldIPs := collectAllShieldIPs(ops, cfg, loadPanelStatesForConfig(ops, cfg, now))
+		probe := edge.NewCertProbe(ep.CertsDir, ops.systemd)
+		probe.ManualCertsDir = ep.ManualCertsDir
+
+		for _, m := range manualFile.Domains {
+			for _, h := range m.AllHosts() {
+				if hostFilter != "" && !strings.EqualFold(h, hostFilter) {
+					continue
+				}
+				state, detail, exp, issuer := deriveManualHostStatus(m, h, claims, dnsGate, probe, shieldIPs, cfg.DNSGateOff, now)
+				rows = append(rows, hostRow{
+					PanelID:      m.ID,
+					PanelName:    "manual",
+					Source:       "manual",
+					Host:         h,
+					State:        state,
+					Detail:       detail,
+					CertNotAfter: exp,
+					Issuer:       issuer,
+				})
+			}
+		}
+	}
+
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Host != rows[j].Host {
 			return rows[i].Host < rows[j].Host
@@ -1643,16 +1687,73 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "\n%-32s %-16s %-18s %-22s %s\n", "HOST", "PANEL", "STATE", "CERT EXPIRY", "DETAIL")
+	fmt.Fprintf(ops.stdout, "\n%-32s %-16s %-18s %-22s %s\n", "HOST", "SOURCE", "STATE", "CERT EXPIRY", "DETAIL")
 	fmt.Fprintln(ops.stdout, strings.Repeat("─", 104))
 	for _, r := range rows {
 		exp := r.CertNotAfter
 		if exp == "" {
 			exp = "-"
 		}
-		fmt.Fprintf(ops.stdout, "%-32s %-16s %-18s %-22s %s\n", r.Host, r.PanelName, r.State, exp, r.Detail)
+		fmt.Fprintf(ops.stdout, "%-32s %-16s %-18s %-22s %s\n", r.Host, r.Source, r.State, exp, r.Detail)
 	}
 	return nil
+}
+
+func deriveManualHostStatus(
+	m edge.ManualDomainEntry,
+	host string,
+	claims *edge.ClaimsStore,
+	dnsGate *edge.DNSGate,
+	probe *edge.CertProbe,
+	shieldIPs []netip.Addr,
+	dnsGateOff bool,
+	now time.Time,
+) (state, detail, exp, issuer string) {
+	if !m.Enabled {
+		return "disabled", "disabled by operator", "", ""
+	}
+	if claims != nil && claims.Claims != nil {
+		if cl, ok := claims.Claims[host]; ok && cl.PanelID != "" && cl.PanelID != edge.ManualClaimPanelID {
+			return edge.StateConflict, "claimed by " + cl.PanelID, "", ""
+		}
+	}
+	if m.TLS == edge.ManualTLSNone {
+		return edge.StateActive, "HTTP only", "", ""
+	}
+	if m.TLS == edge.ManualTLSManual {
+		res := edge.CheckHostTLSHealth(context.Background(), probe, &m, host, now)
+		if res.NotAfter != nil {
+			exp = res.NotAfter.UTC().Format(time.RFC3339)
+		}
+		if strings.HasPrefix(res.Status, "valid") {
+			return edge.StateActive, "manual cert", exp, ""
+		}
+		if strings.HasPrefix(res.Status, "expiring") {
+			return edge.StateActive, edge.WarningCertRenewOverdue, exp, ""
+		}
+		return edge.StateCertError, res.Detail, exp, ""
+	}
+	// TLS auto
+	if !dnsGateOff && dnsGate != nil && len(shieldIPs) > 0 {
+		res := dnsGate.CheckHost(context.Background(), host, shieldIPs, true, false, now)
+		if res.Outcome == edge.DNSOutcomePending || res.Outcome == edge.DNSOutcomePendingCA {
+			return string(res.Outcome), res.Detail, "", ""
+		}
+	}
+	if probe != nil {
+		pr := probe.ProbeHost(context.Background(), host, now)
+		if pr.Valid {
+			if pr.NotAfter != nil {
+				exp = pr.NotAfter.UTC().Format(time.RFC3339)
+			}
+			d := ""
+			if pr.RenewWarn {
+				d = edge.WarningCertRenewOverdue
+			}
+			return edge.StateActive, d, exp, pr.Issuer
+		}
+	}
+	return edge.StateIssuing, "", "", ""
 }
 
 // --- 6. `nd edge sync` ---
@@ -1760,6 +1861,7 @@ func reconcileWithLoadedStates(ctx context.Context, ops *edgeOps, cfg *edge.Conf
 		CachePath: ops.paths.DNSCacheFile,
 		ACMEEmail: cfg.ACMEEmail,
 		Off:       cfg.DNSGateOff,
+		Resolver:  ops.dnsResolver,
 	})
 	var applier *edge.Applier
 	if eng.Name() == edge.EngineCaddy && ops.caddy != nil {
@@ -1770,6 +1872,9 @@ func reconcileWithLoadedStates(ctx context.Context, ops *edgeOps, cfg *edge.Conf
 	probe := edge.NewCertProbe(ep.CertsDir, ops.systemd)
 	probe.ManualCertsDir = ep.ManualCertsDir
 	rec := edge.NewReconcilerWithEngine(ops.paths, eng, dnsGate, applier, probe, ops.systemd, cfIPs)
+	if extra := localPublicIPAddrsFromOps(ops); len(extra) > 0 {
+		rec.SetExtraShieldIPs(extra)
+	}
 
 	out, err := rec.ReconcileOnce(ctx, cfg, panelStates, claims, meta, force, false, now)
 	if err != nil {
@@ -1790,6 +1895,16 @@ func reconcileWithLoadedStates(ctx context.Context, ops *edgeOps, cfg *edge.Conf
 			case edge.StatePendingDNS, edge.StatePendingCAA:
 				pendingDNS++
 			}
+		}
+	}
+	for _, hs := range out.ManualHostStates {
+		switch hs.State {
+		case edge.StateActive, edge.StateIssuing, edge.StateDNSDrift:
+			rendered++
+		case edge.StatePendingDNS, edge.StatePendingCAA:
+			pendingDNS++
+		case edge.StateConflict:
+			conflicts++
 		}
 	}
 	return fmt.Sprintf("gen=%d applied=%v hosts_rendered=%d pending_dns=%d conflicts=%d",
@@ -1992,6 +2107,10 @@ func runEdgeDoctor(ops *edgeOps, args []string) error {
 	// 7. External port 80 hint (E-ACME-9)
 	add("external-port80", "INFO", "Verify external TCP port 80/443 reachability from your panel ('nd shield test <id>') for HTTP-01 ACME issuance")
 
+	// 8. Manual domains store check
+	manStatus, manDetail := checkDoctorManualDomains(ops)
+	add("manual-domains", manStatus, manDetail)
+
 	failures := 0
 	for _, r := range results {
 		if r.Status == "FAIL" {
@@ -2003,6 +2122,45 @@ func runEdgeDoctor(ops *edgeOps, args []string) error {
 		return fmt.Errorf("doctor found %d failing check(s)", failures)
 	}
 	return nil
+}
+
+func checkDoctorManualDomains(ops *edgeOps) (string, string) {
+	mf, err := edge.LoadManualDomains(ops.paths.DomainsFile)
+	if err != nil {
+		return "FAIL", fmt.Sprintf("%s invalid: %v", ops.paths.DomainsFile, err)
+	}
+	if len(mf.Domains) == 0 {
+		return "PASS", "0 manual domains configured"
+	}
+	cfg, _ := edge.LoadConfig(ops.paths.ConfigFile)
+	now := ops.now()
+	claims := loadClaimsSnapshot(ops, cfg, now)
+	enabled := 0
+	var warnings []string
+	for _, d := range mf.Domains {
+		if d.Enabled {
+			enabled++
+		}
+		if err := edge.NormalizeAndValidateEntry(&d, ""); err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %v", d.Domain, err))
+			continue
+		}
+		if err := edge.CheckManualHostConflicts(d, mf, claims, ops.paths, engineNameFromConfig(cfg), d.ID); err != nil {
+			warnings = append(warnings, err.Error())
+		}
+		if d.TLS == edge.ManualTLSManual && d.Enabled {
+			if _, kErr := os.Stat(d.KeyFile); kErr != nil {
+				warnings = append(warnings, fmt.Sprintf("%s: missing key %s", d.Domain, d.KeyFile))
+			}
+			if _, cErr := os.Stat(d.CertFile); cErr != nil {
+				warnings = append(warnings, fmt.Sprintf("%s: missing cert %s", d.Domain, d.CertFile))
+			}
+		}
+	}
+	if len(warnings) > 0 {
+		return "WARN", fmt.Sprintf("%d/%d enabled; %d issue(s): %s", enabled, len(mf.Domains), len(warnings), strings.Join(warnings, "; "))
+	}
+	return "PASS", fmt.Sprintf("%d/%d manual domains enabled and valid", enabled, len(mf.Domains))
 }
 
 // --- 9. `nd edge set-token` & `nd edge set-url` ---

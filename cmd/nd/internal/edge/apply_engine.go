@@ -13,6 +13,42 @@ import (
 	"time"
 )
 
+func (a *Applier) validateEngineOnly(ctx context.Context, in ApplyInput) error {
+	ep := a.engine.Paths()
+	if ep.UserDir != "" {
+		if _, err := os.Stat(ep.UserDir); errors.Is(err, os.ErrNotExist) {
+			group := strings.TrimSpace(in.CaddyGroup)
+			if group == "" {
+				group = ep.ServiceUser
+			}
+			_ = a.ensureEngineBaseDirs(ep, group)
+		}
+	}
+	tmpDir, err := os.MkdirTemp("", "nd-edge-val-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	panelDir := filepath.Join(tmpDir, "panels")
+	originDir := filepath.Join(tmpDir, "origins")
+	mergedPanels := mergeApplyPanels(in)
+	if err := a.stageEngineGeneration(ep, panelDir, originDir, "", mergedPanels); err != nil {
+		return err
+	}
+	desiredFiles := mergeEngineConfigMaps(in.GlobalFiles, in.CommonFiles)
+	// Temporarily clone EnginePaths to root staging inside tmpDir without touching ManagedDir.
+	stageEP := ep
+	stageEP.ManagedDir = tmpDir
+	valMain, cleanupVal, err := a.stageEngineValidation(stageEP, 0, panelDir, originDir, desiredFiles)
+	if err != nil {
+		return err
+	}
+	defer cleanupVal()
+	_, valErr := a.engine.Runner().Validate(ctx, valMain)
+	return valErr
+}
+
 func (a *Applier) applyForEngine(ctx context.Context, in ApplyInput, meta *ApplyMeta, now time.Time) (ApplyResult, error) {
 	var res ApplyResult
 	if meta == nil {
@@ -36,17 +72,16 @@ func (a *Applier) applyForEngine(ctx context.Context, in ApplyInput, meta *Apply
 		return res, err
 	}
 
+	mergedPanels := mergeApplyPanels(in)
 	desiredFiles := mergeEngineConfigMaps(in.GlobalFiles, in.CommonFiles)
-	drifted, identical := a.compareEngineGeneration(ep, desiredFiles, in.Panels)
+	drifted, identical := a.compareEngineGeneration(ep, desiredFiles, mergedPanels)
 	res.DriftedFiles = drifted
 	if identical && !in.Force {
 		res.NoOp = true
 		return res, nil
 	}
 
-	activePanels := make([]PanelRenderArtifact, len(in.Panels))
-	copy(activePanels, in.Panels)
-	sort.Slice(activePanels, func(i, j int) bool { return activePanels[i].PanelID < activePanels[j].PanelID })
+	activePanels := mergedPanels
 
 	var nextGen int
 	var panelDir, originDir string

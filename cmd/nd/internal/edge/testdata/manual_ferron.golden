@@ -1,0 +1,152 @@
+# Managed by nd edge (manual domains). DO NOT EDIT.
+*.custom.example.com {
+    use nd_common
+    tls {
+        provider manual
+        cert "/etc/nd-certs/_wildcard_.custom.example.com.crt"
+        key "/etc/nd-certs/_wildcard_.custom.example.com.key"
+    }
+    http {
+        timeout "300s"
+    }
+    proxy {
+        upstream "http://10.0.0.9:9000" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Real-IP "{{remote.ip}}"
+        request_header X-Forwarded-For "{{remote.ip}}"
+        request_header -CF-Connecting-IP
+    }
+}
+
+api.example.com, www.api.example.com {
+    use nd_common
+    https_redirect false
+    tls {
+        provider acme
+        challenge http-01
+        contact "ops@example.com"
+        cache "/var/cache/ferron-acme"
+    }
+    http {
+        timeout "300s"
+    }
+    proxy {
+        upstream "https://10.0.0.6:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        upstream "https://10.0.0.7:443" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        algorithm least_conn
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        no_verification
+        # note: Ferron 3 uses the upstream URL host for SNI (--sni backend.internal requested)
+        request_header Host "10.0.0.6:443"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Real-IP "{{remote.ip}}"
+        request_header X-Forwarded-For "{{remote.ip}}"
+        request_header -CF-Connecting-IP
+    }
+}
+
+http plain.example.com:80 {
+    use nd_common
+    http {
+        timeout "60s"
+    }
+    proxy {
+        upstream "http://10.0.0.2:8080" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "5s"
+        }
+        keepalive false
+        retry_connection
+        retry_interval "0.25s"
+        request_header X-Forwarded-Proto "http"
+        request_header X-Real-IP "{{remote.ip}}"
+        request_header X-Forwarded-For "{{remote.ip}}"
+        request_header -CF-Connecting-IP
+        request_header -Upgrade
+        request_header -Connection
+    }
+}
+
+www.shop.example.com {
+    tls {
+        provider acme
+        challenge http-01
+        contact "ops@example.com"
+        cache "/var/cache/ferron-acme"
+    }
+    status 308 {
+        location "https://shop.example.com{{request.uri}}"
+    }
+}
+
+shop.example.com {
+    use nd_common
+    tls {
+        provider acme
+        challenge http-01
+        contact "ops@example.com"
+        cache "/var/cache/ferron-acme"
+    }
+    http {
+        timeout "300s"
+    }
+    # note: Ferron 3 does not enforce per-route max_body (104857600 bytes)
+    header X-Frame-Options "SAMEORIGIN"
+    proxy {
+        upstream "http://10.0.0.5:8080" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Edge-Mode "shield"
+    }
+}
+
+reused.example.com {
+    use nd_common
+    tls {
+        provider manual
+        cert "/etc/edge/manual-certs/reused.example.com.crt"
+        key "/etc/edge/manual-certs/reused.example.com.key"
+    }
+    http {
+        timeout "300s"
+    }
+    # note: Ferron 3 does not enforce per-route max_body (104857600 bytes)
+    header X-Frame-Options "SAMEORIGIN"
+    proxy {
+        upstream "http://10.0.0.5:8080" {
+            limit 256
+            idle_timeout "90s"
+            connection_timeout "10s"
+        }
+        keepalive
+        retry_connection
+        retry_interval "0.25s"
+        request_header X-Forwarded-Proto "https"
+        request_header X-Edge-Mode "shield"
+    }
+}
+

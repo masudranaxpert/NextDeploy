@@ -195,6 +195,105 @@ func (g *DNSGate) SaveCache() error {
 	return WriteJSONAtomic(g.cachePath, doc, 0o644)
 }
 
+// RemoveHosts removes stale DNS cache entries for deleted domains.
+func (g *DNSGate) RemoveHosts(hosts []string) {
+	if g == nil || len(hosts) == 0 {
+		return
+	}
+	g.mu.Lock()
+	for _, h := range hosts {
+		delete(g.entries, h)
+	}
+	g.mu.Unlock()
+}
+
+// FreshDNSInspection describes a live (uncached) DNS check result for 'nd edge domain check/prune'.
+type FreshDNSInspection struct {
+	Classification string     `json:"classification"` // ok | ok_proxied | elsewhere | nxdomain | no_records | pending_caa | error
+	Outcome        DNSOutcome `json:"outcome"`
+	Detail         string     `json:"detail,omitempty"`
+	ResolvedIPs    []string   `json:"resolved_ips,omitempty"`
+}
+
+// InspectHostFresh performs a direct resolver query bypassing backoff cache and
+// reusing DNSGate's 2-resolver agreement, Cloudflare detection, and CAA checks.
+func (g *DNSGate) InspectHostFresh(ctx context.Context, host string, shieldIPs []netip.Addr) FreshDNSInspection {
+	queryHost := host
+	if strings.HasPrefix(queryHost, "*.") {
+		queryHost = "sub." + strings.TrimPrefix(queryHost, "*.")
+	}
+	if embIP, isAuto := extractEmbeddedWildcardIP(queryHost); isAuto {
+		if !embIP.IsValid() {
+			return FreshDNSInspection{Classification: "no_records", Outcome: DNSOutcomePending, Detail: "invalid embedded IP hostname"}
+		}
+		if ipInSet(embIP, shieldIPs) {
+			return FreshDNSInspection{Classification: "ok", Outcome: DNSOutcomeOK, ResolvedIPs: []string{embIP.String()}}
+		}
+		return FreshDNSInspection{Classification: "elsewhere", Outcome: DNSOutcomePending, Detail: fmt.Sprintf("embedded IP %s does not match Shield IP", embIP), ResolvedIPs: []string{embIP.String()}}
+	}
+
+	var good []singleServerResult
+	for _, srv := range g.servers {
+		res := g.queryOneServer(ctx, srv, queryHost, shieldIPs)
+		if res.err == nil {
+			good = append(good, res)
+		}
+	}
+	if len(good) == 0 {
+		sysRes := g.querySystemFallback(ctx, queryHost, shieldIPs)
+		if sysRes.err != nil {
+			return FreshDNSInspection{
+				Classification: "error",
+				Outcome:        DNSOutcomePending,
+				Detail:         fmt.Sprintf("DNS lookup failed: %v", sysRes.err),
+			}
+		}
+		kind := sysRes.kind
+		if kind == "" {
+			kind = classificationFromOutcome(sysRes.outcome)
+		}
+		return FreshDNSInspection{
+			Classification: kind,
+			Outcome:        sysRes.outcome,
+			Detail:         appendWarning(sysRes.detail, "used system resolver fallback"),
+			ResolvedIPs:    sysRes.ips,
+		}
+	}
+
+	if len(good) >= 2 && !resolversAgree(good[0], good[1]) {
+		return FreshDNSInspection{
+			Classification: "error",
+			Outcome:        DNSOutcomePending,
+			Detail:         fmt.Sprintf("resolvers disagree (%s vs %s)", good[0].outcome, good[1].outcome),
+		}
+	}
+
+	chosen := good[0]
+	kind := chosen.kind
+	if kind == "" {
+		kind = classificationFromOutcome(chosen.outcome)
+	}
+	return FreshDNSInspection{
+		Classification: kind,
+		Outcome:        chosen.outcome,
+		Detail:         chosen.detail,
+		ResolvedIPs:    chosen.ips,
+	}
+}
+
+func classificationFromOutcome(o DNSOutcome) string {
+	switch o {
+	case DNSOutcomeOK:
+		return "ok"
+	case DNSOutcomeOKProxied:
+		return "ok_proxied"
+	case DNSOutcomePendingCA:
+		return "pending_caa"
+	default:
+		return "elsewhere"
+	}
+}
+
 // DNSResult is the outcome of checking one host against the DNS gate.
 type DNSResult struct {
 	Allowed        bool       // true if Caddy should render the host (includes sticky dns_drift)
@@ -293,6 +392,7 @@ func resultFromEntry(e DNSCacheEntry, alreadyRendered bool) DNSResult {
 
 type singleServerResult struct {
 	outcome DNSOutcome
+	kind    string
 	detail  string
 	ips     []string
 	err     error
@@ -428,6 +528,7 @@ func (g *DNSGate) queryOneServer(ctx context.Context, server, host string, shiel
 	if err == nil && caaBlocked {
 		return singleServerResult{
 			outcome: DNSOutcomePendingCA,
+			kind:    "pending_caa",
 			detail:  caaDetail,
 		}
 	}
@@ -468,20 +569,20 @@ func classifyResolvedIPs(aIPs, aaaaIPs []netip.Addr, nxdomain bool, shieldIPs []
 
 	if len(aIPs) == 0 && len(aaaaIPs) == 0 {
 		if nxdomain {
-			return singleServerResult{outcome: DNSOutcomePending, detail: "NXDOMAIN (no DNS record found)"}
+			return singleServerResult{outcome: DNSOutcomePending, kind: "nxdomain", detail: "NXDOMAIN (no DNS record found)"}
 		}
-		return singleServerResult{outcome: DNSOutcomePending, detail: "no A or AAAA records found"}
+		return singleServerResult{outcome: DNSOutcomePending, kind: "no_records", detail: "no A or AAAA records found"}
 	}
 
 	// Cloudflare proxied (E-DNS-3): any A/AAAA in Cloudflare ranges -> trust it.
 	for _, ip := range aIPs {
 		if cfIPs.Contains(ip) {
-			return singleServerResult{outcome: DNSOutcomeOKProxied, ips: allStrs}
+			return singleServerResult{outcome: DNSOutcomeOKProxied, kind: "ok_proxied", ips: allStrs}
 		}
 	}
 	for _, ip := range aaaaIPs {
 		if cfIPs.Contains(ip) {
-			return singleServerResult{outcome: DNSOutcomeOKProxied, ips: allStrs}
+			return singleServerResult{outcome: DNSOutcomeOKProxied, kind: "ok_proxied", ips: allStrs}
 		}
 	}
 
@@ -495,6 +596,7 @@ func classifyResolvedIPs(aIPs, aaaaIPs []netip.Addr, nxdomain bool, shieldIPs []
 	if len(wrongAAAA) > 0 {
 		return singleServerResult{
 			outcome: DNSOutcomePending,
+			kind:    "elsewhere",
 			detail:  fmt.Sprintf("remove or fix AAAA (%s); Let's Encrypt prefers IPv6", strings.Join(wrongAAAA, ", ")),
 			ips:     allStrs,
 		}
@@ -510,6 +612,7 @@ func classifyResolvedIPs(aIPs, aaaaIPs []netip.Addr, nxdomain bool, shieldIPs []
 	if len(wrongA) > 0 {
 		return singleServerResult{
 			outcome: DNSOutcomePending,
+			kind:    "elsewhere",
 			detail:  fmt.Sprintf("points to %s instead of Shield IP", strings.Join(wrongA, ", ")),
 			ips:     allStrs,
 		}
@@ -517,9 +620,9 @@ func classifyResolvedIPs(aIPs, aaaaIPs []netip.Addr, nxdomain bool, shieldIPs []
 
 	if len(aIPs) == 0 && len(aaaaIPs) > 0 {
 		// All AAAA match Shield IPv6.
-		return singleServerResult{outcome: DNSOutcomeOK, ips: allStrs}
+		return singleServerResult{outcome: DNSOutcomeOK, kind: "ok", ips: allStrs}
 	}
-	return singleServerResult{outcome: DNSOutcomeOK, ips: allStrs}
+	return singleServerResult{outcome: DNSOutcomeOK, kind: "ok", ips: allStrs}
 }
 
 // resolveAddrChain follows CNAMEs up to maxCNAMEDepth (E-DNS-17) and returns resolved A/AAAA IPs.

@@ -171,7 +171,7 @@ func runEdgeSwitchProxy(ops *edgeOps, args []string) error {
 		return err
 	}
 
-	nextGen, activeHosts, err := stageAndValidateSwitchConfig(ctx, ops, targetEng, &targetCfgCopy, meta)
+	nextGen, activeHosts, updatedManual, err := stageAndValidateSwitchConfig(ctx, ops, targetEng, &targetCfgCopy, meta)
 	if err != nil {
 		if daemonWasActive {
 			_, _ = ops.runCmd(ctx, "systemctl", "start", "nd-edge")
@@ -240,6 +240,9 @@ func runEdgeSwitchProxy(ops *edgeOps, args []string) error {
 		return rollback(fmt.Errorf("persist proxy_engine=%s: %w", targetEngine, err))
 	}
 	nowUTC := ops.now().UTC()
+	if updatedManual != nil {
+		_ = edge.SaveManualDomains(ops.paths.DomainsFile, updatedManual)
+	}
 	meta.CurrentGen = nextGen
 	meta.LastApplyAt = &nowUTC
 	meta.LastApplyError = ""
@@ -247,6 +250,13 @@ func runEdgeSwitchProxy(ops *edgeOps, args []string) error {
 
 	if panelsDir, rErr := edge.ReadDirLink(targetPaths.PanelsLink); rErr == nil && panelsDir != "" {
 		if rebuilt, rbErr := edge.RebuildClaimsFromDir(panelsDir, targetPaths.PanelExt, nowUTC); rbErr == nil {
+			if mf, mErr := edge.LoadManualDomains(ops.paths.DomainsFile); mErr == nil {
+				for _, md := range mf.Domains {
+					for _, h := range md.AllHosts() {
+						rebuilt.Claims[h] = edge.Claim{PanelID: edge.ManualClaimPanelID, ClaimedAt: nowUTC}
+					}
+				}
+			}
 			_ = edge.SaveClaims(ops.paths.ClaimsFile, rebuilt)
 		}
 	}
@@ -295,7 +305,7 @@ func installEnginePackageForSwitch(ctx context.Context, ops *edgeOps, targetEngi
 	}
 }
 
-func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng edge.Engine, cfg *edge.Config, meta *edge.ApplyMeta) (int, []string, error) {
+func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng edge.Engine, cfg *edge.Config, meta *edge.ApplyMeta) (int, []string, *edge.ManualDomainsFile, error) {
 	ep := targetEng.Paths()
 	for _, d := range []string{
 		filepath.Dir(ep.MainConfig),
@@ -308,7 +318,7 @@ func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng e
 			continue
 		}
 		if err := os.MkdirAll(d, 0o750); err != nil {
-			return 0, nil, fmt.Errorf("mkdir %s: %w", d, err)
+			return 0, nil, nil, fmt.Errorf("mkdir %s: %w", d, err)
 		}
 	}
 
@@ -317,24 +327,65 @@ func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng e
 	userPlaceholder := filepath.Join(ep.UserDir, placeholderName)
 	if _, err := os.Stat(userPlaceholder); errors.Is(err, os.ErrNotExist) {
 		if err := edge.WriteFileAtomic(userPlaceholder, []byte(placeholderBody), 0o644); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 
 	now := ops.now()
 	panels, activeHosts, anyTrustedProxy, err := renderCachedPanelsForEngine(ops.paths, targetEng, cfg, now)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
+	}
+
+	var updatedManual *edge.ManualDomainsFile
+	if manualFile, mErr := edge.LoadManualDomains(ops.paths.DomainsFile); mErr == nil && len(manualFile.Domains) > 0 {
+		migrated := edge.CloneManualDomainsFile(manualFile)
+		certsUpdated := false
+		for i := range migrated.Domains {
+			m := &migrated.Domains[i]
+			if m.TLS == edge.ManualTLSManual && ep.ManualCertsDir != "" && m.CertFile != "" && m.KeyFile != "" &&
+				!strings.HasPrefix(filepath.Clean(m.CertFile), filepath.Clean(ep.ManualCertsDir)) {
+				if dstC, dstK, impErr := edge.ImportManualTLSCertPair(ep.ManualCertsDir, m.Domain, m.CertFile, m.KeyFile, now); impErr == nil {
+					m.CertFile = dstC
+					m.KeyFile = dstK
+					certsUpdated = true
+				}
+			}
+			if m.Enabled && m.TLS != edge.ManualTLSNone {
+				activeHosts = append(activeHosts, m.PrimaryServedHosts()...)
+			}
+		}
+		if certsUpdated {
+			updatedManual = migrated
+		}
+		manualRes, mRenderErr := edge.RenderManualForEngine(targetEng, migrated.Domains, edge.ManualRenderOptions{
+			Now:            now,
+			ACMEEmail:      cfg.ACMEEmail,
+			ManualCertsDir: ep.ManualCertsDir,
+			CertsDir:       ep.CertsDir,
+			ShieldTrustsCF: anyTrustedProxy,
+		})
+		if mRenderErr != nil {
+			return 0, nil, nil, mRenderErr
+		}
+		if manualRes.AnyTrustedProxy {
+			anyTrustedProxy = true
+		}
+		panels = append(panels, edge.PanelRenderArtifact{
+			PanelID:    edge.ManualPanelID,
+			CaddyBytes: []byte(manualRes.Content),
+			Changed:    true,
+		})
 	}
 
 	cfStore := edge.LoadOrInitCFIPStore(ops.paths.CFIPsFile)
 	globalFiles, err := targetEng.RenderGlobal(cfg, cfStore.Ranges(), anyTrustedProxy)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	commonFiles, err := targetEng.RenderCommon()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
 	nextGen := meta.CurrentGen + 1
@@ -344,14 +395,14 @@ func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng e
 	panelDir := ep.PanelGenDir(nextGen)
 	originDir := ep.OriginGenDir(nextGen)
 	if err := os.MkdirAll(panelDir, 0o750); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if err := os.MkdirAll(originDir, 0o750); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
 	if err := edge.WriteFileAtomic(filepath.Join(panelDir, placeholderName), []byte(placeholderBody), 0o640); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	hasActiveRoutes := false
 	for _, p := range panels {
@@ -359,28 +410,28 @@ func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng e
 			hasActiveRoutes = true
 		}
 		if err := edge.WriteFileAtomic(filepath.Join(panelDir, p.PanelID+ep.PanelExt), p.CaddyBytes, 0o640); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		if len(p.PEMBytes) > 0 {
 			if err := edge.WriteFileAtomic(filepath.Join(originDir, p.PanelID+".pem"), p.PEMBytes, 0o640); err != nil {
-				return 0, nil, err
+				return 0, nil, nil, err
 			}
 		}
 	}
 	if !hasActiveRoutes {
 		if err := edge.WriteFileAtomic(filepath.Join(panelDir, healthName), []byte(healthBody), 0o640); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 
 	for path, content := range globalFiles {
 		if err := edge.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 	for path, content := range commonFiles {
 		if err := edge.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 	if ce, ok := targetEng.(*edge.CaddyEngine); ok {
@@ -392,29 +443,29 @@ func stageAndValidateSwitchConfig(ctx context.Context, ops *edgeOps, targetEng e
 			}
 		}
 		if err := edge.WriteFileAtomic(ep.MainConfig, []byte(region), 0o644); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 
 	if err := edge.SwapDirLinkAtomic(ep.OriginsLink, originDir); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if err := edge.SwapDirLinkAtomic(ep.PanelsLink, panelDir); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
 	applyEnginePermsAndSELinux(ops, ep)
 
 	if targetEng.Name() == edge.EngineFerron {
 		if err := ensureFerronSystemIntegration(ops, ep); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 
 	if valOut, valErr := targetEng.Runner().Validate(ctx, ep.MainConfig); valErr != nil {
-		return 0, nil, fmt.Errorf("%w: %s", valErr, valOut)
+		return 0, nil, nil, fmt.Errorf("%w: %s", valErr, valOut)
 	}
-	return nextGen, activeHosts, nil
+	return nextGen, activeHosts, updatedManual, nil
 }
 
 func renderCachedPanelsForEngine(paths edge.Paths, eng edge.Engine, cfg *edge.Config, now time.Time) ([]edge.PanelRenderArtifact, []string, bool, error) {

@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/netip"
@@ -26,6 +27,7 @@ type ReconcileOutcome struct {
 	CaddyRunning     bool
 	CaddyStatusError string
 	SkippedEmptyBoot bool
+	ManualHostStates []HostStatus
 }
 
 // Reconciler executes the §3.2–§3.5 reconciliation pipeline across all panels.
@@ -38,6 +40,7 @@ type Reconciler struct {
 	probe                 *CertProbe
 	systemd               SystemdRunner
 	cfIPs                 *CFIPStore
+	extraShieldIPs        []netip.Addr
 	lastCaddyStartAttempt time.Time
 }
 
@@ -89,6 +92,14 @@ func (r *Reconciler) SetEngine(eng Engine) {
 	r.engine = eng
 }
 
+// SetExtraShieldIPs configures fallback public IPs for standalone Shield nodes
+// when cfg.ShieldIPs and panel node IPs are empty.
+func (r *Reconciler) SetExtraShieldIPs(ips []netip.Addr) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.extraShieldIPs = append([]netip.Addr(nil), ips...)
+}
+
 func (r *Reconciler) activeEnginePaths() EnginePaths {
 	if r.engine != nil {
 		return r.engine.Paths()
@@ -96,8 +107,8 @@ func (r *Reconciler) activeEnginePaths() EnginePaths {
 	return CaddyEnginePaths(r.paths)
 }
 
-// ReconcileOnce runs a single full reconciliation across cfg.Panels, updating
-// panelStates, claims, meta, and Caddy generation files atomically.
+// ReconcileOnce runs a single full reconciliation across cfg.Panels and manual
+// domains, updating panelStates, claims, meta, and proxy generation files atomically.
 func (r *Reconciler) ReconcileOnce(
 	ctx context.Context,
 	cfg *Config,
@@ -106,6 +117,52 @@ func (r *Reconciler) ReconcileOnce(
 	meta *ApplyMeta,
 	force bool,
 	probeCerts bool,
+	now time.Time,
+) (ReconcileOutcome, error) {
+	return r.ReconcileOnceWithManual(ctx, cfg, panelStates, claims, meta, nil, force, probeCerts, now)
+}
+
+// ReconcileOnceWithManual runs reconciliation using manualOverride when non-nil
+// (used by CLI mutators to validate and apply candidate changes before writing domains.json).
+func (r *Reconciler) ReconcileOnceWithManual(
+	ctx context.Context,
+	cfg *Config,
+	panelStates map[string]*PanelState,
+	claims *ClaimsStore,
+	meta *ApplyMeta,
+	manualOverride *ManualDomainsFile,
+	force bool,
+	probeCerts bool,
+	now time.Time,
+) (ReconcileOutcome, error) {
+	return r.reconcileInternal(ctx, cfg, panelStates, claims, meta, manualOverride, force, probeCerts, false, now)
+}
+
+// ValidateManualCandidate renders the full Shield config with manualCandidate and
+// validates it with the active proxy engine without swapping live generations or writing state.
+func (r *Reconciler) ValidateManualCandidate(
+	ctx context.Context,
+	cfg *Config,
+	panelStates map[string]*PanelState,
+	claims *ClaimsStore,
+	meta *ApplyMeta,
+	manualCandidate *ManualDomainsFile,
+	now time.Time,
+) error {
+	_, err := r.reconcileInternal(ctx, cfg, panelStates, claims, meta, manualCandidate, true, false, true, now)
+	return err
+}
+
+func (r *Reconciler) reconcileInternal(
+	ctx context.Context,
+	cfg *Config,
+	panelStates map[string]*PanelState,
+	claims *ClaimsStore,
+	meta *ApplyMeta,
+	manualOverride *ManualDomainsFile,
+	force bool,
+	probeCerts bool,
+	validateOnly bool,
 	now time.Time,
 ) (ReconcileOutcome, error) {
 	r.mu.Lock()
@@ -130,7 +187,7 @@ func (r *Reconciler) ReconcileOnce(
 
 	// 1. Check active proxy service status (E-BOOT-4, E-CADDY-1).
 	out.CaddyRunning = true
-	if r.systemd != nil {
+	if !validateOnly && r.systemd != nil {
 		active, detail, _ := r.systemd.IsActive(ctx, serviceUnit)
 		out.CaddyRunning = active
 		out.CaddyStatusError = detail
@@ -149,6 +206,27 @@ func (r *Reconciler) ReconcileOnce(
 		}
 	}
 
+	// Load manual domains store (or staged candidate override).
+	var manualFile *ManualDomainsFile
+	if manualOverride != nil {
+		manualFile = CloneManualDomainsFile(manualOverride)
+	} else if r.paths.DomainsFile != "" {
+		loaded, loadErr := LoadManualDomains(r.paths.DomainsFile)
+		if loadErr != nil {
+			return out, loadErr
+		}
+		manualFile = loaded
+	} else {
+		manualFile = &ManualDomainsFile{Schema: ManualDomainsSchema}
+	}
+	domainsFileExists := false
+	if r.paths.DomainsFile != "" {
+		if _, statErr := os.Stat(r.paths.DomainsFile); statErr == nil {
+			domainsFileExists = true
+		}
+	}
+	prevManualBytes, _, hasExistingManual := r.readExistingManualFile()
+
 	// 2. Startup safety (§3.2): NEVER rewrite Caddy files at startup from empty state.
 	anyLastGood := false
 	for _, p := range cfg.Panels {
@@ -157,14 +235,14 @@ func (r *Reconciler) ReconcileOnce(
 			break
 		}
 	}
-	if !anyLastGood && r.hasExistingRenderedFiles() {
+	if !validateOnly && !anyLastGood && len(manualFile.Domains) == 0 && !domainsFileExists && !hasExistingManual && r.hasExistingRenderedFiles() {
 		out.NoOp = true
 		out.SkippedEmptyBoot = true
 		return out, nil
 	}
 
-	// 3. Collect Shield IPs (config override + panel node.ip fields).
-	shieldIPs := collectShieldIPs(cfg, panelStates)
+	// 3. Collect Shield IPs (config override + panel node.ip fields + extra fallback).
+	shieldIPs := collectShieldIPsWithExtra(cfg, panelStates, r.extraShieldIPs)
 
 	// Load currently rendered hosts from active panels dir for sticky DNS & throttle exemption.
 	renderedByPanel := r.loadCurrentRenderedHosts()
@@ -371,7 +449,10 @@ func (r *Reconciler) ReconcileOnce(
 		})
 	}
 
-	// 4. Claims / conflict resolution (§3.4).
+	// 4. Claims / conflict resolution (§3.4), including manual domain ownership.
+	if mc := ManualClaimant(manualFile); mc != nil {
+		claimants = append(claimants, *mc)
+	}
 	ownedByPanel, conflictsByPanel := claims.ResolveClaims(claimants, now)
 
 	// 5. Admission throttle for brand-new hosts (§3.4).
@@ -518,6 +599,18 @@ func (r *Reconciler) ReconcileOnce(
 		})
 	}
 
+	manualArtifact, manualTrustedProxy, manualHostStates, mErr := r.prepareManualArtifact(
+		ctx, cfg, manualFile, prevManualBytes, hasExistingManual, shieldIPs,
+		ownedByPanel[ManualClaimPanelID], conflictsByPanel[ManualClaimPanelID],
+		anyTrustedProxy, force, validateOnly, now,
+	)
+	if mErr != nil {
+		return out, mErr
+	}
+	if manualTrustedProxy {
+		anyTrustedProxy = true
+	}
+
 	// 7. Atomic proxy generation apply (§5.5).
 	var applyIn ApplyInput
 	if r.engine != nil && r.engine.Name() != EngineCaddy {
@@ -536,6 +629,7 @@ func (r *Reconciler) ReconcileOnce(
 			GlobalFiles: globalFiles,
 			CommonFiles: commonFiles,
 			Panels:      artifacts,
+			Manual:      manualArtifact,
 			Force:       force,
 		}
 	} else {
@@ -550,8 +644,12 @@ func (r *Reconciler) ReconcileOnce(
 			GlobalOpts:  []byte(RenderGlobalOptsForConfig(cfg, r.cfIPs.Ranges(), anyTrustedProxy)),
 			CommonCaddy: []byte(RenderCommonCaddy()),
 			Panels:      artifacts,
+			Manual:      manualArtifact,
 			Force:       force,
 		}
+	}
+	if validateOnly {
+		return out, r.applier.ValidateOnly(ctx, applyIn)
 	}
 	applyRes, applyErr := r.applier.Apply(ctx, applyIn, meta, now)
 	out.ApplyResult = applyRes
@@ -622,6 +720,8 @@ func (r *Reconciler) ReconcileOnce(
 		_ = SavePanelState(r.paths.StateFile(p.PanelID), pp.st)
 	}
 
+	out.ManualHostStates = r.finalizeManualHostStates(ctx, manualHostStates, probeCerts, now)
+
 	_ = SaveClaims(r.paths.ClaimsFile, claims)
 	_ = r.dnsGate.SaveCache()
 	_ = SaveApplyMeta(r.paths.ApplyMeta, meta)
@@ -647,6 +747,7 @@ func (r *Reconciler) hasExistingRenderedFiles() bool {
 		if !e.IsDir() &&
 			e.Name() != PlaceholderFileName && e.Name() != HealthFileName &&
 			e.Name() != PlaceholderAngieFileName && e.Name() != HealthAngieFileName &&
+			e.Name() != PlaceholderFerronFileName && e.Name() != HealthFerronFileName &&
 			strings.HasSuffix(e.Name(), ext) {
 			return true
 		}
@@ -693,6 +794,201 @@ func (r *Reconciler) readExistingPanelFiles(panelID string) ([]byte, []byte, boo
 		pb, _ = os.ReadFile(filepath.Join(originsDir, panelID+".pem"))
 	}
 	return cb, pb, true
+}
+
+func (r *Reconciler) readExistingManualFile() ([]byte, string, bool) {
+	ep := r.activeEnginePaths()
+	ext := ep.PanelExt
+	if ext == "" {
+		ext = ".caddy"
+	}
+	panelsDir, err := ReadDirLink(ep.PanelsLink)
+	if err != nil || panelsDir == "" {
+		return nil, ext, false
+	}
+	b, err := os.ReadFile(filepath.Join(panelsDir, ManualPanelID+ext))
+	if err != nil {
+		return nil, ext, false
+	}
+	return b, ext, true
+}
+
+func (r *Reconciler) activeEngineName() string {
+	if r.engine != nil {
+		return r.engine.Name()
+	}
+	return EngineCaddy
+}
+
+func (r *Reconciler) loadCurrentRenderedManualHosts() map[string]struct{} {
+	out := make(map[string]struct{})
+	raw, _, ok := r.readExistingManualFile()
+	if !ok {
+		return out
+	}
+	for _, h := range parseUserConfigHostsText(string(raw), r.activeEngineName()) {
+		out[h] = struct{}{}
+	}
+	return out
+}
+
+func (r *Reconciler) prepareManualArtifact(
+	ctx context.Context,
+	cfg *Config,
+	manualFile *ManualDomainsFile,
+	prevManualBytes []byte,
+	hasExistingManual bool,
+	shieldIPs []netip.Addr,
+	ownedManual map[string]struct{},
+	manualConflicts []ConflictStatus,
+	anyPanelTrustedProxy bool,
+	force bool,
+	validateOnly bool,
+	now time.Time,
+) (*PanelRenderArtifact, bool, []HostStatus, error) {
+	if manualFile == nil || (len(manualFile.Domains) == 0 && !hasExistingManual) {
+		return nil, false, nil, nil
+	}
+
+	conflictOwners := make(map[string]string, len(manualConflicts))
+	for _, c := range manualConflicts {
+		conflictOwners[c.Host] = c.OwnerPanel
+	}
+
+	renderedManual := r.loadCurrentRenderedManualHosts()
+	dnsBlocked := make(map[string]bool)
+	cfProxied := make(map[string]bool)
+	statuses := make([]HostStatus, 0, len(manualFile.Domains))
+	renderable := make([]ManualDomainEntry, 0, len(manualFile.Domains))
+
+	for _, entry := range manualFile.Domains {
+		allHosts := entry.AllHosts()
+		if !entry.Enabled {
+			for _, h := range allHosts {
+				statuses = append(statuses, HostStatus{Host: h, State: "disabled", Detail: "disabled by operator"})
+			}
+			continue
+		}
+
+		var driftHosts = make(map[string]string)
+		var keptHosts []string
+		for _, h := range allHosts {
+			if owner, isConflict := conflictOwners[h]; isConflict {
+				dnsBlocked[h] = true
+				statuses = append(statuses, HostStatus{Host: h, State: StateConflict, Detail: "claimed by " + owner})
+				continue
+			}
+			if len(ownedManual) > 0 {
+				if _, ok := ownedManual[h]; !ok {
+					dnsBlocked[h] = true
+					statuses = append(statuses, HostStatus{Host: h, State: StateConflict, Detail: "host ownership conflict"})
+					continue
+				}
+			}
+
+			if entry.TLS == ManualTLSAuto && !validateOnly && r.dnsGate != nil {
+				_, alreadyRendered := renderedManual[h]
+				res := r.dnsGate.CheckHost(ctx, h, shieldIPs, alreadyRendered, force, now)
+				if !res.Allowed {
+					dnsBlocked[h] = true
+					statuses = append(statuses, HostStatus{Host: h, State: string(res.Outcome), Detail: res.Detail})
+					continue
+				}
+				if res.Outcome == DNSOutcomeOKProxied {
+					cfProxied[h] = true
+				}
+				if res.Drift {
+					driftHosts[h] = res.Detail
+				}
+			}
+			keptHosts = append(keptHosts, h)
+		}
+		if len(keptHosts) > 0 {
+			renderable = append(renderable, entry)
+			for _, h := range keptHosts {
+				if detail, hasDrift := driftHosts[h]; hasDrift {
+					statuses = append(statuses, HostStatus{Host: h, State: StateDNSDrift, Detail: detail})
+				} else if entry.TLS == ManualTLSNone {
+					statuses = append(statuses, HostStatus{Host: h, State: StateActive, Detail: "HTTP only"})
+				} else {
+					statuses = append(statuses, HostStatus{Host: h, State: StateIssuing})
+				}
+			}
+		}
+	}
+
+	ep := r.activeEnginePaths()
+	opts := ManualRenderOptions{
+		Now:             now,
+		ACMEEmail:       cfg.ACMEEmail,
+		ManualCertsDir:  ep.ManualCertsDir,
+		CertsDir:        ep.CertsDir,
+		DNSBlockedHosts: dnsBlocked,
+		CFProxiedHosts:  cfProxied,
+		ShieldTrustsCF:  anyPanelTrustedProxy || renderedManualBytesUsesCF(prevManualBytes),
+	}
+	res, err := RenderManualForEngine(r.engine, renderable, opts)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("render manual domains: %w", err)
+	}
+	contentBytes := []byte(res.Content)
+	changed := !hasExistingManual || !bytes.Equal(prevManualBytes, contentBytes)
+	art := &PanelRenderArtifact{
+		PanelID:    ManualPanelID,
+		CaddyBytes: contentBytes,
+		Changed:    changed,
+	}
+	return art, res.AnyTrustedProxy, statuses, nil
+}
+
+func renderedManualBytesUsesCF(b []byte) bool {
+	s := string(b)
+	return strings.Contains(s, "header_up X-Real-IP {client_ip}") || strings.Contains(s, "X-Real-IP $remote_addr;")
+}
+
+func (r *Reconciler) finalizeManualHostStates(ctx context.Context, in []HostStatus, probeCerts bool, now time.Time) []HostStatus {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]HostStatus, len(in))
+	copy(out, in)
+	if probeCerts && r.probe != nil {
+		for i := range out {
+			if out[i].State != StateIssuing && out[i].State != StateDNSDrift {
+				continue
+			}
+			pr := r.probe.ProbeHost(ctx, out[i].Host, now)
+			if pr.Valid {
+				if out[i].State != StateDNSDrift {
+					out[i].State = StateActive
+				}
+				if pr.RenewWarn {
+					out[i].Detail = appendWarning(out[i].Detail, WarningCertRenewOverdue)
+				}
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
+}
+
+func collectShieldIPsWithExtra(cfg *Config, panelStates map[string]*PanelState, extra []netip.Addr) []netip.Addr {
+	base := collectShieldIPs(cfg, panelStates)
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[netip.Addr]struct{}, len(base)+len(extra))
+	for _, a := range base {
+		seen[a] = struct{}{}
+	}
+	for _, a := range extra {
+		u := a.Unmap()
+		if _, ok := seen[u]; !ok {
+			seen[u] = struct{}{}
+			base = append(base, u)
+		}
+	}
+	return base
 }
 
 func collectShieldIPs(cfg *Config, panelStates map[string]*PanelState) []netip.Addr {

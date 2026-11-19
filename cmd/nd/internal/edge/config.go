@@ -36,12 +36,15 @@ type Paths struct {
 	UserCaddyDir  string
 	CaddyCertsDir string
 
-	ConfigFile   string
-	StateDir     string
-	ClaimsFile   string
-	DNSCacheFile string
-	CFIPsFile    string
-	ApplyMeta    string
+	ConfigFile        string
+	StateDir          string
+	DomainsFile       string
+	DomainsTrashFile  string
+	DomainsHealthFile string
+	ClaimsFile        string
+	DNSCacheFile      string
+	CFIPsFile         string
+	ApplyMeta         string
 
 	LockFile string
 	PIDFile  string
@@ -59,12 +62,15 @@ func DefaultPaths() Paths {
 		UserCaddyDir:  "/etc/caddy/nd/user",
 		CaddyCertsDir: "/var/lib/caddy/.local/share/caddy",
 
-		ConfigFile:   "/etc/nd-edge/config.json",
-		StateDir:     "/var/lib/nd-edge/state",
-		ClaimsFile:   "/var/lib/nd-edge/claims.json",
-		DNSCacheFile: "/var/lib/nd-edge/dns-cache.json",
-		CFIPsFile:    "/var/lib/nd-edge/cf-ips.json",
-		ApplyMeta:    "/var/lib/nd-edge/apply-meta.json",
+		ConfigFile:        "/etc/nd-edge/config.json",
+		StateDir:          "/var/lib/nd-edge/state",
+		DomainsFile:       "/etc/nd-edge/domains.json",
+		DomainsTrashFile:  "/etc/nd-edge/domains.trash.json",
+		DomainsHealthFile: "/var/lib/nd-edge/domains.health.json",
+		ClaimsFile:        "/var/lib/nd-edge/claims.json",
+		DNSCacheFile:      "/var/lib/nd-edge/dns-cache.json",
+		CFIPsFile:         "/var/lib/nd-edge/cf-ips.json",
+		ApplyMeta:         "/var/lib/nd-edge/apply-meta.json",
 
 		LockFile: "/run/nd-edge.lock",
 		PIDFile:  "/run/nd-edge.pid",
@@ -85,12 +91,15 @@ func NewPaths(rootDir string) Paths {
 		UserCaddyDir:  filepath.Join(rootDir, "etc", "caddy", "nd", "user"),
 		CaddyCertsDir: filepath.Join(rootDir, "var", "lib", "caddy", ".local", "share", "caddy"),
 
-		ConfigFile:   filepath.Join(rootDir, "etc", "nd-edge", "config.json"),
-		StateDir:     filepath.Join(rootDir, "var", "lib", "nd-edge", "state"),
-		ClaimsFile:   filepath.Join(rootDir, "var", "lib", "nd-edge", "claims.json"),
-		DNSCacheFile: filepath.Join(rootDir, "var", "lib", "nd-edge", "dns-cache.json"),
-		CFIPsFile:    filepath.Join(rootDir, "var", "lib", "nd-edge", "cf-ips.json"),
-		ApplyMeta:    filepath.Join(rootDir, "var", "lib", "nd-edge", "apply-meta.json"),
+		ConfigFile:        filepath.Join(rootDir, "etc", "nd-edge", "config.json"),
+		StateDir:          filepath.Join(rootDir, "var", "lib", "nd-edge", "state"),
+		DomainsFile:       filepath.Join(rootDir, "etc", "nd-edge", "domains.json"),
+		DomainsTrashFile:  filepath.Join(rootDir, "etc", "nd-edge", "domains.trash.json"),
+		DomainsHealthFile: filepath.Join(rootDir, "var", "lib", "nd-edge", "domains.health.json"),
+		ClaimsFile:        filepath.Join(rootDir, "var", "lib", "nd-edge", "claims.json"),
+		DNSCacheFile:      filepath.Join(rootDir, "var", "lib", "nd-edge", "dns-cache.json"),
+		CFIPsFile:         filepath.Join(rootDir, "var", "lib", "nd-edge", "cf-ips.json"),
+		ApplyMeta:         filepath.Join(rootDir, "var", "lib", "nd-edge", "apply-meta.json"),
 
 		LockFile: filepath.Join(rootDir, "run", "nd-edge.lock"),
 		PIDFile:  filepath.Join(rootDir, "run", "nd-edge.pid"),

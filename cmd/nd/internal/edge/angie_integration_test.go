@@ -140,6 +140,46 @@ func TestAngieDockerConfigValidation(t *testing.T) {
 	}
 	writeContainerMapped(filepath.Join(containerPaths.PanelsLink, "bbbbbbbb-1111-4222-8333-444444444444.conf"), secondPanel)
 
+	// Also render zz-manual.conf with diverse manual-domain variants and validate in Angie.
+	manualEntries := []ManualDomainEntry{
+		{
+			Domain:            "manual-plain.example.com",
+			Upstreams:         []ManualUpstream{{Scheme: "http", Host: "10.0.0.2", Port: 8080}},
+			TLS:               ManualTLSNone,
+			Enabled:           true,
+			Keepalive:         IntPtr(0),
+			Websocket:         BoolPtr(false),
+			RealIP:            ManualRealIPNone,
+			TimeoutSec:        60,
+			ConnectTimeoutSec: 5,
+		},
+		{
+			Domain:       "manual-shop.example.com",
+			RedirectWWW:  ManualRedirectToApex,
+			Upstreams:    []ManualUpstream{{Scheme: "https", Host: "10.0.0.6", Port: 443}, {Scheme: "https", Host: "10.0.0.7", Port: 443}},
+			LB:           ManualLBLeastConn,
+			TLS:          ManualTLSAuto,
+			ForceHTTPS:   BoolPtr(false),
+			Origin:       ManualOriginOpts{NoVerify: true, SNI: "backend.internal", HostHeader: ManualHostHeaderUpstream},
+			MaxBodyBytes: 100 * 1024 * 1024,
+			RealIP:       ManualRealIPCloudflare,
+			HeadersUp:    []ManualHeader{{Name: "X-Edge-Mode", Value: "shield"}},
+			HeadersDown:  []ManualHeader{{Name: "X-Frame-Options", Value: "SAMEORIGIN"}},
+			Keepalive:    IntPtr(32),
+			Enabled:      true,
+		},
+	}
+	for i := range manualEntries {
+		if err := NormalizeAndValidateEntry(&manualEntries[i], ""); err != nil {
+			t.Fatalf("NormalizeAndValidateEntry manual: %v", err)
+		}
+	}
+	manualRes, err := eng.RenderManual(manualEntries, ManualRenderOptions{ACMEEmail: cfg.ACMEEmail})
+	if err != nil {
+		t.Fatalf("RenderManual angie: %v", err)
+	}
+	writeContainerMapped(filepath.Join(containerPaths.PanelsLink, ManualConfFileName), manualRes.Content)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", hostRoot+":"+containerRoot, image, "angie", "-t", "-c", filepath.ToSlash(containerPaths.MainConfig))
@@ -160,6 +200,7 @@ func TestAngieDockerConfigValidation(t *testing.T) {
 	if err := os.Remove(filepath.Join(hostPaths.PanelsLink, "bbbbbbbb-1111-4222-8333-444444444444.conf")); err != nil {
 		t.Fatalf("remove second conf: %v", err)
 	}
+	_ = os.Remove(filepath.Join(hostPaths.PanelsLink, ManualConfFileName))
 	writeContainerMapped(filepath.Join(containerPaths.PanelsLink, HealthAngieFileName), RenderHealthProbeAngie())
 	cmdHealth := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", hostRoot+":"+containerRoot, image, "angie", "-t", "-c", filepath.ToSlash(containerPaths.MainConfig))
 	cmdHealth.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")

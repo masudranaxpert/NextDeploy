@@ -107,6 +107,8 @@ func RebuildClaimsFromDir(panelsDir, ext string, fallbackTime time.Time) (*Claim
 		name := entry.Name()
 		if name == PlaceholderFileName || name == HealthFileName ||
 			name == PlaceholderAngieFileName || name == HealthAngieFileName ||
+			name == PlaceholderFerronFileName || name == HealthFerronFileName ||
+			name == ManualCaddyFileName || name == ManualConfFileName ||
 			!strings.HasSuffix(name, ext) {
 			continue
 		}

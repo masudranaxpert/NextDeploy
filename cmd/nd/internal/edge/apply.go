@@ -208,7 +208,22 @@ type ApplyInput struct {
 	GlobalFiles map[string]string
 	CommonFiles map[string]string
 	Panels      []PanelRenderArtifact
+	Manual      *PanelRenderArtifact
 	Force       bool
+}
+
+func mergeApplyPanels(in ApplyInput) []PanelRenderArtifact {
+	out := make([]PanelRenderArtifact, len(in.Panels), len(in.Panels)+1)
+	copy(out, in.Panels)
+	if in.Manual != nil {
+		m := *in.Manual
+		if m.PanelID == "" {
+			m.PanelID = ManualPanelID
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PanelID < out[j].PanelID })
+	return out
 }
 
 // ApplyResult describes the outcome of Applier.Apply.
@@ -302,9 +317,7 @@ func DesiredHash(in ApplyInput) string {
 	if len(in.CommonFiles) > 0 {
 		writeMapHash(h, in.CommonFiles)
 	}
-	sorted := make([]PanelRenderArtifact, len(in.Panels))
-	copy(sorted, in.Panels)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].PanelID < sorted[j].PanelID })
+	sorted := mergeApplyPanels(in)
 	for _, p := range sorted {
 		h.Write([]byte(p.PanelID))
 		h.Write([]byte{0})
@@ -328,6 +341,54 @@ func writeMapHash(h io.Writer, m map[string]string) {
 		_, _ = h.Write([]byte(m[k]))
 		_, _ = h.Write([]byte{0})
 	}
+}
+
+// ValidateOnly stages an isolated temporary copy of in and runs the engine's
+// config validator without touching live symlinks, files, or apply-meta.json.
+func (a *Applier) ValidateOnly(ctx context.Context, in ApplyInput) error {
+	if a.engine != nil && a.engine.Name() != EngineCaddy {
+		return a.validateEngineOnly(ctx, in)
+	}
+	tmpDir, err := os.MkdirTemp("", "nd-edge-val-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	panelDir := filepath.Join(tmpDir, "panels")
+	originDir := filepath.Join(tmpDir, "origins")
+	mergedPanels := mergeApplyPanels(in)
+	if err := a.stageGeneration(panelDir, originDir, in, mergedPanels); err != nil {
+		return err
+	}
+	valGlobalOpts := filepath.Join(tmpDir, "global.opts")
+	valCommonCaddy := filepath.Join(tmpDir, "common.caddy")
+	valCaddyfile := filepath.Join(tmpDir, "Caddyfile")
+	valPanelsDir := filepath.Join(tmpDir, "panels.validate")
+
+	if err := WriteFileAtomic(valGlobalOpts, in.GlobalOpts, 0o644); err != nil {
+		return err
+	}
+	if err := WriteFileAtomic(valCommonCaddy, in.CommonCaddy, 0o644); err != nil {
+		return err
+	}
+	if err := a.stageValidationCopy(valPanelsDir, panelDir, originDir); err != nil {
+		return err
+	}
+
+	valPaths := a.paths
+	valPaths.GlobalOpts = valGlobalOpts
+	valPaths.CommonCaddy = valCommonCaddy
+	valRegion := RenderCaddyfileManagedRegion(valPaths, in.AdminAddr, in.ACMEEmail, valPanelsDir, a.paths.UserCaddyDir)
+	valContent := valRegion
+	if existingBytes, readErr := os.ReadFile(a.paths.Caddyfile); readErr == nil {
+		valContent = mergeManagedCaddyfile(string(existingBytes), valRegion)
+	}
+	if err := WriteFileAtomic(valCaddyfile, []byte(valContent), 0o644); err != nil {
+		return err
+	}
+	_, valErr := a.caddy.Validate(ctx, valCaddyfile)
+	return valErr
 }
 
 // Apply performs the §5.5 atomic generation swap and proxy reload, with
@@ -366,9 +427,7 @@ func (a *Applier) Apply(ctx context.Context, in ApplyInput, meta *ApplyMeta, now
 
 	// Build candidate panel set; if caddy validate fails with multiple panels,
 	// isolate the newest changed offending panel (E-MP-5).
-	activePanels := make([]PanelRenderArtifact, len(in.Panels))
-	copy(activePanels, in.Panels)
-	sort.Slice(activePanels, func(i, j int) bool { return activePanels[i].PanelID < activePanels[j].PanelID })
+	activePanels := mergeApplyPanels(in)
 
 	var nextGen int
 	var panelDir, originDir string
@@ -685,13 +744,14 @@ func (a *Applier) compareCurrentGeneration(in ApplyInput) (drifted []string, ide
 	if err != nil {
 		return nil, false
 	}
-	expectedCaddy := make(map[string][]byte, len(in.Panels)+2)
+	mergedPanels := mergeApplyPanels(in)
+	expectedCaddy := make(map[string][]byte, len(mergedPanels)+2)
 	expectedCaddy[PlaceholderFileName] = []byte(RenderPlaceholderCaddy())
-	if a.shouldEmitHealthProbe(in.Panels) {
+	if a.shouldEmitHealthProbe(mergedPanels) {
 		expectedCaddy[HealthFileName] = []byte(RenderHealthProbeCaddy())
 	}
-	expectedPEM := make(map[string][]byte, len(in.Panels))
-	for _, p := range in.Panels {
+	expectedPEM := make(map[string][]byte, len(mergedPanels))
+	for _, p := range mergedPanels {
 		expectedCaddy[p.PanelID+".caddy"] = p.CaddyBytes
 		if len(p.PEMBytes) > 0 {
 			expectedPEM[p.PanelID+".pem"] = p.PEMBytes
@@ -883,8 +943,19 @@ func (a *Applier) recordFailure(meta *ApplyMeta, desiredHash string, err error, 
 }
 
 func findOffenderIndex(panels []PanelRenderArtifact) int {
+	for _, p := range panels {
+		if p.PanelID == ManualPanelID && p.Changed {
+			// Manual domains were just edited; fail validation loudly instead of isolating a panel.
+			return -1
+		}
+	}
 	for i := len(panels) - 1; i >= 0; i-- {
-		if panels[i].Changed {
+		if panels[i].PanelID != ManualPanelID && panels[i].Changed {
+			return i
+		}
+	}
+	for i := len(panels) - 1; i >= 0; i-- {
+		if panels[i].PanelID != ManualPanelID {
 			return i
 		}
 	}

@@ -64,6 +64,21 @@ export const EDGE_CLI_COMMANDS: CliCommandItem[] = [
     example: 'nd edge switch-proxy --to angie --yes',
   },
   {
+    id: 'domain',
+    name: 'nd edge domain',
+    syntax: 'nd edge domain <add|set|rm|list|show|enable|disable|check|prune|restore|export|import> [args...]',
+    category: 'maintenance',
+    descEn: 'Add and manage standalone manual domains (sites outside any panel) and safely detect/prune stale DNS or origin domains.',
+    descBn: 'প্যানেলের বাইরের ম্যানুয়াল ডোমেইন যোগ ও পরিচালনা করুন এবং অকার্যকর DNS বা অরিজিন ডোমেইন নিরাপদে পরীক্ষা ও পরিষ্কার করুন।',
+    flags: [
+      { flag: 'add <domain> <upstream>', required: true, descEn: 'Proxy a manual domain with --www, --tls auto|none|manual, --max-body, --real-ip, headers, and rollback validation', descBn: 'ম্যানুয়াল ডোমেইন যোগ করুন (--www, --tls auto|none|manual, --max-body, --real-ip ও রোলব্যাক ভ্যালিডেশনসহ)' },
+      { flag: 'check [--all] [--json]', descEn: 'Inspect DNS, origin reachability, and served TLS expiry (read-only)', descBn: 'DNS, অরিজিন সংযোগ ও TLS সার্টিফিকেট অবস্থা যাচাই করুন (রিড-অনলি)' },
+      { flag: 'prune [--apply] [--grace 7d]', descEn: 'Find persistent bad domains (dry-run by default; requires 2+ checks past grace; restorable 30d; skips Cloudflare and panel domains)', descBn: 'দীর্ঘদিন ধরে নষ্ট ডোমেইন খুঁজুন ও সরান (ডিফল্ট ড্রাই-রান; ৩০ দিন রিস্টোরযোগ্য; Cloudflare ও প্যানেল ডোমেইন স্পর্শ করে না)' },
+      { flag: 'restore <domain> | --list', descEn: 'Recover a removed or pruned manual domain from 30-day trash', descBn: '৩০ দিনের ট্র্যাশ থেকে মুছে ফেলা ম্যানুয়াল ডোমেইন পুনরুদ্ধার করুন' },
+    ],
+    example: 'nd edge domain add shop.example.com 10.0.0.5:8080 --www',
+  },
+  {
     id: 'add-panel',
     name: 'nd edge add-panel',
     syntax: 'nd edge add-panel --panel-url <url> --token-stdin [flags]',
