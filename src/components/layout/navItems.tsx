@@ -44,7 +44,6 @@ export const ADMIN_ONLY_NAV: NavigationSection[] = [
   'migrate',
   'users',
   'settings',
-  'cli-sessions',
   'php-instance',
 ];
 

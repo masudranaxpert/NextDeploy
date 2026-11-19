@@ -554,6 +554,13 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			ids = append(ids, a.ID)
 		}
 		auditLogs, _ = p.DB.ListAuditLogsForUser(ctx, u.ID, ids, 20, 0)
+		if allSess, serr := p.DB.ListCLISessions(); serr == nil {
+			for _, s := range allSess {
+				if s.UserID == u.ID {
+					cliSessions = append(cliSessions, s)
+				}
+			}
+		}
 	}
 
 	// Host-level telemetry and the raw volume list are admin territory; everyone else sees

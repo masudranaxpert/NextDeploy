@@ -113,7 +113,17 @@ func run() int {
 		}
 		return 0
 	case "help", "--help", "-h":
-		cmd.PrintHelp()
+		section := ""
+		if len(rest) > 0 {
+			section = strings.ToLower(strings.TrimSpace(rest[0]))
+		}
+		cmd.PrintHelpSection(section)
+		return 0
+	case "--help-user":
+		cmd.PrintHelpSection("user")
+		return 0
+	case "--help-admin":
+		cmd.PrintHelpSection("admin")
 		return 0
 	}
 
@@ -147,6 +157,10 @@ func run() int {
 	switch command {
 	case "whoami":
 		err = cmd.RunWhoami(cl, cfg, rest)
+	case "quota":
+		err = cmd.RunQuota(cl, rest)
+	case "users":
+		err = cmd.RunUsers(cl, rest)
 	case "apps", "list":
 		err = cmd.RunApps(cl, rest)
 	case "create", "new":

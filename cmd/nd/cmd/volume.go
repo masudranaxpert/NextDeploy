@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,13 +45,14 @@ func RunVolume(cl *client.Client, args []string) error {
 
 func printVolumeHelp() {
 	fmt.Println("Usage: nd volume <command> [args...]")
-	fmt.Println("\nManage persistent Docker volumes:")
-	fmt.Println("  list, ls                           List all visible volumes")
+	fmt.Println("\nManage persistent Docker volumes (users see volumes attached to their apps):")
+	fmt.Println("  list, ls                           List visible volumes")
 	fmt.Println("  browse <name> [path]               Browse files inside a volume")
 	fmt.Println("  download <name> [file.tar.gz]      Download volume backup archive")
 	fmt.Println("  restore <name> <file.tar.gz>       Restore tar.gz backup into volume")
-	fmt.Println("  rm <name>                          Remove a volume")
-	fmt.Println("  prune                              Prune unused volumes (admin only)")
+	fmt.Println("  rm <name>                          Remove an owned unused volume")
+	fmt.Println("\nAdmin only:")
+	fmt.Println("  prune                              Prune all unused host volumes [admin]")
 }
 
 func runVolumeList(cl *client.Client, args []string) error {
@@ -94,7 +96,8 @@ func runVolumeBrowse(cl *client.Client, args []string) error {
 		path = args[1]
 	}
 
-	data, status, err := cl.Do("GET", "/api/v1/volumes/browse?name="+name+"&path="+path+"&format=json", nil)
+	apiPath := fmt.Sprintf("/api/v1/volumes/browse?name=%s&path=%s&format=json", url.QueryEscape(name), url.QueryEscape(path))
+	data, status, err := cl.Do("GET", apiPath, nil)
 	if err != nil {
 		return err
 	}
@@ -145,7 +148,7 @@ func runVolumeDownload(cl *client.Client, args []string) error {
 	}
 
 	fmt.Printf("→ Downloading backup for volume %s...\n", name)
-	data, status, err := cl.Do("GET", "/api/v1/volumes/download?name="+name, nil)
+	data, status, err := cl.Do("GET", "/api/v1/volumes/download?name="+url.QueryEscape(name), nil)
 	if err != nil {
 		return err
 	}
@@ -232,7 +235,7 @@ func runVolumeRemove(cl *client.Client, args []string) error {
 		return fmt.Errorf("volume name required: nd volume rm <name>")
 	}
 	name := args[0]
-	data, status, err := cl.Do("DELETE", "/api/v1/volumes/"+name, nil)
+	data, status, err := cl.Do("DELETE", "/api/v1/volumes/"+url.PathEscape(name), nil)
 	if err != nil {
 		return err
 	}
@@ -244,6 +247,9 @@ func runVolumeRemove(cl *client.Client, args []string) error {
 }
 
 func runVolumePrune(cl *client.Client, args []string) error {
+	if err := requireAdminRole(cl, "nd volume prune"); err != nil {
+		return err
+	}
 	data, status, err := cl.Do("POST", "/api/v1/volumes/prune", nil)
 	if err != nil {
 		return err

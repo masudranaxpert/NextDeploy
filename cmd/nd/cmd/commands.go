@@ -150,7 +150,7 @@ func RunLogin(args []string) error {
 	}
 
 	if token == "" {
-		fmt.Print(ui.Bold("API Token") + " (generate in panel under Developer & AI -> CLI Sessions): ")
+		fmt.Print(ui.Bold("API Token") + " (generate in panel under Automation -> CLI Sessions): ")
 		if _, err := fmt.Scanln(&token); err != nil {
 			return fmt.Errorf("failed to read token: %w", err)
 		}
@@ -216,6 +216,7 @@ func RunLogin(args []string) error {
 		Token:     token,
 		DeviceID:  cfg.EnsureDeviceID(),
 		Username:  whoamiData.Username,
+		Role:      whoamiData.Role,
 	}, true)
 
 	if err := config.Save(cfg); err != nil {
@@ -226,10 +227,14 @@ func RunLogin(args []string) error {
 	hostname, _ := os.Hostname()
 	_ = c.HeartbeatSync(hostname, runtime.GOOS, runtime.GOARCH, Version)
 
+	roleLabel := ""
+	if whoamiData.Role != "" {
+		roleLabel = fmt.Sprintf(" [%s]", whoamiData.Role)
+	}
 	if alreadyExists {
-		ui.Success("Updated credentials for account %s (%s)", ui.Bold(accountName), ui.Cyan(serverURL))
+		ui.Success("Updated credentials for account %s%s (%s)", ui.Bold(accountName), roleLabel, ui.Cyan(serverURL))
 	} else {
-		ui.Success("Logged in as %s (%s)", ui.Bold(accountName), ui.Cyan(serverURL))
+		ui.Success("Logged in as %s%s (%s)", ui.Bold(accountName), roleLabel, ui.Cyan(serverURL))
 	}
 	return nil
 }
@@ -317,6 +322,7 @@ func RunAccount(args []string) error {
 				Active    bool   `json:"active"`
 				ServerURL string `json:"server_url"`
 				Username  string `json:"username,omitempty"`
+				Role      string `json:"role,omitempty"`
 				DeviceID  string `json:"device_id,omitempty"`
 			}
 			var list []accountInfo
@@ -332,6 +338,7 @@ func RunAccount(args []string) error {
 					Active:    n == cfg.CurrentAccount,
 					ServerURL: acc.ServerURL,
 					Username:  acc.Username,
+					Role:      acc.Role,
 					DeviceID:  acc.DeviceID,
 				})
 			}
@@ -348,7 +355,7 @@ func RunAccount(args []string) error {
 			return nil
 		}
 
-		headers := []string{"Active", "Name", "User", "Server URL", "Device ID"}
+		headers := []string{"Active", "Name", "User", "Role", "Server URL", "Device ID"}
 		var rows [][]string
 		var names []string
 		for n := range cfg.Accounts {
@@ -376,6 +383,7 @@ func RunAccount(args []string) error {
 				activeMarker,
 				nameDisplay,
 				userDisplay,
+				formatRoleBadge(acc.Role),
 				ui.Cyan(acc.ServerURL),
 				ui.Dim(deviceDisplay),
 			})
@@ -457,6 +465,7 @@ func RunAccount(args []string) error {
 				"name":       curName,
 				"server_url": curAcc.ServerURL,
 				"username":   curAcc.Username,
+				"role":       curAcc.Role,
 				"device_id":  curAcc.DeviceID,
 			}
 			if vpsIP := resolveHostIP(curAcc.ServerURL); vpsIP != "" {
@@ -477,7 +486,7 @@ func RunAccount(args []string) error {
 			ui.KeyValue("VPS IP", ui.Bold(vpsIP))
 		}
 		if curAcc.Username != "" {
-			ui.KeyValue("User", curAcc.Username)
+			ui.KeyValue("User", fmt.Sprintf("%s (%s)", curAcc.Username, formatRoleBadge(curAcc.Role)))
 		}
 		if curAcc.DeviceID != "" {
 			ui.KeyValue("Device ID", ui.Dim(curAcc.DeviceID))
@@ -735,16 +744,7 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 	}
 
 	// Try fetching server-side whoami information (username, role, token_name, permissions)
-	var whoamiData struct {
-		OK                 bool   `json:"ok"`
-		Username           string `json:"username"`
-		Role               string `json:"role"`
-		TokenName          string `json:"token_name"`
-		TokenPrefix        string `json:"token_prefix"`
-		AllowEnvReveal     bool   `json:"allow_env_reveal"`
-		AllowServerExec    bool   `json:"allow_server_exec"`
-		AllowContainerExec bool   `json:"allow_container_exec"`
-	}
+	var whoamiData whoamiPayload
 
 	wBody, wStatus, wErr := cl.Do("GET", "/api/v1/cli/whoami", nil)
 	authOK := wErr == nil && wStatus < 400
@@ -782,6 +782,9 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 			out["username"] = whoamiData.Username
 			out["role"] = whoamiData.Role
 		}
+		if whoamiData.Quota != nil {
+			out["quota"] = whoamiData.Quota
+		}
 		if whoamiData.TokenName != "" {
 			out["token_name"] = whoamiData.TokenName
 			out["token_prefix"] = whoamiData.TokenPrefix
@@ -789,6 +792,7 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 				"env_reveal":     whoamiData.AllowEnvReveal,
 				"server_exec":    whoamiData.AllowServerExec,
 				"container_exec": whoamiData.AllowContainerExec,
+				"app_delete":     whoamiData.AllowAppDelete,
 			}
 		}
 		if linkedApp != "" {
@@ -810,7 +814,7 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		ui.KeyValue("VPS IP", ui.Bold(vpsIP))
 	}
 	if whoamiData.Username != "" {
-		ui.KeyValue("User", fmt.Sprintf("%s (%s)", ui.Bold(whoamiData.Username), whoamiData.Role))
+		ui.KeyValue("User", fmt.Sprintf("%s (%s)", ui.Bold(whoamiData.Username), formatRoleBadge(whoamiData.Role)))
 	}
 	if whoamiData.TokenName != "" {
 		ui.KeyValue("Token Name", ui.HiYellow(whoamiData.TokenName))
@@ -822,16 +826,22 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		if whoamiData.AllowContainerExec {
 			perms = append(perms, ui.Green("container_exec"))
 		}
-		if whoamiData.AllowServerExec {
+		if whoamiData.AllowServerExec && strings.EqualFold(whoamiData.Role, "admin") {
 			perms = append(perms, ui.Yellow("server_exec"))
 		}
 		if whoamiData.AllowEnvReveal {
-			perms = append(perms, ui.Yellow("secrets"))
+			perms = append(perms, ui.Yellow("env_reveal"))
+		}
+		if whoamiData.AllowAppDelete {
+			perms = append(perms, ui.Yellow("app_delete"))
 		}
 		if len(perms) == 0 {
 			perms = append(perms, ui.Dim("standard"))
 		}
 		ui.KeyValue("Permissions", strings.Join(perms, ", "))
+	}
+	if whoamiData.Quota != nil && !whoamiData.Quota.Unlimited && whoamiData.Quota.MaxApps > 0 {
+		ui.KeyValue("App Quota", fmt.Sprintf("%d / %d apps", whoamiData.Quota.AppsUsed, whoamiData.Quota.MaxApps))
 	}
 
 	ui.KeyValue("Device", fmt.Sprintf("%s (%s/%s)", hostname, runtime.GOOS, runtime.GOARCH))
@@ -1199,6 +1209,10 @@ func RunContainers(cl *client.Client, args []string) error {
 		}
 	}
 
+	if detectRole(cl) != "admin" {
+		return runAllPS(cl, jsonOut)
+	}
+
 	cmdArgs := []string{"docker", "ps"}
 	if hasAllFlag {
 		cmdArgs = append(cmdArgs, "-a")
@@ -1217,6 +1231,9 @@ func RunContainers(cl *client.Client, args []string) error {
 // RunImages lists Docker images on the host VPS, or falls back to app image breakdown.
 func RunImages(cl *client.Client, args []string) error {
 	jsonOut, _ := extractJSONFlag(args)
+	if detectRole(cl) != "admin" {
+		return runAppImages(cl, jsonOut)
+	}
 	cmdStr := "docker images"
 	if jsonOut {
 		cmdStr = "docker images --format {{json .}}"
@@ -1987,11 +2004,14 @@ func RunExec(cl *client.Client, args []string) error {
 	return parseAndPrintExecResult(body)
 }
 
-// RunServerExec executes a command directly on the panel host server (requires allow_server_exec).
+// RunServerExec executes a command directly on the panel host server (admin + allow_server_exec required).
 // Usage: nd server-exec <command...>
 func RunServerExec(cl *client.Client, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: nd server-exec <command...>")
+	}
+	if err := requireAdminRole(cl, "nd server-exec"); err != nil {
+		return err
 	}
 	cmdStr := posixJoin(args)
 	body, status, err := cl.DoWithTimeout("POST", "/api/v1/system/exec", map[string]interface{}{
@@ -2714,150 +2734,117 @@ func RunRestart(cl *client.Client, args []string) error {
 	return nil
 }
 
-// PrintHelp prints the CLI usage.
+// PrintHelp prints the complete CLI usage with User and Admin sections cleanly separated.
 func PrintHelp() {
-	fmt.Fprintf(os.Stderr, `nd — NextDeploy CLI (PaaS Management)
+	PrintHelpSection("")
+}
 
-Authentication & Accounts:
-  nd login <server_url> [token] [--name alias] Authenticate with an API token (auto-saves account alias)
+// PrintHelpSection prints CLI help filtered by "user", "admin", or all ("").
+func PrintHelpSection(section string) {
+	showUser := section == "" || section == "user" || section == "users"
+	showAdmin := section == "" || section == "admin"
+	if !showUser && !showAdmin {
+		showUser, showAdmin = true, true
+	}
+
+	fmt.Fprintf(os.Stderr, "nd - NextDeploy CLI (PaaS Management)\n\n")
+	fmt.Fprintf(os.Stderr, `Authentication & Account (All Roles):
+  nd login <server_url> [token] [--name alias] Authenticate with an API token (saves role & alias)
   nd logout [name] [--all]           Log out of active or specified account (--all clears all)
-  nd whoami [--json]                 Show active account, server, user, and session status
-  nd account list [--json]           List saved accounts and active status (alias: nd account)
-  nd account switch <name>           Switch active account (alias: nd account use)
-  nd account rename <old> <new>      Rename an account alias
-  nd account delete <name> [-f]      Remove an account (alias: nd account rm)
-  nd account current [--json]        Show currently active account details
+  nd whoami [--json]                 Show active account, role, quota, token scopes & session
+  nd quota [--json]                  Show application, CPU, memory & storage quota limits
+  nd account list|switch|rename|rm|current Manage saved accounts (alias: nd account)
+  nd help [user|admin]               Show full help, or filter to user / admin commands
+
+`)
+
+	if showUser {
+		fmt.Fprintf(os.Stderr, `================ USER COMMANDS (Own & Collaborator Apps) ================
 
 App Management:
-  nd apps [--json]                   List all applications
+  nd apps [--json]                   List accessible applications
   nd create <name>                   Create and link a new application
-  nd delete [app_id] [-f]            Delete an application (requires confirmation unless -f)
+  nd delete [app_id] [-f]            Delete your application (requires allow_app_delete on token)
   nd git [cmd] [app_id]              Git integration (status, on/off, providers, repos, branches, webhooks, connect, sync, push, disconnect)
   nd link <app_id>                   Link current directory to an app (.nd/project.json)
   nd unlink                          Remove link from current directory
   nd info [app_id] [--json]          Show app details, domains, health, and status (alias: nd status)
   nd open [app_id]                   Open app domain or panel URL in browser
 
-Domain Management:
-  nd domain list [app_id] [--json]   List custom domains mapped to an application (alias: nd domains)
-  nd domain add [app_id] <domain>    Add and route custom domain (--service, --port, --www, --shield <id>, --direct)
-  nd domain rm [app_id] <domain|id>  Remove custom domain mapping (alias: nd domain delete)
-
-Process & Container Inspection:
-  nd ps [app_id] [--json]            Show containers, services, state, status, and images
-  nd containers [app_id] [-a]        List all host containers, or filter by application
-  nd images [--json]                 List Docker images on the host VPS
-
-Deployments & Lifecycle:
-  nd push [app_id] [path] [--deploy] [--prune] [-y] Sync local files or single file (--deploy to auto-deploy, --prune removes server-only files)
-  nd pull [app_id] [target_dir]      Download remote workspace files to local directory (preserves local .env)
+Deployments & Containers:
+  nd push [app_id] [path] [--deploy] [--prune] [-y] Sync workspace files (--deploy builds/starts)
+  nd pull [app_id] [target_dir]      Download remote workspace files (preserves local .env)
   nd diff [app_id] [path]            Compare local files against remote workspace before sync
-  nd deploy [app_id] [--rebuild] [-f/--force] Deploy application (--rebuild to rebuild image, -f/--force to pull Git; alias: nd redeploy)
+  nd deploy [app_id] [--rebuild] [-f/--force] Deploy app (--rebuild rebuilds image, -f/--force pulls Git)
   nd stop [app_id] [service]         Stop application stack or a specific service container
-  nd restart [app_id] [service] [--recreate] Restart application stack or container (--recreate forces container rebuild)
+  nd restart [app_id] [service] [--recreate] Restart stack or container (--recreate rebuilds container)
   nd down [app_id]                   Stop and remove application containers
-  nd logs [app_id] [-s svc] [-n 50] [-f] Show container logs (--deploy to view deployment build logs)
+  nd ps [app_id] [--json]            Show containers, services, states, and images
+  nd logs [app_id] [-s svc] [-n 50] [-f] Stream container logs (--deploy for build logs)
+  nd exec [flags] [app_id] <cmd...>  Run command inside container (requires allow_container_exec)
+  nd shell [app_id] [-c container]   Open interactive TTY shell into app container or PHP runtime
 
-Execution & Shell:
-  nd exec [flags] [app_id] <cmd...>  Run command inside container (supports -it, -i/--stdin, -t/--timeout)
-  nd shell [app_id] [-c container]   Open interactive bash/sh TTY shell into container or PHP site
-  nd server-exec <cmd...>            Run command directly on host VPS (requires allow_server_exec)
-  nd server-shell                    Open interactive admin TTY root terminal on host VPS
+Domains, Env, Files & Personal Proxy Routes:
+  nd domain list|add|rm [app_id]     Manage app custom domains (--service, --port, --www)
+  nd env list|get|set|unset [app_id] Manage environment variables (get requires allow_env_reveal)
+  nd files [path] [-r] [--json]      List workspace files (aliases: nd file list, nd ls)
+  nd file read|write|edit|rm <path>  Read, write, interactively edit, or delete workspace files
+  nd folder rm <path> [-f]           Delete workspace folder recursively
+  nd proxy list|add|enable|disable|toggle|rm Manage your personal reverse proxy & redirect routes
 
-PHP & Database Hosting:
-  nd php list                        List all PHP and WordPress sites
+PHP Hosting & Databases:
+  nd php list                        List accessible PHP, WordPress, and static sites
   nd php create <name> [domain] [flags] Create a PHP/WordPress/static site (--domain, --no-default-domain, --db)
-  nd php info [app_id]               Show PHP runtime, extensions, docroot, and pool status
-  nd php set [app_id] [flags]        Update PHP version, upload limits, memory, extensions
-  nd php stop [app_id]               Stop a PHP or static site (removes its proxy route & frees the pool)
-  nd php start [app_id]              Start a stopped PHP or static site and restore its proxy route
-  nd php restart [app_id]            Restart PHP-FPM runtime container
-  nd php rules list|scan|fallback|add|import|export|rm  Manage routing rules & batch .htaccess import
-  nd php import-manifest <file.json> Batch provision sites, custom domains, DBs & routing
-  nd php fix-perms [app_id]          Repair file ownership & POSIX permissions (755/775/644)
+  nd php info|set [app_id]           Inspect or update PHP version, memory & upload limits
+  nd php start|stop|restart [app_id] Control PHP/static site status and proxy route
+  nd php rules list|scan|fallback|add|import|export|rm Manage URL routing & .htaccess import
+  nd php import-manifest <file.json> Batch provision sites, domains, DBs & rules
+  nd php fix-perms [app_id]          Repair htdocs ownership & POSIX permissions
   nd php pma [app_id]                Generate one-click auto-login SSO URL for phpMyAdmin
   nd php db list|create|grant|user   Manage MariaDB databases, users & privileges (alias: nd db)
-  nd php cron list|add|rm|run        Manage scheduled cron jobs (--schedule/--command or positional)
+  nd php cron list|add|rm|run        Manage scheduled PHP cron jobs
 
-Volumes & Storage:
-  nd volume list [app_id]            List persistent Docker volumes and disk sizes
-  nd volume browse <vol> [path]      Browse files within a Docker volume
-  nd volume download <vol> <path>    Download file from volume to local machine
-  nd volume restore <vol> <tar.gz>   Restore volume contents from tar.gz backup
-  nd volume rm <vol>                 Remove a Docker volume
-  nd volume prune                    Prune unused Docker volumes
+Volumes, Backups & Activity:
+  nd volume list|browse|download|restore|rm Manage Docker volumes owned by your apps
+  nd backup list|create|log|restore|schedule|dest Manage backups for your apps and personal destinations
+  nd shield list [--json]            View available Edge Shield nodes for domain routing
+  nd audit [-n 25]                   View audit trail for your account and accessible apps
 
-Backups:
-  nd backup list [app_id]            List backup snapshots and statuses
-  nd backup create [app_id]          Trigger immediate manual backup snapshot
-  nd backup log <id>                 View backup run log
-  nd backup restore <id>             Restore application or system from backup
-  nd backup schedule [app_id]        Configure automated backup schedule
-  nd backup dest list|add            Manage remote S3/storage backup destinations
+`)
+	}
 
-Proxy & Edge Shield:
-  nd proxy list [--json]             List reverse proxy routes (Caddy, Angie or Ferron)
-  nd proxy add <domain> <upstream>   Add custom reverse proxy or redirect (--shield <id>, --direct)
-  nd proxy enable|disable|toggle <id> Enable, disable, or flip a proxy route
-  nd proxy rm <id>                   Remove proxy route
-  nd proxy reload                    Re-apply the proxy configuration without downtime
-  nd proxy logs [-n N] [-f]          View or stream the reverse proxy logs
-  nd proxy status [--json]           Show the active proxy engine and its live status
-  nd proxy options [show|set]        View or update global proxy timeouts and Real-IP mode
-  nd proxy engine [status|preflight|set] Show, check or switch the proxy engine (caddy, angie, ferron)
-  nd shield list [--json]            List edge shield proxy nodes
-  nd shield add <name> <ip>          Register a new edge shield node
-  nd shield update <id> [flags]      Update an edge shield node (--name, --ip)
-  nd shield rm <id>                  Remove an edge shield node
-  nd shield rotate-token <id>        Rotate a shield node's bearer token
-  nd shield test <node_id>           Test edge shield proxy node connectivity
-  nd shield setup-script [id]        Output bash setup command for edge shield server
-  nd shield reassign <src> [dst]     Reassign domains from source shield to target (or direct)
-  nd edge <subcommand>               Manage the multi-panel Edge Shield daemon and its proxy (Caddy, Angie, Ferron) on a Shield VPS (run 'nd edge --help')
+	if showAdmin {
+		fmt.Fprintf(os.Stderr, `================ ADMIN COMMANDS (Host & Infrastructure) =================
 
-System Monitoring & Maintenance:
-  nd top / stats                     Live system resource monitor (CPU, RAM, disk, containers)
-  nd clean [--all]                   Prune Docker build cache, dangling images, and containers
-  nd audit                           Audit panel security, active sessions, and permissions
+Host VPS & Global Inspection [admin]:
+  nd containers [-a] [--json]        List ALL host Docker containers (users see only own apps)
+  nd images [--json]                 List ALL host Docker images (users see only own app images)
+  nd top / stats                     Host CPU, RAM, disk & container telemetry
+  nd clean [--all]                   Prune stopped containers, unused images & build cache
+  nd volume prune                    Prune unused host Docker volumes
+  nd server-exec <cmd...>            Run command on host VPS (admin + allow_server_exec)
+  nd server-shell                    Open interactive admin host shell on VPS
+  nd audit [-n 25]                   View full panel-wide security and operation audit trail
+  nd users [list] [--json]           List all panel users, roles, status & resource quotas
 
-Environment Variables:
-  nd env list [app_id] [--json]      List configured environment variable keys
-  nd env get [app_id] <KEY>          Reveal an environment variable value (alias: nd env reveal)
-  nd env set [app_id] KEY=VAL ...    Set or update environment variables
-  nd env unset [app_id] <KEY> ...    Remove environment variables (alias: nd env rm)
+Reverse Proxy Engine & Edge Shield [admin]:
+  nd proxy reload|logs|status|options|engine Control global proxy engine (caddy, angie, ferron)
+  nd shield add|update|rm|rotate-token|test|setup-script|reassign Manage Edge Shield nodes
+  nd edge <subcommand>               Manage multi-panel Edge Shield daemon on an Edge VPS (nd edge --help)
 
-File & Folder Management:
-  nd files [path] [-r] [--json]      List workspace files and directories (alias: nd file list, nd ls)
-  nd file read <path> [--full] [-o file] View or download remote file content (alias: nd cat)
-  nd file write <path> [content|file] Write/upload file to workspace (supports stdin, --from)
-  nd file edit <path>                Interactively edit remote file in $EDITOR (alias: nd edit)
-  nd file rm <path> [-r] [-f]        Delete remote file or directory (alias: nd rm)
-  nd folder rm <path> [-f]           Delete remote directory and contents (alias: nd folder delete)
+`)
+	}
 
-Other:
-  nd update                          Update nd CLI to the latest release from GitHub
+	fmt.Fprintf(os.Stderr, `Other:
+  nd update                          Update nd CLI to the latest GitHub release
   nd completion [bash|zsh|ps1]       Generate shell autocompletion script
   nd version                         Print version
-  nd help                            Print this help
 
-Flags:
-  -A, --account <name>               Target specific saved account (overrides active account)
-  -a, --app <app_id>                 Target application ID (overrides linked directory)
-  -j, --json                         Output structured JSON (compatible with CI/CD and AI agents)
-  -s, --service <service>            Target compose service for exec / logs / stop / restart
-  -c, --container <container>        Target specific container name for exec / shell
-  -w, --workdir <dir>                Working directory inside container
-  -t, --timeout <secs>               Execution timeout in seconds (default: 300s, max: 3600s)
-  -i, --stdin                        Forward stdin to command inside container
-  -it, --interactive                 Run interactive TTY session (for exec)
-  -e, --error                        Stream PHP error log (for logs)
-  --recreate                         Force recreate containers during restart
-  --server                           Execute on host VPS instead of container
-
-Environment variables:
-  ND_ACCOUNT                         Active account name fallback/override
-  ND_SERVER_URL                      Panel URL fallback (e.g. in CI/CD)
-  ND_TOKEN                           API token fallback
+Global Flags & Env:
+  -A, --account <name>               Target specific saved account
+  -a, --app <app_id>                 Target application ID (overrides .nd/project.json)
+  -j, --json                         Output structured JSON
+  ND_ACCOUNT / ND_SERVER_URL / ND_TOKEN Environment overrides
 `)
 }
 

@@ -384,6 +384,7 @@ export interface MigrationExportBundle {
 
 export interface CliSessionItem {
   id: string;
+  tokenId?: string;
   tokenName: string;
   prefix: string;
   fullToken?: string;
@@ -393,6 +394,12 @@ export interface CliSessionItem {
   lastCommand: string;
   lastActiveAt: string;
   ipAddress: string;
+  permissions?: {
+    allow_env_reveal: boolean;
+    allow_container_exec: boolean;
+    allow_server_exec: boolean;
+    allow_app_delete: boolean;
+  };
 }
 
 export interface PanelUser {

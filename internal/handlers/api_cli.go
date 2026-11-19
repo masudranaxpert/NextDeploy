@@ -193,12 +193,21 @@ func (p *Panel) APICliHeartbeat(c *fiber.Ctx) error {
 	})
 }
 
-// APICliWhoami returns authenticated user and token metadata for nd whoami.
+// APICliWhoami returns authenticated user and token metadata for nd whoami and nd quota.
 // GET /api/v1/cli/whoami
 func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
+	ctx := c.UserContext()
 	u, ok := currentUser(c)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	userApps, _ := p.DB.ListAppsForUser(ctx, u.ID)
+	ownedApps := 0
+	for _, a := range userApps {
+		if a.OwnerID == u.ID {
+			ownedApps++
+		}
 	}
 
 	res := fiber.Map{
@@ -206,6 +215,14 @@ func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
 		"user_id":  u.ID,
 		"username": u.Username,
 		"role":     u.Role,
+		"quota": fiber.Map{
+			"unlimited":      u.Role == db.RoleAdmin,
+			"max_apps":       u.MaxApps,
+			"apps_used":      ownedApps,
+			"max_memory_mb":  u.MaxMemoryMB,
+			"max_cpus":       u.MaxCPUs,
+			"max_storage_mb": u.MaxStorageMB,
+		},
 	}
 	if tok, ok := c.Locals("api_token").(db.APIToken); ok && tok.ID > 0 {
 		res["token_name"] = tok.Name
@@ -213,11 +230,56 @@ func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
 		res["allow_env_reveal"] = tok.AllowEnvReveal
 		res["allow_server_exec"] = tok.AllowServerExec
 		res["allow_container_exec"] = tok.AllowContainerExec
+		res["allow_app_delete"] = tok.AllowAppDelete
 		if tok.CreatedAt.Unix() > 0 {
 			res["created_at"] = tok.CreatedAt.Format("2006-01-02 15:04")
 		}
 	}
 	return c.JSON(res)
+}
+
+// APIAdminUsersList lists all panel users and their quotas (admin only).
+// GET /api/v1/admin/users
+func (p *Panel) APIAdminUsersList(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "admin privileges required"})
+	}
+	users, err := p.DB.ListUsers(ctx)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	type userRow struct {
+		ID           int64   `json:"id"`
+		Username     string  `json:"username"`
+		Role         string  `json:"role"`
+		Status       string  `json:"status"`
+		MaxApps      int     `json:"max_apps"`
+		MaxMemoryMB  int     `json:"max_memory_mb"`
+		MaxCPUs      float64 `json:"max_cpus"`
+		MaxStorageMB int     `json:"max_storage_mb"`
+		CreatedAt    string  `json:"created_at"`
+	}
+	out := make([]userRow, 0, len(users))
+	for _, usr := range users {
+		st := usr.Status
+		if st == "" {
+			st = "active"
+		}
+		out = append(out, userRow{
+			ID:           usr.ID,
+			Username:     usr.Username,
+			Role:         usr.Role,
+			Status:       st,
+			MaxApps:      usr.MaxApps,
+			MaxMemoryMB:  usr.MaxMemoryMB,
+			MaxCPUs:      usr.MaxCPUs,
+			MaxStorageMB: usr.MaxStorageMB,
+			CreatedAt:    usr.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return c.JSON(out)
 }
 
 // APICliSessionDelete removes a CLI session on logout/exit.
@@ -275,6 +337,14 @@ func (p *Panel) CLISessionsPage(c *fiber.Ctx) error {
 	sessions, err := p.DB.ListCLISessions()
 	if err != nil {
 		sessions = nil
+	} else if u.Role != db.RoleAdmin {
+		own := make([]db.CLISession, 0, len(sessions))
+		for _, s := range sessions {
+			if s.UserID == u.ID {
+				own = append(own, s)
+			}
+		}
+		sessions = own
 	}
 
 	var tokens []db.APIToken
@@ -317,7 +387,7 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 	}
 
 	allowEnvReveal := c.FormValue("allow_env_reveal") == "1" || c.FormValue("allow_env_reveal") == "on"
-	allowServerExec := c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on"
+	allowServerExec := u.Role == db.RoleAdmin && (c.FormValue("allow_server_exec") == "1" || c.FormValue("allow_server_exec") == "on")
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
 	allowAppDelete := c.FormValue("allow_app_delete") == "1" || c.FormValue("allow_app_delete") == "on"
 
@@ -384,6 +454,12 @@ func (p *Panel) ToggleCLITokenServerExecPost(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
+	}
+	if u.Role != db.RoleAdmin {
+		if WantsJSON(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin privileges required to enable server_exec"})
+		}
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden")
 	}
 	id, err := c.ParamsInt("id")
 	if err != nil {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -55,10 +56,10 @@ func runBackupList(cl *client.Client, args []string) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		appID, _, _ := resolveAppID(args)
 		if appID != "" {
-			urlPath += "?app_id=" + appID
+			urlPath += "?app_id=" + url.QueryEscape(appID)
 		}
 	} else if pc, err := config.LoadProject("."); err == nil && pc.AppID != "" {
-		urlPath += "?app_id=" + pc.AppID
+		urlPath += "?app_id=" + url.QueryEscape(pc.AppID)
 	}
 
 	data, status, err := cl.Do("GET", urlPath, nil)
@@ -146,7 +147,7 @@ func runBackupLog(cl *client.Client, args []string) error {
 		return fmt.Errorf("history ID required: nd backup log [app_id] <history_id>")
 	}
 
-	data, status, err := cl.Do("GET", "/api/v1/backups/history/"+histID+"/log", nil)
+	data, status, err := cl.Do("GET", "/api/v1/backups/history/"+url.PathEscape(histID)+"/log", nil)
 	if err != nil {
 		return err
 	}
@@ -210,7 +211,7 @@ func runBackupRestore(cl *client.Client, args []string) error {
 	}
 
 	fmt.Printf("→ Restoring app %s from backup #%s...\n", appID, histID)
-	data, status, err := cl.Do("POST", "/api/v1/backups/restore/"+histID, nil)
+	data, status, err := cl.Do("POST", "/api/v1/backups/restore/"+url.PathEscape(histID), nil)
 	if err != nil {
 		return err
 	}
@@ -244,7 +245,7 @@ func runBackupSchedule(cl *client.Client, args []string) error {
 		}
 		path := "/api/v1/backups/schedules"
 		if appID != "" {
-			path += "?app_id=" + appID
+			path += "?app_id=" + url.QueryEscape(appID)
 		}
 		data, status, err := cl.Do("GET", path, nil)
 		if err != nil {
@@ -362,7 +363,7 @@ func runBackupSchedule(cl *client.Client, args []string) error {
 		if schedID == "" {
 			return fmt.Errorf("schedule ID required: nd backup schedule rm [app_id] <schedule_id>")
 		}
-		data, status, err := cl.Do("DELETE", "/api/v1/backups/schedules/"+schedID, nil)
+		data, status, err := cl.Do("DELETE", "/api/v1/backups/schedules/"+url.PathEscape(schedID), nil)
 		if err != nil {
 			return err
 		}

@@ -60,10 +60,13 @@ func RunShell(cl *client.Client, args []string) error {
 func RunServerShell(cl *client.Client, args []string) error {
 	for _, arg := range args {
 		if arg == "-h" || arg == "--help" {
-			fmt.Println("Usage: nd server-shell")
+			fmt.Println("Usage: nd server-shell  [admin]")
 			fmt.Println("\nOpen an interactive administrator host shell on the VPS.")
 			return nil
 		}
+	}
+	if err := requireAdminRole(cl, "nd server-shell"); err != nil {
+		return err
 	}
 	return runPTYSession(cl, "/api/v1/ws/host-terminal", "", "")
 }

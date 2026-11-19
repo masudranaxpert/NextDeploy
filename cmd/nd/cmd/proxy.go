@@ -37,14 +37,29 @@ func RunProxy(cl *client.Client, args []string) error {
 	case "toggle":
 		return runProxyToggle(cl, rest)
 	case "reload":
+		if err := requireAdminRole(cl, "nd proxy reload"); err != nil {
+			return err
+		}
 		return runProxyReload(cl, rest)
 	case "logs":
+		if err := requireAdminRole(cl, "nd proxy logs"); err != nil {
+			return err
+		}
 		return runProxyLogs(cl, rest)
 	case "status":
+		if err := requireAdminRole(cl, "nd proxy status"); err != nil {
+			return err
+		}
 		return runProxyStatus(cl, rest)
 	case "options":
+		if err := requireAdminRole(cl, "nd proxy options"); err != nil {
+			return err
+		}
 		return runProxyOptions(cl, rest)
 	case "engine":
+		if err := requireAdminRole(cl, "nd proxy engine"); err != nil {
+			return err
+		}
 		return runProxyEngine(cl, rest)
 	default:
 		return fmt.Errorf("unknown proxy command %q. Run 'nd proxy --help' for usage", sub)
@@ -53,23 +68,24 @@ func RunProxy(cl *client.Client, args []string) error {
 
 func printProxyHelp() {
 	fmt.Println("Usage: nd proxy <command> [args...]")
-	fmt.Println("\nManage Caddy reverse proxy routes and global configuration:")
-	fmt.Println("  list, ls [--json]                            List custom reverse proxy routes")
+	fmt.Println("\nUser Routes (scoped to your own custom proxy/redirect routes):")
+	fmt.Println("  list, ls [--json]                            List reverse proxy routes")
 	fmt.Println("  add <domain> <upstream> [flags]              Add reverse proxy or redirect route")
 	fmt.Println("      --type proxy|redirect                    Route kind (default: proxy)")
-	fmt.Println("      --shield <id> | --direct                 Route via Shield node or direct origin")
+	fmt.Println("      --shield <id> | --direct                 Route via Shield node or direct origin [admin for custom node]")
 	fmt.Println("      --www | --no-https | --disabled          Enable www alias / skip HTTPS / start disabled")
 	fmt.Println("      --skip-tls-verify | --trusted-proxy      Upstream TLS skip / trust forwarded IP headers")
 	fmt.Println("      --keep-path | --redirect-code <code>     Redirect path preservation / status (301/302/307/308)")
-	fmt.Println("  enable <route_id>                            Enable a proxy route and re-apply the proxy")
-	fmt.Println("  disable <route_id>                           Disable a proxy route and re-apply the proxy")
+	fmt.Println("  enable <route_id>                            Enable a proxy route and re-apply")
+	fmt.Println("  disable <route_id>                           Disable a proxy route and re-apply")
 	fmt.Println("  toggle <route_id> [on|off]                   Toggle or explicitly set route state")
 	fmt.Println("  rm <route_id>                                Delete a proxy route")
-	fmt.Println("  reload                                       Re-apply the proxy configuration and routes")
-	fmt.Println("  logs [-n lines] [-f|--follow] [--json]       View or stream the reverse proxy logs")
-	fmt.Println("  status [--json]                              Show the active proxy engine and its live status")
-	fmt.Println("  options [show|set [flags]] [--json]          View or update global proxy timeouts & Real-IP")
-	fmt.Println("  engine [status|preflight <e>|set <e> --yes]  Show or switch the proxy engine (caddy, angie, ferron)")
+	fmt.Println("\nAdmin Proxy Engine & Global Config [admin only]:")
+	fmt.Println("  reload                                       Re-apply global proxy configuration [admin]")
+	fmt.Println("  logs [-n lines] [-f|--follow] [--json]       View or stream reverse proxy logs [admin]")
+	fmt.Println("  status [--json]                              Show active proxy engine and live status [admin]")
+	fmt.Println("  options [show|set [flags]] [--json]          View or update global timeouts & Real-IP [admin]")
+	fmt.Println("  engine [status|preflight <e>|set <e> --yes]  Inspect or switch proxy engine (caddy, angie, ferron) [admin]")
 }
 
 func runProxyList(cl *client.Client, args []string) error {
