@@ -895,20 +895,46 @@ func runEdgeDomainList(ops *edgeOps, args []string) error {
 		return nil
 	}
 	if len(rows) == 0 {
-		fmt.Fprintln(ops.stdout, "No manual domains configured.")
+		fmt.Fprintln(ops.stdout, ui.Dim("No manual domains configured. Add one with: nd edge domain add <domain> <upstream>"))
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "%-28s %-14s %-8s %-8s %-30s %s\n", "DOMAIN", "SOURCE", "TLS", "STATE", "UPSTREAMS", "NOTE")
-	fmt.Fprintln(ops.stdout, strings.Repeat("-", 104))
+	tableRows := make([][]string, 0, len(rows))
+	manualCount := 0
 	for _, r := range rows {
 		state := "enabled"
 		if !r.Enabled {
 			state = "disabled"
 		}
-		fmt.Fprintf(ops.stdout, "%-28s %-14s %-8s %-8s %-30s %s\n",
-			r.Domain, r.Source, r.TLS, state, strings.Join(r.Upstreams, ","), r.Note)
+		src := ui.Dim(r.Source)
+		if r.Source == "manual" {
+			manualCount++
+			src = ui.Cyan("manual")
+		}
+		tlsLabel := r.TLS
+		switch r.TLS {
+		case edge.ManualTLSAuto:
+			tlsLabel = ui.Cyan(r.TLS)
+		case edge.ManualTLSManual:
+			tlsLabel = ui.Green(r.TLS)
+		case edge.ManualTLSNone:
+			tlsLabel = ui.Yellow(r.TLS)
+		}
+		note := r.Note
+		if note == "" {
+			note = ui.Dim("-")
+		}
+		tableRows = append(tableRows, []string{
+			ui.Bold(r.Domain),
+			src,
+			tlsLabel,
+			ui.EdgeStatusBadge(state),
+			strings.Join(r.Upstreams, ","),
+			note,
+		})
 	}
+	ui.PrintTable(ops.stdout, []string{"DOMAIN", "SOURCE", "TLS", "STATE", "UPSTREAMS", "NOTE"}, tableRows)
+	fmt.Fprintf(ops.stdout, "\n%s\n", ui.Dim(fmt.Sprintf("Total: %d domain(s) (%d manual, %d panel)", len(rows), manualCount, len(rows)-manualCount)))
 	return nil
 }
 
@@ -974,19 +1000,41 @@ func runEdgeDomainShow(ops *edgeOps, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "Domain:          %s (id: %s)\n", entry.Domain, entry.ID)
-	fmt.Fprintf(ops.stdout, "Enabled:         %v\n", entry.Enabled)
-	fmt.Fprintf(ops.stdout, "Hosts:           %s\n", strings.Join(entry.AllHosts(), ", "))
-	fmt.Fprintf(ops.stdout, "Upstreams:       %s (lb: %s)\n", formatUpstreamSummary(entry.Upstreams), entry.EffectiveLB())
-	fmt.Fprintf(ops.stdout, "TLS:             %s (force-https: %v)\n", entry.TLS, entry.EffectiveForceHTTPS())
-	if entry.CertFile != "" {
-		fmt.Fprintf(ops.stdout, "Manual Cert:     %s (key: %s)\n", entry.CertFile, entry.KeyFile)
+	stateStr := "enabled"
+	if !entry.Enabled {
+		stateStr = "disabled"
 	}
-	fmt.Fprintf(ops.stdout, "Origin Opts:     host=%s no-verify=%v sni=%q\n", entry.EffectiveHostHeader(), entry.Origin.NoVerify, entry.Origin.SNI)
-	fmt.Fprintf(ops.stdout, "Proxy Settings:  websocket=%v max-body=%d timeout=%ds connect=%ds keepalive=%d real-ip=%q\n",
-		entry.EffectiveWebsocket(), entry.MaxBodyBytes, entry.EffectiveTimeoutSec(), entry.EffectiveConnectTimeoutSec(), entry.EffectiveKeepalive(), entry.RealIP)
+	fmt.Fprintf(ops.stdout, "%s  %s\n", ui.HiCyan(entry.Domain), ui.EdgeStatusBadge(stateStr))
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("ID:"), entry.ID)
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Hosts:"), strings.Join(entry.AllHosts(), ", "))
+	fmt.Fprintf(ops.stdout, "  %-16s %s (lb: %s)\n", ui.Dim("Upstreams:"), ui.Cyan(formatUpstreamSummary(entry.Upstreams)), entry.EffectiveLB())
+	fmt.Fprintf(ops.stdout, "  %-16s %s (force-https: %v)\n", ui.Dim("TLS:"), entry.TLS, entry.EffectiveForceHTTPS())
+	if entry.CertFile != "" {
+		fmt.Fprintf(ops.stdout, "  %-16s %s (key: %s)\n", ui.Dim("Manual Cert:"), entry.CertFile, entry.KeyFile)
+	}
+	fmt.Fprintf(ops.stdout, "  %-16s host=%s no-verify=%v sni=%q\n", ui.Dim("Origin Opts:"), entry.EffectiveHostHeader(), entry.Origin.NoVerify, entry.Origin.SNI)
+	realIPDisplay := entry.RealIP
+	if realIPDisplay == "" {
+		realIPDisplay = "inherit"
+	}
+	fmt.Fprintf(ops.stdout, "  %-16s websocket=%v max-body=%d timeout=%ds connect=%ds keepalive=%d real-ip=%s\n",
+		ui.Dim("Proxy Settings:"), entry.EffectiveWebsocket(), entry.MaxBodyBytes, entry.EffectiveTimeoutSec(), entry.EffectiveConnectTimeoutSec(), entry.EffectiveKeepalive(), realIPDisplay)
+	if len(entry.HeadersUp) > 0 {
+		pairs := make([]string, len(entry.HeadersUp))
+		for i, h := range entry.HeadersUp {
+			pairs[i] = h.Name + "=" + h.Value
+		}
+		fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Headers Up:"), strings.Join(pairs, ", "))
+	}
+	if len(entry.HeadersDown) > 0 {
+		pairs := make([]string, len(entry.HeadersDown))
+		for i, h := range entry.HeadersDown {
+			pairs[i] = h.Name + "=" + h.Value
+		}
+		fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Headers Down:"), strings.Join(pairs, ", "))
+	}
 	if entry.Note != "" {
-		fmt.Fprintf(ops.stdout, "Note:            %s\n", entry.Note)
+		fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Note:"), entry.Note)
 	}
 	return nil
 }
@@ -1027,16 +1075,27 @@ func runEdgeDomainRestore(ops *edgeOps, args []string) error {
 			return nil
 		}
 		if len(trashFile.Entries) == 0 {
-			fmt.Fprintln(ops.stdout, "Trash is empty.")
+			fmt.Fprintln(ops.stdout, ui.Dim("Trash is empty."))
 			return nil
 		}
-		fmt.Fprintf(ops.stdout, "%-28s %-14s %-22s %s\n", "DOMAIN", "REASON", "REMOVED AT", "EXPIRES IN")
-		fmt.Fprintln(ops.stdout, strings.Repeat("-", 84))
+		tableRows := make([][]string, 0, len(trashFile.Entries))
 		for _, item := range trashFile.Entries {
 			rem := item.RemovedAt.Add(edge.ManualTrashRetention).Sub(now)
 			days := int(rem.Hours() / 24)
-			fmt.Fprintf(ops.stdout, "%-28s %-14s %-22s %dd\n", item.Entry.Domain, item.Reason, item.RemovedAt.Format(time.RFC3339), days)
+			expStr := fmt.Sprintf("%dd", days)
+			if days <= 5 {
+				expStr = ui.Red(expStr)
+			} else {
+				expStr = ui.Yellow(expStr)
+			}
+			tableRows = append(tableRows, []string{
+				ui.Bold(item.Entry.Domain),
+				ui.Yellow(item.Reason),
+				item.RemovedAt.Format(time.RFC3339),
+				expStr,
+			})
 		}
+		ui.PrintTable(ops.stdout, []string{"DOMAIN", "REASON", "REMOVED AT", "EXPIRES IN"}, tableRows)
 		return nil
 	}
 

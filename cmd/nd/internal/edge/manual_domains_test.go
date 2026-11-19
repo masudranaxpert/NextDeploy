@@ -575,3 +575,18 @@ func TestManualPruneAndOriginHealth(t *testing.T) {
 		t.Fatalf("expected only dead.example.com pruned, got %+v", cands3)
 	}
 }
+
+func TestAngieManualUpstreamResolvesHostnames(t *testing.T) {
+	var b strings.Builder
+	writeAngieManualUpstream(&b, "m_x", ManualDomainEntry{Upstreams: []ManualUpstream{
+		{Scheme: "https", Host: "origin.example.com", Port: 443},
+		{Scheme: "http", Host: "10.0.0.5", Port: 80},
+		{Scheme: "http", Host: "2001:db8::1", Port: 8080},
+	}})
+	out := b.String()
+	for _, want := range []string{"server origin.example.com:443 resolve;", "server 10.0.0.5:80;", "server [2001:db8::1]:8080;"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

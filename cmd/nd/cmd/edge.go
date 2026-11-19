@@ -1530,16 +1530,26 @@ func runEdgeList(ops *edgeOps, args []string) error {
 	}
 
 	if len(items) == 0 {
-		fmt.Fprintln(ops.stdout, "No panels registered. Add one with: nd edge add-panel --panel-url <url> --token-stdin")
+		fmt.Fprintln(ops.stdout, ui.Dim("No panels registered. Add one with: nd edge add-panel --panel-url <url> --token-stdin"))
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "%-36s %-16s %-12s %-7s %-10s %s\n", "PANEL ID", "NAME", "SYNC STATE", "HOSTS", "CONFLICTS", "URL")
-	fmt.Fprintln(ops.stdout, strings.Repeat("─", 104))
+	tableRows := make([][]string, 0, len(items))
 	for _, it := range items {
-		fmt.Fprintf(ops.stdout, "%-36s %-16s %-12s %-7d %-10d %s\n",
-			it.PanelID, it.PanelName, it.SyncState, it.HostCount, it.Conflicts, it.URL)
+		conflictsStr := strconv.Itoa(it.Conflicts)
+		if it.Conflicts > 0 {
+			conflictsStr = ui.Red(conflictsStr)
+		}
+		tableRows = append(tableRows, []string{
+			ui.Dim(it.PanelID),
+			ui.Bold(it.PanelName),
+			ui.EdgeStatusBadge(it.SyncState),
+			strconv.Itoa(it.HostCount),
+			conflictsStr,
+			ui.Cyan(it.URL),
+		})
 	}
+	ui.PrintTable(ops.stdout, []string{"PANEL ID", "NAME", "SYNC STATE", "HOSTS", "CONFLICTS", "URL"}, tableRows)
 	return nil
 }
 
@@ -1672,30 +1682,45 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		return nil
 	}
 
+	proxyState := ui.Red("○ stopped")
+	if proxyActive {
+		proxyState = ui.Green("● running")
+	}
 	if cfg.EngineName() == edge.EngineCaddy {
-		fmt.Fprintf(ops.stdout, "Edge ID: %s | Panels: %d | Gen: %d | Caddy running: %v\n",
-			cfg.EdgeID, len(cfg.Panels), meta.CurrentGen, proxyActive)
+		fmt.Fprintf(ops.stdout, "Edge ID: %s | Panels: %d | Gen: %d | Caddy: %s\n",
+			ui.Cyan(cfg.EdgeID), len(cfg.Panels), meta.CurrentGen, proxyState)
 	} else {
-		fmt.Fprintf(ops.stdout, "Edge ID: %s | Engine: %s | Panels: %d | Gen: %d | Proxy running: %v\n",
-			cfg.EdgeID, cfg.EngineName(), len(cfg.Panels), meta.CurrentGen, proxyActive)
+		fmt.Fprintf(ops.stdout, "Edge ID: %s | Engine: %s | Panels: %d | Gen: %d | Proxy: %s\n",
+			ui.Cyan(cfg.EdgeID), ui.HiCyan(cfg.EngineName()), len(cfg.Panels), meta.CurrentGen, proxyState)
 	}
 	if meta.LastApplyError != "" {
-		fmt.Fprintf(ops.stdout, "Last Apply Error: %s\n", meta.LastApplyError)
+		fmt.Fprintf(ops.stdout, "%s %s\n", ui.Red("Last Apply Error:"), meta.LastApplyError)
 	}
 	if len(rows) == 0 {
-		fmt.Fprintln(ops.stdout, "No hosts matched.")
+		fmt.Fprintln(ops.stdout, ui.Dim("No hosts matched."))
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "\n%-32s %-16s %-18s %-22s %s\n", "HOST", "SOURCE", "STATE", "CERT EXPIRY", "DETAIL")
-	fmt.Fprintln(ops.stdout, strings.Repeat("─", 104))
+	fmt.Fprintln(ops.stdout)
+	tableRows := make([][]string, 0, len(rows))
 	for _, r := range rows {
 		exp := r.CertNotAfter
 		if exp == "" {
-			exp = "-"
+			exp = ui.Dim("-")
 		}
-		fmt.Fprintf(ops.stdout, "%-32s %-16s %-18s %-22s %s\n", r.Host, r.Source, r.State, exp, r.Detail)
+		src := ui.Dim(r.Source)
+		if r.Source == "manual" {
+			src = ui.Cyan("manual")
+		}
+		tableRows = append(tableRows, []string{
+			ui.Bold(r.Host),
+			src,
+			ui.EdgeStatusBadge(r.State),
+			exp,
+			r.Detail,
+		})
 	}
+	ui.PrintTable(ops.stdout, []string{"HOST", "SOURCE", "STATE", "CERT EXPIRY", "DETAIL"}, tableRows)
 	return nil
 }
 

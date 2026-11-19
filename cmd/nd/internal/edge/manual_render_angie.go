@@ -2,6 +2,7 @@ package edge
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,7 +142,14 @@ func writeAngieManualUpstream(b *strings.Builder, name string, e ManualDomainEnt
 		}
 	}
 	for _, u := range e.Upstreams {
-		fmt.Fprintf(b, "\tserver %s;\n", u.HostPort())
+		// A hostname is resolved at run time through the common.conf resolver: without
+		// "resolve" Angie looks it up once at reload, keeps a stale IP when the origin moves,
+		// and a temporarily failing lookup makes `angie -t` reject the whole config.
+		if net.ParseIP(strings.Trim(u.Host, "[]")) == nil {
+			fmt.Fprintf(b, "\tserver %s resolve;\n", u.HostPort())
+		} else {
+			fmt.Fprintf(b, "\tserver %s;\n", u.HostPort())
+		}
 	}
 	if ka := e.EffectiveKeepalive(); ka > 0 {
 		fmt.Fprintf(b, "\tkeepalive %d;\n", ka)

@@ -511,6 +511,7 @@ func (p *Panel) PHPSiteDetail(c *fiber.Ctx) error {
 		"wp_cache_plugins":          wpCachePlugins,
 		"proxy_engine":              p.ProxyEngine(),
 		"page_cache_supported":      p.pageCacheSupported(),
+		"fpm_health":                p.phpFPMHealth(ctx, site, settings, ceil),
 		"limits": fiber.Map{
 			"max_memory_mb":  ceil.MemoryMB,
 			"max_storage_mb": ceil.StorageMB,
@@ -751,4 +752,13 @@ func (p *Panel) pageCacheSupported() bool {
 		return p.ProxyEngine() != "ferron"
 	}
 	return d.Capabilities().WordPressPageCache
+}
+
+// phpFPMHealth reports PHP-FPM worker saturation for PHP/WordPress sites (static sites have no pool).
+func (p *Panel) phpFPMHealth(ctx context.Context, site db.PHPSite, s phphosting.SiteSettings, ceil phphosting.Ceilings) *phphosting.FPMHealth {
+	if site.SiteType == phphosting.SiteTypeStatic || p.PHP == nil {
+		return nil
+	}
+	h := p.PHP.FPMHealth(ctx, site, s, ceil)
+	return &h
 }

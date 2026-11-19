@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
-	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 )
@@ -76,27 +77,93 @@ func HealthBadge(healthy bool) string {
 	return Red("unhealthy")
 }
 
-// PrintTable formats tabular data with proper dynamic tab alignment and styled headers.
+var ansiCSIRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+func visibleWidth(s string) int {
+	plain := ansiCSIRe.ReplaceAllString(s, "")
+	return utf8.RuneCountInString(plain)
+}
+
+// PrintTable formats tabular data with ANSI-aware dynamic column alignment and styled headers.
 func PrintTable(w io.Writer, headers []string, rows [][]string) {
 	if w == nil {
 		w = os.Stdout
 	}
-	var buf bytes.Buffer
-	tw := tabwriter.NewWriter(&buf, 0, 4, 3, ' ', 0)
+	cols := len(headers)
+	for _, r := range rows {
+		if len(r) > cols {
+			cols = len(r)
+		}
+	}
+	if cols == 0 {
+		return
+	}
 
-	// Format headers with bold uppercase styling
+	widths := make([]int, cols)
 	styledHeaders := make([]string, len(headers))
 	for i, h := range headers {
-		styledHeaders[i] = Bold(strings.ToUpper(h))
+		up := strings.ToUpper(h)
+		styledHeaders[i] = Bold(up)
+		if l := utf8.RuneCountInString(up); l > widths[i] {
+			widths[i] = l
+		}
 	}
-	fmt.Fprintln(tw, strings.Join(styledHeaders, "\t"))
-
-	// Print data rows
-	for _, row := range rows {
-		fmt.Fprintln(tw, strings.Join(row, "\t"))
+	for _, r := range rows {
+		for i, cell := range r {
+			if vw := visibleWidth(cell); vw > widths[i] {
+				widths[i] = vw
+			}
+		}
 	}
-	_ = tw.Flush()
 
-	// Print to destination
+	var buf bytes.Buffer
+	writeRow := func(cells []string) {
+		for i := 0; i < cols; i++ {
+			cell := ""
+			if i < len(cells) {
+				cell = cells[i]
+			}
+			buf.WriteString(cell)
+			if i < cols-1 {
+				pad := widths[i] - visibleWidth(cell) + 3
+				if pad < 1 {
+					pad = 1
+				}
+				buf.WriteString(strings.Repeat(" ", pad))
+			}
+		}
+		buf.WriteByte('\n')
+	}
+
+	writeRow(styledHeaders)
+	seps := make([]string, cols)
+	for i := 0; i < cols; i++ {
+		seps[i] = Dim(strings.Repeat("─", widths[i]))
+	}
+	writeRow(seps)
+	for _, r := range rows {
+		writeRow(r)
+	}
 	fmt.Fprint(w, buf.String())
+}
+
+// EdgeStatusBadge formats proxy, TLS, DNS, origin, or manual-domain states with semantic colors.
+func EdgeStatusBadge(state string) string {
+	low := strings.ToLower(strings.TrimSpace(state))
+	switch {
+	case low == "ok" || low == "up" || low == "active" || low == "enabled" || low == "synced" || strings.HasPrefix(low, "valid"):
+		return Green("● " + state)
+	case low == "ok_proxied":
+		return Cyan("● " + state)
+	case low == "issuing" || low == "pending" || strings.HasPrefix(low, "pending_") || low == "dns_drift" || strings.HasPrefix(low, "expiring") || low == "warning":
+		return Yellow("◐ " + state)
+	case low == "disabled":
+		return Dim("○ " + state)
+	case low == "unknown" || low == "none" || low == "-":
+		return Dim(state)
+	case low == "conflict" || low == "cert_error" || low == "error" || low == "nxdomain" || low == "no_records" || low == "elsewhere" || low == "refused" || low == "timeout" || low == "tls_error" || low == "missing" || low == "acme_failing" || low == "held_mass_delete":
+		return Red("✗ " + state)
+	default:
+		return state
+	}
 }
