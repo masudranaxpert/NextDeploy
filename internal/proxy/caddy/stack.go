@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	icaddy "panel/internal/caddy"
 	"panel/internal/db"
 	"panel/internal/proxy"
+	"panel/internal/runutil"
+	icaddy "panel/internal/caddy"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,6 +39,7 @@ func (d *Driver) StackService(opts proxy.StackOptions) (map[string]any, map[stri
 				"container_name": containerName,
 				"image":          image,
 				"restart":        "unless-stopped",
+				"logging":        runutil.ComposeLogging(),
 				"ports": []any{
 					"80:80",
 					"443:443/tcp",

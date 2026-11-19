@@ -173,8 +173,12 @@ export function useProxyStack(
         }
       }
       if (ticks > 30 && pollTimerRef.current) {
+        // Stop polling, but do not leave the banner spinning forever.
         window.clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
+        setApplyBanner({ status: 'idle', message: '' });
+        toast.info('Still applying in the background. Refresh the config view in a moment to see the result.');
+        void loadOverview();
       }
     }, 1500);
   };
@@ -235,7 +239,14 @@ export function useProxyStack(
     const res = await backendApi.proxyContainerAction(action);
     setActionPending(null);
     if (res.ok) {
-      toast.success(`Proxy action "${action}" completed`);
+      const done: Record<ProxyContainerActionType, string> = {
+        start: 'Proxy started',
+        force_start: 'Ports 80/443 freed and proxy started',
+        restart: 'Proxy restarted',
+        stop: 'Proxy stopped',
+        reconcile_network: 'Proxy network reconnected',
+      };
+      toast.success(done[action]);
       void loadOverview();
       void loadLogs();
     } else {

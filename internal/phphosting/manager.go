@@ -89,7 +89,20 @@ func docker(ctx context.Context, args ...string) runutil.Result {
 			defer status.reset()
 		}
 	}
-	return runutil.Run(ctx, "", nil, append([]string{"docker"}, args...)...)
+	return runutil.Run(ctx, "", nil, append([]string{"docker"}, withLogRotation(args)...)...)
+}
+
+// withLogRotation gives every long-lived container started here (`docker run -d`: PHP runtimes,
+// route holders, MySQL, Redis, phpMyAdmin) a size-capped log. One-off `docker run --rm` helpers
+// are left alone.
+func withLogRotation(args []string) []string {
+	if len(args) < 2 || args[0] != "run" || args[1] != "-d" {
+		return args
+	}
+	out := make([]string, 0, len(args)+6)
+	out = append(out, args[:2]...)
+	out = append(out, runutil.DockerLogArgs()...)
+	return append(out, args[2:]...)
 }
 
 // statusCache keeps the results of the status calls that every page load needs (docker ps, the

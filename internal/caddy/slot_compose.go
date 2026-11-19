@@ -7,6 +7,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/proxy"
+	"panel/internal/runutil"
 
 	"gopkg.in/yaml.v3"
 )
@@ -238,6 +239,14 @@ func GenerateSlotMergedComposeWithEnvAndLabeler(base []byte, projectName, slot, 
 				continue
 			}
 			svc["cgroup_parent"] = cg
+			services[svcKey] = svc
+		}
+	}
+
+	// Size-capped container logs unless the app's compose sets its own logging.
+	for svcKey, rawSvc := range services {
+		if svc, ok := toStringMap(rawSvc); ok {
+			runutil.SetDefaultComposeLogging(svc)
 			services[svcKey] = svc
 		}
 	}

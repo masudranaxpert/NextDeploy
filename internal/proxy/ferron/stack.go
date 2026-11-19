@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"panel/internal/proxy"
+	"panel/internal/runutil"
 )
 
 // StackService builds the Docker Compose service definition and top-level named
@@ -88,6 +89,7 @@ func (d *Driver) StackService(opts proxy.StackOptions) (map[string]any, map[stri
 		"container_name": containerName,
 		"user":           "0:0",
 		"restart":        "unless-stopped",
+		"logging":        runutil.ComposeLogging(),
 		"command": []string{
 			"/usr/local/bin/ferron",
 			"run",

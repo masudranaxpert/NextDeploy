@@ -12,6 +12,11 @@ services:
         image: lucaslorentz/caddy-docker-proxy:ci-alpine
         labels:
             caddy.metrics: '{{""}}'
+        logging:
+            driver: json-file
+            options:
+                max-file: "3"
+                max-size: 8m
         networks:
             - nextdeploy
         ports:
@@ -32,6 +37,11 @@ services:
             PANEL_PERF_LOG: "false"
             WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
+        logging:
+            driver: json-file
+            options:
+                max-file: "3"
+                max-size: 8m
         networks:
             - nextdeploy
         ports:

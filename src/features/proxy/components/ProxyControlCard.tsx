@@ -44,6 +44,10 @@ export const ProxyControlCard: React.FC<ProxyControlCardProps> = ({
   const normalized = normalizeProxyEngine(engine);
   const showAdminApiField = supportsAdminApi && normalized === 'caddy';
   const showImageField = normalized === 'caddy';
+  const busy = actionPending !== null;
+  const runConfirmed = (action: ProxyContainerActionType, question: string) => {
+    if (window.confirm(question)) onLifecycleAction(action);
+  };
 
   return (
     <div className="rounded-xl border border-white/[0.08] bg-[#111115] p-4 sm:p-5 space-y-4">
@@ -84,6 +88,9 @@ export const ProxyControlCard: React.FC<ProxyControlCardProps> = ({
               placeholder="admin@example.com"
               className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 placeholder:text-zinc-400 focus:border-orange-500/50 focus:outline-none"
             />
+            <p className="text-[11px] text-zinc-500">
+              Optional. Certificates are issued and renewed without it; the CA only uses it to contact you about your account.
+            </p>
           </div>
 
           {showImageField && (
@@ -121,8 +128,8 @@ export const ProxyControlCard: React.FC<ProxyControlCardProps> = ({
         ) : (
           <div className="rounded-lg border border-white/[0.06] bg-[#09090b] px-3 py-2 text-[11px] text-zinc-400">
             {normalized === 'angie'
-              ? 'Angie runs cleanly without a Docker Admin API socket; changes apply via staged config validation and reload.'
-              : 'Ferron applies rendered YAML configuration with health verification and automatic rollback.'}
+              ? 'Angie needs no admin API. Each change is written to a new config, checked with angie -t, and applied with a graceful reload, so open connections are not dropped. A config that fails the check is never applied.'
+              : 'Ferron needs no admin API. Each change is written to a new config, checked, and applied; if the proxy does not come back healthy, the previous config is restored automatically.'}
           </div>
         )}
 
@@ -130,47 +137,61 @@ export const ProxyControlCard: React.FC<ProxyControlCardProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={actionPending !== null}
+              disabled={busy || running}
+              title={running ? 'The proxy is already running' : 'Start the proxy container'}
               onClick={() => onLifecycleAction('start')}
-              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Play className="h-3.5 w-3.5" />
+              {actionPending === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Start
             </button>
             <button
               type="button"
-              disabled={actionPending !== null}
-              onClick={() => onLifecycleAction('restart')}
-              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+              disabled={busy || !running}
+              title={running ? 'Restart the proxy container (sites are unreachable for a few seconds)' : 'The proxy is stopped; use Start'}
+              onClick={() =>
+                runConfirmed('restart', 'Restart the reverse proxy? All sites are unreachable for a few seconds.')
+              }
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${actionPending === 'restart' ? 'animate-spin' : ''}`} />
               Restart
             </button>
             <button
               type="button"
-              disabled={actionPending !== null}
-              onClick={() => onLifecycleAction('stop')}
-              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-rose-500/25 bg-rose-500/10 text-xs font-medium text-rose-200 hover:bg-rose-500/20 disabled:opacity-50 cursor-pointer"
+              disabled={busy || !running}
+              title={running ? 'Stop the proxy container' : 'The proxy is already stopped'}
+              onClick={() =>
+                runConfirmed('stop', 'Stop the reverse proxy? Every site and the panel domain stop answering until it is started again.')
+              }
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-rose-500/25 bg-rose-500/10 text-xs font-medium text-rose-200 hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Power className="h-3.5 w-3.5" />
+              {actionPending === 'stop' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
               Stop
             </button>
             <button
               type="button"
-              disabled={actionPending !== null}
-              onClick={() => onLifecycleAction('force_start')}
-              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+              disabled={busy}
+              title="Free ports 80/443 on the host, then start the proxy"
+              onClick={() =>
+                runConfirmed(
+                  'force_start',
+                  'Force start frees ports 80 and 443 on the host: it stops and disables host nginx, apache, caddy, lighttpd and traefik and kills any other process on those ports, then starts the proxy. Continue?'
+                )
+              }
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Recreate
+              {actionPending === 'force_start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              Force start
             </button>
             <button
               type="button"
-              disabled={actionPending !== null}
+              disabled={busy}
+              title="Reconnect the proxy container to the panel network"
               onClick={() => onLifecycleAction('reconcile_network')}
-              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 sm:h-8 px-3 rounded-lg border border-white/[0.09] bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Network className="h-3.5 w-3.5" />
+              {actionPending === 'reconcile_network' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Network className="h-3.5 w-3.5" />}
               Reconcile Network
             </button>
           </div>

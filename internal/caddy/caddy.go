@@ -20,6 +20,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/proxy"
+	"panel/internal/runutil"
 
 	"gopkg.in/yaml.v3"
 )
@@ -350,6 +351,14 @@ func GenerateMergedComposeWithLabeler(base []byte, projectName, appID string, do
 		}
 	}
 
+	// Size-capped container logs unless the app's compose sets its own logging.
+	for svcKey, rawSvc := range services {
+		if svc, ok := toStringMap(rawSvc); ok {
+			runutil.SetDefaultComposeLogging(svc)
+			services[svcKey] = svc
+		}
+	}
+
 	byService := map[string][]db.AppDomain{}
 	for _, d := range sortedDomains(domains) {
 		service := cleanQuotedValue(d.Service)
@@ -600,8 +609,8 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	}
 	attachNetwork(caddySvc, PanelNetworkKey)
 	mergeEnv(caddySvc, map[string]string{
-		"CADDY_INGRESS_NETWORKS":              PanelNetworkName,
-		"CADDY_ADMIN":                         "0.0.0.0:2019",
+		"CADDY_INGRESS_NETWORKS":               PanelNetworkName,
+		"CADDY_ADMIN":                          "0.0.0.0:2019",
 		"CADDY_DOCKER_POLLING_INTERVAL":        "5s",
 		"CADDY_DOCKER_EVENT_THROTTLE_INTERVAL": "50ms",
 	})
@@ -626,6 +635,7 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	}
 	mergeNDSharedMountsIntoDoc(doc, caddySvc, sharedMounts)
 	MergeCaddyGatewayPorts(caddySvc, gatewayPorts)
+	runutil.SetDefaultComposeLogging(caddySvc)
 	services["caddy"] = caddySvc
 
 	rawPanel, ok := services["panel"]
@@ -656,6 +666,9 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 		}
 		mergeLabels(panelSvc, panelLabels)
 	}
+	// Takes effect the next time the panel container itself is recreated (panel update);
+	// proxy syncs only run `compose up` for the proxy service.
+	runutil.SetDefaultComposeLogging(panelSvc)
 	services["panel"] = panelSvc
 	doc["services"] = services
 

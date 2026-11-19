@@ -477,14 +477,14 @@ func (p *Panel) CaddyContainerAction(c *fiber.Ctx) error {
 	var err error
 	switch action {
 	case "reconcile_network":
-		err = dockerapi.EnsureCaddySharedNetwork(ctx)
+		err = dockerapi.EnsureProxySharedNetwork(ctx, p.proxyServiceKey())
 	case "start":
 		err = dockerapi.StartContainerByName(ctx, p.proxyServiceKey())
 		if err != nil && p.nextDeployComposePath() != "" {
 			p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 			err = nil
 		} else if err == nil {
-			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+			_ = dockerapi.EnsureProxySharedNetwork(ctx, p.proxyServiceKey())
 		}
 	case "force_start":
 		killCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -518,12 +518,12 @@ sleep 0.3
 			p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 			err = nil
 		} else if err == nil {
-			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+			_ = dockerapi.EnsureProxySharedNetwork(ctx, p.proxyServiceKey())
 		}
 	case "restart":
 		err = dockerapi.RestartContainerByName(ctx, p.proxyServiceKey())
 		if err == nil {
-			_ = dockerapi.EnsureCaddySharedNetwork(ctx)
+			_ = dockerapi.EnsureProxySharedNetwork(ctx, p.proxyServiceKey())
 		}
 	case "stop":
 		err = dockerapi.StopContainerByName(ctx, p.proxyServiceKey())

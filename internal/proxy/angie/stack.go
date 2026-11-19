@@ -10,6 +10,7 @@ import (
 
 	"panel/internal/proxy"
 	"panel/internal/proxy/pki"
+	"panel/internal/runutil"
 )
 
 const (
@@ -99,6 +100,7 @@ func (d *Driver) StackService(opts proxy.StackOptions) (map[string]any, map[stri
 		"container_name": containerName,
 		"image":          image,
 		"restart":        "unless-stopped",
+		"logging":        runutil.ComposeLogging(),
 		"networks":       []any{netKey},
 		"ports":          ports,
 		"ulimits": map[string]any{
