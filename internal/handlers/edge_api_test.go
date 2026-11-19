@@ -71,6 +71,7 @@ func TestEdgeRegisterRoutesStatusUnregister(t *testing.T) {
 			return caPEM, caSHA, "ok"
 		},
 	}
+	defer p.WaitBackground()
 	app := newTestEdgeApp(p)
 	ctx := context.Background()
 

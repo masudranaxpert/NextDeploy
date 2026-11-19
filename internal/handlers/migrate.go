@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -392,8 +393,53 @@ func (t *migrateImportTracker) addLog(msg string) {
 	}
 }
 
+func validateMigrateBundleURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("invalid bundle URL")
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("bundle URL must use http or https")
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return fmt.Errorf("bundle URL host is required")
+	}
+	lowerHost := strings.ToLower(host)
+	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
+		return fmt.Errorf("bundle URL cannot target localhost")
+	}
+	checkIP := func(ip net.IP) error {
+		if ip == nil {
+			return nil
+		}
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("bundle URL cannot target loopback or link-local addresses")
+		}
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return checkIP(ip)
+	}
+	ips, err := net.LookupIP(host)
+	if err == nil {
+		for _, ip := range ips {
+			if err := checkIP(ip); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // POST /migrate/import-upload
 func (p *Panel) MigrateImportUpload(c *fiber.Ctx) error {
+	u, ok := currentUser(c)
+	if !ok || u.Role != db.RoleAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "admin privileges required"})
+	}
+
 	globalMigrateImport.mu.Lock()
 	if globalMigrateImport.Running {
 		globalMigrateImport.mu.Unlock()
@@ -443,10 +489,27 @@ func (p *Panel) MigrateImportUpload(c *fiber.Ctx) error {
 			globalMigrateImport.mu.Unlock()
 			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "Provide an uploaded .nd-migrate file or a remote bundle URL"})
 		}
+		if verr := validateMigrateBundleURL(bundleURL); verr != nil {
+			globalMigrateImport.mu.Lock()
+			globalMigrateImport.Running = false
+			globalMigrateImport.Status = "failed"
+			globalMigrateImport.Error = verr.Error()
+			globalMigrateImport.mu.Unlock()
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": verr.Error()})
+		}
 
-		go func(url string, dest string, reset bool) {
-			globalMigrateImport.addLog("Downloading bundle from " + url)
-			resp, derr := http.Get(url)
+		go func(rawURL string, dest string, reset bool) {
+			globalMigrateImport.addLog("Downloading bundle from " + rawURL)
+			dlClient := &http.Client{
+				Timeout: 30 * time.Minute,
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					if len(via) >= 5 {
+						return fmt.Errorf("too many redirects")
+					}
+					return validateMigrateBundleURL(req.URL.String())
+				},
+			}
+			resp, derr := dlClient.Get(rawURL)
 			if derr != nil {
 				globalMigrateImport.mu.Lock()
 				globalMigrateImport.Running = false

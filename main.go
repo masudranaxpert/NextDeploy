@@ -462,7 +462,7 @@ func main() {
 	app.Get("/migrate/estimate", p.MigrateEstimate)
 	app.Post("/migrate/import-upload", p.RequireAdminMiddleware, p.MigrateImportUpload)
 	app.Get("/migrate/import/status", p.RequireAdminMiddleware, p.MigrateImportStatus)
-	app.Post("/api/v1/migrate/import", p.APIAuthMiddleware, p.MigrateImportUpload)
+	app.Post("/api/v1/migrate/import", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.MigrateImportUpload)
 	app.Get("/settings", p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Get("/api/v1/settings", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.SettingsPageOrJSON)
 	app.Post("/settings", p.RequireAdminMiddleware, p.SettingsSave)

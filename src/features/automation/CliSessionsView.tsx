@@ -9,6 +9,8 @@ import {
   Terminal,
   ShieldCheck,
   UserCheck,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CliSessionItem } from '../../types/nextdeploy';
@@ -61,6 +63,7 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
   const [installCliOpen, setInstallCliOpen] = useState(false);
   const [tokenLabel, setTokenLabel] = useState('');
   const [revealedCliTokens, setRevealedCliTokens] = useState<Record<string, boolean>>({});
+  const [refOpen, setRefOpen] = useState(false);
   const [refRoleTab, setRefRoleTab] = useState<'user' | 'admin'>(isAdmin ? 'admin' : 'user');
   const [tokenPerms, setTokenPerms] = useState<
     Record<
@@ -264,52 +267,75 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
         </div>
       </div>
 
-      {/* Role-separated CLI command reference */}
-      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div>
-            <h2 className="text-xs font-semibold text-zinc-100">CLI Command Reference (nd)</h2>
-            <p className="text-[11px] text-zinc-500">
-              Commands are separated by role. Run <code className="text-zinc-300">nd help user</code> or <code className="text-zinc-300">nd help admin</code> locally.
-            </p>
+      {/* Role-separated CLI command reference (collapsed dropdown by default) */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setRefOpen((prev) => !prev)}
+          aria-expanded={refOpen}
+          aria-controls="cli-command-reference-panel"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-white/[0.02] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Terminal className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-semibold text-zinc-100">CLI Command Reference (nd)</h2>
+                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                  {isAdmin ? `${USER_CLI_COMMANDS.length} user / ${ADMIN_CLI_COMMANDS.length} admin` : `${USER_CLI_COMMANDS.length} user`}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-500 truncate">
+                Commands are separated by role. Run <code className="text-zinc-300">nd help user</code> or <code className="text-zinc-300">nd help admin</code> locally.
+              </p>
+            </div>
           </div>
-          {isAdmin && (
-            <div className="inline-flex rounded-lg border border-white/[0.08] bg-zinc-950 p-0.5 text-[11px] self-start">
-              <button
-                type="button"
-                onClick={() => setRefRoleTab('user')}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
-                  refRoleTab === 'user' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <UserCheck className="h-3 w-3 text-cyan-400" />
-                User Commands
-              </button>
-              <button
-                type="button"
-                onClick={() => setRefRoleTab('admin')}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
-                  refRoleTab === 'admin' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <ShieldCheck className="h-3 w-3 text-amber-400" />
-                Admin Commands
-              </button>
-            </div>
-          )}
-        </div>
+          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 shrink-0">
+            <span>{refOpen ? 'Hide' : 'Show'}</span>
+            {refOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </span>
+        </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {(isAdmin && refRoleTab === 'admin' ? ADMIN_CLI_COMMANDS : USER_CLI_COMMANDS).map((item) => (
-            <div
-              key={item.cmd}
-              className="flex flex-col justify-between rounded-lg border border-white/[0.06] bg-[#09090b]/80 px-3 py-2"
-            >
-              <code className="font-mono text-[11px] text-orange-300">{item.cmd}</code>
-              <span className="mt-0.5 text-[11px] text-zinc-400">{item.desc}</span>
+        {refOpen && (
+          <div id="cli-command-reference-panel" className="border-t border-white/[0.07] p-4 space-y-3">
+            {isAdmin && (
+              <div className="inline-flex rounded-lg border border-white/[0.08] bg-zinc-950 p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setRefRoleTab('user')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
+                    refRoleTab === 'user' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <UserCheck className="h-3 w-3 text-cyan-400" />
+                  User Commands
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRefRoleTab('admin')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
+                    refRoleTab === 'admin' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <ShieldCheck className="h-3 w-3 text-amber-400" />
+                  Admin Commands
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {(isAdmin && refRoleTab === 'admin' ? ADMIN_CLI_COMMANDS : USER_CLI_COMMANDS).map((item) => (
+                <div
+                  key={item.cmd}
+                  className="flex flex-col justify-between rounded-lg border border-white/[0.06] bg-[#09090b]/80 px-3 py-2"
+                >
+                  <code className="font-mono text-[11px] text-orange-300">{item.cmd}</code>
+                  <span className="mt-0.5 text-[11px] text-zinc-400">{item.desc}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
 
       <ShadcnDialog

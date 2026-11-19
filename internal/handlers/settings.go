@@ -747,7 +747,9 @@ func (p *Panel) applyRootStackComposeBackground(composeFile string, services ...
 	}
 	spec := strings.Join(services, " ")
 	p.setRootApplyStatus("Queued: docker compose up -d " + spec + ".")
+	p.bgWg.Add(1)
 	go func() {
+		defer p.bgWg.Done()
 		p.rootApplyMu.Lock()
 		defer p.rootApplyMu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -790,7 +792,9 @@ func (p *Panel) triggerRootCaddySync() {
 		p.syncAndApplyRootCaddyIfNeeded(context.Background())
 		return
 	}
+	p.bgWg.Add(1)
 	go func() {
+		defer p.bgWg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		p.syncAndApplyRootCaddyIfNeeded(ctx)

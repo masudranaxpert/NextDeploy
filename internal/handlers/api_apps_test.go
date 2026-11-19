@@ -31,6 +31,7 @@ func setupAPIAppsTestServer(t *testing.T) (*Panel, *fiber.App, string, string, s
 		Store:          workspace.NewStore(tmpDir),
 		WorkspacesRoot: tmpDir,
 	}
+	t.Cleanup(p.WaitBackground)
 
 	ctx := context.Background()
 	adminID, err := store.CreateUser(ctx, "admin1", "hash", db.RoleAdmin)
@@ -74,6 +75,7 @@ func setupAPIAppsTestServer(t *testing.T) (*Panel, *fiber.App, string, string, s
 	app.Get("/api/v1/apps/:id/files", p.APIAuthMiddleware, p.APIAppFilesList)
 	app.Post("/api/v1/system/exec", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APISystemExec)
 	app.Get("/api/v1/admin/users", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APIAdminUsersList)
+	app.Post("/api/v1/migrate/import", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.MigrateImportUpload)
 	app.Post("/cli-sessions/tokens", p.APIAuthMiddleware, p.CreateCLITokenPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.APIAuthMiddleware, p.ToggleCLITokenServerExecPost)
 	app.Post("/cli-sessions/tokens/:id/toggle-reveal", p.APIAuthMiddleware, p.ToggleCLITokenEnvRevealPost)
@@ -249,5 +251,23 @@ func TestAPIAppsREST_RBACAndScopes(t *testing.T) {
 	tResp, _ := app.Test(togReq, 5000)
 	if tResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 when non-admin toggles server_exec, got %d", tResp.StatusCode)
+	}
+
+	// Non-admin must be rejected with 403 on /api/v1/migrate/import
+	resp, _ = doJSONReq(t, app, http.MethodPost, "/api/v1/migrate/import", userTok, map[string]any{
+		"bundle_url": "https://example.com/bundle.nd-migrate",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 when non-admin calls /api/v1/migrate/import, got %d", resp.StatusCode)
+	}
+
+	// Admin sending SSRF / non-http bundle_url must be rejected with 400
+	for _, badURL := range []string{"file:///etc/passwd", "http://169.254.169.254/latest/meta-data", "http://localhost:8080/x"} {
+		resp, _ = doJSONReq(t, app, http.MethodPost, "/api/v1/migrate/import", adminTok, map[string]any{
+			"bundle_url": badURL,
+		})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 for unsafe bundle_url %q, got %d", badURL, resp.StatusCode)
+		}
 	}
 }

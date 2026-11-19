@@ -424,7 +424,9 @@ func (p *Panel) SyncAndApplyBackground(ctx context.Context, appID string) error 
 		standbyProj = p.SlotProjectName(app, appID, standbySlot)
 		standbyPaths = p.EffectiveComposePathsForSlot(ctx, app, appID, standbySlot)
 	}
+	p.bgWg.Add(1)
 	go func() {
+		defer p.bgWg.Done()
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		res := composeUp(bgCtx, dir, paths, project, nil, envFiles)

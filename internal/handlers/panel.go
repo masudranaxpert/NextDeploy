@@ -74,6 +74,7 @@ type Panel struct {
 	edgeRateMap             map[string]*edgeRateWindow
 	rootComposeMu           sync.Mutex
 	rootApplyMu             sync.Mutex
+	bgWg                    sync.WaitGroup
 	applyRootStackComposeFn func(composeFile string, services ...string)
 	inspectLivePortStateFn  func(ctx context.Context) (*dockerapi.LivePortState, error)
 	composeUpNoBuildFn      func(ctx context.Context, dir string, paths []string, project string, logW io.Writer, envFiles []string) dockerx.Result
@@ -104,6 +105,11 @@ func (p *Panel) MarkSetupComplete() {
 
 func (p *Panel) ClearSetupComplete() {
 	p.setupDone.Store(false)
+}
+
+// WaitBackground waits for background compose/proxy sync goroutines tracked by bgWg.
+func (p *Panel) WaitBackground() {
+	p.bgWg.Wait()
 }
 
 func (p *Panel) setupRedirectNeeded(ctx context.Context) (bool, error) {
