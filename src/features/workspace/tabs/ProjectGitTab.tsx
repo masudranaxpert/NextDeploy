@@ -100,10 +100,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     }
   };
 
-  const loadPublicBranches = async (targetUrl: string) => {
+  const loadPublicBranches = async (targetUrl: string, silent = false) => {
     const cleaned = targetUrl.trim();
     if (!cleaned) {
-      toast.error('Enter a repository URL first');
+      if (!silent) toast.error('Enter a repository URL first');
       return;
     }
     setIsLoadingBranches(true);
@@ -111,7 +111,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       const res = await backendApi.publicGitRemoteBranches(app.id, cleaned);
       if (res.ok && Array.isArray(res.data?.branches)) {
         setProviderBranches(res.data.branches);
-      } else {
+      } else if (!silent) {
         toast.error(res.error || 'Could not fetch remote branches');
       }
     } finally {
@@ -123,7 +123,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     pid: string,
     currentRepoUrl = repoUrl,
     currentFullName = selectedRepoFullName,
-    isCancelled?: () => boolean
+    isCancelled?: () => boolean,
+    switchToPublicIfMissing = false
   ) => {
     if (!pid) {
       setProviderRepos([]);
@@ -148,6 +149,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
             setSelectedRepoFullName(exists.full_name);
             setRepoUrl(exists.clone_url);
             void loadProviderBranches(pid, exists.full_name);
+          } else if (switchToPublicIfMissing && normUrl && repos.length < 100) {
+            setAuthMode('public');
+            setSelectedProviderId('');
+            setProviderRepos([]);
+            void loadPublicBranches(currentRepoUrl, true);
           } else if (!normUrl) {
             const target = repos[0];
             setSelectedRepoFullName(target.full_name);
@@ -207,7 +213,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           const initialFull = app.gitRepo
             ? app.gitRepo.replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/\.git$/, '')
             : '';
-          void loadProviderRepos(preferredId, app.gitRepo || '', initialFull, () => !live);
+          void loadProviderRepos(preferredId, app.gitRepo || '', initialFull, () => !live, Boolean(app.gitRepo));
         }
       }
     });
@@ -556,8 +562,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                     <option value="">No repositories found</option>
                   ) : (
                     !selectedRepoListed && (
-                      <option value="" disabled>
-                        Select a repository
+                      <option value="">
+                        Select a repository from this account
                       </option>
                     )
                   )}

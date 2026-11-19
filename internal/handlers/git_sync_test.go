@@ -218,3 +218,48 @@ func TestGitSyncRequiresConfig(t *testing.T) {
 		t.Fatal("expected an error when no repository is configured")
 	}
 }
+
+func TestApplyDefaultGitProvider_ExternalPublicVsOwnedRepo(t *testing.T) {
+	p, _ := gitSyncTestPanel(t)
+	ctx := context.Background()
+	users, err := p.DB.ListUsers(ctx)
+	if err != nil || len(users) == 0 {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	owner := users[0]
+
+	pid, err := p.DB.CreateGitProvider(ctx, &owner.ID, "GitHub - habib2500a1", "github", "", "")
+	if err != nil {
+		t.Fatalf("CreateGitProvider: %v", err)
+	}
+	if err := p.DB.UpsertGitHubProviderDetail(ctx, db.GitHubProviderDetail{
+		ProviderID:     pid,
+		GitHubAppID:    "12345",
+		InstallationID: "67890",
+		AccountLogin:   "habib2500a1",
+	}); err != nil {
+		t.Fatalf("UpsertGitHubProviderDetail: %v", err)
+	}
+
+	// External public repository must NOT auto-link habib2500a1's GitHub App
+	extCfg := db.AppGitConfig{
+		Provider:     "github",
+		RepoURL:      "https://github.com/masudranaxpert/photos-reverse-engine.git",
+		RepoFullName: "masudranaxpert/photos-reverse-engine",
+	}
+	p.applyDefaultGitProvider(ctx, owner, &extCfg)
+	if extCfg.AuthMode != "public" || extCfg.GitProviderID != 0 {
+		t.Fatalf("expected external repo to remain public with no provider, got mode=%q pid=%d", extCfg.AuthMode, extCfg.GitProviderID)
+	}
+
+	// Repository owned by connected account links the GitHub App
+	ownedCfg := db.AppGitConfig{
+		Provider:     "github",
+		RepoURL:      "https://github.com/habib2500a1/instnat-help-me.git",
+		RepoFullName: "habib2500a1/instnat-help-me",
+	}
+	p.applyDefaultGitProvider(ctx, owner, &ownedCfg)
+	if ownedCfg.AuthMode != "github_app" || ownedCfg.GitProviderID != pid {
+		t.Fatalf("expected owned repo to link github_app pid=%d, got mode=%q pid=%d", pid, ownedCfg.AuthMode, ownedCfg.GitProviderID)
+	}
+}

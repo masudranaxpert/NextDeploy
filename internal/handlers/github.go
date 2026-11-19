@@ -239,12 +239,33 @@ func (p *Panel) SyncGitAppSource(ctx context.Context, appID string) (string, err
 	if err != nil {
 		return "", err
 	}
-	var res gitx.Result
-	if gitx.RepoExists(repoDir) {
-		res = gitx.Pull(ctx, repoDir, cfg.Branch, cfg.AuthMode, token)
-	} else {
+	runSyncGit := func(mode, tok string) gitx.Result {
+		if gitx.RepoExists(repoDir) {
+			return gitx.Pull(ctx, repoDir, cfg.Branch, mode, tok)
+		}
 		_ = os.RemoveAll(repoDir)
-		res = gitx.Clone(ctx, repoDir, cfg.RepoURL, cfg.Branch, cfg.AuthMode, token)
+		return gitx.Clone(ctx, repoDir, cfg.RepoURL, cfg.Branch, mode, tok)
+	}
+	res := runSyncGit(cfg.AuthMode, token)
+	if !res.OK {
+		out := res.Output
+		lowerOut := strings.ToLower(out)
+		authOrNotFound := strings.Contains(lowerOut, "could not read username") ||
+			strings.Contains(lowerOut, "authentication failed") ||
+			strings.Contains(lowerOut, "not found") ||
+			strings.Contains(lowerOut, "terminal prompts disabled")
+		// If a public repo was mistakenly linked to an unrelated GitHub App / token, try unauthenticated public access.
+		if authOrNotFound && cfg.AuthMode != "public" {
+			if pubRes := runSyncGit("public", ""); pubRes.OK {
+				res = pubRes
+				cfg.AuthMode = "public"
+				cfg.GitProviderID = 0
+				cfg.Token = ""
+				cfg.AppGitID = ""
+				cfg.InstallationID = ""
+				cfg.PrivateKeyPEM = ""
+			}
+		}
 	}
 	if !res.OK {
 		out := res.Output

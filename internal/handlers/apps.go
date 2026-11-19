@@ -114,39 +114,7 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 			if strings.Contains(strings.ToLower(repoURL), "gitlab") {
 				cfg.Provider = "gitlab"
 			}
-			// Auto-link connected git provider only when caller did not pick public/explicit token mode
-			if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
-				providers, _ := p.DB.ListGitProviders(c.UserContext(), &u.ID)
-				if len(providers) == 0 && u.Role == db.RoleAdmin {
-					providers, _ = p.DB.ListGitProviders(c.UserContext(), nil)
-				}
-				for _, gp := range providers {
-					if gp.Provider == cfg.Provider {
-						cfg.GitProviderID = gp.ID
-						if strings.TrimSpace(gp.Token) != "" {
-							cfg.AuthMode = "token"
-							if cfg.Provider == "gitlab" {
-								cfg.AuthMode = "gitlab_token"
-							}
-							cfg.Token = gp.Token
-						} else if cfg.Provider == "github" {
-							if detail, derr := p.DB.GetGitHubProviderDetail(c.UserContext(), gp.ID); derr == nil {
-								cfg.AuthMode = "github_app"
-								cfg.AppGitID = detail.GitHubAppID
-								cfg.InstallationID = detail.InstallationID
-								cfg.PrivateKeyPEM = detail.PrivateKeyPEM
-								if strings.TrimSpace(detail.WebhookSecret) != "" {
-									cfg.WebhookSecret = detail.WebhookSecret
-								}
-							}
-						}
-						break
-					}
-				}
-			}
-			if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
-				cfg.AuthMode = "public"
-			}
+			p.applyDefaultGitProvider(c.UserContext(), u, &cfg)
 			if err := p.DB.UpsertAppGitConfig(c.UserContext(), cfg); err != nil {
 				return c.Status(500).SendString(err.Error())
 			}
@@ -166,6 +134,60 @@ func (p *Panel) CreateApp(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"ok": true, "id": id, "name": name})
 	}
 	return c.Redirect(fmt.Sprintf("/apps/%s", id))
+}
+
+// applyDefaultGitProvider links a connected provider only when explicit "auto" is requested
+// or when a connected GitHub App owns the repository namespace; external public URLs stay "public".
+func (p *Panel) applyDefaultGitProvider(ctx context.Context, u db.User, cfg *db.AppGitConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
+		explicitAuto := cfg.AuthMode == "auto"
+		repoOwner := strings.SplitN(strings.TrimPrefix(cfg.RepoFullName, "/"), "/", 2)[0]
+		providers, _ := p.DB.ListGitProviders(ctx, &u.ID)
+		if len(providers) == 0 && u.Role == db.RoleAdmin {
+			providers, _ = p.DB.ListGitProviders(ctx, nil)
+		}
+		for _, gp := range providers {
+			if gp.Provider != cfg.Provider {
+				continue
+			}
+			if strings.TrimSpace(gp.Token) != "" {
+				if !explicitAuto {
+					continue
+				}
+				cfg.GitProviderID = gp.ID
+				cfg.AuthMode = "token"
+				if cfg.Provider == "gitlab" {
+					cfg.AuthMode = "gitlab_token"
+				}
+				cfg.Token = gp.Token
+				break
+			}
+			if cfg.Provider == "github" {
+				detail, derr := p.DB.GetGitHubProviderDetail(ctx, gp.ID)
+				if derr != nil {
+					continue
+				}
+				if !explicitAuto && (strings.TrimSpace(detail.AccountLogin) == "" || !strings.EqualFold(repoOwner, strings.TrimSpace(detail.AccountLogin))) {
+					continue
+				}
+				cfg.GitProviderID = gp.ID
+				cfg.AuthMode = "github_app"
+				cfg.AppGitID = detail.GitHubAppID
+				cfg.InstallationID = detail.InstallationID
+				cfg.PrivateKeyPEM = detail.PrivateKeyPEM
+				if strings.TrimSpace(detail.WebhookSecret) != "" {
+					cfg.WebhookSecret = detail.WebhookSecret
+				}
+				break
+			}
+		}
+	}
+	if cfg.AuthMode == "" || cfg.AuthMode == "auto" {
+		cfg.AuthMode = "public"
+	}
 }
 
 func (p *Panel) SaveAppCompose(c *fiber.Ctx) error {
