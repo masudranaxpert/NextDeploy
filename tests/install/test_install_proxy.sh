@@ -156,6 +156,7 @@ for eng in caddy angie ferron; do
     INSTALL_DIR="$UP_INST"
     DATA_DIR="/srv/custom-$eng"
     COMPOSE_URL="file://$REPO_ROOT/docker-compose.yml"
+    INSTALL_SCRIPT_URL="file://$REPO_ROOT/install.sh"
     PROXY_ENGINE="$eng"
     PROXY_ENGINE_EXPLICIT=true
     touch "$UP_INST/docker-compose.yml"
@@ -209,6 +210,43 @@ for eng in caddy angie ferron; do
     assert_contains "$UP_INST/docker-compose.yml" "ND_FERRON_ADMIN_TOKEN: $ORIG_FERRON_TOK" "nextdeploy-update keeps ferron admin token"
   fi
 done
+
+echo "==> [5b/7] Testing nextdeploy-update self-update and re-exec..."
+(
+  SELF_INST="$TMP_ROOT/self_up_inst"
+  SELF_BIN="$TMP_ROOT/nextdeploy-update-self"
+  mkdir -p "$SELF_INST"
+  export ND_SOURCE_ONLY=1
+  source "$REPO_ROOT/install.sh"
+  INSTALL_DIR="$SELF_INST"
+  DATA_DIR="/srv/self-data"
+  COMPOSE_URL="file://$REPO_ROOT/docker-compose.yml"
+  INSTALL_SCRIPT_URL="file://$REPO_ROOT/install.sh"
+  PROXY_ENGINE="angie"
+  PROXY_ENGINE_EXPLICIT=true
+  ANGIE_IMAGE="docker.angie.software/angie:0.0.0-old"
+  touch "$SELF_INST/docker-compose.yml"
+  download_compose
+  create_update_script "$SELF_BIN"
+
+  assert_contains "$SELF_BIN" "docker.angie.software/angie:0.0.0-old" "initial script starts with old ANGIE_IMAGE"
+
+  SELF_OUT="$(ND_SKIP_DOCKER_UP=1 bash "$SELF_BIN")"
+  echo "$SELF_OUT" | grep -Fq "Updated nextdeploy-update script to latest version; re-running..." || {
+    echo "FAIL: expected self-update notice in output" >&2
+    echo "$SELF_OUT" >&2
+    exit 1
+  }
+  assert_contains "$SELF_BIN" "docker.angie.software/angie:1.12.4" "self-update refreshed ANGIE_IMAGE from install.sh"
+  assert_contains "$SELF_BIN" "DATA_DIR=\"/srv/self-data\"" "self-update preserved DATA_DIR"
+  assert_contains "$SELF_INST/docker-compose.yml" "docker.angie.software/angie:1.12.4" "re-execed script applied refreshed ANGIE_IMAGE"
+
+  SELF_OUT_SECOND="$(ND_SKIP_DOCKER_UP=1 bash "$SELF_BIN")"
+  if echo "$SELF_OUT_SECOND" | grep -Fq "Updated nextdeploy-update script"; then
+    echo "FAIL: up-to-date nextdeploy-update must not re-update on second run" >&2
+    exit 1
+  fi
+)
 
 echo "==> [6/7] Testing uninstall.sh --keep-data vs full removal (mocked docker)..."
 MOCK_BIN="$TMP_ROOT/mock_bin"

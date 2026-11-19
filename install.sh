@@ -22,6 +22,7 @@ RESET='\033[0m'
 INSTALL_DIR="/opt/nextdeploy"
 DATA_DIR="/data"
 COMPOSE_URL="${NEXTDEPLOY_COMPOSE_URL:-https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/docker-compose.yml}"
+INSTALL_SCRIPT_URL="${NEXTDEPLOY_INSTALL_URL:-https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/install.sh}"
 # Panel image tag (must match docker-main.yml policy for main)
 PANEL_IMAGE_TAG="latest"
 PANEL_DOMAIN=""
@@ -877,6 +878,7 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR}"
 DATA_DIR="${DATA_DIR}"
 COMPOSE_URL="${COMPOSE_URL}"
+INSTALL_SCRIPT_URL="${INSTALL_SCRIPT_URL}"
 PANEL_IMAGE_TAG="${PANEL_IMAGE_TAG}"
 ANGIE_IMAGE="${ANGIE_IMAGE}"
 FERRON_IMAGE="${FERRON_IMAGE}"
@@ -1294,6 +1296,92 @@ merge_proxy_shared_volumes_and_ports_from_previous_compose() {
 
   rm -f "$mounts_tmp" "$ports_tmp" "$blocks_tmp"
 }
+
+self_update_script() {
+  [[ "${ND_SELF_UPDATED:-0}" == "1" ]] && return 0
+  [[ "${ND_SKIP_SELF_UPDATE:-0}" == "1" ]] && return 0
+  if [[ "$COMPOSE_URL" == file://* && "$INSTALL_SCRIPT_URL" != file://* ]]; then
+    return 0
+  fi
+
+  local self_path="${BASH_SOURCE[0]:-$0}"
+  [[ -n "$self_path" && -f "$self_path" ]] || return 0
+
+  local self_dir self_base
+  self_dir="$(cd "$(dirname "$self_path")" 2>/dev/null && pwd)" || return 0
+  self_base="$(basename "$self_path")"
+  self_path="${self_dir}/${self_base}"
+
+  local tmp_install tmp_new
+  tmp_install="$(mktemp)"
+  tmp_new="$(mktemp)"
+
+  local fetched=0
+  if [[ "$INSTALL_SCRIPT_URL" == file://* ]]; then
+    if cp "${INSTALL_SCRIPT_URL#file://}" "$tmp_install" 2>/dev/null; then
+      fetched=1
+    fi
+  elif command -v curl &>/dev/null; then
+    if curl -fsSL --max-time 15 "$INSTALL_SCRIPT_URL" -o "$tmp_install" 2>/dev/null; then
+      fetched=1
+    fi
+  elif command -v wget &>/dev/null; then
+    if wget -qO "$tmp_install" --timeout=15 "$INSTALL_SCRIPT_URL" 2>/dev/null; then
+      fetched=1
+    fi
+  fi
+
+  if [[ "$fetched" != "1" ]] || [[ ! -s "$tmp_install" ]] || ! bash -n "$tmp_install" 2>/dev/null; then
+    rm -f "$tmp_install" "$tmp_new"
+    return 0
+  fi
+
+  if ! (
+    ND_SOURCE_ONLY=1
+    _orig_install_dir="$INSTALL_DIR"
+    _orig_data_dir="$DATA_DIR"
+    _orig_compose_url="$COMPOSE_URL"
+    _orig_install_url="$INSTALL_SCRIPT_URL"
+    _orig_panel_tag="$PANEL_IMAGE_TAG"
+    # shellcheck disable=SC1090
+    source "$tmp_install"
+    declare -F create_update_script >/dev/null 2>&1 || exit 1
+    INSTALL_DIR="$_orig_install_dir"
+    DATA_DIR="$_orig_data_dir"
+    COMPOSE_URL="$_orig_compose_url"
+    INSTALL_SCRIPT_URL="$_orig_install_url"
+    PANEL_IMAGE_TAG="$_orig_panel_tag"
+    create_update_script "$tmp_new" >/dev/null
+  ) 2>/dev/null; then
+    rm -f "$tmp_install" "$tmp_new"
+    return 0
+  fi
+
+  rm -f "$tmp_install"
+  if [[ ! -s "$tmp_new" ]] || ! bash -n "$tmp_new" 2>/dev/null || ! grep -q 'self_update_script' "$tmp_new" 2>/dev/null; then
+    rm -f "$tmp_new"
+    return 0
+  fi
+
+  if cmp -s "$self_path" "$tmp_new" 2>/dev/null; then
+    rm -f "$tmp_new"
+    return 0
+  fi
+
+  local stage_file="${self_path}.new.$$"
+  if cp "$tmp_new" "$stage_file" 2>/dev/null && chmod +x "$stage_file" 2>/dev/null && mv -f "$stage_file" "$self_path" 2>/dev/null; then
+    rm -f "$tmp_new"
+    echo "[NextDeploy] Updated nextdeploy-update script to latest version; re-running..."
+    export ND_SELF_UPDATED=1
+    exec "$self_path" "$@"
+  fi
+
+  echo "[NextDeploy] WARN: New nextdeploy-update version available, but could not update ${self_path} (run with sudo)." >&2
+  rm -f "$stage_file" "$tmp_new" 2>/dev/null || true
+  return 0
+}
+
+self_update_script "$@"
 
 echo "[NextDeploy] Refreshing docker-compose.yml from repository..."
 PREV_BAK=""
