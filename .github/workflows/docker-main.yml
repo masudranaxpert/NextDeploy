@@ -1,12 +1,13 @@
-# Build and push the main-line panel image on every push to main.
-# Tags (fixed policy):
-#   :latest   — default install / production rolling image for main branch
-#
-# Versioned release images (v1.2.3, 1.2.3, etc.) are published by release.yml.
-name: Docker (main)
+# Gated CI & rolling :latest image build for the main branch.
+# - PRs & pushes run TypeScript typecheck, Go vet, -race tests (panel + cmd/nd), and cross-compile checks.
+# - Only pushes to main (or manual dispatch) build and push :latest AFTER all checks pass.
+name: CI & Docker (main)
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
   workflow_dispatch:
@@ -14,17 +15,85 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-main-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: docker.io
   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/nextdeploy
 
 jobs:
-  build-push:
-    name: Build & push main image (latest)
+  ci:
+    name: Typecheck, Vet & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/nd/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+
+      - name: Typecheck frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check panel (vet, race tests, cross-build)
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+      - name: Check nd CLI (vet, race tests, cross-build)
+        working-directory: cmd/nd
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+      - name: Check shell script syntax
+        run: bash -n install.sh install-nd.sh uninstall.sh migrate.sh
+
+  build-push:
+    name: Build & push main image (latest)
+    needs: ci
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Build fresh frontend bundle
+        run: |
+          npm ci --no-audit --no-fund --legacy-peer-deps
+          npm run build
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

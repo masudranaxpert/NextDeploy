@@ -1,23 +1,27 @@
 name: Release
 
 # Trigger:
-#   - push a tag like v1.0.0  → builds image, creates GitHub Release + semver tags
-#   - push/PR to main or php-panel → CI build check (no image push)
-#   - push to main → docker-main.yml (on branch main) pushes :latest
-#   - Docker image for php-panel branch: workflow lives only on branch php-panel (docker-php-panel.yml)
+#   - push a tag like v1.0.0  → runs CI, builds multi-arch image & CLI/server binaries, creates GitHub Release
+#   - push/PR to main-v2 or php-panel → CI build check (no image push)
+#   - push/PR to main is handled by docker-main.yml (gated CI + rolling :latest image)
 on:
   push:
     tags:
       - "v*.*.*"
     branches:
-      - main
       - main-v2
       - php-panel
   pull_request:
     branches:
-      - main
       - main-v2
       - php-panel
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: docker.io
@@ -29,8 +33,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Build, push & release
+    needs: ci
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write   # needed to create GitHub Release
       packages: write
@@ -234,6 +240,7 @@ jobs:
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
 
@@ -293,6 +300,7 @@ jobs:
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: write
 
@@ -343,12 +351,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # 4. Lightweight CI check on every push/PR to main (no image push)
+  # 4. Pre-release & legacy branch CI check
   # ─────────────────────────────────────────────────────────────────────────────
   ci:
     name: Build check (CI)
     runs-on: ubuntu-latest
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -358,6 +366,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/nd/go.sum
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -368,11 +379,11 @@ jobs:
       - name: Install npm deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
 
+      - name: Typecheck frontend
+        run: npm run lint
+
       - name: Build frontend
         run: npm run build
-
-      - name: Go mod tidy
-        run: go mod tidy
 
       - name: Go build (panel Linux)
         run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
@@ -380,16 +391,15 @@ jobs:
       - name: Go build (panel macOS / darwin)
         run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .
 
-      - name: Go vet (panel)
-        run: go vet ./...
-
-      - name: Go test (panel)
-        run: go test ./...
+      - name: Go vet & test (panel)
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
 
       - name: Go build & test (nd CLI)
         working-directory: cmd/nd
         run: |
           go vet ./...
-          go test ./...
+          go test -race -count=1 ./...
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /dev/null .
