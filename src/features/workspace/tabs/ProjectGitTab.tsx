@@ -476,7 +476,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const webhookUrl = `${window.location.origin}/${webhookPath}`;
 
   return (
-    <div className="space-y-4 pb-16">
+    <div className="space-y-4 pb-24">
       {/* Row 1: Git Sync ON / OFF Control Bar OR Onboarding banner if no repo connected */}
       {!app.gitRepo ? (
         <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
@@ -976,7 +976,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               })()}
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3 sm:pr-28">
             <button
               type="submit"
               disabled={isSavingGit || !canSubmitGit}

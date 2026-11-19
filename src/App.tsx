@@ -1283,7 +1283,7 @@ export default function App() {
             className={
               activeNav === 'nextdeploy-ai'
                 ? "relative w-full flex-1 p-0 h-[calc(100vh-3.5rem)] max-w-none overflow-hidden"
-                : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-7"
+                : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 pb-24 sm:pt-6 lg:pt-7"
             }
           >
             <Suspense fallback={<PageSkeleton nav={selectedApp ? 'workspace' : activeNav} />}>

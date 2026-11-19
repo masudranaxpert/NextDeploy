@@ -218,7 +218,7 @@ func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	if status >= 300 {
-		return c.JSON(fiber.Map{"branches": []gitlabBranch{{Name: "master"}, {Name: "main"}}})
+		return c.Status(status).JSON(fiber.Map{"error": strings.TrimSpace(string(body))})
 	}
 	var projects []gitlabProject
 	if err := json.Unmarshal(body, &projects); err != nil {
@@ -230,6 +230,7 @@ func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
 		FullName      string `json:"full_name"`
 		CloneURL      string `json:"clone_url"`
 		HTTPURLToRepo string `json:"http_url_to_repo"`
+		Private       bool   `json:"private"`
 		DefaultBranch string `json:"default_branch"`
 	}
 	rows := make([]repoRow, 0, len(projects))
@@ -238,12 +239,14 @@ func (p *Panel) AppGitLabProviderRepos(c *fiber.Ctx) error {
 		if db == "" {
 			db = "main"
 		}
+		vis := strings.ToLower(strings.TrimSpace(pr.Visibility))
 		rows = append(rows, repoRow{
 			ID:            pr.ID,
 			Name:          pr.Name,
 			FullName:      pr.PathWithNamespace,
 			CloneURL:      pr.HTTPURLToRepo,
 			HTTPURLToRepo: pr.HTTPURLToRepo,
+			Private:       vis != "" && vis != "public",
 			DefaultBranch: db,
 		})
 	}
