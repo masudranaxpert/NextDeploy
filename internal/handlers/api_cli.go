@@ -86,7 +86,7 @@ func (p *Panel) APIAppDelete(c *fiber.Ctx) error {
 	if tok, ok := c.Locals("api_token").(db.APIToken); ok {
 		if !tok.AllowAppDelete {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"error": "permission denied: app deletion is restricted. Enable 'Allow App Delete' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions) or MCP Settings (/mcp-docs)",
+				"error": "permission denied: app deletion is restricted. Enable 'Allow App Delete' for this API token in NextDeploy Panel under CLI Sessions (/cli-sessions).",
 			})
 		}
 	}
@@ -321,10 +321,7 @@ func (p *Panel) CreateCLITokenPost(c *fiber.Ctx) error {
 	allowContainerExec := c.FormValue("allow_container_exec") == "1" || c.FormValue("allow_container_exec") == "on"
 	allowAppDelete := c.FormValue("allow_app_delete") == "1" || c.FormValue("allow_app_delete") == "on"
 
-	kind := strings.TrimSpace(c.FormValue("kind"))
-	if kind != "cli" && kind != "mcp" {
-		kind = "cli"
-	}
+	kind := "cli"
 
 	rawToken, id, err := p.DB.CreateAPIToken(ctx, u.ID, name, kind, nil, allowEnvReveal, allowServerExec, allowContainerExec, allowAppDelete)
 	if err != nil {

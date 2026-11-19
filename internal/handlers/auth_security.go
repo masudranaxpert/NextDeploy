@@ -228,10 +228,9 @@ func (p *Panel) SecurityHeadersMiddleware(c *fiber.Ctx) error {
 	method := c.Method()
 	if method == fiber.MethodPost || method == fiber.MethodPut || method == fiber.MethodDelete || method == fiber.MethodPatch {
 		path := c.Path()
-		// Skip Origin CSRF check for webhook endpoints and Bearer-token API/MCP routes
+		// Skip Origin CSRF check for webhook endpoints and Bearer-token API routes
 		if !strings.HasPrefix(path, "/webhooks/") &&
-			!strings.HasPrefix(path, "/api/v1/") &&
-			path != "/mcp" && !strings.HasPrefix(path, "/mcp/") {
+			!strings.HasPrefix(path, "/api/v1/") {
 			origin := strings.TrimSpace(c.Get("Origin"))
 			if origin == "null" {
 				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"ok": false, "error": "forbidden: invalid Origin header"})

@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.9.3"
+var Version = "2.9.4"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -505,10 +505,7 @@ func RunApps(cl *client.Client, args []string) error {
 		}
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
-	})
+	body, status, err := cl.Do("GET", "/api/v1/apps", nil)
 	if err != nil {
 		return err
 	}
@@ -516,26 +513,13 @@ func RunApps(cl *client.Client, args []string) error {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
-	// Parse MCP tool response
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-		fmt.Println(string(body))
-		return nil
-	}
-
 	var apps []struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &apps); err != nil {
-		fmt.Println(resp.Result.Content[0].Text)
+	if err := json.Unmarshal(body, &apps); err != nil {
+		fmt.Println(string(body))
 		return nil
 	}
 
@@ -590,13 +574,7 @@ func RunCreate(cl *client.Client, args []string) error {
 		payload["compose_content"] = string(composeBytes)
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "app_create",
-			"arguments": payload,
-		},
-	})
+	body, status, err := cl.Do("POST", "/api/v1/apps", payload)
 	if err != nil {
 		return err
 	}
@@ -604,27 +582,18 @@ func RunCreate(cl *client.Client, args []string) error {
 		return fmt.Errorf("failed to create app: %s", client.JSONError(body))
 	}
 
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-		return fmt.Errorf("unexpected server response: %s", string(body))
-	}
-	if resp.Result.IsError {
-		return fmt.Errorf("failed: %s", resp.Result.Content[0].Text)
-	}
-
 	var resData struct {
 		AppID  string `json:"app_id"`
 		Name   string `json:"name"`
 		Status string `json:"status"`
+		Error  string `json:"error"`
 	}
-	_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &resData)
+	if err := json.Unmarshal(body, &resData); err != nil {
+		return fmt.Errorf("unexpected server response: %s", string(body))
+	}
+	if resData.Error != "" {
+		return fmt.Errorf("failed: %s", resData.Error)
+	}
 
 	appID := resData.AppID
 	if appID == "" {
@@ -668,34 +637,12 @@ func RunDelete(cl *client.Client, args []string) error {
 		}
 	}
 
-	// Try REST DELETE /api/v1/apps/{id} first, fallback to MCP app_delete
-	body, status, err := cl.Do("DELETE", fmt.Sprintf("/api/v1/apps/%s", appID), nil)
-	if err != nil || status == 404 || status == 405 {
-		body, status, err = cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "app_delete",
-				"arguments": map[string]interface{}{"app_id": appID, "confirm_name": appID},
-			},
-		})
-	}
+	body, status, err := cl.Do("DELETE", fmt.Sprintf("/api/v1/apps/%s", url.PathEscape(appID)), nil)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("failed to delete app: %s", client.JSONError(body))
-	}
-
-	var mcpResp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &mcpResp); err == nil && mcpResp.Result.IsError && len(mcpResp.Result.Content) > 0 {
-		return fmt.Errorf("failed to delete app: %s", mcpResp.Result.Content[0].Text)
 	}
 
 	_ = config.ClearProject(".")
@@ -804,11 +751,8 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 	if authOK {
 		_ = json.Unmarshal(wBody, &whoamiData)
 	} else {
-		// Fallback for older server versions: test auth via app_list
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{"name": "app_list", "arguments": map[string]interface{}{}},
-		})
+		// Fallback for older server versions: test auth via app list
+		body, status, err := cl.Do("GET", "/api/v1/apps", nil)
 		authOK = err == nil && status < 400
 		if !authOK && wBody == nil {
 			wBody = body
@@ -914,16 +858,7 @@ func RunStatus(cl *client.Client, args []string) error {
 		return err
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "app_get",
-			"arguments": map[string]interface{}{
-				"app_id":         appID,
-				"include_health": true,
-			},
-		},
-	})
+	body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s?include_health=true", url.PathEscape(appID)), nil)
 	if err != nil {
 		return err
 	}
@@ -931,25 +866,13 @@ func RunStatus(cl *client.Client, args []string) error {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-		fmt.Println(string(body))
-		return nil
-	}
-
 	if jsonOut {
 		var raw interface{}
-		if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &raw); err == nil {
+		if err := json.Unmarshal(body, &raw); err == nil {
 			pretty, _ := json.MarshalIndent(raw, "", "  ")
 			fmt.Println(string(pretty))
 		} else {
-			fmt.Println(resp.Result.Content[0].Text)
+			fmt.Println(string(body))
 		}
 		return nil
 	}
@@ -990,8 +913,8 @@ func RunStatus(cl *client.Client, args []string) error {
 			HTTPChecks []httpCheck `json:"http_checks"`
 		} `json:"health"`
 	}
-	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &data); err != nil {
-		fmt.Println(resp.Result.Content[0].Text)
+	if err := json.Unmarshal(body, &data); err != nil {
+		fmt.Println(string(body))
 		return nil
 	}
 
@@ -1088,32 +1011,12 @@ func RunPS(cl *client.Client, args []string) error {
 		return runAllPS(cl, jsonOut)
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "app_get",
-			"arguments": map[string]interface{}{
-				"app_id":         appID,
-				"include_health": true,
-			},
-		},
-	})
+	body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s?include_health=true", url.PathEscape(appID)), nil)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
-	}
-
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-		return fmt.Errorf("unexpected response from server")
 	}
 
 	var data struct {
@@ -1134,8 +1037,8 @@ func RunPS(cl *client.Client, args []string) error {
 			Healthy bool `json:"healthy"`
 		} `json:"health"`
 	}
-	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &data); err != nil {
-		fmt.Println(resp.Result.Content[0].Text)
+	if err := json.Unmarshal(body, &data); err != nil {
+		fmt.Println(string(body))
 		return nil
 	}
 
@@ -1221,26 +1124,8 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 	var allContainers []containerWithApp
 
 	for i, a := range apps {
-		cBody, cStatus, cErr := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "app_get",
-				"arguments": map[string]interface{}{
-					"app_id": a.ID,
-				},
-			},
-		})
+		cBody, cStatus, cErr := cl.Do("GET", "/api/v1/apps/"+url.PathEscape(a.ID), nil)
 		if cErr != nil || cStatus >= 400 {
-			continue
-		}
-		var cResp struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(cBody, &cResp) != nil || len(cResp.Result.Content) == 0 {
 			continue
 		}
 		var data struct {
@@ -1253,7 +1138,7 @@ func runAllPS(cl *client.Client, jsonOut bool) error {
 				Ports   string `json:"Ports,omitempty"`
 			} `json:"ps"`
 		}
-		if json.Unmarshal([]byte(cResp.Result.Content[0].Text), &data) != nil {
+		if json.Unmarshal(cBody, &data) != nil {
 			continue
 		}
 		if jsonOut {
@@ -1371,28 +1256,18 @@ func runAppImages(cl *client.Client, jsonOut bool) error {
 	distinctImages := make(map[string]bool)
 
 	for _, a := range apps {
-		cBody, cStatus, cErr := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "compose_get",
-				"arguments": map[string]interface{}{"app_id": a.ID},
-			},
-		})
+		cBody, cStatus, cErr := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s/compose", url.PathEscape(a.ID)), nil)
 		if cErr != nil || cStatus >= 400 {
 			continue
 		}
 		var cResp struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
+			Content string `json:"content"`
 		}
-		if err := json.Unmarshal(cBody, &cResp); err != nil || len(cResp.Result.Content) == 0 {
+		if err := json.Unmarshal(cBody, &cResp); err != nil || cResp.Content == "" {
 			continue
 		}
 
-		lines := strings.Split(cResp.Result.Content[0].Text, "\n")
+		lines := strings.Split(cResp.Content, "\n")
 		var currentService string
 		inServices := false
 		serviceImages := make(map[string]string)
@@ -1461,12 +1336,8 @@ func runAppImages(cl *client.Client, jsonOut bool) error {
 }
 
 func executeHostCommand(cl *client.Client, cmdStr string) error {
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "server_exec",
-			"arguments": map[string]interface{}{"command": cmdStr},
-		},
+	body, status, err := cl.Do("POST", "/api/v1/system/exec", map[string]interface{}{
+		"command": cmdStr,
 	})
 	if err != nil {
 		return err
@@ -1484,54 +1355,35 @@ func RunOpen(cl *client.Client, args []string) error {
 		return err
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "app_get",
-			"arguments": map[string]interface{}{"app_id": appID},
-		},
-	})
+	body, status, err := cl.Do("GET", "/api/v1/apps/"+url.PathEscape(appID), nil)
 	if err != nil || status >= 400 {
 		return fmt.Errorf("failed to get app info: %s", client.JSONError(body))
 	}
 
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	_ = json.Unmarshal(body, &resp)
 	targetURL := ""
-	if len(resp.Result.Content) > 0 {
-		var data struct {
-			Domains []struct {
-				Domain      string `json:"Domain"`
-				EnableHTTPS bool   `json:"EnableHTTPS"`
-			} `json:"domains"`
+	var data struct {
+		Domains []struct {
+			Domain      string `json:"Domain"`
+			EnableHTTPS bool   `json:"EnableHTTPS"`
+		} `json:"domains"`
+		PS []struct {
+			Ports string `json:"Ports"`
+		} `json:"ps"`
+	}
+	_ = json.Unmarshal(body, &data)
+	if len(data.Domains) > 0 {
+		d := data.Domains[0]
+		scheme := "http"
+		if d.EnableHTTPS {
+			scheme = "https"
 		}
-		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &data)
-		if len(data.Domains) > 0 {
-			d := data.Domains[0]
-			scheme := "http"
-			if d.EnableHTTPS {
-				scheme = "https"
-			}
-			targetURL = fmt.Sprintf("%s://%s", scheme, d.Domain)
-		}
+		targetURL = fmt.Sprintf("%s://%s", scheme, d.Domain)
 	}
 
 	// If no domain mapped, attempt direct port access on the VPS host
-	if targetURL == "" && len(resp.Result.Content) > 0 {
-		var psData struct {
-			PS []struct {
-				Ports string `json:"Ports"`
-			} `json:"ps"`
-		}
-		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &psData)
+	if targetURL == "" {
 		if vpsIP := resolveHostIP(cl.ServerURL()); vpsIP != "" {
-			for _, p := range psData.PS {
+			for _, p := range data.PS {
 				if ports := extractHostPorts(p.Ports); len(ports) > 0 {
 					targetURL = fmt.Sprintf("http://%s:%d", vpsIP, ports[0])
 					break
@@ -1596,7 +1448,7 @@ func RunDeploy(cl *client.Client, args []string) error {
 		}
 	}
 
-	deployArgs := map[string]interface{}{"app_id": appID, "wait_seconds": 120}
+	deployArgs := map[string]interface{}{"wait_seconds": 120}
 	if rebuild {
 		deployArgs["rebuild"] = true
 	}
@@ -1604,29 +1456,13 @@ func RunDeploy(cl *client.Client, args []string) error {
 		deployArgs["git_pull"] = true
 	}
 
-	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "deploy",
-			"arguments": deployArgs,
-		},
-	}, 3*time.Minute)
+	body, status, err := cl.DoWithTimeout("POST", fmt.Sprintf("/api/v1/apps/%s/deploy", url.PathEscape(appID)), deployArgs, 3*time.Minute)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("deploy error: %s", client.JSONError(body))
 	}
-
-	var resp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	_ = json.Unmarshal(body, &resp)
 
 	var data struct {
 		JobID          string  `json:"job_id"`
@@ -1638,13 +1474,12 @@ func RunDeploy(cl *client.Client, args []string) error {
 		OutputTail     string  `json:"output_tail"`
 		Message        string  `json:"message"`
 		GitSyncWarning string  `json:"git_sync_warning"`
+		Error          string  `json:"error"`
 	}
-	if len(resp.Result.Content) > 0 {
-		_ = json.Unmarshal([]byte(resp.Result.Content[0].Text), &data)
-	}
+	_ = json.Unmarshal(body, &data)
 
 	deployStatus := "success"
-	if resp.Result.IsError || (!data.OK && data.Status != "started") {
+	if data.Error != "" || (!data.OK && data.Status != "started") {
 		deployStatus = "failed"
 		if data.Status == "timeout" {
 			deployStatus = "timeout"
@@ -1784,21 +1619,11 @@ func RunLogs(cl *client.Client, args []string) error {
 	}
 
 	fetchLogs := func(tailCount int) (string, error) {
-		logArgs := map[string]interface{}{
-			"app_id": appID,
-			"tail":   tailCount,
-			"lines":  tailCount,
-		}
+		q := fmt.Sprintf("?tail=%d&lines=%d", tailCount, tailCount)
 		if service != "" {
-			logArgs["service"] = service
+			q += "&service=" + url.QueryEscape(service)
 		}
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "container_logs",
-				"arguments": logArgs,
-			},
-		})
+		body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s/logs%s", url.PathEscape(appID), q), nil)
 		if err != nil {
 			return "", err
 		}
@@ -1806,14 +1631,10 @@ func RunLogs(cl *client.Client, args []string) error {
 			return "", fmt.Errorf("server error: %s", client.JSONError(body))
 		}
 		var resp struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
+			Logs string `json:"logs"`
 		}
-		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
-			return resp.Result.Content[0].Text, nil
+		if err := json.Unmarshal(body, &resp); err == nil {
+			return resp.Logs, nil
 		}
 		return string(body), nil
 	}
@@ -1877,34 +1698,14 @@ func RunLogs(cl *client.Client, args []string) error {
 
 func runDeployLogs(cl *client.Client, appID string, follow bool) error {
 	fetchTail := func(offset int, waitSec int) (output string, nextOffset int, running bool, err error) {
-		payload := map[string]interface{}{
-			"app_id":       appID,
-			"since_offset": offset,
-			"wait_seconds": waitSec,
-		}
-		body, status, doErr := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "deploy_log_tail",
-				"arguments": payload,
-			},
-		})
+		apiURL := fmt.Sprintf("/api/v1/apps/%s/deploy-logs?since_offset=%d&wait_seconds=%d",
+			url.PathEscape(appID), offset, waitSec)
+		body, status, doErr := cl.Do("GET", apiURL, nil)
 		if doErr != nil {
 			return "", offset, false, doErr
 		}
 		if status >= 400 {
 			return "", offset, false, fmt.Errorf("server error: %s", client.JSONError(body))
-		}
-
-		var resp struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if unErr := json.Unmarshal(body, &resp); unErr != nil || len(resp.Result.Content) == 0 {
-			return "", offset, false, fmt.Errorf("empty response from server")
 		}
 
 		// Check if active job streaming response
@@ -1915,7 +1716,7 @@ func runDeployLogs(cl *client.Client, appID string, follow bool) error {
 			NextOffset int    `json:"next_offset"`
 			NewOutput  string `json:"new_output"`
 		}
-		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &streamData) == nil && streamData.JobID != "" {
+		if json.Unmarshal(body, &streamData) == nil && streamData.JobID != "" {
 			return streamData.NewOutput, streamData.NextOffset, streamData.Running, nil
 		}
 
@@ -1931,7 +1732,7 @@ func runDeployLogs(cl *client.Client, appID string, follow bool) error {
 				OK        bool   `json:"ok"`
 			} `json:"history"`
 		}
-		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &snapData) == nil {
+		if json.Unmarshal(body, &snapData) == nil {
 			if snapData.LiveOutput != "" {
 				return snapData.LiveOutput, len(snapData.LiveOutput), snapData.LiveRunning, nil
 			}
@@ -2148,19 +1949,18 @@ func RunExec(cl *client.Client, args []string) error {
 
 	cmdStr := posixJoin(cmdTokens)
 
-	mcpArgs := map[string]interface{}{
-		"app_id":  appID,
+	execArgs := map[string]interface{}{
 		"command": cmdStr,
 		"args":    cmdTokens,
 	}
 	if service != "" {
-		mcpArgs["service"] = service
+		execArgs["service"] = service
 	}
 	if workDir != "" {
-		mcpArgs["work_dir"] = workDir
+		execArgs["work_dir"] = workDir
 	}
 	if stdinData != "" {
-		mcpArgs["stdin"] = stdinData
+		execArgs["stdin"] = stdinData
 	}
 
 	timeoutSec := 300
@@ -2174,15 +1974,9 @@ func RunExec(cl *client.Client, args []string) error {
 	if timeoutSec < 1 {
 		timeoutSec = 1
 	}
-	mcpArgs["timeout_seconds"] = timeoutSec
+	execArgs["timeout_seconds"] = timeoutSec
 
-	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "container_exec",
-			"arguments": mcpArgs,
-		},
-	}, time.Duration(timeoutSec+15)*time.Second)
+	body, status, err := cl.DoWithTimeout("POST", fmt.Sprintf("/api/v1/apps/%s/exec", url.PathEscape(appID)), execArgs, time.Duration(timeoutSec+15)*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to execute: %w", err)
 	}
@@ -2200,17 +1994,11 @@ func RunServerExec(cl *client.Client, args []string) error {
 		return fmt.Errorf("usage: nd server-exec <command...>")
 	}
 	cmdStr := posixJoin(args)
-	body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "server_exec",
-			"arguments": map[string]interface{}{
-				"command": cmdStr,
-			},
-		},
+	body, status, err := cl.DoWithTimeout("POST", "/api/v1/system/exec", map[string]interface{}{
+		"command": cmdStr,
 	}, 10*time.Minute)
 	if err != nil {
-		return fmt.Errorf("failed to call server_exec: %w", err)
+		return fmt.Errorf("failed to call server-exec: %w", err)
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error (%d): %s", status, client.JSONError(body))
@@ -2231,38 +2019,6 @@ func isCommonCommand(cmd string) bool {
 }
 
 func parseAndPrintExecResult(body []byte) error {
-	var resp struct {
-		Result struct {
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
-		Error *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.Unmarshal(body, &resp); err != nil {
-		fmt.Println(string(body))
-		return nil
-	}
-
-	if resp.Error != nil {
-		return fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
-	}
-
-	if resp.Result.IsError || len(resp.Result.Content) == 0 {
-		if len(resp.Result.Content) > 0 {
-			return fmt.Errorf("%s", resp.Result.Content[0].Text)
-		}
-		return fmt.Errorf("command execution failed")
-	}
-
-	rawText := resp.Result.Content[0].Text
-
 	var res struct {
 		AppID     string `json:"app_id"`
 		Container string `json:"container"`
@@ -2271,14 +2027,19 @@ func parseAndPrintExecResult(body []byte) error {
 		OK        bool   `json:"ok"`
 		ExitCode  int    `json:"exit_code"`
 		Output    string `json:"output"`
+		Error     string `json:"error"`
 	}
 
-	if err := json.Unmarshal([]byte(rawText), &res); err != nil {
+	if err := json.Unmarshal(body, &res); err != nil {
+		rawText := string(body)
 		fmt.Print(rawText)
 		if !strings.HasSuffix(rawText, "\n") {
 			fmt.Println()
 		}
 		return nil
+	}
+	if res.Error != "" {
+		return fmt.Errorf("%s", res.Error)
 	}
 
 	if res.Output != "" {
@@ -2373,59 +2134,35 @@ func RunEnv(cl *client.Client, args []string) error {
 
 	switch sub {
 	case "get", "reveal":
-		revealArgs := map[string]interface{}{"app_id": appID}
+		q := "?reveal=true"
 		if len(envArgs) > 0 {
-			revealArgs["keys"] = envArgs
+			q += "&keys=" + url.QueryEscape(strings.Join(envArgs, ","))
 		}
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "env_reveal",
-				"arguments": revealArgs,
-			},
-		})
+		body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s/env%s", url.PathEscape(appID), q), nil)
 		if err != nil {
 			return err
 		}
 		if status >= 400 {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
-		var resp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
+		var envResp struct {
+			Env   map[string]string `json:"env"`
+			Error string            `json:"error"`
 		}
-		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
-			if resp.Result.IsError {
-				return fmt.Errorf("%s", resp.Result.Content[0].Text)
-			}
-			var kvMap map[string]string
-			if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &kvMap); err == nil {
-				if jsonOut {
-					pretty, _ := json.MarshalIndent(kvMap, "", "  ")
-					fmt.Println(string(pretty))
-					return nil
-				}
-				for k, v := range kvMap {
-					fmt.Printf("%s=%s\n", k, v)
-				}
+		if err := json.Unmarshal(body, &envResp); err == nil && envResp.Env != nil {
+			if jsonOut {
+				pretty, _ := json.MarshalIndent(envResp.Env, "", "  ")
+				fmt.Println(string(pretty))
 				return nil
 			}
-			fmt.Println(resp.Result.Content[0].Text)
+			for k, v := range envResp.Env {
+				fmt.Printf("%s=%s\n", k, v)
+			}
 			return nil
 		}
 		fmt.Println(string(body))
 	case "list":
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "env_list",
-				"arguments": map[string]interface{}{"app_id": appID},
-			},
-		})
+		body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s/env", url.PathEscape(appID)), nil)
 		if err != nil {
 			return err
 		}
@@ -2433,43 +2170,34 @@ func RunEnv(cl *client.Client, args []string) error {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
 
-		var resp struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
+		var envData struct {
+			Keys  []string `json:"keys"`
+			Count int      `json:"count"`
 		}
-		if err := json.Unmarshal(body, &resp); err == nil && len(resp.Result.Content) > 0 {
-			var envData struct {
-				Keys  []string `json:"keys"`
-				Count int      `json:"count"`
-			}
-			if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &envData); err == nil {
-				if jsonOut {
-					if envData.Keys == nil {
-						envData.Keys = []string{}
-					}
-					out := map[string]interface{}{
-						"app_id": appID,
-						"count":  envData.Count,
-						"keys":   envData.Keys,
-					}
-					pretty, _ := json.MarshalIndent(out, "", "  ")
-					fmt.Println(string(pretty))
-					return nil
+		if err := json.Unmarshal(body, &envData); err == nil {
+			if jsonOut {
+				if envData.Keys == nil {
+					envData.Keys = []string{}
 				}
-
-				fmt.Printf("=== %s Environment Variables (%d)\n", appID, envData.Count)
-				if len(envData.Keys) == 0 {
-					fmt.Println("  (no environment variables set)")
-				} else {
-					for _, k := range envData.Keys {
-						fmt.Printf("  • %s\n", k)
-					}
+				out := map[string]interface{}{
+					"app_id": appID,
+					"count":  envData.Count,
+					"keys":   envData.Keys,
 				}
+				pretty, _ := json.MarshalIndent(out, "", "  ")
+				fmt.Println(string(pretty))
 				return nil
 			}
+
+			fmt.Printf("=== %s Environment Variables (%d)\n", appID, envData.Count)
+			if len(envData.Keys) == 0 {
+				fmt.Println("  (no environment variables set)")
+			} else {
+				for _, k := range envData.Keys {
+					fmt.Printf("  • %s\n", k)
+				}
+			}
+			return nil
 		}
 		fmt.Println(string(body))
 
@@ -2487,34 +2215,14 @@ func RunEnv(cl *client.Client, args []string) error {
 			v := kv[idx+1:]
 			vars[k] = v
 		}
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "env_set",
-				"arguments": map[string]interface{}{
-					"app_id":    appID,
-					"variables": vars,
-				},
-			},
+		body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/env", url.PathEscape(appID)), map[string]interface{}{
+			"variables": vars,
 		})
 		if err != nil {
 			return err
 		}
 		if status >= 400 {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
-		}
-		var setResp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(body, &setResp); err == nil {
-			if setResp.Result.IsError && len(setResp.Result.Content) > 0 {
-				return fmt.Errorf("%s", setResp.Result.Content[0].Text)
-			}
 		}
 		fmt.Println("✓ Environment updated.")
 
@@ -2522,34 +2230,14 @@ func RunEnv(cl *client.Client, args []string) error {
 		if len(envArgs) < 1 {
 			return fmt.Errorf("usage: nd env unset [app_id] KEY [KEY2 ...]")
 		}
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "env_unset",
-				"arguments": map[string]interface{}{
-					"app_id": appID,
-					"keys":   envArgs,
-				},
-			},
+		body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/env/unset", url.PathEscape(appID)), map[string]interface{}{
+			"keys": envArgs,
 		})
 		if err != nil {
 			return err
 		}
 		if status >= 400 {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
-		}
-		var unsetResp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(body, &unsetResp); err == nil {
-			if unsetResp.Result.IsError && len(unsetResp.Result.Content) > 0 {
-				return fmt.Errorf("%s", unsetResp.Result.Content[0].Text)
-			}
 		}
 		if len(envArgs) == 1 {
 			fmt.Printf("✓ Environment variable %q removed.\n", envArgs[0])
@@ -2697,13 +2385,7 @@ func RunDomain(cl *client.Client, args []string) error {
 			payload["direct"] = true
 		}
 
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "domain_add",
-				"arguments": payload,
-			},
-		})
+		body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/domains", url.PathEscape(appID)), payload)
 		if err != nil {
 			return err
 		}
@@ -2711,30 +2393,15 @@ func RunDomain(cl *client.Client, args []string) error {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
 
-		var resp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-			return fmt.Errorf("invalid response from server")
-		}
-		if resp.Result.IsError {
-			return fmt.Errorf("%s", resp.Result.Content[0].Text)
-		}
-
 		if jsonOut {
-			fmt.Println(resp.Result.Content[0].Text)
+			fmt.Println(string(body))
 			return nil
 		}
 
 		var res struct {
 			Message string `json:"message"`
 		}
-		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &res) == nil && res.Message != "" {
+		if json.Unmarshal(body, &res) == nil && res.Message != "" {
 			ui.Success("%s", res.Message)
 		} else {
 			ui.Success("Domain %s added to %s.", ui.Cyan(domain), ui.Cyan(appID))
@@ -2787,16 +2454,7 @@ func RunDomain(cl *client.Client, args []string) error {
 			}
 		}
 
-		body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "domain_delete",
-				"arguments": map[string]interface{}{
-					"app_id": appID,
-					"domain": target,
-				},
-			},
-		})
+		body, status, err := cl.Do("DELETE", fmt.Sprintf("/api/v1/apps/%s/domains?domain=%s", url.PathEscape(appID), url.QueryEscape(target)), nil)
 		if err != nil {
 			return err
 		}
@@ -2804,30 +2462,15 @@ func RunDomain(cl *client.Client, args []string) error {
 			return fmt.Errorf("server error: %s", client.JSONError(body))
 		}
 
-		var resp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-			return fmt.Errorf("invalid response from server")
-		}
-		if resp.Result.IsError {
-			return fmt.Errorf("%s", resp.Result.Content[0].Text)
-		}
-
 		if jsonOut {
-			fmt.Println(resp.Result.Content[0].Text)
+			fmt.Println(string(body))
 			return nil
 		}
 
 		var res struct {
 			Message string `json:"message"`
 		}
-		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &res) == nil && res.Message != "" {
+		if json.Unmarshal(body, &res) == nil && res.Message != "" {
 			ui.Success("%s", res.Message)
 		} else {
 			ui.Success("Domain %s removed from %s.", ui.Cyan(target), ui.Cyan(appID))
@@ -2840,13 +2483,7 @@ func RunDomain(cl *client.Client, args []string) error {
 }
 
 func runDomainList(cl *client.Client, appID string, jsonOut bool) error {
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "domain_list",
-			"arguments": map[string]interface{}{"app_id": appID},
-		},
-	})
+	body, status, err := cl.Do("GET", fmt.Sprintf("/api/v1/apps/%s/domains", url.PathEscape(appID)), nil)
 	if err != nil {
 		return err
 	}
@@ -2854,29 +2491,14 @@ func runDomainList(cl *client.Client, appID string, jsonOut bool) error {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
-	var resp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Result.Content) == 0 {
-		return fmt.Errorf("invalid response from server")
-	}
-	if resp.Result.IsError {
-		return fmt.Errorf("%s", resp.Result.Content[0].Text)
-	}
-
 	if jsonOut {
 		var raw interface{}
-		if json.Unmarshal([]byte(resp.Result.Content[0].Text), &raw) == nil {
+		if json.Unmarshal(body, &raw) == nil {
 			pretty, _ := json.MarshalIndent(raw, "", "  ")
 			fmt.Println(string(pretty))
 			return nil
 		}
-		fmt.Println(resp.Result.Content[0].Text)
+		fmt.Println(string(body))
 		return nil
 	}
 
@@ -2892,8 +2514,8 @@ func runDomainList(cl *client.Client, appID string, jsonOut bool) error {
 	}
 
 	var items []domainItem
-	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &items); err != nil {
-		fmt.Println(resp.Result.Content[0].Text)
+	if err := json.Unmarshal(body, &items); err != nil {
+		fmt.Println(string(body))
 		return nil
 	}
 
@@ -2998,26 +2620,17 @@ func RunStop(cl *client.Client, args []string) error {
 		return err
 	}
 
-	payload := map[string]interface{}{"app_id": appID}
+	payload := map[string]interface{}{}
 	if service != "" {
 		payload["service"] = service
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "stop",
-			"arguments": payload,
-		},
-	})
+	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), payload)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
-	}
-	if err := checkMCPToolError(body, "stop failed"); err != nil {
-		return err
 	}
 
 	if service != "" {
@@ -3036,21 +2649,12 @@ func RunDown(cl *client.Client, args []string) error {
 		return err
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "stop",
-			"arguments": map[string]interface{}{"app_id": appID},
-		},
-	})
+	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), map[string]interface{}{})
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
-	}
-	if err := checkMCPToolError(body, "down failed"); err != nil {
-		return err
 	}
 
 	fmt.Printf("✓ %s containers stopped and removed.\n", appID)
@@ -3081,7 +2685,7 @@ func RunRestart(cl *client.Client, args []string) error {
 		return err
 	}
 
-	payload := map[string]interface{}{"app_id": appID}
+	payload := map[string]interface{}{}
 	if service != "" {
 		payload["service"] = service
 	}
@@ -3089,21 +2693,12 @@ func RunRestart(cl *client.Client, args []string) error {
 		payload["recreate"] = true
 	}
 
-	body, status, err := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name":      "restart",
-			"arguments": payload,
-		},
-	})
+	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/restart", url.PathEscape(appID)), payload)
 	if err != nil {
 		return err
 	}
 	if status >= 400 {
 		return fmt.Errorf("server error: %s", client.JSONError(body))
-	}
-	if err := checkMCPToolError(body, "restart failed"); err != nil {
-		return err
 	}
 
 	actionStr := "restarted"
@@ -3115,26 +2710,6 @@ func RunRestart(cl *client.Client, args []string) error {
 		fmt.Printf("✓ %s service %s %s.\n", appID, ui.Cyan(service), actionStr)
 	} else {
 		fmt.Printf("✓ %s %s.\n", appID, actionStr)
-	}
-	return nil
-}
-
-// checkMCPToolError inspects an MCP JSON-RPC CallTool response and returns an error if isError is set.
-func checkMCPToolError(body []byte, fallback string) error {
-	var resp struct {
-		Result struct {
-			IsError bool `json:"isError"`
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-	}
-	if json.Unmarshal(body, &resp) == nil && resp.Result.IsError {
-		msg := fallback
-		if len(resp.Result.Content) > 0 && strings.TrimSpace(resp.Result.Content[0].Text) != "" {
-			msg = strings.TrimSpace(resp.Result.Content[0].Text)
-		}
-		return fmt.Errorf("%s", msg)
 	}
 	return nil
 }

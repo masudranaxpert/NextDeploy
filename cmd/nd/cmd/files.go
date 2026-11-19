@@ -154,41 +154,16 @@ func RunFileList(cl *client.Client, rawArgs []string) error {
 
 	apiURL := fmt.Sprintf("/api/v1/apps/%s/files?path=%s&recursive=%s", url.PathEscape(appID), pathQuery, recQuery)
 	body, status, err := cl.Do("GET", apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list files: %w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
 
 	var items []FileItem
-
-	if err == nil && status == 200 {
-		_ = json.Unmarshal(body, &items)
-	} else {
-		// Fallback to MCP file_list tool
-		mcpResp, mcpStatus, mcpErr := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "file_list",
-				"arguments": map[string]interface{}{
-					"app_id":    appID,
-					"path":      reqPath,
-					"recursive": recursive,
-				},
-			},
-		})
-		if mcpErr != nil {
-			return fmt.Errorf("failed to list files: %w", mcpErr)
-		}
-		if mcpStatus >= 400 {
-			return fmt.Errorf("server error: %s", client.JSONError(mcpResp))
-		}
-
-		var parsed struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(mcpResp, &parsed); err == nil && len(parsed.Result.Content) > 0 {
-			_ = json.Unmarshal([]byte(parsed.Result.Content[0].Text), &items)
-		}
+	if err := json.Unmarshal(body, &items); err != nil {
+		return fmt.Errorf("unexpected server response: %w", err)
 	}
 
 	if jsonOut {
@@ -305,42 +280,13 @@ func RunFileRead(cl *client.Client, rawArgs []string) error {
 	)
 
 	body, status, err := cl.Do("GET", apiURL, nil)
-	var content []byte
-
-	if err == nil && status == 200 {
-		content = body
-	} else {
-		// Fallback to MCP file_read
-		mcpResp, mcpStatus, mcpErr := cl.Do("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name": "file_read",
-				"arguments": map[string]interface{}{
-					"app_id": appID,
-					"path":   filePath,
-					"full":   fullRead,
-				},
-			},
-		})
-		if mcpErr != nil {
-			return fmt.Errorf("failed to read file: %w", mcpErr)
-		}
-		if mcpStatus >= 400 {
-			return fmt.Errorf("server error: %s", client.JSONError(mcpResp))
-		}
-
-		var parsed struct {
-			Result struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal(mcpResp, &parsed); err != nil || len(parsed.Result.Content) == 0 {
-			return fmt.Errorf("empty or invalid file response from server")
-		}
-		content = []byte(parsed.Result.Content[0].Text)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
 	}
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
+	}
+	content := body
 
 	if outputFile != "" {
 		if err := os.WriteFile(outputFile, content, 0644); err != nil {
@@ -451,32 +397,14 @@ func RunFileWrite(cl *client.Client, rawArgs []string) error {
 	}
 
 	body, status, err := cl.Do("POST", apiURL, payload)
-	if err == nil && status == 200 {
-		ui.Success("Saved %s in %s (%s)", ui.Cyan(remotePath), ui.Bold(appID), formatFileSize(int64(len(content))))
-		return nil
+	if err != nil {
+		return fmt.Errorf("failed saving file: %w", err)
 	}
-
-	// Fallback to MCP file_write
-	mcpResp, mcpStatus, mcpErr := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "file_write",
-			"arguments": map[string]interface{}{
-				"app_id":  appID,
-				"path":    remotePath,
-				"content": content,
-			},
-		},
-	})
-	if mcpErr != nil {
-		return fmt.Errorf("failed saving file: %w", mcpErr)
-	}
-	if mcpStatus >= 400 {
-		return fmt.Errorf("server error: %s", client.JSONError(mcpResp))
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
 	ui.Success("Saved %s in %s (%s)", ui.Cyan(remotePath), ui.Bold(appID), formatFileSize(int64(len(content))))
-	_ = body
 	return nil
 }
 
@@ -585,29 +513,12 @@ func RunFileEdit(cl *client.Client, rawArgs []string) error {
 		"content": string(newBytes),
 	}
 	saveURL := fmt.Sprintf("/api/v1/apps/%s/files/content", url.PathEscape(appID))
-	_, status, err = cl.Do("POST", saveURL, payload)
-	if err == nil && status == 200 {
-		ui.Success("Successfully updated %s in %s (%s)", ui.Cyan(remotePath), ui.Bold(appID), formatFileSize(int64(len(newBytes))))
-		return nil
+	body, status, err = cl.Do("POST", saveURL, payload)
+	if err != nil {
+		return fmt.Errorf("failed uploading changes: %w", err)
 	}
-
-	// Fallback to MCP
-	mcpResp, mcpStatus, mcpErr := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "file_write",
-			"arguments": map[string]interface{}{
-				"app_id":  appID,
-				"path":    remotePath,
-				"content": string(newBytes),
-			},
-		},
-	})
-	if mcpErr != nil {
-		return fmt.Errorf("failed uploading changes: %w", mcpErr)
-	}
-	if mcpStatus >= 400 {
-		return fmt.Errorf("server error: %s", client.JSONError(mcpResp))
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
 	ui.Success("Successfully updated %s in %s (%s)", ui.Cyan(remotePath), ui.Bold(appID), formatFileSize(int64(len(newBytes))))
@@ -667,33 +578,16 @@ func RunFileDelete(cl *client.Client, rawArgs []string) error {
 		url.QueryEscape(remotePath),
 	)
 
+	_ = recursive
 	body, status, err := cl.Do("DELETE", apiURL, nil)
-	if err == nil && status == 200 {
-		ui.Success("Deleted %s from %s", ui.Cyan(remotePath), ui.Bold(appID))
-		return nil
+	if err != nil {
+		return fmt.Errorf("failed deleting file: %w", err)
 	}
-
-	// Fallback to MCP file_delete
-	mcpResp, mcpStatus, mcpErr := cl.Do("POST", "/mcp", map[string]interface{}{
-		"method": "tools/call",
-		"params": map[string]interface{}{
-			"name": "file_delete",
-			"arguments": map[string]interface{}{
-				"app_id": appID,
-				"path":   remotePath,
-			},
-		},
-	})
-	if mcpErr != nil {
-		return fmt.Errorf("failed deleting file: %w", mcpErr)
-	}
-	if mcpStatus >= 400 {
-		return fmt.Errorf("server error: %s", client.JSONError(mcpResp))
+	if status >= 400 {
+		return fmt.Errorf("server error: %s", client.JSONError(body))
 	}
 
 	ui.Success("Deleted %s from %s", ui.Cyan(remotePath), ui.Bold(appID))
-	_ = body
-	_ = recursive
 	return nil
 }
 

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// APIToken represents a persistent access token for API and MCP clients.
+// APIToken represents a persistent access token for CLI and API clients.
 type APIToken struct {
 	ID                 int64      `json:"id"`
 	UserID             int64      `json:"user_id"`
@@ -20,7 +20,7 @@ type APIToken struct {
 	Token              string     `json:"token,omitempty"`
 	TokenHash          string     `json:"-"`
 	TokenPrefix        string     `json:"token_prefix"`
-	Kind               string     `json:"kind"` // "cli" | "mcp"
+	Kind               string     `json:"kind"` // "cli"
 	AllowEnvReveal     bool       `json:"allow_env_reveal"`
 	AllowServerExec    bool       `json:"allow_server_exec"`
 	AllowContainerExec bool       `json:"allow_container_exec"`
@@ -43,9 +43,7 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID int64, name, kind str
 		name = "Default API Token"
 	}
 	kind = strings.TrimSpace(kind)
-	if kind != "mcp" && kind != "cli" {
-		kind = "cli"
-	}
+	kind = "cli"
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		return "", APIToken{}, fmt.Errorf("crypto rand failed: %w", err)

@@ -536,7 +536,7 @@ func TestEdgeInstallAddRemoveDoctorUpgradeUninstall(t *testing.T) {
 }
 
 func TestPhase0_ShieldDomainAndProxyFlags(t *testing.T) {
-	var gotMCPPayload map[string]interface{}
+	var gotDomainPayload map[string]interface{}
 	var gotProxyPayload map[string]interface{}
 	var gotAddNode map[string]interface{}
 	var deletedNodePath string
@@ -571,20 +571,9 @@ func TestPhase0_ShieldDomainAndProxyFlags(t *testing.T) {
 				"token":                 "shld_new7",
 				"token_prev_expires_at": "2026-11-11T06:10:00Z",
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/mcp":
-			var rpc struct {
-				Params struct {
-					Arguments map[string]interface{} `json:"arguments"`
-				} `json:"params"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&rpc)
-			gotMCPPayload = rpc.Params.Arguments
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"result": map[string]interface{}{
-					"isError": false,
-					"content": []map[string]string{{"text": `{"ok":true,"message":"added"}`}},
-				},
-			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/apps/myapp/domains":
+			_ = json.NewDecoder(r.Body).Decode(&gotDomainPayload)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "message": "added"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/proxy/routes":
 			_ = json.NewDecoder(r.Body).Decode(&gotProxyPayload)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
@@ -638,14 +627,14 @@ func TestPhase0_ShieldDomainAndProxyFlags(t *testing.T) {
 	if err := RunDomain(cl, []string{"add", "myapp", "app.example.com", "--shield", "7"}); err != nil {
 		t.Fatalf("domain add --shield failed: %v", err)
 	}
-	if gotMCPPayload["shield_node_id"] != float64(7) {
-		t.Fatalf("expected shield_node_id=7 in domain_add payload, got %+v", gotMCPPayload)
+	if gotDomainPayload["shield_node_id"] != float64(7) {
+		t.Fatalf("expected shield_node_id=7 in domain add payload, got %+v", gotDomainPayload)
 	}
 	if err := RunDomain(cl, []string{"add", "myapp", "direct.example.com", "--direct"}); err != nil {
 		t.Fatalf("domain add --direct failed: %v", err)
 	}
-	if gotMCPPayload["shield_node_id"] != float64(0) || gotMCPPayload["direct"] != true {
-		t.Fatalf("expected direct=true shield_node_id=0 in domain_add payload, got %+v", gotMCPPayload)
+	if gotDomainPayload["shield_node_id"] != float64(0) || gotDomainPayload["direct"] != true {
+		t.Fatalf("expected direct=true shield_node_id=0 in domain add payload, got %+v", gotDomainPayload)
 	}
 	if err := RunDomain(cl, []string{"add", "myapp", "bad.example.com", "--shield", "7", "--direct"}); err == nil {
 		t.Fatalf("expected error when both --shield and --direct passed to domain add")

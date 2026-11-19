@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,12 +174,8 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 			if !jsonOutput {
 				fmt.Println("→ Deploying...")
 			}
-			body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
-				"method": "tools/call",
-				"params": map[string]interface{}{
-					"name":      "deploy",
-					"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
-				},
+			body, status, err := cl.DoWithTimeout("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/deploy", map[string]interface{}{
+				"wait_seconds": 120,
 			}, 3*time.Minute)
 			if err != nil {
 				return fmt.Errorf("deploy failed: %w", err)
@@ -336,38 +333,16 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 
 			if len(toDelete) > 0 {
 				if !jsonOutput {
-					fmt.Printf("→ Pruning %d remote file(s) via workspace_apply...\n", len(toDelete))
+					fmt.Printf("→ Pruning %d remote file(s)...\n", len(toDelete))
 				}
-				delBody, delStatus, delErr := cl.Do("POST", "/mcp", map[string]interface{}{
-					"method": "tools/call",
-					"params": map[string]interface{}{
-						"name": "workspace_apply",
-						"arguments": map[string]interface{}{
-							"app_id":  appID,
-							"deletes": toDelete,
-						},
-					},
+				delBody, delStatus, delErr := cl.Do("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/workspace/apply", map[string]interface{}{
+					"deletes": toDelete,
 				})
 				if delErr != nil {
 					return fmt.Errorf("prune failed: %w (deployment aborted)", delErr)
 				}
 				if delStatus >= 400 {
 					return fmt.Errorf("prune error: %s (deployment aborted)", client.JSONError(delBody))
-				}
-				var applyResp struct {
-					Result struct {
-						IsError bool `json:"isError"`
-						Content []struct {
-							Text string `json:"text"`
-						} `json:"content"`
-					} `json:"result"`
-				}
-				if err := json.Unmarshal(delBody, &applyResp); err == nil && applyResp.Result.IsError {
-					errMsg := "workspace_apply failed"
-					if len(applyResp.Result.Content) > 0 {
-						errMsg = applyResp.Result.Content[0].Text
-					}
-					return fmt.Errorf("prune error: %s (deployment aborted)", errMsg)
 				}
 				deletedCount = len(toDelete)
 				deletedFiles = toDelete
@@ -384,12 +359,8 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		if !jsonOutput {
 			fmt.Println("→ Deploying...")
 		}
-		body, status, err := cl.DoWithTimeout("POST", "/mcp", map[string]interface{}{
-			"method": "tools/call",
-			"params": map[string]interface{}{
-				"name":      "deploy",
-				"arguments": map[string]interface{}{"app_id": appID, "wait_seconds": 120},
-			},
+		body, status, err := cl.DoWithTimeout("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/deploy", map[string]interface{}{
+			"wait_seconds": 120,
 		}, 3*time.Minute)
 		if err != nil {
 			return fmt.Errorf("deploy failed: %w", err)
@@ -398,26 +369,21 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 			return fmt.Errorf("deploy error: %s", client.JSONError(body))
 		}
 
-		var depResp struct {
-			Result struct {
-				IsError bool `json:"isError"`
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"result"`
+		var depData struct {
+			JobID  string `json:"job_id"`
+			Status string `json:"status"`
+			OK     *bool  `json:"ok"`
+			Error  string `json:"error"`
 		}
-		if err := json.Unmarshal(body, &depResp); err == nil {
-			if depResp.Result.IsError && len(depResp.Result.Content) > 0 {
-				return fmt.Errorf("deploy error: %s", depResp.Result.Content[0].Text)
-			}
-			if len(depResp.Result.Content) > 0 {
-				var depData struct {
-					JobID  string `json:"job_id"`
-					Status string `json:"status"`
+		if err := json.Unmarshal(body, &depData); err == nil {
+			if depData.Error != "" || (depData.OK != nil && !*depData.OK && depData.Status == "failed") {
+				msg := depData.Error
+				if msg == "" {
+					msg = "deployment failed"
 				}
-				_ = json.Unmarshal([]byte(depResp.Result.Content[0].Text), &depData)
-				jobID = depData.JobID
+				return fmt.Errorf("deploy error: %s", msg)
 			}
+			jobID = depData.JobID
 		}
 	}
 

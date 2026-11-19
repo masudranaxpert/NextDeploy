@@ -694,7 +694,6 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 			"enabled": p.QoS != nil,
 		},
 		"php":               p.phpBootstrap(ctx),
-		"mcp_enabled":       p.DB.GetSetting(ctx, "mcp_enabled") == "1",
 		"telemetry_history": telemetry,
 		"public_ip": func() string {
 			if !isAdmin {

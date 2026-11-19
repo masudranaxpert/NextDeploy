@@ -34,9 +34,6 @@ import {
   SyncedGitRepository,
   TelemetryPoint,
 } from './types/nextdeploy';
-import {
-  MCP_TOOLS_CATALOG,
-} from './data/mcpTools';
 import { NextDeployLogoMark } from './components/ui/BrandIcons';
 import { backendApi, formatWildcardDomain, getServerPublicIp, setServerPublicIp, setCachedShieldNodes, setPanelId } from './lib/backendApi';
 import { copyToClipboard } from './lib/clipboard';
@@ -60,7 +57,7 @@ const CaddyOptionsView = lazyRetry(() => import('./features/proxy/CaddyOptionsVi
 const CaddyRoutesView = lazyRetry(() => import('./features/proxy/CaddyRoutesView').then((m) => ({ default: m.CaddyRoutesView })));
 const BackupsView = lazyRetry(() => import('./features/backups/BackupsView').then((m) => ({ default: m.BackupsView })));
 const MigrationView = lazyRetry(() => import('./features/migration/MigrationView').then((m) => ({ default: m.MigrationView })));
-const McpAndCliView = lazyRetry(() => import('./features/automation/McpAndCliView').then((m) => ({ default: m.McpAndCliView })));
+const CliSessionsView = lazyRetry(() => import('./features/automation/CliSessionsView').then((m) => ({ default: m.CliSessionsView })));
 const UsersAndSettingsView = lazyRetry(() => import('./features/system/UsersAndSettingsView').then((m) => ({ default: m.UsersAndSettingsView })));
 const PhpSitesView = lazyRetry(() => import('./features/php/PhpSitesView').then((m) => ({ default: m.PhpSitesView })));
 const PhpInstanceView = lazyRetry(() => import('./features/php/PhpInstanceView').then((m) => ({ default: m.PhpInstanceView })));
@@ -118,9 +115,8 @@ const prefetchRoute = (nav: NavigationSection) => {
     case 'monitor':
       MonitorView.preload?.();
       break;
-    case 'mcp':
     case 'cli-sessions':
-      McpAndCliView.preload?.();
+      CliSessionsView.preload?.();
       break;
     case 'migrate':
       MigrationView.preload?.();
@@ -250,7 +246,6 @@ export default function App() {
   const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
   const [phpEnabled, setPhpEnabled] = useState(false);
-  const [mcpEnabled, setMcpEnabled] = useState(false);
   const [apiTokens, setApiTokens] = useState<any[]>([]);
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
@@ -402,7 +397,6 @@ export default function App() {
     }
 
     setPhpEnabled(Boolean((data as any).php?.enabled));
-    setMcpEnabled(Boolean((data as any).mcp_enabled));
     setApiTokens(Array.isArray((data as any).api_tokens) ? (data as any).api_tokens : []);
     const quotaObj = (data as any).quota;
     setMyQuota(quotaObj && !quotaObj.unlimited ? quotaObj : null);
@@ -1326,7 +1320,6 @@ export default function App() {
                 services={[
                   { name: 'docker', ver: dockerVersion ? `v${dockerVersion}` : '', meta: `${containersCount} containers`, ok: !!dockerVersion },
                   { name: 'caddy-proxy', ver: '', meta: caddyInfo?.up ? 'serving' : caddyInfo?.status || 'not reachable', ok: !!caddyInfo?.up },
-                  { name: 'mcp-server', ver: 'JSON-RPC', meta: `${MCP_TOOLS_CATALOG.length} tools`, ok: true },
                 ]}
                 onRefresh={async () => {
                   const r = await backendApi.metricsHistory();
@@ -1502,24 +1495,8 @@ export default function App() {
                   setMigrationBundles((prev) => prev.filter((b) => b.id !== id));
                 }}
               />
-            ) : activeNav === 'mcp' ? (
-              <McpAndCliView
-                mode="mcp"
-                tools={MCP_TOOLS_CATALOG}
-                cliSessions={cliSessions}
-                mcpEnabled={mcpEnabled}
-                isAdmin={isAdminUser}
-                apiTokens={apiTokens}
-                onTokensChanged={async () => {
-                  const r = await backendApi.bootstrap();
-                  if (r.ok && Array.isArray((r.data as any)?.api_tokens)) setApiTokens((r.data as any).api_tokens);
-                }}
-                onGenerateCliToken={() => {}}
-              />
             ) : activeNav === 'cli-sessions' ? (
-              <McpAndCliView
-                mode="cli"
-                tools={MCP_TOOLS_CATALOG}
+              <CliSessionsView
                 cliSessions={cliSessions}
                 onGenerateCliToken={async (label) => {
                   const res = await backendApi.createCliToken(label);
@@ -1589,7 +1566,6 @@ export default function App() {
                 services={[
                   { name: 'docker', ver: dockerVersion ? `v${dockerVersion}` : '', meta: `${containersCount} containers`, ok: !!dockerVersion },
                   { name: 'caddy-proxy', ver: '', meta: caddyInfo?.up ? 'serving' : caddyInfo?.status || 'not reachable', ok: !!caddyInfo?.up },
-                  { name: 'mcp-server', ver: 'JSON-RPC', meta: `${MCP_TOOLS_CATALOG.length} tools`, ok: true },
                 ]}
                 onSelectApp={(id) => navigateTo('apps', id)}
                 onSelectNav={(nav) => navigateTo(nav)}

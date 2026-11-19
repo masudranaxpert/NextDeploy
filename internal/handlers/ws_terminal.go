@@ -112,7 +112,7 @@ func (p *Panel) TerminalWebSocket(c *fws.Conn) {
 	}
 	if tok, tokOk := c.Locals("api_token").(db.APIToken); tokOk && tok.ID > 0 {
 		if !tok.AllowContainerExec {
-			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: container execution is restricted for this API token. Enable 'Allow Container Exec' in CLI Sessions / MCP Docs."))
+			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: container execution is restricted for this API token. Enable 'Allow Container Exec' in CLI Sessions (/cli-sessions)."))
 			_ = c.Close()
 			return
 		}
@@ -289,7 +289,7 @@ func (p *Panel) VPSTerminalWebSocket(c *fws.Conn) {
 	}
 	if tok, tokOk := c.Locals("api_token").(db.APIToken); tokOk && tok.ID > 0 {
 		if !tok.AllowServerExec {
-			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: server execution is restricted for this API token. Enable 'Allow Server Exec' in CLI Sessions / MCP Docs."))
+			_ = c.WriteMessage(websocket.TextMessage, []byte("forbidden: server execution is restricted for this API token. Enable 'Allow Server Exec' in CLI Sessions (/cli-sessions)."))
 			_ = c.Close()
 			return
 		}

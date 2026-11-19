@@ -15,7 +15,6 @@ import (
 	"panel/internal/agent"
 	"panel/internal/db"
 	"panel/internal/handlers"
-	"panel/internal/mcp"
 	"panel/internal/perflog"
 	"panel/internal/phphosting"
 	"panel/internal/sysinfo"
@@ -198,41 +197,57 @@ func main() {
 	app.Get("/migrate/download/:token", p.MigrateDownload)
 	app.Get("/api/panel/version", p.SPAVersion)
 
-	// Model Context Protocol (MCP) server endpoints for external AI coding agents
-	mcpServer := mcp.NewServer(p)
-	mcpServer.RegisterRoutes(app)
-
 	// PHP sites: hand files written through the panel/API over to the site's UID.
 	app.Use("/api/v1/apps/:id/files", p.PHPOwnershipMiddleware)
 	app.Use("/api/v1/apps/:id/workspace/archive", p.PHPOwnershipMiddleware)
+	app.Use("/api/v1/apps/:id/workspace/apply", p.PHPOwnershipMiddleware)
 
-	// External HTTP REST API endpoints for agent workspace uploads & downloads
+	// External HTTP REST API endpoints for workspace uploads & downloads
 	app.Post("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.UploadWorkspaceArchive)
 	app.Get("/api/v1/apps/:id/workspace/archive", p.APIAuthMiddleware, p.DownloadWorkspaceArchive)
+	app.Post("/api/v1/apps/:id/workspace/apply", p.APIAuthMiddleware, p.APIAppWorkspaceApply)
 	app.Get("/api/v1/metrics/history", p.APIAuthMiddleware, p.MetricsHistory)
 
-	// CLI REST API — apps, manifest, sessions
+	// CLI REST API — apps, compose, deploy, logs, exec, env, domains, manifest, sessions
 	app.Get("/api/v1/apps", p.APIAuthMiddleware, p.APIAppsList)
+	app.Post("/api/v1/apps", p.APIAuthMiddleware, p.APIAppCreate)
+	app.Get("/api/v1/apps/:id", p.APIAuthMiddleware, p.APIAppGet)
 	app.Delete("/api/v1/apps/:id", p.APIAuthMiddleware, p.APIAppDelete)
 	app.Post("/api/v1/apps/:id/delete", p.APIAuthMiddleware, p.APIAppDelete)
 	app.Get("/api/v1/apps/:id/manifest", p.APIAuthMiddleware, p.APIManifest)
+	app.Get("/api/v1/apps/:id/compose", p.APIAuthMiddleware, p.APIAppComposeGet)
+	app.Post("/api/v1/apps/:id/deploy", p.APIAuthMiddleware, p.APIAppDeploy)
+	app.Post("/api/v1/apps/:id/stop", p.APIAuthMiddleware, p.APIAppStop)
+	app.Post("/api/v1/apps/:id/restart", p.APIAuthMiddleware, p.APIAppRestart)
+	app.Get("/api/v1/apps/:id/logs", p.APIAuthMiddleware, p.APIAppLogs)
+	app.Get("/api/v1/apps/:id/deploy-logs", p.APIAuthMiddleware, p.APIAppDeployLogs)
+	app.Post("/api/v1/apps/:id/exec", p.APIAuthMiddleware, p.APIAppExec)
+	app.Get("/api/v1/apps/:id/env", p.APIAuthMiddleware, p.APIAppEnvList)
+	app.Post("/api/v1/apps/:id/env", p.APIAuthMiddleware, p.APIAppEnvSet)
+	app.Delete("/api/v1/apps/:id/env/:key", p.APIAuthMiddleware, p.APIAppEnvDelete)
+	app.Delete("/api/v1/apps/:id/env", p.APIAuthMiddleware, p.APIAppEnvDelete)
+	app.Post("/api/v1/apps/:id/env/unset", p.APIAuthMiddleware, p.APIAppEnvDelete)
+	app.Get("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainsList)
+	app.Post("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainAdd)
+	app.Delete("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainDelete)
+	app.Delete("/api/v1/apps/:id/domains/:did", p.APIAuthMiddleware, p.APIAppDomainDelete)
 	app.Get("/api/v1/apps/:id/files", p.APIAuthMiddleware, p.APIAppFilesList)
 	app.Get("/api/v1/apps/:id/files/content", p.APIAuthMiddleware, p.APIAppFileContent)
 	app.Post("/api/v1/apps/:id/files/content", p.APIAuthMiddleware, p.APIAppFileSave)
 	app.Put("/api/v1/apps/:id/files/content", p.APIAuthMiddleware, p.APIAppFileSave)
 	app.Delete("/api/v1/apps/:id/files", p.APIAuthMiddleware, p.APIAppFileDelete)
 	app.Post("/api/v1/apps/:id/files/delete", p.APIAuthMiddleware, p.APIAppFileDelete)
-	app.Delete("/api/v1/apps/:id/env/:key", p.APIAuthMiddleware, p.APIAppEnvDelete)
-	app.Delete("/api/v1/apps/:id/env", p.APIAuthMiddleware, p.APIAppEnvDelete)
-	app.Post("/api/v1/apps/:id/env/unset", p.APIAuthMiddleware, p.APIAppEnvDelete)
 	app.Get("/api/v1/apps/:id/git", p.APIAuthMiddleware, p.APIGitStatus)
 	app.Post("/api/v1/apps/:id/git/connect", p.APIAuthMiddleware, p.APIGitConnect)
 	app.Post("/api/v1/apps/:id/git/sync", p.APIAuthMiddleware, p.APIGitSync)
+	app.Post("/api/v1/apps/:id/git/sync-mode", p.APIAuthMiddleware, p.APIAppGitSyncMode)
 	app.Post("/api/v1/apps/:id/git/push", p.APIAuthMiddleware, p.APIGitPush)
 	app.Delete("/api/v1/apps/:id/git", p.APIAuthMiddleware, p.APIGitDisconnect)
 	app.Get("/api/v1/apps/:id/git/providers/:pid/repos", p.APIAuthMiddleware, p.AppGitProviderRepos)
 	app.Get("/api/v1/apps/:id/git/providers/:pid/branches", p.APIAuthMiddleware, p.AppGitProviderBranches)
 	app.Get("/api/v1/apps/:id/git/branches", p.APIAuthMiddleware, p.PublicGitRemoteBranches)
+	app.Get("/api/v1/cli/whoami", p.APIAuthMiddleware, p.APICliWhoami)
+	app.Get("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliSessionsList)
 	app.Post("/api/v1/cli/sessions", p.APIAuthMiddleware, p.APICliHeartbeat)
 	app.Delete("/api/v1/cli/sessions/:id", p.APIAuthMiddleware, p.APICliSessionDelete)
 	// CLI WebSockets (Terminal & Logs with Bearer / token authentication)
@@ -362,6 +377,7 @@ func main() {
 	app.Get("/api/v1/system/top", p.APIAuthMiddleware, p.APISystemTop)
 	app.Get("/api/v1/system/stats", p.APIAuthMiddleware, p.APISystemTop)
 	app.Post("/api/v1/system/cleanup", p.APIAuthMiddleware, p.APISystemCleanup)
+	app.Post("/api/v1/system/exec", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APISystemExec)
 	app.Get("/api/v1/system/audit-logs", p.APIAuthMiddleware, p.AuditLogsPageOrJSON)
 
 	// Edge Shield Node integration endpoints (token-authenticated)
@@ -471,14 +487,6 @@ func main() {
 	app.Get("/registries", p.ServeSPA)
 	app.Post("/registries", p.AddRegistry)
 	app.Post("/registries/:id/delete", p.DeleteRegistry)
-	app.Get("/mcp-docs", mcpServer.MCPDocsPage)
-	app.Post("/mcp-docs/tokens", mcpServer.CreateAPITokenPost)
-	app.Post("/mcp-docs/tokens/:id/delete", mcpServer.DeleteAPITokenPost)
-	app.Post("/mcp-docs/tokens/:id/toggle-reveal", mcpServer.ToggleAPITokenEnvRevealPost)
-	app.Post("/mcp-docs/tokens/:id/toggle-container-exec", mcpServer.ToggleAPITokenContainerExecPost)
-	app.Post("/mcp-docs/tokens/:id/toggle-exec", mcpServer.ToggleAPITokenServerExecPost)
-	app.Post("/mcp-docs/tokens/:id/toggle-app-delete", mcpServer.ToggleAPITokenAppDeletePost)
-	app.Post("/mcp-docs/toggle-status", mcpServer.ToggleMCPStatusPost)
 	app.Get("/cli-sessions", p.RequireAdminMiddleware, p.CLISessionsPage)
 	app.Post("/cli-sessions/tokens", p.RequireAdminMiddleware, p.CreateCLITokenPost)
 	app.Post("/cli-sessions/tokens/:id/delete", p.RequireAdminMiddleware, p.DeleteCLITokenPost)
@@ -623,7 +631,6 @@ func main() {
 	app.Get("/proxy-options", p.ServeSPA)
 	app.Get("/proxy-routes", p.ServeSPA)
 	app.Get("/proxy", p.ServeSPA)
-	app.Get("/mcp", p.ServeSPA)
 	app.Get("/audit-logs", p.ServeSPA)
 	app.Post("/caddy/config", p.CaddySaveConfig)
 	app.Post("/caddy/container", p.CaddyContainerAction)

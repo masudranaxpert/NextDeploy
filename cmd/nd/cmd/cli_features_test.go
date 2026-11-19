@@ -278,29 +278,17 @@ func TestCLI_PHPDBExportImport(t *testing.T) {
 
 func TestCLI_EnvUnset(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/mcp" {
-			var req map[string]interface{}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			params := req["params"].(map[string]interface{})
-			name := params["name"].(string)
-			args := params["arguments"].(map[string]interface{})
-			if name != "env_unset" {
-				t.Errorf("expected env_unset, got %s", name)
-			}
-			if args["app_id"] != "test-app" {
-				t.Errorf("expected app_id=test-app, got %v", args["app_id"])
-			}
+		if r.URL.Path == "/api/v1/apps/test-app/env/unset" && r.Method == http.MethodPost {
+			var args map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&args)
 			keys := args["keys"].([]interface{})
 			if len(keys) != 1 || keys[0] != "OLD_KEY" {
 				t.Errorf("expected keys=[OLD_KEY], got %v", keys)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"result": map[string]interface{}{
-					"content": []map[string]interface{}{
-						{"text": "Environment variable \"OLD_KEY\" unset successfully"},
-					},
-				},
+				"ok":      true,
+				"message": "Environment variable \"OLD_KEY\" unset successfully",
 			})
 			return
 		}
@@ -338,28 +326,44 @@ func TestCLI_LinkedProjectDisambiguation(t *testing.T) {
 	var lastScheduleRetention int
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/mcp" {
-			var req map[string]interface{}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			params := req["params"].(map[string]interface{})
-			lastAction = params["name"].(string)
-			args := params["arguments"].(map[string]interface{})
-			lastAppID = fmt.Sprint(args["app_id"])
-			if s, ok := args["service"]; ok {
-				lastService = fmt.Sprint(s)
-			} else {
-				lastService = ""
+		if strings.HasPrefix(r.URL.Path, "/api/v1/apps/") {
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/apps/"), "/")
+			if len(parts) >= 2 {
+				lastAppID = parts[0]
+				restPath := strings.Join(parts[1:], "/")
+				switch restPath {
+				case "stop", "restart":
+					lastAction = restPath
+					var args map[string]interface{}
+					_ = json.NewDecoder(r.Body).Decode(&args)
+					if s, ok := args["service"]; ok {
+						lastService = fmt.Sprint(s)
+					} else {
+						lastService = ""
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+					return
+				case "env/unset":
+					lastAction = "env_unset"
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+					return
+				case "env":
+					if r.Method == http.MethodGet {
+						lastAction = "env_reveal"
+						w.Header().Set("Content-Type", "application/json")
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{"env": map[string]string{"OLD_VAR": "secret"}})
+						return
+					}
+					if r.Method == http.MethodPost {
+						lastAction = "env_set"
+						w.Header().Set("Content-Type", "application/json")
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+						return
+					}
+				}
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"result": map[string]interface{}{
-					"ok": true,
-					"content": []map[string]interface{}{
-						{"text": "success"},
-					},
-				},
-			})
-			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/v1/backups/restore/") {
 			w.Header().Set("Content-Type", "application/json")
