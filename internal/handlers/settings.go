@@ -1056,13 +1056,13 @@ func (p *Panel) RecordAuditLog(c *fiber.Ctx, action, targetType, targetID, detai
 
 	auditLog := db.AuditLog{
 		UserID:     userID,
-		Username:   username,
-		Action:     action,
-		TargetType: targetType,
-		TargetID:   targetID,
-		IPAddress:  ipAddress,
-		UserAgent:  userAgent,
-		Details:    details,
+		Username:   strings.Clone(username),
+		Action:     strings.Clone(action),
+		TargetType: strings.Clone(targetType),
+		TargetID:   strings.Clone(targetID),
+		IPAddress:  strings.Clone(ipAddress),
+		UserAgent:  strings.Clone(userAgent),
+		Details:    strings.Clone(details),
 		CreatedAt:  time.Now(),
 	}
 

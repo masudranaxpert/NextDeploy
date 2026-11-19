@@ -313,8 +313,24 @@ func (d *Daemon) runPanelPoller(ctx context.Context, panel PanelConfig) {
 		d.mu.Unlock()
 
 		if st != nil && client != nil {
-			out := PollPanelOnce(ctx, client, st, shieldHost, false, time.Now().UTC())
 			d.mu.Lock()
+			pollCopy := *st
+			d.mu.Unlock()
+
+			out := PollPanelOnce(ctx, client, &pollCopy, shieldHost, false, time.Now().UTC())
+			d.mu.Lock()
+			st.LastSyncAttemptAt = pollCopy.LastSyncAttemptAt
+			st.LastSyncOKAt = pollCopy.LastSyncOKAt
+			st.SyncState = pollCopy.SyncState
+			st.LastError = pollCopy.LastError
+			st.Consecutive410Count = pollCopy.Consecutive410Count
+			st.First410At = pollCopy.First410At
+			st.PendingSnapshot = pollCopy.PendingSnapshot
+			st.PendingETag = pollCopy.PendingETag
+			st.PendingCount = pollCopy.PendingCount
+			st.PendingFirstSeen = pollCopy.PendingFirstSeen
+			st.LastGood = pollCopy.LastGood
+			st.LastGoodETag = pollCopy.LastGoodETag
 			_ = SavePanelState(d.opts.Paths.StateFile(panel.PanelID), st)
 			if out.SnapshotUpdated {
 				d.rebuildClientsLocked()
@@ -383,18 +399,10 @@ func (d *Daemon) runReconcilerLoop(ctx context.Context) {
 		}
 
 		d.mu.Lock()
-		cfg := d.cfg
-		states := d.panelStates
-		claims := d.claims
-		meta := d.meta
 		force := pendingForce
 		pendingForce = false
-		d.mu.Unlock()
-
-		out, err := d.reconciler.ReconcileOnce(ctx, cfg, states, claims, meta, force, false, time.Now().UTC())
+		out, err := d.reconciler.ReconcileOnce(ctx, d.cfg, d.panelStates, d.claims, d.meta, force, false, time.Now().UTC())
 		lastApply = time.Now()
-
-		d.mu.Lock()
 		d.lastCaddyOK = out.CaddyRunning
 		d.lastCaddyEr = out.CaddyStatusError
 		d.mu.Unlock()
