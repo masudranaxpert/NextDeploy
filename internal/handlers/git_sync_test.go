@@ -194,6 +194,9 @@ func TestGitSyncOnRefusesDirtyCheckoutWithoutForce(t *testing.T) {
 	if p.DB.GetAppSourceType(ctx, appID) != "git" {
 		t.Error("source type should be git again")
 	}
+	if appRow, err := p.DB.GetApp(ctx, appID); err != nil || appRow.SourceType != "git" {
+		t.Fatalf("expected GetApp SourceType=git, got %+v err=%v", appRow, err)
+	}
 }
 
 func TestGitSyncOffWithoutCheckoutOnlyFlipsFlag(t *testing.T) {

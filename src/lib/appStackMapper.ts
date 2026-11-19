@@ -156,7 +156,14 @@ export function mapRawAppToStack(
     name: a.name,
     slug: a.name,
     description: a.description || '',
-    sourceType: (a.source_type || 'compose') as any,
+    sourceType: (a.source_type === 'git' || (a.git_config?.repo_url && !a.git_config?.sync_paused)
+      ? 'git'
+      : a.source_type === 'zip'
+      ? 'zip'
+      : 'compose') as any,
+    gitSync: a.git_config?.repo_url
+      ? !Boolean(a.git_config?.sync_paused)
+      : a.source_type === 'git',
     gitRepo: a.git_config?.repo_url || a.git_repo || '',
     gitBranch: a.git_config?.branch || a.git_branch || 'main',
     gitAuthMode: gitAuthModeFromConfig(a.git_config),

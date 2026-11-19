@@ -78,24 +78,32 @@ func (s *Store) AppNameExists(ctx context.Context, name string) (bool, error) {
 	return found != "", nil
 }
 
+const appSelectCols = `id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, ''), COALESCE(source_type, '')`
+
+func scanApp(scan func(dest ...any) error) (App, error) {
+	var a App
+	var created string
+	if err := scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot, &a.SourceType); err != nil {
+		return App{}, err
+	}
+	if t, err := time.Parse(time.RFC3339, created); err == nil {
+		a.CreatedAt = t
+	}
+	return a, nil
+}
+
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '') FROM apps ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+appSelectCols+` FROM apps ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []App
 	for rows.Next() {
-		var a App
-		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot); err != nil {
+		a, err := scanApp(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		t, err := time.Parse(time.RFC3339, created)
-		if err != nil {
-			t = time.Time{}
-		}
-		a.CreatedAt = t
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -103,7 +111,7 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 
 func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '')
+		SELECT `+appSelectCols+`
 		FROM apps
 		WHERE owner_id = ? OR id IN (SELECT app_id FROM app_collaborators WHERE user_id = ?)
 		ORDER BY created_at DESC`, userID, userID)
@@ -113,31 +121,20 @@ func (s *Store) ListAppsForUser(ctx context.Context, userID int64) ([]App, error
 	defer rows.Close()
 	var out []App
 	for rows.Next() {
-		var a App
-		var created string
-		if err := rows.Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot); err != nil {
+		a, err := scanApp(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		t, err := time.Parse(time.RFC3339, created)
-		if err != nil {
-			t = time.Time{}
-		}
-		a.CreatedAt = t
 		out = append(out, a)
 	}
 	return out, rows.Err()
 }
 
 func (s *Store) GetApp(ctx context.Context, id string) (App, error) {
-	var a App
-	var created string
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, COALESCE(compose_file,''), COALESCE(owner_id, 0), COALESCE(status, 'active'), COALESCE(active_slot, 'blue'), COALESCE(standby_slot, ''), COALESCE(pinned_slot, '') FROM apps WHERE id = ? OR name = ? LIMIT 1`, id, id).
-		Scan(&a.ID, &a.Name, &created, &a.ComposeFile, &a.OwnerID, &a.Status, &a.ActiveSlot, &a.StandbySlot, &a.PinnedSlot)
+	a, err := scanApp(s.db.QueryRowContext(ctx, `SELECT `+appSelectCols+` FROM apps WHERE id = ? OR name = ? LIMIT 1`, id, id).Scan)
 	if err != nil {
 		return App{}, err
 	}
-	t, _ := time.Parse(time.RFC3339, created)
-	a.CreatedAt = t
 	if strings.TrimSpace(a.ComposeFile) == "" {
 		a.ComposeFile = "docker-compose.yml"
 	}

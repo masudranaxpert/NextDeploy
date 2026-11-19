@@ -58,6 +58,7 @@ type App struct {
 	ActiveSlot  string    `json:"active_slot,omitempty"`
 	StandbySlot string    `json:"standby_slot,omitempty"`
 	PinnedSlot  string    `json:"pinned_slot,omitempty"`
+	SourceType  string    `json:"source_type,omitempty"`
 }
 
 type AppCollaborator struct {
