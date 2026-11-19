@@ -3,7 +3,7 @@
 # NextDeploy
 
 **Lightweight self-hosted deployment platform & PHP hosting panel.**  
-Run Docker Compose apps, WordPress & PHP sites, zero-config HTTPS via Caddy, Angie or Ferron, multi-panel Edge Shield, and full dev agent MCP integration from a single fast binary.
+Run Docker Compose apps, WordPress & PHP sites, zero-config HTTPS via Caddy, Angie or Ferron, multi-panel Edge Shield, and full `nd` CLI control from a single fast binary.
 
 [![Release](https://img.shields.io/github/v/release/masudranaxpert/NextDeploy?style=flat-square&color=4f46e5)](https://github.com/masudranaxpert/NextDeploy/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/masudranaxpert/nextdeploy?style=flat-square&color=0ea5e9)](https://hub.docker.com/r/masudranaxpert/nextdeploy)
@@ -29,7 +29,7 @@ NextDeploy is designed to be lean, modern, and developer-first:
 - **~35 MB idle footprint**: One static Go binary (Fiber) plus a reverse proxy container of your choice (Caddy, Angie or Ferron). Leaves your VPS RAM for your actual applications.
 - **Unified Hosting Model**: Run complex multi-container Docker Compose stacks right alongside production PHP/WordPress workloads (with isolated PHP-FPM pools & MariaDB).
 - **Edge Shield Ingress**: Terminate TLS and absorb traffic on remote edge VPS nodes (`nd edge`) before tunneling back to your origin server, complete with per-domain trusted proxy preservation.
-- **First-Class AI Agent Support**: Native [Model Context Protocol (MCP)](skills/nextdeploy-mcp/SKILL.md) server at `/mcp/sse` + built-in admin agent (ND AI) powered by [omp](https://github.com/can1357/oh-my-pi).
+- **Built-in Admin AI Copilot**: Built-in admin agent (ND AI) powered by [omp](https://github.com/can1357/oh-my-pi) with tool access to panel logs and runtime diagnostics.
 - **Cross-Platform CLI (`nd`)**: Manage deployments, tail proxy/container logs, sync local workspaces, and inspect databases right from your terminal.
 
 ---
@@ -90,7 +90,6 @@ Benchmarks, the decision guide, switching and rollback details are in [docs/prox
 | **Compose & Stacks** | Git webhook auto-deploy or local delta push (`nd push`), automatic blue/green container deployments, and environment variable vaults. |
 | **Edge Shield (DDoS/Proxy)** | Multi-panel edge CDN architecture. Route traffic through distributed edge VPS nodes with automatic TLS synchronization on Caddy, Angie or Ferron, plus Shield-only domains and garbage-domain cleanup (`nd edge domain`). |
 | **CLI Companion (`nd`)** | Inspect resources (`nd top`), stream container & proxy logs (`nd logs`, `nd proxy logs -f`), switch the proxy engine (`nd proxy engine`), delta sync files (`nd push --deploy`), and run interactive shell sessions (`nd shell`). |
-| **AI Agent MCP Server** | Built-in SSE MCP endpoint (`/mcp/sse`) allowing Cursor, Claude Code, and Windsurf to safely inspect containers, manage apps, and run builds. |
 | **Disaster Recovery** | Manual snapshots & scheduled backups with direct S3/Rclone cloud sync, plus `.nd-migrate` single-archive VPS-to-VPS migrations. |
 
 ---

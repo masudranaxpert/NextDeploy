@@ -5,7 +5,6 @@ import {
   ArrowLeftRight,
   Bot,
   Box,
-  Cable,
   FileCode2,
   FileText,
   FolderGit2,
@@ -115,11 +114,6 @@ export function buildNavGroups(params: {
     {
       group: 'Automation',
       items: [
-        {
-          id: 'mcp',
-          label: 'MCP Server',
-          icon: <Cable className="h-3.5 w-3.5" />,
-        },
         {
           id: 'cli-sessions',
           label: 'CLI Sessions',

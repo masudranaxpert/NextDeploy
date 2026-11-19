@@ -667,9 +667,9 @@ export const GitAndRegistriesSkeleton: React.FC = () => (
   </div>
 );
 
-/** 15. CLI & MCP Skeleton */
-export const McpAndCliSkeleton: React.FC = () => (
-  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading CLI & MCP">
+/** 15. CLI Sessions Skeleton */
+export const CliSessionsSkeleton: React.FC = () => (
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading CLI Sessions">
     <div className="flex items-center gap-2">
       <div className="h-8 w-8 rounded-lg border border-white/[0.08] bg-zinc-900" />
       <div className="h-5 w-44 rounded bg-white/[0.09]" />
@@ -879,9 +879,8 @@ export const PageSkeleton: React.FC<{ nav: string }> = ({ nav }) => {
       return <MigrationSkeleton />;
     case 'git':
       return <GitAndRegistriesSkeleton />;
-    case 'mcp-cli':
     case 'cli-sessions':
-      return <McpAndCliSkeleton />;
+      return <CliSessionsSkeleton />;
     case 'users':
       return <UsersSkeleton />;
     case 'settings':

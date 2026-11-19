@@ -89,23 +89,22 @@ export const systemAndTokensApi = {
     });
   },
 
-  // MCP & CLI Tokens
+  // CLI Tokens & Sessions
   createApiToken: (payload: {
     name: string;
-    kind: 'mcp' | 'cli';
     allow_env_reveal?: boolean;
     allow_server_exec?: boolean;
     allow_container_exec?: boolean;
     allow_app_delete?: boolean;
   }) =>
     requestJson<{ ok: boolean; id: number; token: string; name: string }>(
-      payload.kind === 'cli' ? '/cli-sessions/tokens' : '/mcp-docs/tokens',
+      '/cli-sessions/tokens',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: toFormBody({
           name: payload.name,
-          kind: payload.kind,
+          kind: 'cli',
           allow_env_reveal: payload.allow_env_reveal ? '1' : '0',
           allow_server_exec: payload.allow_server_exec ? '1' : '0',
           allow_container_exec: payload.allow_container_exec ? '1' : '0',
@@ -130,12 +129,6 @@ export const systemAndTokensApi = {
     requestJson(`/cli-sessions/tokens/${tokenId}/delete`, {
       method: 'POST',
     }),
-  deleteMcpToken: (tokenId: string | number) =>
-    requestJson(`/mcp-docs/tokens/${tokenId}/delete`, { method: 'POST' }),
-  toggleMcpStatus: () =>
-    requestJson<{ ok: boolean; enabled: boolean }>('/mcp-docs/toggle-status', {
-      method: 'POST',
-    }),
   toggleApiTokenPerm: (
     tokenId: string | number,
     perm:
@@ -146,8 +139,7 @@ export const systemAndTokensApi = {
       | 'allow_env_reveal'
       | 'allow_container_exec'
       | 'allow_server_exec'
-      | 'allow_app_delete',
-    kind: 'mcp' | 'cli' = 'cli'
+      | 'allow_app_delete'
   ) => {
     const permMap: Record<string, string> = {
       allow_env_reveal: 'reveal',
@@ -156,10 +148,9 @@ export const systemAndTokensApi = {
       allow_app_delete: 'app-delete',
     };
     const routeSuffix = permMap[perm] || perm;
-    return requestJson(
-      `${kind === 'cli' ? '/cli-sessions' : '/mcp-docs'}/tokens/${tokenId}/toggle-${routeSuffix}`,
-      { method: 'POST' }
-    );
+    return requestJson(`/cli-sessions/tokens/${tokenId}/toggle-${routeSuffix}`, {
+      method: 'POST',
+    });
   },
 
   // Users, Quotas, Audit Logs & System Settings

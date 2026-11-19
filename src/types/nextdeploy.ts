@@ -12,7 +12,6 @@ export type NavigationSection =
   | 'git'
   | 'registries'
   | 'backup'
-  | 'mcp'
   | 'cli-sessions'
   | 'migrate'
   | 'proxy'
@@ -123,7 +122,7 @@ export interface DeploymentRecord {
   commitSha: string;
   commitMessage: string;
   branch: string;
-  trigger: 'git-webhook' | 'nd-cli' | 'mcp-agent' | 'manual-compose';
+  trigger: 'git-webhook' | 'nd-cli' | 'manual-compose';
   author: string;
   status: 'ready' | 'building' | 'failed';
   durationSec: number;
@@ -383,14 +382,6 @@ export interface MigrationExportBundle {
   error?: string;
 }
 
-export interface McpToolItem {
-  name: string;
-  category: 'Workspace & Files' | 'Deploy & Compose' | 'Logs & Telemetry' | 'Domains & Env';
-  description: string;
-  signature: string;
-  readOnly: boolean;
-}
-
 export interface CliSessionItem {
   id: string;
   tokenName: string;
@@ -436,7 +427,7 @@ export interface AuditLogEntry {
   id: string;
   timestamp: string;
   actor: string;
-  actorRole: 'admin' | 'user' | 'system' | 'mcp-agent' | 'nd-cli';
+  actorRole: 'admin' | 'user' | 'system' | 'nd-cli';
   targetOwner?: string;
   targetOwnerRole?: string;
   action: string;
