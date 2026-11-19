@@ -25,18 +25,39 @@ func RunShield(cl *client.Client, args []string) error {
 	case "list", "ls":
 		return runShieldList(cl, rest)
 	case "add", "create":
+		if err := requireAdminRole(cl, "nd shield add"); err != nil {
+			return err
+		}
 		return runShieldAdd(cl, rest)
 	case "rm", "delete", "remove":
+		if err := requireAdminRole(cl, "nd shield rm"); err != nil {
+			return err
+		}
 		return runShieldRemove(cl, rest)
 	case "update":
+		if err := requireAdminRole(cl, "nd shield update"); err != nil {
+			return err
+		}
 		return runShieldUpdate(cl, rest)
 	case "rotate-token":
+		if err := requireAdminRole(cl, "nd shield rotate-token"); err != nil {
+			return err
+		}
 		return runShieldRotateToken(cl, rest)
 	case "test":
+		if err := requireAdminRole(cl, "nd shield test"); err != nil {
+			return err
+		}
 		return runShieldTest(cl, rest)
 	case "setup-script", "script":
+		if err := requireAdminRole(cl, "nd shield setup-script"); err != nil {
+			return err
+		}
 		return runShieldSetupScript(cl, rest)
 	case "reassign":
+		if err := requireAdminRole(cl, "nd shield reassign"); err != nil {
+			return err
+		}
 		return runShieldReassign(cl, rest)
 	default:
 		return fmt.Errorf("unknown shield command %q. Run 'nd shield --help' for usage", sub)
@@ -45,15 +66,16 @@ func RunShield(cl *client.Client, args []string) error {
 
 func printShieldHelp() {
 	fmt.Println("Usage: nd shield <command> [args...]")
-	fmt.Println("\nManage Edge Shield reverse proxy nodes:")
+	fmt.Println("\nUser Read-Only:")
 	fmt.Println("  list, ls [--json]                                 List connected Edge Shield nodes")
-	fmt.Println("  add <name> <ip>                                   Register a new Edge Shield node")
-	fmt.Println("  update <node_id> [--name N] [--ip IP]             Update an Edge Shield node")
-	fmt.Println("  rm <node_id>                                      Delete an Edge Shield node")
-	fmt.Println("  rotate-token <node_id>                            Rotate a node's shield token (10m grace)")
-	fmt.Println("  test <node_id>                                    Test connectivity to an Edge Shield node")
-	fmt.Println("  setup-script [node_id|name] [flags]               Print the setup command for an edge VPS")
-	fmt.Println("  reassign <source_node_id> [target_node_id]        Reassign domains to another shield node (or direct if omitted)")
+	fmt.Println("\nAdmin Node Management [admin only]:")
+	fmt.Println("  add <name> <ip>                                   Register a new Edge Shield node [admin]")
+	fmt.Println("  update <node_id> [--name N] [--ip IP]             Update an Edge Shield node [admin]")
+	fmt.Println("  rm <node_id>                                      Delete an Edge Shield node [admin]")
+	fmt.Println("  rotate-token <node_id>                            Rotate a node's shield token (10m grace) [admin]")
+	fmt.Println("  test <node_id>                                    Test connectivity to an Edge Shield node [admin]")
+	fmt.Println("  setup-script [node_id|name] [flags]               Print setup command for an edge VPS [admin]")
+	fmt.Println("  reassign <source_node_id> [target_node_id]        Reassign domains to another shield node (or direct if omitted) [admin]")
 }
 
 type shieldNodeItem struct {

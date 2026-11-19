@@ -216,6 +216,22 @@ func (p *Panel) VolumeRestore(c *fiber.Ctx) error {
 		SetFlashError(c, "Invalid volume name")
 		return c.Redirect(buildBrowseURL(vol, fromApp))
 	}
+	if allowed, aerr := p.isVolumeWriteAllowed(c, vol); aerr != nil || !allowed {
+		if syncR != nil {
+			_ = syncR.Close()
+		}
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+		if wantJSON {
+			if aerr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": aerr.Error()})
+			}
+			return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+		}
+		SetFlashError(c, "Permission denied for this volume")
+		return c.Redirect(buildBrowseURL(vol, fromApp))
+	}
 
 	if !wantJSON {
 		if _, loaded := p.VolRestoreActive.LoadOrStore(vol, struct{}{}); loaded {
@@ -310,6 +326,9 @@ func (p *Panel) VolumeRestoreStatus(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "unknown or expired job"})
 	}
 	st, errMsg, pct, vol := j.Snapshot()
+	if allowed, aerr := p.isVolumeWriteAllowed(c, vol); aerr != nil || !allowed {
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
 	resp := fiber.Map{
 		"status":          st,
 		"error":           errMsg,

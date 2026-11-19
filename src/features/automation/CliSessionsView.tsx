@@ -7,6 +7,8 @@ import {
   Eye,
   EyeOff,
   Terminal,
+  ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CliSessionItem } from '../../types/nextdeploy';
@@ -19,12 +21,38 @@ import { backendApi } from '../../lib/backendApi';
 import { copyToClipboard } from '../../lib/clipboard';
 
 interface CliSessionsViewProps {
+  isAdmin?: boolean;
   cliSessions: CliSessionItem[];
   onGenerateCliToken: (name: string) => void;
-  onRevokeCliSession?: (id: string) => void;
+  onRevokeCliSession?: (session: CliSessionItem) => void;
 }
 
+const USER_CLI_COMMANDS = [
+  { cmd: 'nd login <panel_url>', desc: 'Authenticate & store account role/token' },
+  { cmd: 'nd whoami / nd quota', desc: 'Inspect role, token scopes & resource limits' },
+  { cmd: 'nd apps / nd create <name>', desc: 'List or provision owned applications' },
+  { cmd: 'nd push --deploy --prune', desc: 'Delta sync local files & trigger deploy' },
+  { cmd: 'nd logs -f / nd shell', desc: 'Stream logs or open container PTY terminal' },
+  { cmd: 'nd env list|get|set|unset', desc: 'Manage environment variables safely' },
+  { cmd: 'nd domain list|add|rm', desc: 'Attach and manage custom app domains' },
+  { cmd: 'nd php ... / nd db ...', desc: 'Manage PHP sites, routing, MariaDB & crons' },
+  { cmd: 'nd proxy list|add|enable|rm', desc: 'Manage your personal reverse proxy routes' },
+  { cmd: 'nd volume ... / nd backup ...', desc: 'Manage volumes & backups for your apps' },
+];
+
+const ADMIN_CLI_COMMANDS = [
+  { cmd: 'nd containers / nd images', desc: 'Inspect all host containers & Docker images' },
+  { cmd: 'nd server-exec / nd server-shell', desc: 'Run host shell commands or PTY session [admin]' },
+  { cmd: 'nd clean / nd volume prune', desc: 'Prune global build cache, images & volumes [admin]' },
+  { cmd: 'nd proxy reload|logs|status|options|engine', desc: 'Switch or configure proxy engine (caddy/angie/ferron)' },
+  { cmd: 'nd shield add|update|rm|reassign', desc: 'Manage Edge Shield nodes & tokens [admin]' },
+  { cmd: 'nd edge <subcommand>', desc: 'Manage multi-panel Edge Shield daemon [admin]' },
+  { cmd: 'nd users [list]', desc: 'Inspect panel users, roles & quota allocations [admin]' },
+  { cmd: 'nd audit -n 50', desc: 'Review global security & deployment audit logs' },
+];
+
 export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
+  isAdmin = false,
   cliSessions,
   onGenerateCliToken,
   onRevokeCliSession,
@@ -33,6 +61,7 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
   const [installCliOpen, setInstallCliOpen] = useState(false);
   const [tokenLabel, setTokenLabel] = useState('');
   const [revealedCliTokens, setRevealedCliTokens] = useState<Record<string, boolean>>({});
+  const [refRoleTab, setRefRoleTab] = useState<'user' | 'admin'>(isAdmin ? 'admin' : 'user');
   const [tokenPerms, setTokenPerms] = useState<
     Record<
       string,
@@ -44,6 +73,19 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
       }
     >
   >({});
+
+  const visibleScopes = isAdmin
+    ? ([
+        { key: 'allow_env_reveal', label: 'env:reveal' },
+        { key: 'allow_container_exec', label: 'container:exec' },
+        { key: 'allow_server_exec', label: 'host:exec' },
+        { key: 'allow_app_delete', label: 'app:delete' },
+      ] as const)
+    : ([
+        { key: 'allow_env_reveal', label: 'env:reveal' },
+        { key: 'allow_container_exec', label: 'container:exec' },
+        { key: 'allow_app_delete', label: 'app:delete' },
+      ] as const);
 
   return (
     <div className="space-y-4">
@@ -96,12 +138,13 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
               {cliSessions.map((s) => {
                 const fullTokenValue = s.fullToken || s.prefix;
                 const isRevealed = Boolean(revealedCliTokens[s.id]);
-                const p = tokenPerms[s.id] || {
-                  allow_env_reveal: true,
-                  allow_container_exec: true,
+                const p = tokenPerms[s.id] || s.permissions || {
+                  allow_env_reveal: false,
+                  allow_container_exec: false,
                   allow_server_exec: false,
                   allow_app_delete: false,
                 };
+                const targetTokId = s.tokenId || s.id;
                 const toggleScope = (
                   permKey:
                     | 'allow_env_reveal'
@@ -115,7 +158,7 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
                     ...prev,
                     [s.id]: { ...p, [permKey]: nextVal },
                   }));
-                  void backendApi.toggleApiTokenPerm(s.id, permKey);
+                  void backendApi.toggleApiTokenPerm(targetTokId, permKey);
                   toast.success(`${nextVal ? 'Granted' : 'Revoked'} ${label} for ${s.tokenName}`);
                 };
 
@@ -160,14 +203,7 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1 font-mono text-[10px]">
-                        {(
-                          [
-                            { key: 'allow_env_reveal', label: 'env:reveal' },
-                            { key: 'allow_container_exec', label: 'container:exec' },
-                            { key: 'allow_server_exec', label: 'host:exec' },
-                            { key: 'allow_app_delete', label: 'app:delete' },
-                          ] as const
-                        ).map((sc) => {
+                        {visibleScopes.map((sc) => {
                           const active = p[sc.key];
                           return (
                             <button
@@ -203,11 +239,11 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
                             },
                           },
                           {
-                            label: 'Revoke Session',
+                            label: 'Revoke Token',
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             variant: 'danger',
                             onClick: () => {
-                              if (onRevokeCliSession) onRevokeCliSession(s.id);
+                              if (onRevokeCliSession) onRevokeCliSession(s);
                             },
                           },
                         ]}
@@ -216,8 +252,63 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
                   </tr>
                 );
               })}
+              {cliSessions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-xs text-zinc-500">
+                    No CLI tokens yet. Click "Generate Token" to authenticate <code className="text-zinc-300">nd login</code>.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Role-separated CLI command reference */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 className="text-xs font-semibold text-zinc-100">CLI Command Reference (nd)</h2>
+            <p className="text-[11px] text-zinc-500">
+              Commands are separated by role. Run <code className="text-zinc-300">nd help user</code> or <code className="text-zinc-300">nd help admin</code> locally.
+            </p>
+          </div>
+          {isAdmin && (
+            <div className="inline-flex rounded-lg border border-white/[0.08] bg-zinc-950 p-0.5 text-[11px] self-start">
+              <button
+                type="button"
+                onClick={() => setRefRoleTab('user')}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
+                  refRoleTab === 'user' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <UserCheck className="h-3 w-3 text-cyan-400" />
+                User Commands
+              </button>
+              <button
+                type="button"
+                onClick={() => setRefRoleTab('admin')}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium cursor-pointer transition-colors ${
+                  refRoleTab === 'admin' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <ShieldCheck className="h-3 w-3 text-amber-400" />
+                Admin Commands
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {(isAdmin && refRoleTab === 'admin' ? ADMIN_CLI_COMMANDS : USER_CLI_COMMANDS).map((item) => (
+            <div
+              key={item.cmd}
+              className="flex flex-col justify-between rounded-lg border border-white/[0.06] bg-[#09090b]/80 px-3 py-2"
+            >
+              <code className="font-mono text-[11px] text-orange-300">{item.cmd}</code>
+              <span className="mt-0.5 text-[11px] text-zinc-400">{item.desc}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -241,6 +332,7 @@ export const CliSessionsView: React.FC<CliSessionsViewProps> = ({
           </div>
           <div className="rounded-lg border border-white/[0.08] bg-[#09090b] p-3 space-y-1 text-[11px] text-zinc-400">
             <div>$ nd login {typeof window !== 'undefined' ? window.location.origin : 'https://panel.yourdomain.com'}</div>
+            <div>$ nd whoami</div>
             <div>$ nd link my-app</div>
             <div>$ nd push --deploy</div>
             <div>$ nd logs -f</div>

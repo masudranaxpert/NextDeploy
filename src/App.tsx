@@ -581,9 +581,38 @@ export default function App() {
       );
     }
     const apiTokensMap = new Map<string, string>();
+    const tokenMetaMap = new Map<
+      string,
+      {
+        id: string;
+        fullToken: string;
+        permissions: {
+          allow_env_reveal: boolean;
+          allow_container_exec: boolean;
+          allow_server_exec: boolean;
+          allow_app_delete: boolean;
+        };
+      }
+    >();
     if (Array.isArray(data.api_tokens)) {
       for (const t of data.api_tokens) {
         const full = String(t.token || t.Token || '').trim();
+        const tokId = String(t.id || t.ID || '');
+        const meta = {
+          id: tokId,
+          fullToken: full,
+          permissions: {
+            allow_env_reveal: Boolean(t.allow_env_reveal ?? t.AllowEnvReveal),
+            allow_container_exec: Boolean(t.allow_container_exec ?? t.AllowContainerExec),
+            allow_server_exec: Boolean(t.allow_server_exec ?? t.AllowServerExec),
+            allow_app_delete: Boolean(t.allow_app_delete ?? t.AllowAppDelete),
+          },
+        };
+        if (t.token_prefix) tokenMetaMap.set(String(t.token_prefix), meta);
+        if (t.TokenPrefix) tokenMetaMap.set(String(t.TokenPrefix), meta);
+        if (t.name) tokenMetaMap.set(String(t.name), meta);
+        if (t.Name) tokenMetaMap.set(String(t.Name), meta);
+        if (tokId) tokenMetaMap.set(tokId, meta);
         if (full) {
           if (t.token_prefix) apiTokensMap.set(String(t.token_prefix), full);
           if (t.TokenPrefix) apiTokensMap.set(String(t.TokenPrefix), full);
@@ -603,9 +632,11 @@ export default function App() {
         const prefix = cs.token_prefix || cs.TokenPrefix || 'nd_cli_...';
         const name = cs.token_name || cs.TokenName || 'CLI Token';
         const id = String(cs.id || cs.ID);
+        const meta = tokenMetaMap.get(prefix) || tokenMetaMap.get(name) || tokenMetaMap.get(id);
         const fullToken =
           cs.fullToken ||
           cs.token ||
+          meta?.fullToken ||
           apiTokensMap.get(prefix) ||
           apiTokensMap.get(name) ||
           apiTokensMap.get(id) ||
@@ -613,22 +644,25 @@ export default function App() {
 
         seenTokenKeys.add(prefix);
         if (name) seenTokenKeys.add(name);
-        if (id) seenTokenKeys.add(id);
+        if (meta?.id) seenTokenKeys.add(meta.id);
+        seenTokenKeys.add(id);
 
         sessionsList.push({
           id,
+          tokenId: meta?.id,
           tokenName: name,
           prefix,
           fullToken,
           deviceHost: cs.hostname || cs.Hostname || 'workstation',
           osArch: `${cs.os || cs.OS || 'linux'}/${cs.arch || cs.Arch || 'amd64'}`,
-          cliVersion: cs.version || cs.Version || 'nd v1.8.4',
+          cliVersion: cs.version || cs.Version || 'nd',
           lastCommand: cs.last_command || cs.LastCommand || '-',
           lastActiveAt:
             cs.last_seen || cs.LastSeen
               ? new Date(cs.last_seen || cs.LastSeen).toLocaleString()
               : 'Recently',
           ipAddress: getServerPublicIp() || '127.0.0.1',
+          permissions: meta?.permissions,
         });
       }
     }
@@ -648,18 +682,25 @@ export default function App() {
           const fullToken = String(tok.token || tok.Token || '');
           sessionsList.push({
             id,
+            tokenId: id,
             tokenName: name,
             prefix: prefix || (fullToken ? `${fullToken.slice(0, 11)}...` : 'nd_cli_...'),
             fullToken,
-            deviceHost: '—',
-            osArch: '—',
-            cliVersion: '—',
+            deviceHost: '-',
+            osArch: '-',
+            cliVersion: '-',
             lastCommand: 'not used yet',
             lastActiveAt:
               tok.created_at || tok.CreatedAt
                 ? new Date(tok.created_at || tok.CreatedAt).toLocaleString()
                 : 'Never',
-            ipAddress: '—',
+            ipAddress: '-',
+            permissions: {
+              allow_env_reveal: Boolean(tok.allow_env_reveal ?? tok.AllowEnvReveal),
+              allow_container_exec: Boolean(tok.allow_container_exec ?? tok.AllowContainerExec),
+              allow_server_exec: Boolean(tok.allow_server_exec ?? tok.AllowServerExec),
+              allow_app_delete: Boolean(tok.allow_app_delete ?? tok.AllowAppDelete),
+            },
           });
         }
       }
@@ -1497,6 +1538,7 @@ export default function App() {
               />
             ) : activeNav === 'cli-sessions' ? (
               <CliSessionsView
+                isAdmin={isAdminUser}
                 cliSessions={cliSessions}
                 onGenerateCliToken={async (label) => {
                   const res = await backendApi.createCliToken(label);
@@ -1505,26 +1547,35 @@ export default function App() {
                     toast.error(res.error || 'Could not create the token');
                     return;
                   }
+                  const tokId = String(res.data?.id ?? Date.now());
                   const created: CliSessionItem = {
-                    id: String(res.data?.id ?? Date.now()),
+                    id: tokId,
+                    tokenId: tokId,
                     tokenName: label,
                     prefix: `${fullToken.slice(0, 11)}...`,
                     fullToken,
-                    deviceHost: '—',
-                    osArch: '—',
-                    cliVersion: '—',
+                    deviceHost: '-',
+                    osArch: '-',
+                    cliVersion: '-',
                     lastCommand: 'not used yet',
                     lastActiveAt: 'Never',
-                    ipAddress: '—',
+                    ipAddress: '-',
+                    permissions: {
+                      allow_env_reveal: true,
+                      allow_container_exec: true,
+                      allow_server_exec: false,
+                      allow_app_delete: false,
+                    },
                   };
                   setCliSessions((prev) => [created, ...prev]);
                   void copyToClipboard(fullToken);
                   toast.success(`Created CLI token for ${label} (copied)`);
                 }}
-                onRevokeCliSession={(id) => {
-                  void backendApi.deleteCliSession(id);
-                  setCliSessions((prev) => prev.filter((s) => s.id !== id));
-                  toast.success('Revoked CLI session');
+                onRevokeCliSession={(session) => {
+                  const targetTokenId = session.tokenId || session.id;
+                  void backendApi.deleteCliSession(targetTokenId);
+                  setCliSessions((prev) => prev.filter((s) => s.id !== session.id));
+                  toast.success('Revoked CLI token');
                 }}
               />
             ) : activeNav === 'users' ? (

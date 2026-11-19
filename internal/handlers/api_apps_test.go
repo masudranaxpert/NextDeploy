@@ -71,7 +71,12 @@ func setupAPIAppsTestServer(t *testing.T) (*Panel, *fiber.App, string, string, s
 	app.Get("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainsList)
 	app.Post("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainAdd)
 	app.Delete("/api/v1/apps/:id/domains", p.APIAuthMiddleware, p.APIAppDomainDelete)
+	app.Get("/api/v1/apps/:id/files", p.APIAuthMiddleware, p.APIAppFilesList)
 	app.Post("/api/v1/system/exec", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APISystemExec)
+	app.Get("/api/v1/admin/users", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.APIAdminUsersList)
+	app.Post("/cli-sessions/tokens", p.APIAuthMiddleware, p.CreateCLITokenPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-exec", p.APIAuthMiddleware, p.ToggleCLITokenServerExecPost)
+	app.Post("/cli-sessions/tokens/:id/toggle-reveal", p.APIAuthMiddleware, p.ToggleCLITokenEnvRevealPost)
 
 	return p, app, adminTok, userRestrictedTok, otherTok
 }
@@ -195,5 +200,54 @@ func TestAPIAppsREST_RBACAndScopes(t *testing.T) {
 	resp, _ = doJSONReq(t, app, http.MethodDelete, "/api/v1/apps/"+appID+"/domains?domain=app.example.com", userTok, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 deleting domain, got %d", resp.StatusCode)
+	}
+
+	// 9. Viewer collaborator can list files (200), unrelated user cannot (403)
+	resp, _ = doJSONReq(t, app, http.MethodGet, "/api/v1/apps/"+appID+"/files", userTok, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing own app files, got %d", resp.StatusCode)
+	}
+	resp, _ = doJSONReq(t, app, http.MethodGet, "/api/v1/apps/"+appID+"/files", otherTok, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for unrelated user listing files, got %d", resp.StatusCode)
+	}
+
+	// 10. Admin users list blocked for user, allowed for admin
+	resp, _ = doJSONReq(t, app, http.MethodGet, "/api/v1/admin/users", userTok, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for user accessing /api/v1/admin/users, got %d", resp.StatusCode)
+	}
+	resp, _ = doJSONReq(t, app, http.MethodGet, "/api/v1/admin/users", adminTok, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for admin accessing /api/v1/admin/users, got %d", resp.StatusCode)
+	}
+
+	// 11. Regular user can create/manage own CLI tokens, cannot enable server_exec
+	formReq := httptest.NewRequest(http.MethodPost, "/cli-sessions/tokens", strings.NewReader("name=laptop&allow_env_reveal=1&allow_server_exec=1"))
+	formReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	formReq.Header.Set("Accept", "application/json")
+	formReq.Header.Set("Authorization", "Bearer "+userTok)
+	fResp, err := app.Test(formReq, 5000)
+	if err != nil || fResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 creating user CLI token, got %v / %d", err, fResp.StatusCode)
+	}
+	var tokCreated struct {
+		OK    bool   `json:"ok"`
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(fResp.Body).Decode(&tokCreated)
+	// Verify server_exec is forced false for non-admin user
+	resp, createdWho := doJSONReq(t, app, http.MethodGet, "/api/v1/cli/whoami", tokCreated.Token, nil)
+	if resp.StatusCode != http.StatusOK || createdWho["allow_server_exec"] != false {
+		t.Fatalf("expected allow_server_exec forced false for non-admin user token, got %+v", createdWho)
+	}
+	// Toggling toggle-exec directly by non-admin must return 403
+	togReq := httptest.NewRequest(http.MethodPost, "/cli-sessions/tokens/1/toggle-exec", nil)
+	togReq.Header.Set("Accept", "application/json")
+	togReq.Header.Set("Authorization", "Bearer "+userTok)
+	tResp, _ := app.Test(togReq, 5000)
+	if tResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 when non-admin toggles server_exec, got %d", tResp.StatusCode)
 	}
 }

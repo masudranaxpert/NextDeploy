@@ -363,7 +363,11 @@ func (p *Panel) APIBackupManual(c *fiber.Ctx) error {
 
 	dest, err := p.DB.GetBackupDestination(ctx, req.DestID)
 	if err != nil {
-		dests, _ := p.DB.ListBackupDestinations(ctx, nil)
+		var ownerPtr *int64
+		if u.Role != db.RoleAdmin {
+			ownerPtr = &u.ID
+		}
+		dests, _ := p.DB.ListBackupDestinations(ctx, ownerPtr)
 		if len(dests) == 0 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no backup destinations configured"})
 		}

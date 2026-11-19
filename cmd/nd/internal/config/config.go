@@ -16,6 +16,7 @@ type AccountConfig struct {
 	Token     string `json:"token"`
 	DeviceID  string `json:"device_id,omitempty"`
 	Username  string `json:"username,omitempty"`
+	Role      string `json:"role,omitempty"`
 }
 
 // Config holds the saved CLI configuration with multi-account support.
@@ -24,9 +25,23 @@ type Config struct {
 	Accounts       map[string]AccountConfig `json:"accounts,omitempty"`
 
 	// Mirror fields for backward compatibility with older tools and CI runners
-	ServerURL      string                   `json:"server_url,omitempty"`
-	Token          string                   `json:"token,omitempty"`
-	DeviceID       string                   `json:"device_id,omitempty"`
+	ServerURL string `json:"server_url,omitempty"`
+	Token     string `json:"token,omitempty"`
+	DeviceID  string `json:"device_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+}
+
+// ActiveRole returns the cached role ("admin" or "user") for the active account if known and not overridden by env token.
+func (c Config) ActiveRole() string {
+	if strings.TrimSpace(os.Getenv("ND_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NEXTDEPLOY_TOKEN")) != "" {
+		return ""
+	}
+	if c.CurrentAccount != "" && c.Accounts != nil {
+		if acc, ok := c.Accounts[c.CurrentAccount]; ok && acc.Role != "" {
+			return strings.ToLower(strings.TrimSpace(acc.Role))
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(c.Role))
 }
 
 // EnsureDeviceID generates and assigns a persistent device identifier if absent.
@@ -75,6 +90,7 @@ func (c *Config) SetAccount(name string, acc AccountConfig, makeActive bool) {
 		c.ServerURL = acc.ServerURL
 		c.Token = acc.Token
 		c.DeviceID = acc.DeviceID
+		c.Role = acc.Role
 	}
 }
 
@@ -89,6 +105,7 @@ func (c *Config) SwitchAccount(name string) error {
 	c.ServerURL = acc.ServerURL
 	c.Token = acc.Token
 	c.DeviceID = acc.DeviceID
+	c.Role = acc.Role
 	return nil
 }
 
@@ -106,11 +123,13 @@ func (c *Config) DeleteAccount(name string) (string, error) {
 			c.ServerURL = acc.ServerURL
 			c.Token = acc.Token
 			c.DeviceID = acc.DeviceID
+			c.Role = acc.Role
 			break
 		}
 		if c.CurrentAccount == "" {
 			c.ServerURL = ""
 			c.Token = ""
+			c.Role = ""
 		}
 	}
 	return c.CurrentAccount, nil
@@ -212,6 +231,9 @@ func Load() (Config, error) {
 		c.Token = acc.Token
 		if acc.DeviceID != "" {
 			c.DeviceID = acc.DeviceID
+		}
+		if acc.Role != "" {
+			c.Role = acc.Role
 		}
 	}
 

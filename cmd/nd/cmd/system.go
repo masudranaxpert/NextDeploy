@@ -57,8 +57,16 @@ func RunTop(cl *client.Client, args []string) error {
 	return nil
 }
 
-// RunClean handles 'nd clean' for pruning system resources.
+// RunClean handles 'nd clean' for pruning system resources (admin only).
 func RunClean(cl *client.Client, args []string) error {
+	if hasHelpFlag(args) {
+		fmt.Println("Usage: nd clean  [admin]")
+		fmt.Println("\nPrune stopped containers, unused images, build cache, and temp files.")
+		return nil
+	}
+	if err := requireAdminRole(cl, "nd clean"); err != nil {
+		return err
+	}
 	fmt.Println("→ Pruning stopped containers, unused images, build cache, and temp files...")
 	data, status, err := cl.Do("POST", "/api/v1/system/cleanup", nil)
 	if err != nil {
