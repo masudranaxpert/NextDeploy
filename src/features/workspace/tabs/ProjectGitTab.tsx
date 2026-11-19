@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   GitBranch,
   RefreshCw,
@@ -55,6 +55,8 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   const [webhookSecret, setWebhookSecret] = useState<string>(() => app.webhookSecret || generateRandomSecret());
   const [showSecret, setShowSecret] = useState<boolean>(false);
   const [isSavingGit, setIsSavingGit] = useState<boolean>(false);
+  const repoReqIdRef = useRef(0);
+  const branchReqIdRef = useRef(0);
 
   useEffect(() => {
     setGitSyncEnabled(app.gitSync ?? (app.sourceType === 'git'));
@@ -101,9 +103,11 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   const loadProviderBranches = async (pid: string, repoFull: string) => {
     if (!pid || !repoFull) return;
+    const reqId = ++branchReqIdRef.current;
     setIsLoadingBranches(true);
     try {
       const res = await backendApi.gitProviderBranches(app.id, pid, repoFull);
+      if (reqId !== branchReqIdRef.current) return;
       if (res.ok) {
         const raw = (res.data as any)?.branches ?? [];
         const list: string[] = raw
@@ -112,7 +116,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
         setProviderBranches(list);
       }
     } finally {
-      setIsLoadingBranches(false);
+      if (reqId === branchReqIdRef.current) setIsLoadingBranches(false);
     }
   };
 
@@ -122,16 +126,18 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       if (!silent) toast.error('Enter a repository URL first');
       return;
     }
+    const reqId = ++branchReqIdRef.current;
     setIsLoadingBranches(true);
     try {
       const res = await backendApi.publicGitRemoteBranches(app.id, cleaned);
+      if (reqId !== branchReqIdRef.current) return;
       if (res.ok && Array.isArray(res.data?.branches)) {
         setProviderBranches(res.data.branches);
       } else if (!silent) {
         toast.error(res.error || 'Could not fetch remote branches');
       }
     } finally {
-      setIsLoadingBranches(false);
+      if (reqId === branchReqIdRef.current) setIsLoadingBranches(false);
     }
   };
 
@@ -142,15 +148,17 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     isCancelled?: () => boolean,
     switchToPublicIfMissing = false
   ) => {
+    const reqId = ++repoReqIdRef.current;
     if (!pid) {
       setProviderRepos([]);
       setSelectedRepoFullName('');
+      setIsLoadingRepos(false);
       return;
     }
     setIsLoadingRepos(true);
     try {
       const res = await backendApi.gitProviderRepos(app.id, pid);
-      if (isCancelled?.()) return;
+      if (isCancelled?.() || reqId !== repoReqIdRef.current) return;
       if (res.ok) {
         const repos = res.data?.repos ?? [];
         setProviderRepos(repos);
@@ -185,7 +193,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
         }
       }
     } finally {
-      if (!isCancelled?.()) setIsLoadingRepos(false);
+      if (!isCancelled?.() && reqId === repoReqIdRef.current) setIsLoadingRepos(false);
     }
   };
 
@@ -245,6 +253,10 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   const handleSwitchAuthMode = (mode: 'public' | 'github_app' | 'gitlab_token') => {
     if (mode === authMode) return;
+    repoReqIdRef.current += 1;
+    branchReqIdRef.current += 1;
+    setIsLoadingRepos(false);
+    setIsLoadingBranches(false);
     setAuthMode(mode);
     const returningToSaved = Boolean(app.gitRepo) && mode === savedAuthMode;
     if (!app.gitRepo) {
@@ -627,6 +639,9 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
                       value={selectedProviderId}
                       onChange={(e) => {
                         const nextPid = e.target.value;
+                        repoReqIdRef.current += 1;
+                        branchReqIdRef.current += 1;
+                        setIsLoadingBranches(false);
                         setSelectedProviderId(nextPid);
                         if (
                           nextPid &&
@@ -970,7 +985,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               })()}
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3 sm:pr-28">
+          <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="submit"
               disabled={isSavingGit || !canSubmitGit}
