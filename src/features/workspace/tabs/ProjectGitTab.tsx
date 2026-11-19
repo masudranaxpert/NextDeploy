@@ -180,12 +180,6 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
           setProviderRepos([]);
           setSelectedRepoFullName('');
           void loadPublicBranches(currentRepoUrl, true);
-        } else if (!normUrl) {
-          const target = repos[0];
-          setSelectedRepoFullName(target.full_name);
-          setRepoUrl(target.clone_url);
-          setBranch(target.default_branch || 'main');
-          void loadProviderBranches(pid, target.full_name);
         } else {
           setSelectedRepoFullName('');
         }
