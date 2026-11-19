@@ -532,3 +532,14 @@ func TestPanelUpstreamHasStaticServer(t *testing.T) {
 		t.Fatalf("app upstreams stay label-discovered:\n%s", app)
 	}
 }
+
+func TestMainConfigRejectsUnknownHostsAndSizesFastCGIBuffers(t *testing.T) {
+	files, err := New().Render(&proxy.State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContainsAll(t, "angie.conf", files["angie.conf"],
+		"listen 80 default_server;", "listen 443 ssl default_server;", "ssl_reject_handshake on;", "return 444;")
+	assertContainsAll(t, "00-global.conf", files["00-global.conf"],
+		"fastcgi_buffers 16 32k;", "fastcgi_buffer_size 32k;", "client_body_buffer_size 128k;")
+}

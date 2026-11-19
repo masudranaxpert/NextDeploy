@@ -59,6 +59,16 @@ func renderMainConfig(d *Driver, st *proxy.State, useZstd bool) string {
 	b.WriteString("            deny all;\n")
 	b.WriteString("        }\n")
 	b.WriteString("    }\n\n")
+	// Requests for names no site serves (scanners hitting the bare IP, stale DNS) must not land
+	// on whichever site happens to be first: drop plain HTTP and refuse the TLS handshake.
+	b.WriteString("    server {\n")
+	b.WriteString("        listen 80 default_server;\n")
+	b.WriteString("        listen 443 ssl default_server;\n")
+	b.WriteString("        server_name _;\n")
+	b.WriteString("        ssl_reject_handshake on;\n")
+	b.WriteString("        access_log off;\n")
+	b.WriteString("        return 444;\n")
+	b.WriteString("    }\n\n")
 	b.WriteString("    include upstreams/*.conf;\n")
 	b.WriteString("    include sites/*.conf;\n")
 	b.WriteString("}\n")
@@ -86,7 +96,14 @@ func renderGlobalConfig(d *Driver, st *proxy.State, plan *renderPlan) (string, e
 	fmt.Fprintf(&b, "keepalive_timeout %s;\n", idle)
 	b.WriteString("send_timeout 60s;\n")
 	fmt.Fprintf(&b, "large_client_header_buffers 4 %s;\n", maxHeader)
-	b.WriteString("client_max_body_size 0;\n\n")
+	b.WriteString("client_max_body_size 0;\n")
+	// WordPress pages are often 100-300 KB; with the 64 KB default every such response was
+	// spooled to a temp file ("buffered to a temporary file" warnings). Buffers are only
+	// allocated while a request uses them.
+	b.WriteString("client_body_buffer_size 128k;\n")
+	b.WriteString("fastcgi_buffer_size 32k;\n")
+	b.WriteString("fastcgi_buffers 16 32k;\n")
+	b.WriteString("fastcgi_busy_buffers_size 64k;\n\n")
 
 	b.WriteString("variables_hash_max_size 8192;\n")
 	b.WriteString("variables_hash_bucket_size 128;\n")
