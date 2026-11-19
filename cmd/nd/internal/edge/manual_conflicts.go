@@ -1,12 +1,8 @@
 package edge
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -22,116 +18,32 @@ type UserHostConflict struct {
 // ScanUserConfigHosts inspects operator user/*.conf / user/*.caddy files (and the
 // unmanaged portion of Caddyfile when Caddy is active) and returns host -> file path.
 func ScanUserConfigHosts(paths Paths, engineName string) (map[string]string, error) {
-	ep := paths.EnginePathsFor(engineName)
+	sites, err := ScanUserConfigSites(paths, engineName)
+	if err != nil {
+		return nil, err
+	}
 	found := make(map[string]string)
-
-	ext := ".conf"
-	if ep.Binary == "caddy" || engineName == EngineCaddy || engineName == "" {
-		if ep.PanelExt == ".caddy" {
-			ext = ".caddy"
-		}
-	}
-
-	if ep.UserDir != "" {
-		entries, err := os.ReadDir(ep.UserDir)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("read user dir %s: %w", ep.UserDir, err)
-		}
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name() < entries[j].Name()
-		})
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ext) {
-				continue
-			}
-			full := filepath.Join(ep.UserDir, entry.Name())
-			data, err := os.ReadFile(full)
-			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", full, err)
-			}
-			for _, h := range parseUserConfigHostsText(string(data), engineName) {
-				if _, exists := found[h]; !exists {
-					found[h] = full
-				}
+	for _, s := range sites {
+		for _, h := range s.Hosts {
+			if _, exists := found[h]; !exists {
+				found[h] = s.File
 			}
 		}
 	}
-
-	if (engineName == EngineCaddy || engineName == "") && paths.Caddyfile != "" {
-		if raw, err := os.ReadFile(paths.Caddyfile); err == nil {
-			unmanaged := StripManagedRegion(string(raw))
-			for _, h := range parseUserConfigHostsText(unmanaged, EngineCaddy) {
-				if _, exists := found[h]; !exists {
-					found[h] = paths.Caddyfile
-				}
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("read %s: %w", paths.Caddyfile, err)
-		}
-	}
-
 	return found, nil
 }
 
 // parseUserConfigHostsText extracts normalized site hostnames from user proxy configs.
 func parseUserConfigHostsText(content, engineName string) []string {
+	sites := parseUserConfigSites(content, "", engineName)
 	var hosts []string
 	seen := make(map[string]struct{})
-	addToken := func(tok string) {
-		h := normalizeUserConfigHostToken(tok)
-		if h == "" {
-			return
-		}
-		if _, ok := seen[h]; !ok {
-			seen[h] = struct{}{}
-			hosts = append(hosts, h)
-		}
-	}
-
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	depth := 0
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if idx := strings.Index(line, " #"); idx >= 0 {
-			line = strings.TrimSpace(line[:idx])
-		}
-
-		if (engineName == EngineAngie || engineName == "") &&
-			(strings.HasPrefix(line, "server_name ") || strings.HasPrefix(line, "server_name\t")) {
-			stmt := strings.TrimSuffix(line, ";")
-			for _, field := range strings.Fields(stmt)[1:] {
-				addToken(field)
+	for _, s := range sites {
+		for _, h := range s.Hosts {
+			if _, ok := seen[h]; !ok {
+				seen[h] = struct{}{}
+				hosts = append(hosts, h)
 			}
-		} else if depth == 0 && strings.HasSuffix(line, "{") {
-			header := strings.TrimSpace(strings.TrimSuffix(line, "{"))
-			low := strings.ToLower(header)
-			isNonHostBlock := header == "" ||
-				strings.HasPrefix(header, "(") ||
-				strings.HasPrefix(low, "snippet ") ||
-				strings.HasPrefix(low, "match ") ||
-				strings.HasPrefix(low, "server") ||
-				strings.HasPrefix(low, "upstream ") ||
-				strings.HasPrefix(low, "globals")
-			isFerronHTTP := engineName == EngineFerron && strings.HasPrefix(low, "http ")
-			if !isNonHostBlock && (!strings.HasPrefix(low, "http ") || isFerronHTTP) {
-				trimmedHeader := header
-				if isFerronHTTP {
-					trimmedHeader = strings.TrimSpace(header[len("http "):])
-				}
-				for _, commaPart := range strings.Split(trimmedHeader, ",") {
-					for _, tok := range strings.Fields(commaPart) {
-						addToken(tok)
-					}
-				}
-			}
-		}
-
-		depth += strings.Count(line, "{") - strings.Count(line, "}")
-		if depth < 0 {
-			depth = 0
 		}
 	}
 	return hosts
@@ -178,13 +90,42 @@ func CheckManualHostConflicts(
 	engineName string,
 	ignoreID string,
 ) error {
+	return checkManualHostConflicts(candidate, manualFile, claims, paths, engineName, ignoreID, false)
+}
+
+// CheckManualHostConflictsAllowUserReplace checks candidate hosts against existing
+// manual domains and panel claims, allowing replacement of hand-written user config entries.
+func CheckManualHostConflictsAllowUserReplace(
+	candidate ManualDomainEntry,
+	manualFile *ManualDomainsFile,
+	claims *ClaimsStore,
+	paths Paths,
+	engineName string,
+	ignoreID string,
+) error {
+	return checkManualHostConflicts(candidate, manualFile, claims, paths, engineName, ignoreID, true)
+}
+
+func checkManualHostConflicts(
+	candidate ManualDomainEntry,
+	manualFile *ManualDomainsFile,
+	claims *ClaimsStore,
+	paths Paths,
+	engineName string,
+	ignoreID string,
+	allowUserReplace bool,
+) error {
 	if err := CheckInternalManualDuplicates(manualFile, candidate, ignoreID); err != nil {
 		return err
 	}
 
-	userHosts, err := ScanUserConfigHosts(paths, engineName)
-	if err != nil {
-		return err
+	var userHosts map[string]string
+	if !allowUserReplace {
+		var err error
+		userHosts, err = ScanUserConfigHosts(paths, engineName)
+		if err != nil {
+			return err
+		}
 	}
 
 	hosts := candidate.AllHosts()
@@ -194,8 +135,10 @@ func CheckManualHostConflicts(
 				return fmt.Errorf("host %q is already claimed by panel %q (remove the panel route before adding it manually)", h, cl.PanelID)
 			}
 		}
-		if filePath, inUser := userHosts[h]; inUser {
-			return fmt.Errorf("host %q is already defined in user config %s (remove it from %s before managing it with 'nd edge domain')", h, filePath, filepath.Base(filePath))
+		if userHosts != nil {
+			if filePath, inUser := userHosts[h]; inUser {
+				return fmt.Errorf("host %q is already defined in user config %s (remove it with 'nd edge domain rm %s', edit %s, or re-run with '--replace')", h, filePath, h, filepath.Base(filePath))
+			}
 		}
 	}
 	return nil

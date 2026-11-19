@@ -173,8 +173,8 @@ var edgeDomainOrder = []string{
 
 var edgeDomainDocs = map[string]edgeCommandDoc{
 	"add": {
-		Summary: "Add a manual domain reverse proxy without touching user/*.conf or unmanaged Caddyfile blocks.",
-		Usage:   "nd edge domain add <domain> <upstream>[,<upstream>...] [--www] [--alias host] [--redirect-www to-apex|to-www] [--tls auto|none|manual] [--cert F] [--key F] [--force-https] [--no-force-https] [--origin-http] [--origin-https] [--lb round_robin|least_conn|ip_hash] [--no-verify] [--sni name] [--host-header original|upstream|VAL] [--websocket] [--no-websocket] [--max-body SIZE] [--timeout DUR] [--connect-timeout DUR] [--real-ip cloudflare|none] [--header-up K=V] [--header-down K=V] [--keepalive N] [--note TEXT] [--disabled] [--dry-run] [--json]",
+		Summary: "Add a manual domain reverse proxy (or replace an existing user/*.conf / Caddyfile entry with --replace).",
+		Usage:   "nd edge domain add <domain> <upstream>[,<upstream>...] [--www] [--alias host] [--redirect-www to-apex|to-www] [--tls auto|none|manual] [--cert F] [--key F] [--force-https] [--no-force-https] [--origin-http] [--origin-https] [--lb round_robin|least_conn|ip_hash] [--no-verify] [--sni name] [--host-header original|upstream|VAL] [--websocket] [--no-websocket] [--max-body SIZE] [--timeout DUR] [--connect-timeout DUR] [--real-ip cloudflare|none] [--header-up K=V] [--header-down K=V] [--keepalive N] [--note TEXT] [--disabled] [--replace] [--dry-run] [--json]",
 		Flags: [][2]string{
 			{"--www", "Also serve www.<domain>"},
 			{"--alias host", "Extra hostnames on the same site (repeatable)"},
@@ -201,6 +201,7 @@ var edgeDomainDocs = map[string]edgeCommandDoc{
 			{"--keepalive N", "Upstream idle keepalive connections (default: 32; 0 disables)"},
 			{"--note TEXT", "Free-text note shown in 'nd edge domain list'"},
 			{"--disabled", "Save entry without serving it yet"},
+			{"--replace", "Remove matching host from user/*.conf or unmanaged Caddyfile and adopt into domains.json"},
 			{"--dry-run", "Print rendered engine config without modifying files"},
 			{"--json", "Output JSON"},
 		},
@@ -254,7 +255,7 @@ var edgeDomainDocs = map[string]edgeCommandDoc{
 		Examples: []string{"nd edge domain set shop.example.com --max-body 200m --real-ip cloudflare"},
 	},
 	"rm": {
-		Summary: "Remove one or more manual domains (moves them to 30-day trash).",
+		Summary: "Remove manual domains (to 30-day trash) or hand-written user/*.conf / Caddyfile sites (validated + reloaded).",
 		Usage:   "nd edge domain rm <domain>... [--yes] [--json]",
 		Flags: [][2]string{
 			{"--yes", "Skip interactive confirmation prompt"},
@@ -263,7 +264,7 @@ var edgeDomainDocs = map[string]edgeCommandDoc{
 		Examples: []string{"nd edge domain rm old.example.com --yes"},
 	},
 	"list": {
-		Summary: "List configured manual domains (or include read-only panel domains with --all).",
+		Summary: "List manual domains and user/*.conf / unmanaged Caddyfile sites (include panel domains with --all).",
 		Usage:   "nd edge domain list [--all] [--json]",
 		Flags: [][2]string{
 			{"--all", "Also list panel-owned domains (read-only)"},
@@ -272,10 +273,10 @@ var edgeDomainDocs = map[string]edgeCommandDoc{
 		Examples: []string{"nd edge domain list --all"},
 	},
 	"show": {
-		Summary: "Inspect one manual domain's configuration or rendered proxy snippet.",
+		Summary: "Inspect a manual or user-config domain's configuration or rendered/raw proxy snippet.",
 		Usage:   "nd edge domain show <domain> [--config] [--json]",
 		Flags: [][2]string{
-			{"--config", "Print rendered configuration snippet for the active proxy engine"},
+			{"--config", "Print rendered or user-config snippet for the active proxy engine"},
 			{"--json", "Output JSON"},
 		},
 		Examples: []string{"nd edge domain show shop.example.com --config"},

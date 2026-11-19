@@ -103,6 +103,7 @@ type parsedDomainFlags struct {
 	noteSet          bool
 	disabled         bool
 	enabledSet       bool
+	replace          bool
 	dryRun           bool
 	jsonOut          bool
 	positionals      []string
@@ -330,6 +331,8 @@ func parseDomainFlags(args []string) (parsedDomainFlags, error) {
 			f.disabled, f.enabledSet = true, true
 		case "--enabled":
 			f.disabled, f.enabledSet = false, true
+		case "--replace", "--adopt":
+			f.replace = true
 		case "--dry-run":
 			f.dryRun = true
 		case "--json":
@@ -409,16 +412,33 @@ func runEdgeDomainAdd(ops *edgeOps, args []string) error {
 	}
 
 	claims := loadClaimsSnapshot(ops, cfg, now)
-	if err := edge.CheckManualHostConflicts(entry, manualFile, claims, ops.paths, cfg.EngineName(), ""); err != nil {
-		return err
+	if f.replace {
+		if err := edge.CheckManualHostConflictsAllowUserReplace(entry, manualFile, claims, ops.paths, cfg.EngineName(), ""); err != nil {
+			return err
+		}
+	} else {
+		if err := edge.CheckManualHostConflicts(entry, manualFile, claims, ops.paths, cfg.EngineName(), ""); err != nil {
+			return err
+		}
 	}
 
 	if f.dryRun {
 		return printManualDryRun(ops, cfg, []edge.ManualDomainEntry{entry}, entry.Domain, f.jsonOut, now)
 	}
 
+	var userRem *edge.UserConfigRemovalResult
+	if f.replace {
+		userRem, err = edge.RemoveHostsFromUserConfig(ops.paths, cfg.EngineName(), entry.AllHosts())
+		if err != nil {
+			return err
+		}
+	}
+
 	cleanupCert, err := prepareManualCertIfNeeded(ops, cfg, &entry, f.certFile, f.keyFile, now)
 	if err != nil {
+		if userRem != nil {
+			_ = edge.RestoreUserConfigBackups(userRem.Backups)
+		}
 		return err
 	}
 
@@ -431,9 +451,15 @@ func runEdgeDomainAdd(ops *edgeOps, args []string) error {
 		if cleanupCert != nil {
 			cleanupCert()
 		}
+		if userRem != nil {
+			_ = edge.RestoreUserConfigBackups(userRem.Backups)
+		}
 		return err
 	}
 	if err := edge.SaveManualDomains(ops.paths.DomainsFile, candidate); err != nil {
+		if userRem != nil {
+			_ = edge.RestoreUserConfigBackups(userRem.Backups)
+		}
 		return err
 	}
 	if reloadedViaDaemon {
@@ -443,6 +469,10 @@ func runEdgeDomainAdd(ops *edgeOps, args []string) error {
 	if f.jsonOut {
 		b, _ := json.MarshalIndent(entry, "", "  ")
 		fmt.Fprintln(ops.stdout, string(b))
+		return nil
+	}
+	if userRem != nil && len(userRem.RemovedHosts) > 0 {
+		ui.Success("Replaced user-config route and added manual domain %s (%s) -> %s", entry.Domain, entry.TLS, formatUpstreamSummary(entry.Upstreams))
 		return nil
 	}
 	ui.Success("Added manual domain %s (%s) -> %s", entry.Domain, entry.TLS, formatUpstreamSummary(entry.Upstreams))
@@ -711,39 +741,102 @@ func runEdgeDomainRemove(ops *edgeOps, args []string) error {
 	if err != nil {
 		return err
 	}
+	userSites, _ := edge.ScanUserConfigSites(ops.paths, cfg.EngineName())
 
 	var removed []edge.ManualDomainEntry
+	var userTargets []string
 	for _, q := range targets {
 		idx, found := edge.FindManualDomain(candidate, q)
-		if idx < 0 || found == nil {
-			return fmt.Errorf("manual domain %q not found", q)
+		if idx >= 0 && found != nil {
+			removed = append(removed, *found)
+			edge.MoveToTrash(trashFile, *found, "manual", now)
+			candidate.Domains = append(candidate.Domains[:idx], candidate.Domains[idx+1:]...)
+			continue
 		}
-		removed = append(removed, *found)
-		edge.MoveToTrash(trashFile, *found, "manual", now)
-		candidate.Domains = append(candidate.Domains[:idx], candidate.Domains[idx+1:]...)
+		if len(edge.FindUserConfigSites(userSites, q)) > 0 {
+			userTargets = append(userTargets, q)
+			continue
+		}
+		return fmt.Errorf("manual domain %q not found", q)
 	}
 
-	reloadedViaDaemon, err := applyCandidateManualDomains(ctx, ops, cfg, candidate, now)
+	var userRem *edge.UserConfigRemovalResult
+	if len(userTargets) > 0 {
+		userRem, err = edge.RemoveHostsFromUserConfig(ops.paths, cfg.EngineName(), userTargets)
+		if err != nil {
+			return err
+		}
+	}
+
+	reloadedViaDaemon := false
+	if len(removed) > 0 {
+		reloadedViaDaemon, err = applyCandidateManualDomains(ctx, ops, cfg, candidate, now)
+	} else if len(userTargets) > 0 {
+		err = validateAndReloadActiveEngine(ctx, ops, cfg)
+	}
 	if err != nil {
+		if userRem != nil {
+			_ = edge.RestoreUserConfigBackups(userRem.Backups)
+		}
 		return err
 	}
-	if err := edge.SaveManualDomains(ops.paths.DomainsFile, candidate); err != nil {
-		return err
-	}
-	_ = edge.SaveManualTrash(ops.paths.DomainsTrashFile, trashFile, now)
 
-	cleanupAfterRemoval(ops, cfg, candidate, removed, now)
+	if len(removed) > 0 {
+		if err := edge.SaveManualDomains(ops.paths.DomainsFile, candidate); err != nil {
+			if userRem != nil {
+				_ = edge.RestoreUserConfigBackups(userRem.Backups)
+			}
+			return err
+		}
+		_ = edge.SaveManualTrash(ops.paths.DomainsTrashFile, trashFile, now)
+		cleanupAfterRemoval(ops, cfg, candidate, removed, now)
+	}
 	if reloadedViaDaemon {
 		signalDaemonReload(ctx, ops)
 	}
 
 	if jsonOut {
-		b, _ := json.MarshalIndent(map[string]any{"removed": removed}, "", "  ")
+		payload := map[string]any{"removed": removed}
+		if userRem != nil && len(userRem.RemovedHosts) > 0 {
+			payload["removed_user_config"] = userRem.RemovedHosts
+			payload["modified_files"] = userRem.ModifiedFiles
+			payload["removed_files"] = userRem.RemovedFiles
+		}
+		b, _ := json.MarshalIndent(payload, "", "  ")
 		fmt.Fprintln(ops.stdout, string(b))
 		return nil
 	}
 	for _, e := range removed {
 		ui.Success("Removed manual domain %s (moved to trash; restore within 30d with 'nd edge domain restore %s')", e.Domain, e.Domain)
+	}
+	if userRem != nil {
+		for _, host := range userTargets {
+			norm := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+			if files, ok := userRem.RemovedHosts[norm]; ok {
+				ui.Success("Removed user-config domain %s from %s", norm, strings.Join(files, ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func validateAndReloadActiveEngine(ctx context.Context, ops *edgeOps, cfg *edge.Config) error {
+	eng, err := buildEdgeEngineWithOps(ops, cfg.EngineName(), cfg)
+	if err != nil {
+		return err
+	}
+	runner := eng.Runner()
+	if runner == nil {
+		return nil
+	}
+	if msg, err := runner.Validate(ctx, eng.Paths().MainConfig); err != nil {
+		if strings.TrimSpace(msg) != "" {
+			return fmt.Errorf("validate %s config: %w: %s", cfg.EngineName(), err, strings.TrimSpace(msg))
+		}
+		return fmt.Errorf("validate %s config: %w", cfg.EngineName(), err)
+	}
+	if _, err := runner.Reload(ctx); err != nil {
+		return fmt.Errorf("reload %s: %w", cfg.EngineName(), err)
 	}
 	return nil
 }
@@ -834,9 +927,12 @@ func runEdgeDomainList(ops *edgeOps, args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg, _ := edge.LoadConfig(ops.paths.ConfigFile)
+	userSites, _ := edge.ScanUserConfigSites(ops.paths, engineNameFromConfig(cfg))
 
 	type listRow struct {
 		Domain    string   `json:"domain"`
+		Aliases   []string `json:"aliases,omitempty"`
 		Source    string   `json:"source"`
 		TLS       string   `json:"tls"`
 		Enabled   bool     `json:"enabled"`
@@ -860,24 +956,73 @@ func runEdgeDomainList(ops *edgeOps, args []string) error {
 		})
 	}
 
-	if includePanels {
-		if cfg, err := edge.LoadConfig(ops.paths.ConfigFile); err == nil {
-			now := ops.now()
-			for _, p := range cfg.Panels {
-				st, _ := edge.LoadPanelState(ops.paths.StateFile(p.PanelID), p.PanelID, p.PanelName, now)
-				if st == nil {
-					continue
+	// Deduplicate multi-block sites (e.g. port 80 + 443 server blocks for one primary host).
+	userOrder := make([]string, 0, len(userSites))
+	userAgg := make(map[string]*listRow)
+	for _, s := range userSites {
+		key := s.Primary + "|" + filepath.Base(s.File)
+		existing, ok := userAgg[key]
+		if !ok {
+			var aliases []string
+			if len(s.Hosts) > 1 {
+				aliases = append(aliases, s.Hosts[1:]...)
+			}
+			note := s.File
+			if len(aliases) > 0 {
+				note = fmt.Sprintf("%s (+%s)", s.File, strings.Join(aliases, ", "))
+			}
+			userAgg[key] = &listRow{
+				Domain:    s.Primary,
+				Aliases:   aliases,
+				Source:    "user:" + filepath.Base(s.File),
+				TLS:       s.TLS,
+				Enabled:   true,
+				Upstreams: append([]string(nil), s.Upstreams...),
+				Note:      note,
+			}
+			userOrder = append(userOrder, key)
+			continue
+		}
+		for _, u := range s.Upstreams {
+			seen := false
+			for _, eu := range existing.Upstreams {
+				if eu == u {
+					seen = true
+					break
 				}
-				for _, hs := range st.HostStates {
-					rows = append(rows, listRow{
-						Domain:    hs.Host,
-						Source:    p.PanelName,
-						TLS:       "auto",
-						Enabled:   hs.State == edge.StateActive || hs.State == edge.StateIssuing || hs.State == edge.StateDNSDrift,
-						Upstreams: []string{"panel:" + p.PanelName},
-						Note:      hs.State,
-					})
-				}
+			}
+			if !seen {
+				existing.Upstreams = append(existing.Upstreams, u)
+			}
+		}
+		if existing.TLS == edge.ManualTLSNone && s.TLS != "" && s.TLS != edge.ManualTLSNone {
+			existing.TLS = s.TLS
+		}
+	}
+	for _, key := range userOrder {
+		r := userAgg[key]
+		if len(r.Upstreams) == 0 {
+			r.Upstreams = []string{"-"}
+		}
+		rows = append(rows, *r)
+	}
+
+	if includePanels && cfg != nil {
+		now := ops.now()
+		for _, p := range cfg.Panels {
+			st, _ := edge.LoadPanelState(ops.paths.StateFile(p.PanelID), p.PanelID, p.PanelName, now)
+			if st == nil {
+				continue
+			}
+			for _, hs := range st.HostStates {
+				rows = append(rows, listRow{
+					Domain:    hs.Host,
+					Source:    p.PanelName,
+					TLS:       "auto",
+					Enabled:   hs.State == edge.StateActive || hs.State == edge.StateIssuing || hs.State == edge.StateDNSDrift,
+					Upstreams: []string{"panel:" + p.PanelName},
+					Note:      hs.State,
+				})
 			}
 		}
 	}
@@ -900,16 +1045,20 @@ func runEdgeDomainList(ops *edgeOps, args []string) error {
 	}
 
 	tableRows := make([][]string, 0, len(rows))
-	manualCount := 0
+	manualCount, userConfigCount := 0, 0
 	for _, r := range rows {
 		state := "enabled"
 		if !r.Enabled {
 			state = "disabled"
 		}
 		src := ui.Dim(r.Source)
-		if r.Source == "manual" {
+		switch {
+		case r.Source == "manual":
 			manualCount++
 			src = ui.Cyan("manual")
+		case strings.HasPrefix(r.Source, "user:"):
+			userConfigCount++
+			src = ui.Yellow(r.Source)
 		}
 		tlsLabel := r.TLS
 		switch r.TLS {
@@ -934,7 +1083,12 @@ func runEdgeDomainList(ops *edgeOps, args []string) error {
 		})
 	}
 	ui.PrintTable(ops.stdout, []string{"DOMAIN", "SOURCE", "TLS", "STATE", "UPSTREAMS", "NOTE"}, tableRows)
-	fmt.Fprintf(ops.stdout, "\n%s\n", ui.Dim(fmt.Sprintf("Total: %d domain(s) (%d manual, %d panel)", len(rows), manualCount, len(rows)-manualCount)))
+	panelCount := len(rows) - manualCount - userConfigCount
+	if userConfigCount > 0 {
+		fmt.Fprintf(ops.stdout, "\n%s\n", ui.Dim(fmt.Sprintf("Total: %d domain(s) (%d manual, %d user-config, %d panel)", len(rows), manualCount, userConfigCount, panelCount)))
+	} else {
+		fmt.Fprintf(ops.stdout, "\n%s\n", ui.Dim(fmt.Sprintf("Total: %d domain(s) (%d manual, %d panel)", len(rows), manualCount, panelCount)))
+	}
 	return nil
 }
 
@@ -972,7 +1126,13 @@ func runEdgeDomainShow(ops *edgeOps, args []string) error {
 	}
 	idx, entry := edge.FindManualDomain(manualFile, query)
 	if idx < 0 || entry == nil {
-		return fmt.Errorf("manual domain %q not found", query)
+		cfg, _ := edge.LoadConfig(ops.paths.ConfigFile)
+		userSites, _ := edge.ScanUserConfigSites(ops.paths, engineNameFromConfig(cfg))
+		matched := edge.FindUserConfigSites(userSites, query)
+		if len(matched) == 0 {
+			return fmt.Errorf("manual domain %q not found", query)
+		}
+		return printUserConfigShow(ops, matched, showConfig, jsonOut)
 	}
 
 	if showConfig {
@@ -1036,6 +1196,79 @@ func runEdgeDomainShow(ops *edgeOps, args []string) error {
 	if entry.Note != "" {
 		fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Note:"), entry.Note)
 	}
+	return nil
+}
+
+func printUserConfigShow(ops *edgeOps, matched []edge.UserConfigSite, showConfig, jsonOut bool) error {
+	first := matched[0]
+	var combinedRaw strings.Builder
+	var allHosts, allUps, allFiles []string
+	hostSeen := make(map[string]struct{})
+	upSeen := make(map[string]struct{})
+	fileSeen := make(map[string]struct{})
+	for _, s := range matched {
+		combinedRaw.WriteString(s.RawBlock)
+		for _, h := range s.Hosts {
+			if _, ok := hostSeen[h]; !ok {
+				hostSeen[h] = struct{}{}
+				allHosts = append(allHosts, h)
+			}
+		}
+		for _, u := range s.Upstreams {
+			if _, ok := upSeen[u]; !ok {
+				upSeen[u] = struct{}{}
+				allUps = append(allUps, u)
+			}
+		}
+		if _, ok := fileSeen[s.File]; !ok {
+			fileSeen[s.File] = struct{}{}
+			allFiles = append(allFiles, s.File)
+		}
+	}
+	source := "user:" + filepath.Base(first.File)
+
+	if showConfig {
+		if jsonOut {
+			b, _ := json.MarshalIndent(map[string]any{
+				"domain": first.Primary,
+				"source": source,
+				"file":   first.File,
+				"engine": first.Engine,
+				"config": combinedRaw.String(),
+			}, "", "  ")
+			fmt.Fprintln(ops.stdout, string(b))
+			return nil
+		}
+		fmt.Fprint(ops.stdout, combinedRaw.String())
+		return nil
+	}
+
+	if jsonOut {
+		b, _ := json.MarshalIndent(map[string]any{
+			"domain":    first.Primary,
+			"source":    source,
+			"file":      first.File,
+			"files":     allFiles,
+			"engine":    first.Engine,
+			"hosts":     allHosts,
+			"upstreams": allUps,
+			"tls":       first.TLS,
+			"blocks":    matched,
+		}, "", "  ")
+		fmt.Fprintln(ops.stdout, string(b))
+		return nil
+	}
+
+	upsStr := "-"
+	if len(allUps) > 0 {
+		upsStr = strings.Join(allUps, ",")
+	}
+	fmt.Fprintf(ops.stdout, "%s  %s\n", ui.HiCyan(first.Primary), ui.Yellow(source))
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Source File:"), strings.Join(allFiles, ", "))
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Engine:"), first.Engine)
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Hosts:"), strings.Join(allHosts, ", "))
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("Upstreams:"), ui.Cyan(upsStr))
+	fmt.Fprintf(ops.stdout, "  %-16s %s\n", ui.Dim("TLS:"), first.TLS)
 	return nil
 }
 

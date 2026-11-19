@@ -473,3 +473,121 @@ func TestEdgeDomainPruneCommandWithFakeClockAndResolver(t *testing.T) {
 		t.Fatalf("expected timer removed on --schedule off, err=%v", err)
 	}
 }
+
+func TestEdgeDomainUserConfigListShowRmAndReplace(t *testing.T) {
+	ops, stdout, _ := newTestEdgeOps(t)
+	seedBasicEdgeConfig(t, ops)
+	caddyRunner := ops.caddy.(*fakeEdgeCaddyRunner)
+
+	_ = os.MkdirAll(ops.paths.UserCaddyDir, 0o755)
+	_ = os.MkdirAll(filepath.Dir(ops.paths.Caddyfile), 0o755)
+	managed := edge.RenderCaddyfileManagedRegion(ops.paths, edge.DefaultAdminAddr, "ops@example.com", ops.paths.PanelsLink, ops.paths.UserCaddyDir)
+	caddyBody := "hand.example.com {\n\treverse_proxy 127.0.0.1:7001\n}\n\n" +
+		"pair-a.example.com, pair-b.example.com {\n\treverse_proxy 127.0.0.1:7002\n}\n\n" +
+		managed
+	if err := os.WriteFile(ops.paths.Caddyfile, []byte(caddyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	soloFile := filepath.Join(ops.paths.UserCaddyDir, "custom.caddy")
+	if err := os.WriteFile(soloFile, []byte("solo-user.example.com {\n\treverse_proxy 127.0.0.1:7003\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. list shows user-config sites even with 0 domains.json entries.
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"domain", "list"}); err != nil {
+		t.Fatalf("domain list: %v", err)
+	}
+	outList := stdout.String()
+	for _, want := range []string{"hand.example.com", "pair-a.example.com", "solo-user.example.com", "user:Caddyfile", "user:custom.caddy", "user-config"} {
+		if !strings.Contains(outList, want) {
+			t.Fatalf("expected %q in domain list output:\n%s", want, outList)
+		}
+	}
+
+	// 2. show & show --config work on user-config domains.
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"domain", "show", "solo-user.example.com", "--config"}); err != nil {
+		t.Fatalf("domain show --config: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "reverse_proxy 127.0.0.1:7003") {
+		t.Fatalf("unexpected show --config output:\n%s", stdout.String())
+	}
+
+	// 3. status includes user-config hosts.
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"status", "--json"}); err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "hand.example.com") || !strings.Contains(stdout.String(), "user:Caddyfile") {
+		t.Fatalf("expected user-config domain in status --json:\n%s", stdout.String())
+	}
+
+	// 4. check inspects user-config domains.
+	ops.dnsInspectFn = func(_ context.Context, _ *edge.Config, _ []netip.Addr, _ string) edge.FreshDNSInspection {
+		return edge.FreshDNSInspection{Classification: "ok", Outcome: edge.DNSOutcomeOK}
+	}
+	ops.originCheckFn = func(_ context.Context, _ *edge.ManualDomainEntry, urls []string, _, _ string, _ bool) edge.OriginHealthResult {
+		return edge.OriginHealthResult{Status: "up", StatusCode: 200}
+	}
+	ops.tlsCheckFn = func(_ context.Context, _ *edge.CertProbe, _ *edge.ManualDomainEntry, _ string, _ time.Time) edge.TLSHealthResult {
+		return edge.TLSHealthResult{Status: "valid (60 days)", DaysLeft: 60}
+	}
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"domain", "check", "hand.example.com"}); err != nil {
+		t.Fatalf("domain check user-config host: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "hand.example.com") || !strings.Contains(stdout.String(), "user:Caddyfile") {
+		t.Fatalf("expected hand.example.com check output:\n%s", stdout.String())
+	}
+
+	// 5. add without --replace still errors with helpful hint; add --replace fails cleanly & rolls back when validation fails.
+	if err := runEdgeWithOps(ops, []string{"domain", "add", "hand.example.com", "10.0.0.9:8080"}); err == nil || !strings.Contains(err.Error(), "--replace") {
+		t.Fatalf("expected conflict error mentioning --replace, got %v", err)
+	}
+	caddyRunner.validateErr = errors.New("validate fail")
+	if err := runEdgeWithOps(ops, []string{"domain", "add", "hand.example.com", "10.0.0.9:8080", "--replace"}); err == nil {
+		t.Fatal("expected add --replace error on validate failure")
+	}
+	caddyRunner.validateErr = nil
+	afterFailCaddy, _ := os.ReadFile(ops.paths.Caddyfile)
+	if !strings.Contains(string(afterFailCaddy), "hand.example.com {") {
+		t.Fatalf("expected Caddyfile rolled back after add --replace failure:\n%s", string(afterFailCaddy))
+	}
+
+	// 6. add --replace succeeds: removes hand.example.com from Caddyfile unmanaged block and saves to domains.json.
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"domain", "add", "hand.example.com", "10.0.0.9:8080", "--replace"}); err != nil {
+		t.Fatalf("add --replace failed: %v", err)
+	}
+	mf, err := edge.LoadManualDomains(ops.paths.DomainsFile)
+	if err != nil || len(mf.Domains) != 1 || mf.Domains[0].Domain != "hand.example.com" {
+		t.Fatalf("expected hand.example.com adopted into domains.json: %+v err=%v", mf, err)
+	}
+	afterReplaceCaddy, _ := os.ReadFile(ops.paths.Caddyfile)
+	if strings.Contains(string(afterReplaceCaddy), "hand.example.com {") {
+		t.Fatalf("expected hand.example.com removed from unmanaged Caddyfile:\n%s", string(afterReplaceCaddy))
+	}
+
+	// 7. rm rolls back on validate failure, and cleanly removes both single-host user file + multi-host member on success.
+	caddyRunner.validateErr = errors.New("reload fail")
+	if err := runEdgeWithOps(ops, []string{"domain", "rm", "solo-user.example.com", "--yes"}); err == nil {
+		t.Fatal("expected rm to fail when validation fails")
+	}
+	caddyRunner.validateErr = nil
+	if _, err := os.Stat(soloFile); err != nil {
+		t.Fatalf("expected soloFile rolled back after failed rm: %v", err)
+	}
+
+	stdout.Reset()
+	if err := runEdgeWithOps(ops, []string{"domain", "rm", "solo-user.example.com", "pair-a.example.com", "--yes"}); err != nil {
+		t.Fatalf("rm user-config domains failed: %v", err)
+	}
+	if _, err := os.Stat(soloFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected empty custom.caddy removed after rm, err=%v", err)
+	}
+	finalCaddy, _ := os.ReadFile(ops.paths.Caddyfile)
+	if strings.Contains(string(finalCaddy), "pair-a.example.com") || !strings.Contains(string(finalCaddy), "pair-b.example.com {") {
+		t.Fatalf("expected pair-a removed and pair-b kept:\n%s", string(finalCaddy))
+	}
+}

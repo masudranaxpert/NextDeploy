@@ -1658,6 +1658,41 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		}
 	}
 
+	if userSites, uErr := edge.ScanUserConfigSites(ops.paths, cfg.EngineName()); uErr == nil && len(userSites) > 0 {
+		probe := edge.NewCertProbe(ep.CertsDir, ops.systemd)
+		probe.ManualCertsDir = ep.ManualCertsDir
+		seenUserHost := make(map[string]struct{})
+		for _, s := range userSites {
+			src := "user:" + filepath.Base(s.File)
+			for _, h := range s.Hosts {
+				if hostFilter != "" && !strings.EqualFold(h, hostFilter) {
+					continue
+				}
+				if _, dup := seenUserHost[h+"|"+src]; dup {
+					continue
+				}
+				seenUserHost[h+"|"+src] = struct{}{}
+				state := edge.StateActive
+				exp := ""
+				if s.TLS != edge.ManualTLSNone {
+					tlsRes := edge.CheckHostTLSHealth(context.Background(), probe, nil, h, now)
+					if tlsRes.NotAfter != nil {
+						exp = tlsRes.NotAfter.UTC().Format(time.RFC3339)
+					}
+				}
+				rows = append(rows, hostRow{
+					PanelID:      src,
+					PanelName:    src,
+					Source:       src,
+					Host:         h,
+					State:        state,
+					Detail:       s.File,
+					CertNotAfter: exp,
+				})
+			}
+		}
+	}
+
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Host != rows[j].Host {
 			return rows[i].Host < rows[j].Host
@@ -1711,6 +1746,8 @@ func runEdgeStatus(ops *edgeOps, args []string) error {
 		src := ui.Dim(r.Source)
 		if r.Source == "manual" {
 			src = ui.Cyan("manual")
+		} else if strings.HasPrefix(r.Source, "user:") {
+			src = ui.Yellow(r.Source)
 		}
 		tableRows = append(tableRows, []string{
 			ui.Bold(r.Host),

@@ -430,6 +430,48 @@ func runDomainHealthChecks(
 		}
 	}
 
+	userSites, _ := edge.ScanUserConfigSites(ops.paths, engineNameFromConfig(cfg))
+	if len(userSites) > 0 {
+		seenUserPrimary := make(map[string]struct{})
+		for _, s := range userSites {
+			key := s.Primary + "|" + filepath.Base(s.File)
+			if _, dup := seenUserPrimary[key]; dup {
+				continue
+			}
+			matched := matchesFilter(s.Primary)
+			if !matched {
+				for _, h := range s.Hosts {
+					if matchesFilter(h) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
+			seenUserPrimary[key] = struct{}{}
+
+			dnsRes := inspectDNS(s.Primary)
+			origRes := edge.OriginHealthResult{Status: "unknown"}
+			if urls := normalizeUserUpstreamURLs(s.Upstreams); len(urls) > 0 {
+				origRes = checkOrigin(nil, urls, s.Primary, "", false)
+			}
+			tlsRes := checkTLS(nil, s.Primary)
+
+			reports = append(reports, edge.DomainCheckReport{
+				Domain:  s.Primary,
+				Source:  "user:" + filepath.Base(s.File),
+				Enabled: true,
+				TLSMode: s.TLS,
+				DNS:     dnsRes,
+				Origin:  origRes,
+				TLS:     tlsRes,
+				Traffic: "unknown",
+			})
+		}
+	}
+
 	var hints []panelHostHint
 	if includePanels && cfg != nil {
 		for _, p := range cfg.Panels {
@@ -533,6 +575,27 @@ func collectAllShieldIPs(ops *edgeOps, cfg *edge.Config, panelStates map[string]
 		addStrs(v6)
 	}
 	return out
+}
+
+func normalizeUserUpstreamURLs(raw []string) []string {
+	var urls []string
+	seen := make(map[string]struct{})
+	for _, u := range raw {
+		t := strings.TrimSpace(u)
+		if t == "" || strings.HasPrefix(t, "unix/") || strings.HasPrefix(t, "unix:") {
+			continue
+		}
+		if strings.HasPrefix(t, "h2c://") {
+			t = "http://" + strings.TrimPrefix(t, "h2c://")
+		} else if !strings.Contains(t, "://") {
+			t = "http://" + t
+		}
+		if _, ok := seen[t]; !ok {
+			seen[t] = struct{}{}
+			urls = append(urls, t)
+		}
+	}
+	return urls
 }
 
 func parseGraceDuration(raw string) (time.Duration, error) {
