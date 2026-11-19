@@ -80,6 +80,22 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     return true;
   });
 
+  const savedAuthMode: 'public' | 'github_app' | 'gitlab_token' = app.gitAuthMode
+    ? (app.gitAuthMode as 'public' | 'github_app' | 'gitlab_token')
+    : app.gitRepo
+      ? !app.gitProviderId
+        ? 'public'
+        : app.gitRepo.includes('gitlab.com')
+          ? 'gitlab_token'
+          : 'github_app'
+      : 'github_app';
+
+  const getRepoFullNameFromUrl = (url: string) =>
+    url
+      .trim()
+      .replace(/^https?:\/\/(github|gitlab)\.com\//i, '')
+      .replace(/\.git$/i, '');
+
   const normalizeRepoKey = (raw: string) =>
     raw.trim().replace(/\.git$/i, '').toLowerCase();
 
@@ -128,6 +144,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   ) => {
     if (!pid) {
       setProviderRepos([]);
+      setSelectedRepoFullName('');
       return;
     }
     setIsLoadingRepos(true);
@@ -137,30 +154,40 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
       if (res.ok) {
         const repos = res.data?.repos ?? [];
         setProviderRepos(repos);
-        if (repos.length > 0) {
-          const normUrl = normalizeRepoKey(currentRepoUrl);
-          const normFull = currentFullName.trim().toLowerCase();
-          const exists = repos.find(
-            (r) =>
-              (normUrl && normalizeRepoKey(r.clone_url) === normUrl) ||
-              (normFull && r.full_name.toLowerCase() === normFull)
-          );
-          if (exists) {
-            setSelectedRepoFullName(exists.full_name);
-            setRepoUrl(exists.clone_url);
-            void loadProviderBranches(pid, exists.full_name);
-          } else if (switchToPublicIfMissing && normUrl && repos.length < 100) {
-            setAuthMode('public');
-            setSelectedProviderId('');
-            setProviderRepos([]);
-            void loadPublicBranches(currentRepoUrl, true);
-          } else if (!normUrl) {
-            const target = repos[0];
-            setSelectedRepoFullName(target.full_name);
-            setRepoUrl(target.clone_url);
-            setBranch((cur) => (cur && cur !== 'main' ? cur : target.default_branch || 'main'));
-            void loadProviderBranches(pid, target.full_name);
+        if (repos.length === 0) {
+          setSelectedRepoFullName('');
+          setProviderBranches([]);
+          if (!switchToPublicIfMissing) {
+            setRepoUrl('');
+            setBranch('main');
           }
+          return;
+        }
+        const normUrl = normalizeRepoKey(currentRepoUrl);
+        const normFull = currentFullName.trim().toLowerCase();
+        const exists = repos.find(
+          (r) =>
+            (normUrl && normalizeRepoKey(r.clone_url) === normUrl) ||
+            (normFull && r.full_name.toLowerCase() === normFull)
+        );
+        if (exists) {
+          setSelectedRepoFullName(exists.full_name);
+          setRepoUrl(exists.clone_url);
+          void loadProviderBranches(pid, exists.full_name);
+        } else if (switchToPublicIfMissing && normUrl && repos.length < 100) {
+          setAuthMode('public');
+          setSelectedProviderId('');
+          setProviderRepos([]);
+          setSelectedRepoFullName('');
+          void loadPublicBranches(currentRepoUrl, true);
+        } else if (!normUrl) {
+          const target = repos[0];
+          setSelectedRepoFullName(target.full_name);
+          setRepoUrl(target.clone_url);
+          setBranch(target.default_branch || 'main');
+          void loadProviderBranches(pid, target.full_name);
+        } else {
+          setSelectedRepoFullName('');
         }
       }
     } finally {
@@ -223,26 +250,56 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
   }, [app.id, app.gitAuthMode, app.gitRepo, app.gitProviderId]);
 
   const handleSwitchAuthMode = (mode: 'public' | 'github_app' | 'gitlab_token') => {
+    if (mode === authMode) return;
     setAuthMode(mode);
+    const returningToSaved = Boolean(app.gitRepo) && mode === savedAuthMode;
     if (!app.gitRepo) {
       setAutoDeploy(mode !== 'public');
     }
+
     if (mode === 'public') {
       setSelectedProviderId('');
       setProviderRepos([]);
+      setSelectedRepoFullName('');
+      if (returningToSaved && app.gitRepo) {
+        setRepoUrl(app.gitRepo);
+        setBranch(app.gitBranch || 'main');
+        setProviderBranches(app.gitBranch ? [app.gitBranch] : []);
+        void loadPublicBranches(app.gitRepo, true);
+      } else {
+        setRepoUrl('');
+        setBranch('main');
+        setProviderBranches([]);
+      }
       return;
     }
+
     const matching = providers.filter((p) =>
       mode === 'gitlab_token' ? p.provider === 'GitLab' : p.provider === 'GitHub'
     );
-    const nextPid = matching[0]?.id || '';
-    setSelectedProviderId(nextPid);
-    if (nextPid) {
-      void loadProviderRepos(nextPid, repoUrl, selectedRepoFullName);
-    } else {
-      setProviderRepos([]);
-      setSelectedRepoFullName('');
-      if (!app.gitRepo) setRepoUrl('');
+    const preferredPid =
+      returningToSaved && app.gitProviderId && matching.some((p) => p.id === app.gitProviderId)
+        ? app.gitProviderId
+        : matching[0]?.id || '';
+    setSelectedProviderId(preferredPid);
+
+    if (returningToSaved && app.gitRepo && preferredPid) {
+      const savedFull = getRepoFullNameFromUrl(app.gitRepo);
+      setRepoUrl(app.gitRepo);
+      setSelectedRepoFullName(savedFull);
+      setBranch(app.gitBranch || 'main');
+      setProviderBranches(app.gitBranch ? [app.gitBranch] : []);
+      void loadProviderRepos(preferredPid, app.gitRepo, savedFull);
+      return;
+    }
+
+    setProviderRepos([]);
+    setSelectedRepoFullName('');
+    setRepoUrl('');
+    setBranch('main');
+    setProviderBranches([]);
+    if (preferredPid) {
+      void loadProviderRepos(preferredPid, '', '');
     }
   };
 
@@ -310,8 +367,16 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
   const handleSaveGitConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authMode !== 'public' && !canSubmitGit) {
+      toast.error(
+        providerRepos.length === 0
+          ? 'No repositories available for this provider — grant repo access or switch provider'
+          : 'Please select a repository from this account'
+      );
+      return;
+    }
     if (!repoUrl.trim()) {
-      toast.error('Please enter or select a repository clone URL');
+      toast.error('Please enter a repository clone URL');
       return;
     }
     if (isSavingGit) return;
@@ -369,20 +434,49 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
     toast.success('Disconnected Git repository — switched app to workspace files mode');
   };
 
-  // The push endpoint is per project: the panel looks the project up by this id.
-  const webhookEndpoint = authMode === 'gitlab_token' ? 'gitlab' : 'github';
-  const webhookUrl = `${window.location.origin}/webhooks/${webhookEndpoint}/${encodeURIComponent(app.id)}`;
-
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
   // The saved repo may not belong to this account (e.g. it was added as a public URL);
   // then the picker shows a placeholder instead of silently showing the first repo.
   const selectedRepoListed = providerRepos.some((r) => r.full_name === selectedRepoFullName);
+  const canSubmitGit =
+    authMode === 'public'
+      ? Boolean(repoUrl.trim())
+      : filteredProviders.length > 0 &&
+        Boolean(selectedProviderId) &&
+        providerRepos.length > 0 &&
+        selectedRepoListed &&
+        Boolean(repoUrl.trim());
+  const isDirty = Boolean(
+    app.gitRepo &&
+      (authMode !== savedAuthMode ||
+        (authMode !== 'public' && selectedProviderId !== (app.gitProviderId || '')) ||
+        repoUrl.trim() !== (app.gitRepo || '').trim() ||
+        (branch.trim() || 'main') !== (app.gitBranch || 'main').trim() ||
+        autoDeploy !== Boolean(app.webhookAutoDeploy))
+  );
   const isGitHubAppInstall =
     authMode === 'github_app' && selectedProvider?.authMethod === 'GitHub App';
   const showManualWebhook = autoDeploy;
+  const normalizedUrlLower = repoUrl.trim().toLowerCase();
+  const publicWebhookKind: 'github' | 'gitlab' | 'generic' = normalizedUrlLower.includes('gitlab')
+    ? 'gitlab'
+    : normalizedUrlLower.includes('github') || !normalizedUrlLower
+      ? 'github'
+      : 'generic';
+  const webhookPath =
+    authMode === 'gitlab_token'
+      ? `webhooks/gitlab/${encodeURIComponent(app.id)}`
+      : authMode === 'github_app'
+        ? `webhooks/github/${encodeURIComponent(app.id)}`
+        : publicWebhookKind === 'gitlab'
+          ? `webhooks/gitlab/${encodeURIComponent(app.id)}`
+          : publicWebhookKind === 'github'
+            ? `webhooks/github/${encodeURIComponent(app.id)}`
+            : `webhooks/${encodeURIComponent(app.id)}`;
+  const webhookUrl = `${window.location.origin}/${webhookPath}`;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-16">
       {/* Row 1: Git Sync ON / OFF Control Bar OR Onboarding banner if no repo connected */}
       {!app.gitRepo ? (
         <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
@@ -416,7 +510,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               }`}
             >
               {gitSyncEnabled
-                ? `Auto-pulls ${branch} on deploy`
+                ? `Auto-pulls ${app.gitBranch || branch} on deploy`
                 : 'Paused · Workspace files active'}
             </span>
           </div>
@@ -426,6 +520,7 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               type="button"
               onClick={() => void handleManualSyncNow()}
               disabled={isSyncingNow}
+              title={isDirty ? 'Save Git configuration before syncing new changes' : undefined}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-orange-500/35 bg-orange-500/12 px-3 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isSyncingNow ? 'animate-spin' : ''}`} />
@@ -446,11 +541,18 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
       {/* Row 2: Git Provider, Repository & Branch Configuration Form */}
       <div className="rounded-xl border border-white/[0.07] bg-[#111115]/90 p-4 sm:p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-orange-400" />
-          <h2 className="text-sm font-semibold text-zinc-100">
-            {app.gitRepo ? 'Repository & Branch' : 'Configure Repository & Branch'}
-          </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-orange-400" />
+            <h2 className="text-sm font-semibold text-zinc-100">
+              {app.gitRepo ? 'Repository & Branch' : 'Configure Repository & Branch'}
+            </h2>
+          </div>
+          {isDirty && (
+            <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+              Unsaved changes
+            </span>
+          )}
         </div>
 
         <form onSubmit={handleSaveGitConfig} className="space-y-4">
@@ -493,124 +595,180 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
 
           {/* Connected Provider + Live Repository Picker */}
           {authMode !== 'public' && (
-            <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-medium text-zinc-400">
-                    Connected Git Provider
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void loadProviderRepos(selectedProviderId)}
-                    className="inline-flex items-center gap-1 font-mono text-[10px] text-orange-400 hover:underline cursor-pointer"
-                  >
-                    <RefreshCw className={`h-2.5 w-2.5 ${isLoadingRepos ? 'animate-spin' : ''}`} />
-                    Refresh Repos
-                  </button>
-                </div>
-                {filteredProviders.length === 0 ? (
-                  <div className="flex h-9 items-center justify-between rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-400">
-                    <span>No {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'} provider connected</span>
-                    <a
-                      href="/git"
-                      className="text-[11px] font-semibold text-orange-400 hover:underline"
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-medium text-zinc-400 leading-normal">
+                      Connected Git Provider
+                    </label>
+                    <button
+                      type="button"
+                      disabled={!selectedProviderId || isLoadingRepos}
+                      onClick={() =>
+                        void loadProviderRepos(
+                          selectedProviderId,
+                          repoUrl,
+                          selectedRepoFullName
+                        )
+                      }
+                      className="inline-flex items-center gap-1 py-0.5 font-mono text-[11px] leading-normal text-orange-400 hover:underline disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                     >
-                      + Connect {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'}
-                    </a>
+                      <RefreshCw className={`h-3 w-3 ${isLoadingRepos ? 'animate-spin' : ''}`} />
+                      Refresh Repos
+                    </button>
                   </div>
-                ) : (
+                  {filteredProviders.length === 0 ? (
+                    <div className="flex h-9 items-center justify-between rounded-lg border border-white/[0.09] bg-[#09090b] px-3 text-xs text-zinc-400">
+                      <span>No {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'} provider connected</span>
+                      <a
+                        href="/git"
+                        className="text-[11px] font-semibold text-orange-400 hover:underline"
+                      >
+                        + Connect {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'}
+                      </a>
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedProviderId}
+                      onChange={(e) => {
+                        const nextPid = e.target.value;
+                        setSelectedProviderId(nextPid);
+                        if (
+                          nextPid &&
+                          nextPid === app.gitProviderId &&
+                          authMode === savedAuthMode &&
+                          app.gitRepo
+                        ) {
+                          const savedFull = getRepoFullNameFromUrl(app.gitRepo);
+                          setRepoUrl(app.gitRepo);
+                          setSelectedRepoFullName(savedFull);
+                          setBranch(app.gitBranch || 'main');
+                          void loadProviderRepos(nextPid, app.gitRepo, savedFull);
+                        } else {
+                          setProviderRepos([]);
+                          setSelectedRepoFullName('');
+                          setRepoUrl('');
+                          setBranch('main');
+                          setProviderBranches([]);
+                          void loadProviderRepos(nextPid, '', '');
+                        }
+                      }}
+                      className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    >
+                      {filteredProviders.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.provider} · {p.accountName} ({p.authMethod})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 leading-normal py-0.5 mb-1.5">
+                    Select Repository ({providerRepos.length} available)
+                  </label>
                   <select
-                    value={selectedProviderId}
+                    value={selectedRepoListed ? selectedRepoFullName : ''}
+                    disabled={filteredProviders.length === 0 || providerRepos.length === 0}
                     onChange={(e) => {
-                      setSelectedProviderId(e.target.value);
-                      void loadProviderRepos(e.target.value);
+                      const full = e.target.value;
+                      if (!full) return;
+                      setSelectedRepoFullName(full);
+                      const matched = providerRepos.find((r) => r.full_name === full);
+                      if (matched) {
+                        setRepoUrl(matched.clone_url);
+                        setBranch(matched.default_branch || 'main');
+                      } else {
+                        const domain = authMode === 'gitlab_token' ? 'gitlab.com' : 'github.com';
+                        setRepoUrl(`https://${domain}/${full}.git`);
+                      }
+                      void loadProviderBranches(selectedProviderId, full);
                     }}
-                    className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                    className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none disabled:opacity-60"
                   >
-                    {filteredProviders.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.provider} · {p.accountName} ({p.authMethod})
+                    {providerRepos.length === 0 ? (
+                      <option value="">No repositories found</option>
+                    ) : (
+                      !selectedRepoListed && (
+                        <option value="">
+                          Select a repository from this account
+                        </option>
+                      )
+                    )}
+                    {providerRepos.map((r) => (
+                      <option key={r.full_name} value={r.full_name}>
+                        {r.full_name} {r.private ? '(Private)' : '(Public)'}
                       </option>
                     ))}
                   </select>
-                )}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
-                  Select Repository ({providerRepos.length} available)
-                </label>
-                <select
-                  value={selectedRepoListed ? selectedRepoFullName : ''}
-                  onChange={(e) => {
-                    const full = e.target.value;
-                    if (!full) return;
-                    setSelectedRepoFullName(full);
-                    const matched = providerRepos.find((r) => r.full_name === full);
-                    if (matched) {
-                      setRepoUrl(matched.clone_url);
-                      setBranch(matched.default_branch || 'main');
-                    } else {
-                      const domain = authMode === 'gitlab_token' ? 'gitlab.com' : 'github.com';
-                      setRepoUrl(`https://${domain}/${full}.git`);
-                    }
-                    void loadProviderBranches(selectedProviderId, full);
-                  }}
-                  className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
-                >
-                  {providerRepos.length === 0 ? (
-                    <option value="">No repositories found</option>
-                  ) : (
-                    !selectedRepoListed && (
-                      <option value="">
-                        Select a repository from this account
-                      </option>
-                    )
-                  )}
-                  {providerRepos.map((r) => (
-                    <option key={r.full_name} value={r.full_name}>
-                      {r.full_name} {r.private ? '(Private)' : '(Public)'}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {filteredProviders.length > 0 && !isLoadingRepos && providerRepos.length === 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                  <span>
+                    No repositories are accessible on this{' '}
+                    {authMode === 'gitlab_token' ? 'GitLab' : 'GitHub'} connection. Grant repository
+                    access or refresh after updating permissions.
+                  </span>
+                  <a
+                    href="/git"
+                    className="font-semibold text-orange-300 hover:underline shrink-0"
+                  >
+                    Manage Git Providers →
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
           {/* Repo URL & Branch Selector */}
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-3">
             <div className="md:col-span-2">
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+              <label className="block text-[11px] font-medium text-zinc-400 leading-normal py-0.5 mb-1.5">
                 Repository Clone URL
               </label>
               <input
                 type="text"
                 required
+                readOnly={authMode !== 'public'}
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
                 placeholder={
-                  authMode === 'gitlab_token'
-                    ? 'https://gitlab.com/username/project.git'
+                  authMode !== 'public'
+                    ? 'Select a repository above to populate its clone URL'
                     : 'https://github.com/org/repo.git'
                 }
-                className="h-9 w-full rounded-lg border border-white/[0.09] bg-[#09090b] px-3 font-mono text-xs text-zinc-100 focus:border-orange-500 focus:outline-none"
+                className={`h-9 w-full rounded-lg border border-white/[0.09] px-3 font-mono text-xs focus:border-orange-500 focus:outline-none ${
+                  authMode !== 'public'
+                    ? 'bg-[#09090b]/60 text-zinc-300 cursor-default'
+                    : 'bg-[#09090b] text-zinc-100'
+                }`}
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[11px] font-medium text-zinc-400">Target Branch</label>
+                <label className="text-[11px] font-medium text-zinc-400 leading-normal">
+                  Target Branch
+                </label>
                 <button
                   type="button"
+                  disabled={
+                    isLoadingBranches ||
+                    (authMode === 'public' ? !repoUrl.trim() : !selectedRepoListed)
+                  }
                   onClick={() =>
                     void (authMode === 'public'
                       ? loadPublicBranches(repoUrl)
                       : loadProviderBranches(selectedProviderId, selectedRepoFullName))
                   }
-                  className="inline-flex items-center gap-1 font-mono text-[10px] text-orange-400 hover:underline cursor-pointer"
+                  className="inline-flex items-center gap-1 py-0.5 font-mono text-[11px] leading-normal text-orange-400 hover:underline disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                 >
                   <RefreshCw
-                    className={`h-2.5 w-2.5 ${isLoadingBranches ? 'animate-spin' : ''}`}
+                    className={`h-3 w-3 ${isLoadingBranches ? 'animate-spin' : ''}`}
                   />
                   Fetch Branches
                 </button>
@@ -678,92 +836,150 @@ export const ProjectGitTab: React.FC<ProjectGitTabProps> = ({ app, onUpdateApp }
               <ShadcnSwitch checked={autoDeploy} onChange={setAutoDeploy} />
             </div>
 
-            {showManualWebhook && (
-              <>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-zinc-200">Push Webhook Endpoint</div>
-                        <div className="truncate font-mono text-[11px] text-zinc-400">{webhookUrl}</div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const ok = await copyToClipboard(webhookUrl);
-                        if (ok) toast.success('Copied webhook URL');
-                      }}
-                      className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
-                    >
-                      Copy
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Key className="h-4 w-4 text-amber-400 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-zinc-200">Webhook Secret Token</div>
-                        <div className="truncate font-mono text-[11px] text-zinc-400">
-                          {webhookSecret ? (showSecret ? webhookSecret : '••••••••••••••••') : 'Auto-generated on save'}
+            {showManualWebhook &&
+              (() => {
+                const webhookBody = (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Webhook className="h-4 w-4 text-orange-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-zinc-200">
+                              Push Webhook Endpoint
+                            </div>
+                            <div className="truncate font-mono text-[11px] text-zinc-400">
+                              {webhookUrl}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {webhookSecret && (
                         <button
                           type="button"
-                          onClick={() => setShowSecret((v) => !v)}
-                          className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                          title={showSecret ? 'Hide secret' : 'Show secret'}
+                          onClick={async () => {
+                            const ok = await copyToClipboard(webhookUrl);
+                            if (ok) toast.success('Copied webhook URL');
+                          }}
+                          className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer shrink-0"
                         >
-                          {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          Copy
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={!webhookSecret}
-                        onClick={async () => {
-                          if (!webhookSecret) return;
-                          const ok = await copyToClipboard(webhookSecret);
-                          if (ok) toast.success('Copied Webhook Secret Token');
-                        }}
-                        className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-40"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                      </div>
 
-                <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-2.5 text-[11px] text-zinc-400 leading-relaxed">
-                  {authMode === 'gitlab_token' ? (
-                    <>
-                      <span className="font-semibold text-zinc-300">GitLab Webhook Setup: </span>
-                      In GitLab, go to <span className="text-zinc-200 font-medium">Settings → Webhooks → Add new webhook</span>, set <strong>URL</strong> to the Push Webhook Endpoint, set <strong>Secret token</strong>, and select <strong>Push events</strong>.
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-semibold text-zinc-300">GitHub Webhook Setup: </span>
-                      In your GitHub repository <span className="text-zinc-200 font-medium">Settings → Webhooks → Add webhook</span>, set <strong>Payload URL</strong> to the Push Webhook Endpoint above, choose <span className="font-mono text-zinc-200">application/json</span>, paste the <strong>Secret</strong>, and select <strong>Just the push event</strong>.
-                      {isGitHubAppInstall && (
-                        <div className="mt-1 text-zinc-400">
-                          (Note: If your GitHub App is already installed on this repository with repository push events enabled, GitHub will also deliver pushes automatically to NextDeploy).
+                      <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#09090b] px-3.5 py-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Key className="h-4 w-4 text-amber-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-zinc-200">
+                              Webhook Secret Token
+                            </div>
+                            <div className="truncate font-mono text-[11px] text-zinc-400">
+                              {webhookSecret
+                                ? showSecret
+                                  ? webhookSecret
+                                  : '••••••••••••••••'
+                                : 'Auto-generated on save'}
+                            </div>
+                          </div>
                         </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {webhookSecret && (
+                            <button
+                              type="button"
+                              onClick={() => setShowSecret((v) => !v)}
+                              className="rounded-lg border border-white/[0.08] bg-zinc-900 p-1.5 text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                              title={showSecret ? 'Hide secret' : 'Show secret'}
+                            >
+                              {showSecret ? (
+                                <EyeOff className="h-3.5 w-3.5" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={!webhookSecret}
+                            onClick={async () => {
+                              if (!webhookSecret) return;
+                              const ok = await copyToClipboard(webhookSecret);
+                              if (ok) toast.success('Copied Webhook Secret Token');
+                            }}
+                            className="rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 cursor-pointer disabled:opacity-40"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-2.5 text-[11px] text-zinc-400 leading-relaxed">
+                      {authMode === 'gitlab_token' ||
+                      (authMode === 'public' && publicWebhookKind === 'gitlab') ? (
+                        <>
+                          <span className="font-semibold text-zinc-300">
+                            GitLab Webhook Setup:{' '}
+                          </span>
+                          In GitLab, go to{' '}
+                          <span className="text-zinc-200 font-medium">
+                            Settings → Webhooks → Add new webhook
+                          </span>
+                          , set <strong>URL</strong> to the Push Webhook Endpoint, set{' '}
+                          <strong>Secret token</strong>, and select <strong>Push events</strong>.
+                        </>
+                      ) : authMode === 'public' && publicWebhookKind === 'generic' ? (
+                        <>
+                          <span className="font-semibold text-zinc-300">Push Webhook Setup: </span>
+                          Point your Git host webhook to the Push Webhook Endpoint above with the{' '}
+                          <strong>Secret</strong> (supports GitHub{' '}
+                          <span className="font-mono text-zinc-200">X-Hub-Signature-256</span> and
+                          GitLab <span className="font-mono text-zinc-200">X-Gitlab-Token</span>{' '}
+                          push events).
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-zinc-300">
+                            GitHub Webhook Setup:{' '}
+                          </span>
+                          In your GitHub repository{' '}
+                          <span className="text-zinc-200 font-medium">
+                            Settings → Webhooks → Add webhook
+                          </span>
+                          , set <strong>Payload URL</strong> to the Push Webhook Endpoint above,
+                          choose <span className="font-mono text-zinc-200">application/json</span>,
+                          paste the <strong>Secret</strong>, and select{' '}
+                          <strong>Just the push event</strong>.
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
-              </>
-            )}
+                    </div>
+                  </>
+                );
+
+                if (isGitHubAppInstall) {
+                  return (
+                    <details className="rounded-lg border border-white/[0.06] bg-[#09090b]/70 px-3.5 py-2.5">
+                      <summary className="cursor-pointer text-[11px] font-medium text-zinc-300 select-none">
+                        Optional: Manual Webhook Fallback (already handled automatically by GitHub
+                        App)
+                      </summary>
+                      <div className="mt-3 space-y-2.5">
+                        <div className="text-[11px] text-amber-200/90">
+                          Only add a manual repo webhook if GitHub App push events are disabled;
+                          enabling both may trigger duplicate deploys on push.
+                        </div>
+                        {webhookBody}
+                      </div>
+                    </details>
+                  );
+                }
+
+                return webhookBody;
+              })()}
           </div>
 
           <div className="flex justify-end gap-2 border-t border-white/[0.07] pt-3">
             <button
               type="submit"
-              disabled={isSavingGit}
+              disabled={isSavingGit || !canSubmitGit}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-orange-500 px-4 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
