@@ -12,7 +12,6 @@ export const VALID_NAVIGATION_SECTIONS: NavigationSection[] = [
   'git',
   'registries',
   'backup',
-  'mcp',
   'cli-sessions',
   'migrate',
   'proxy',

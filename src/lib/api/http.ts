@@ -346,7 +346,6 @@ export interface BootstrapData {
   settings?: Record<string, string>;
   proxy?: ProxyBootstrapInfo;
   caddy?: ProxyBootstrapInfo;
-  mcp_enabled?: boolean;
   panel_id?: string;
   public_ip?: string;
   origin_ip?: string;

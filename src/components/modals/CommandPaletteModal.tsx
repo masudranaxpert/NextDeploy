@@ -11,7 +11,6 @@ import {
   Box,
   HardDrive,
   Archive,
-  Cable,
   Settings,
   RefreshCw,
   Trash2,
@@ -354,7 +353,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
       { id: 'proxy-routes', label: 'Routes & Redirects', desc: 'Reverse proxy a domain to another address, or redirect it', icon: <Globe className="h-4 w-4 text-emerald-400" />, kw: ['reverse proxy', 'redirect', 'domain', 'upstream'] },
       { id: 'backup', label: 'Backups & Snapshots', desc: 'Automated backups and disaster recovery', icon: <Archive className="h-4 w-4 text-amber-400" />, kw: ['backups', 'snapshots', 's3', 'restore'] },
       { id: 'migrate', label: 'Server Migration', desc: 'Full server clone and export to another NextDeploy instance', icon: <Database className="h-4 w-4 text-violet-400" />, kw: ['migrate', 'transfer', 'clone'] },
-      { id: 'mcp', label: 'MCP Server', desc: 'Model Context Protocol endpoints for Cursor, Claude & Windsurf', icon: <Cable className="h-4 w-4 text-purple-400" />, kw: ['ai', 'mcp', 'agent', 'cursor', 'claude', 'tools'] },
+      { id: 'cli-sessions', label: 'CLI Sessions', desc: 'Manage nd CLI device tokens, scopes, and active sessions', icon: <Terminal className="h-4 w-4 text-orange-400" />, kw: ['cli', 'nd', 'tokens', 'sessions'] },
       { id: 'settings', label: 'System Settings', desc: 'Admin users, security credentials, and panel configuration', icon: <Settings className="h-4 w-4 text-zinc-400" />, kw: ['settings', 'users', 'config', 'admin', 'password'] },
     ];
 
