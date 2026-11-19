@@ -77,16 +77,30 @@ func runEdgeDomainCheck(ops *edgeOps, args []string) error {
 	}
 
 	if len(reports) == 0 {
-		fmt.Fprintln(ops.stdout, "No domains matched.")
+		fmt.Fprintln(ops.stdout, ui.Dim("No domains matched."))
 		return nil
 	}
 
-	fmt.Fprintf(ops.stdout, "%-28s %-12s %-12s %-10s %-20s %s\n", "DOMAIN", "SOURCE", "DNS", "ORIGIN", "TLS", "TRAFFIC")
-	fmt.Fprintln(ops.stdout, strings.Repeat("-", 96))
+	tableRows := make([][]string, 0, len(reports))
 	for _, r := range reports {
-		fmt.Fprintf(ops.stdout, "%-28s %-12s %-12s %-10s %-20s %s\n",
-			r.Domain, r.Source, r.DNS.Classification, r.Origin.Status, r.TLS.Status, r.Traffic)
+		src := ui.Dim(r.Source)
+		if r.Source == "manual" {
+			src = ui.Cyan("manual")
+		}
+		tr := r.Traffic
+		if tr == "unknown" {
+			tr = ui.Dim(tr)
+		}
+		tableRows = append(tableRows, []string{
+			ui.Bold(r.Domain),
+			src,
+			ui.EdgeStatusBadge(r.DNS.Classification),
+			ui.EdgeStatusBadge(r.Origin.Status),
+			ui.EdgeStatusBadge(r.TLS.Status),
+			tr,
+		})
 	}
+	ui.PrintTable(ops.stdout, []string{"DOMAIN", "SOURCE", "DNS", "ORIGIN", "TLS", "TRAFFIC"}, tableRows)
 	return nil
 }
 
@@ -212,21 +226,26 @@ func runEdgeDomainPrune(ops *edgeOps, args []string) error {
 			return nil
 		}
 		if len(candidates) == 0 {
-			fmt.Fprintf(ops.stdout, "Dry run: no manual domains qualify for pruning (reason=%s, grace=%s, requires >=2 bad checks).\n", reason, grace)
+			fmt.Fprintf(ops.stdout, "%s\n", ui.Green(fmt.Sprintf("Dry run: no manual domains qualify for pruning (reason=%s, grace=%s, requires >=2 bad checks).", reason, grace)))
 		} else {
-			fmt.Fprintf(ops.stdout, "Dry run: %d manual domain(s) would be pruned (reason=%s, grace=%s):\n\n", len(candidates), reason, grace)
-			fmt.Fprintf(ops.stdout, "%-28s %-18s %-8s %-20s %s\n", "DOMAIN", "REASON", "CHECKS", "BAD SINCE", "DETAIL")
-			fmt.Fprintln(ops.stdout, strings.Repeat("-", 96))
+			fmt.Fprintf(ops.stdout, "%s\n\n", ui.HiYellow(fmt.Sprintf("Dry run: %d manual domain(s) would be pruned (reason=%s, grace=%s):", len(candidates), reason, grace)))
+			tableRows := make([][]string, 0, len(candidates))
 			for _, c := range candidates {
-				fmt.Fprintf(ops.stdout, "%-28s %-18s %-8d %-20s %s\n",
-					c.Entry.Domain, c.ReasonTag, c.CheckCount, c.BadSince.Format("2006-01-02 15:04"), c.Detail)
+				tableRows = append(tableRows, []string{
+					ui.Bold(c.Entry.Domain),
+					ui.Red(c.ReasonTag),
+					strconv.Itoa(c.CheckCount),
+					c.BadSince.Format("2006-01-02 15:04"),
+					c.Detail,
+				})
 			}
-			fmt.Fprintln(ops.stdout, "\nRe-run with 'nd edge domain prune --apply' to move these to trash (restorable for 30 days).")
+			ui.PrintTable(ops.stdout, []string{"DOMAIN", "REASON", "CHECKS", "BAD SINCE", "DETAIL"}, tableRows)
+			fmt.Fprintf(ops.stdout, "\n%s\n", ui.Dim("Re-run with 'nd edge domain prune --apply' to move these to trash (restorable for 30 days)."))
 		}
 		if len(panelHints) > 0 {
-			fmt.Fprintln(ops.stdout, "\nPanel domains with issues (read-only; manage on the panel):")
+			fmt.Fprintf(ops.stdout, "\n%s\n", ui.Yellow("Panel domains with issues (read-only; manage on the panel):"))
 			for _, ph := range panelHints {
-				fmt.Fprintf(ops.stdout, "  %-28s panel=%-12s issue=%s -> %s\n", ph.Host, ph.PanelName, ph.Issue, ph.Suggestion)
+				fmt.Fprintf(ops.stdout, "  %-28s panel=%-12s issue=%s -> %s\n", ui.Bold(ph.Host), ui.Cyan(ph.PanelName), ui.Red(ph.Issue), ui.Dim(ph.Suggestion))
 			}
 		}
 		return nil

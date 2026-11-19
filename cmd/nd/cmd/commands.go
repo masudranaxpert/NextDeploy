@@ -3229,6 +3229,7 @@ Proxy & Edge Shield:
   nd proxy logs [-n N] [-f]          View or stream the reverse proxy logs
   nd proxy status [--json]           Show the active proxy engine and its live status
   nd proxy options [show|set]        View or update global proxy timeouts and Real-IP mode
+  nd proxy engine [status|preflight|set] Show, check or switch the proxy engine (caddy, angie, ferron)
   nd shield list [--json]            List edge shield proxy nodes
   nd shield add <name> <ip>          Register a new edge shield node
   nd shield update <id> [flags]      Update an edge shield node (--name, --ip)

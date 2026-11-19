@@ -297,6 +297,32 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
         {!isStatic && (
           <>
             <div className="my-4 border-t border-white/[0.06]" />
+            {detail.fpm_health && detail.fpm_health.reached_count > 0 && (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs leading-relaxed">
+                <p className="font-semibold text-amber-200">
+                  All {detail.fpm_health.max_children} PHP workers were busy {detail.fpm_health.reached_count}{' '}
+                  {detail.fpm_health.reached_count === 1 ? 'time' : 'times'} in the last {Math.round(detail.fpm_health.window_hours / 24)} days
+                  {detail.fpm_health.last_reached_at ? ` (last: ${detail.fpm_health.last_reached_at})` : ''}
+                </p>
+                <p className="mt-1 text-amber-300/80">
+                  New visitors had to wait, and some may have seen 502/504 errors.
+                  {detail.fpm_health.avg_worker_mb > 0 && ` Each worker uses about ${detail.fpm_health.avg_worker_mb} MB;`}
+                  {detail.fpm_health.available_mb > 0 && ` ${(detail.fpm_health.available_mb / 1024).toFixed(1)} GB RAM is free.`}
+                  {detail.site.site_type === 'wordpress' && ' A page cache plugin also lowers the load a lot.'}
+                </p>
+                {detail.fpm_health.recommendation_ok && detail.fpm_health.recommended > detail.fpm_health.max_children ? (
+                  <button
+                    type="button"
+                    onClick={() => set('max_children', Math.min(detail.fpm_health!.recommended, maxWorkers))}
+                    className="mt-2 inline-flex h-7 items-center rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/25 cursor-pointer"
+                  >
+                    Set max PHP workers to {Math.min(detail.fpm_health.recommended, maxWorkers)} (then Save)
+                  </button>
+                ) : (
+                  detail.fpm_health.note && <p className="mt-1 text-amber-300/80">{detail.fpm_health.note}</p>
+                )}
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="memory_limit">
                 <select className={selectCls} value={form.memory_limit} onChange={(e) => set('memory_limit', e.target.value)}>

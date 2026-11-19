@@ -215,6 +215,20 @@ export interface PhpSiteDetail {
   min_cron_interval_minutes: number;
   proxy_engine?: 'caddy' | 'angie' | 'ferron';
   page_cache_supported?: boolean;
+  /** PHP-FPM pool saturation for PHP/WordPress sites (null for static sites). */
+  fpm_health?: {
+    max_children: number;
+    reached_count: number;
+    busy_count: number;
+    last_reached_at: string;
+    window_hours: number;
+    workers: number;
+    avg_worker_mb: number;
+    available_mb: number;
+    recommended: number;
+    recommendation_ok: boolean;
+    note?: string;
+  } | null;
   wp_cache_plugins?: Array<{
     slug: string;
     name: string;
