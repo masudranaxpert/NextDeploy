@@ -50,9 +50,11 @@ export const ADMIN_ONLY_NAV: NavigationSection[] = [
 export function buildNavGroups(params: {
   apps: AppStack[];
   phpEnabled: boolean;
+  /** The optional AI assistant is turned on (Settings → AI assistant). */
+  aiEnabled?: boolean;
   userRole?: string;
 }): NavGroup[] {
-  const { apps, phpEnabled, userRole } = params;
+  const { apps, phpEnabled, aiEnabled = false, userRole } = params;
   const isAdmin = userRole === 'admin';
 
   const groups: NavGroup[] = [
@@ -60,12 +62,15 @@ export function buildNavGroups(params: {
       group: 'Platform',
       items: [
         { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
-        {
-          id: 'nextdeploy-ai',
-          label: 'NextDeploy AI',
-          icon: <Bot className="h-3.5 w-3.5" />,
-          badge: { text: 'ND AI', tone: 'violet' },
-        },
+        ...(aiEnabled
+          ? [
+              {
+                id: 'nextdeploy-ai' as NavigationSection,
+                label: 'NextDeploy AI',
+                icon: <Bot className="h-3.5 w-3.5" />,
+              },
+            ]
+          : []),
         {
           id: 'apps',
           label: 'Projects',

@@ -29,6 +29,8 @@ PANEL_DOMAIN=""
 CADDY_EMAIL=""
 PROXY_ENGINE=""
 PROXY_ENGINE_EXPLICIT=false
+# Optional AI assistant: "yes", "no", or "" (ask on a terminal; an existing install keeps its choice).
+INSTALL_AI=""
 ANGIE_IMAGE="docker.angie.software/angie:1.12.4"
 FERRON_IMAGE="ferronserver/ferron:3.0.0-rc.11-alpine"
 MIN_DOCKER_VERSION="24"
@@ -96,6 +98,10 @@ parse_args() {
         validate_proxy_engine "$PROXY_ENGINE" || die "Invalid --proxy '${1#--proxy=}'. Choose: caddy, angie, or ferron."
         PROXY_ENGINE_EXPLICIT=true
         shift ;;
+      --with-ai)
+        INSTALL_AI="yes"; shift ;;
+      --without-ai|--no-ai)
+        INSTALL_AI="no"; shift ;;
       --help|-h)
         echo "Usage: install.sh [options]"
         echo ""
@@ -105,6 +111,8 @@ parse_args() {
         echo "  --dir    PATH         Install directory (default: /opt/nextdeploy)"
         echo "  --data-dir PATH       Data directory (default: /data)"
         echo "  --proxy ENGINE        Reverse proxy engine: caddy | angie | ferron (default: caddy)"
+        echo "  --with-ai             Also install the optional AI assistant (downloads ~250 MB)"
+        echo "  --without-ai          Do not install the AI assistant (default; add it later in Settings)"
         echo "  --help                Show this help"
         exit 0
         ;;
@@ -142,6 +150,37 @@ choose_proxy_engine() {
     warn "Ferron is experimental: HTTP/2 idle timeout, write timeout, and upstream reload fixes are pending."
   fi
   info "Reverse proxy engine: $PROXY_ENGINE"
+}
+
+choose_ai() {
+  if [[ -z "$INSTALL_AI" && -s "$INSTALL_DIR/docker-compose.yml" ]]; then
+    info "AI assistant: keeping this panel's current setting (change it in Settings or with 'nd ai')"
+    return
+  fi
+  if [[ -z "$INSTALL_AI" && -t 0 ]]; then
+    echo ""
+    echo "Install the AI assistant? It is optional and downloads about 250 MB."
+    echo "You can add or remove it later in Settings or with 'nd ai enable' / 'nd ai disable'."
+    local answer=""
+    read -rp "[y/N]: " answer || answer=""
+    case "$(echo "$answer" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+      y|yes) INSTALL_AI="yes" ;;
+      *)     INSTALL_AI="no" ;;
+    esac
+  fi
+  [[ -n "$INSTALL_AI" ]] || INSTALL_AI="no"
+  if [[ "$INSTALL_AI" == "yes" ]]; then
+    info "AI assistant: will be downloaded on the panel's first start"
+  else
+    info "AI assistant: not installed (add it later in Settings → AI assistant)"
+  fi
+}
+
+# The panel reads this marker on start, turns AI on, downloads the engine and deletes it.
+mark_ai_install() {
+  [[ "$INSTALL_AI" == "yes" ]] || return 0
+  mkdir -p "$DATA_DIR/plugins"
+  touch "$DATA_DIR/plugins/install-ai"
 }
 
 # ── Checks ────────────────────────────────────────────────────────────────────
@@ -1546,10 +1585,12 @@ main() {
   check_docker_compose
   tune_system
   choose_proxy_engine
+  choose_ai
 
   echo ""
   echo -e "${BOLD}Installing NextDeploy...${RESET}"
   create_directories
+  mark_ai_install
   seed_proxy_bootstrap "$PROXY_ENGINE" "$DATA_DIR"
   download_compose
   pull_images

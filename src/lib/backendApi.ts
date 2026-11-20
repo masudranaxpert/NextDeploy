@@ -8,6 +8,7 @@ import { systemAndTokensApi } from './api/systemAndTokensApi';
 import { phpApi } from './api/phpApi';
 import { caddyApi } from './api/caddyApi';
 import { proxyApi } from './api/proxyApi';
+import { aiApi } from './api/aiApi';
 import { shieldApi, getCachedShieldNodes, setCachedShieldNodes } from './api/shieldApi';
 
 export {
@@ -38,4 +39,5 @@ export const backendApi = {
   ...gitAndRegistryApi,
   ...backupsAndMigrateApi,
   ...systemAndTokensApi,
+  ...aiApi,
 };

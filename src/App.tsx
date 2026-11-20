@@ -246,6 +246,10 @@ export default function App() {
   const [backupDestinations, setBackupDestinations] = useState<BackupDestination[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; role: string } | null>(null);
   const [phpEnabled, setPhpEnabled] = useState(false);
+  // Optional AI assistant: the menu entry, shortcut and page exist only while it is on.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiInstalling, setAiInstalling] = useState(false);
+  const aiEnabledRef = React.useRef(false);
   const [apiTokens, setApiTokens] = useState<any[]>([]);
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [myQuota, setMyQuota] = useState<any>(null);
@@ -303,7 +307,7 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCmdPaletteOpen((prev) => !prev);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j' && isAdminRef.current) {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j' && isAdminRef.current && aiEnabledRef.current) {
         e.preventDefault();
         navigateTo('nextdeploy-ai');
       }
@@ -397,6 +401,8 @@ export default function App() {
     }
 
     setPhpEnabled(Boolean((data as any).php?.enabled));
+    setAiEnabled(Boolean((data as any).ai?.enabled));
+    setAiInstalling(Boolean((data as any).ai?.installing));
     setApiTokens(Array.isArray((data as any).api_tokens) ? (data as any).api_tokens : []);
     const quotaObj = (data as any).quota;
     setMyQuota(quotaObj && !quotaObj.unlimited ? quotaObj : null);
@@ -1160,6 +1166,10 @@ export default function App() {
   useEffect(() => {
     isAdminRef.current = isAdminUser;
   }, [isAdminUser]);
+  useEffect(() => {
+    aiEnabledRef.current = aiEnabled;
+  }, [aiEnabled]);
+  const aiPageActive = activeNav === 'nextdeploy-ai' && aiEnabled;
 
   const ownerCtxValue = useMemo(
     () => ({ viewerId: currentUser ? Number(currentUser.id) : 0, isAdmin: isAdminUser }),
@@ -1170,9 +1180,10 @@ export default function App() {
     return buildNavGroups({
       apps,
       phpEnabled,
+      aiEnabled: aiEnabled && isAdminUser,
       userRole: currentUser?.role,
     });
-  }, [apps, phpEnabled, currentUser?.role]);
+  }, [apps, phpEnabled, aiEnabled, isAdminUser, currentUser?.role]);
 
   const currentNavLabel =
     visibleNavGroups.flatMap((g) => g.items).find((i) => i.id === activeNav)?.label || 'Overview';
@@ -1281,7 +1292,7 @@ export default function App() {
           {/* Main Viewport */}
           <main
             className={
-              activeNav === 'nextdeploy-ai'
+              aiPageActive
                 ? "relative w-full flex-1 p-0 h-[calc(100vh-3.5rem)] max-w-none overflow-hidden"
                 : "relative mx-auto w-full max-w-[1680px] 2xl:max-w-[1960px] flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 pb-24 sm:pt-6 lg:pt-7"
             }
@@ -1370,7 +1381,27 @@ export default function App() {
                 onSelectNav={(nav) => navigateTo(nav)}
               />
             ) : isAdminUser && activeNav === 'nextdeploy-ai' ? (
-              <CopilotView currentUser={currentUser} />
+              aiEnabled ? (
+                <CopilotView currentUser={currentUser} />
+              ) : (
+                <div className="mx-auto max-w-md rounded-xl border border-white/[0.07] bg-[#111115]/90 p-5 text-center space-y-3">
+                  <h2 className="text-sm font-semibold text-zinc-100">
+                    {aiInstalling ? 'The AI assistant is being installed' : 'The AI assistant is off'}
+                  </h2>
+                  <p className="text-xs text-zinc-400">
+                    {aiInstalling
+                      ? 'The engine is downloading. This page opens as soon as it is ready.'
+                      : 'It is optional and not installed on this server. Turn it on in Settings to download it.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('settings')}
+                    className="inline-flex h-8 items-center rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-zinc-950 hover:bg-white cursor-pointer"
+                  >
+                    Open Settings
+                  </button>
+                </div>
+              )
             ) : activeNav === 'apps' ? (
               <ProjectsListView
                 apps={apps.filter((a) => !a.php)}
@@ -1605,6 +1636,11 @@ export default function App() {
                 cgroupInfo={cgroupInfo}
                 settings={systemSettings}
                 currentUserId={currentUser ? String(currentUser.id) : undefined}
+                proxyInfo={caddyInfo}
+                onAiStateChange={(enabled, installing) => {
+                  setAiEnabled(enabled);
+                  setAiInstalling(installing);
+                }}
               />
             ) : (
               <OverviewDashboard
@@ -1656,7 +1692,7 @@ export default function App() {
       )}
 
       {/* Floating shortcut to the NextDeploy AI page */}
-      {isAdminUser && activeNav !== 'nextdeploy-ai' && (
+      {isAdminUser && aiEnabled && activeNav !== 'nextdeploy-ai' && (
         <button
           type="button"
           onClick={() => navigateTo('nextdeploy-ai')}

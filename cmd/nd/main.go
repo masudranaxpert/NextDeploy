@@ -217,6 +217,8 @@ func run() int {
 		err = cmd.RunBackup(cl, rest)
 	case "proxy":
 		err = cmd.RunProxy(cl, rest)
+	case "ai":
+		err = cmd.RunAI(cl, rest)
 	case "shield":
 		err = cmd.RunShield(cl, rest)
 	case "top", "stats":

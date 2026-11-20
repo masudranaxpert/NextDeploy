@@ -635,6 +635,13 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		"settings":            settings,
 		"migrate_exports":     enrichedMigrateExports,
 		"docker_version":      dockerVersion,
+		"ai": func() fiber.Map {
+			if !isAdmin || p.Copilot == nil {
+				return fiber.Map{"enabled": false, "installing": false}
+			}
+			on, busy := p.Copilot.QuickState(ctx)
+			return fiber.Map{"enabled": on, "installing": busy}
+		}(),
 		"caddy": fiber.Map{
 			"engine": p.ProxyEngine(),
 			"up":     caddyUp,

@@ -38,6 +38,7 @@ import { backendApi } from '../../lib/backendApi';
 import type { ProxyBootstrapInfo } from '../../lib/api/http';
 import { formatProxyEngineLabel } from '../../components/shield/shieldProxyDisplay';
 import { OwnerBadge } from '../../components/ui/OwnerBadge';
+import { AiPluginCard } from './AiPluginCard';
 
 interface UsersAndSettingsViewProps {
   mode: 'users' | 'audit-logs' | 'settings';
@@ -51,6 +52,8 @@ interface UsersAndSettingsViewProps {
   settings?: Record<string, string>;
   proxyInfo?: ProxyBootstrapInfo | null;
   onProxySwitched?: () => void;
+  /** The AI assistant was turned on or off in the settings card. */
+  onAiStateChange?: (enabled: boolean, installing: boolean) => void;
 }
 
 const fmtMb = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : mb >= 1 ? `${Math.round(mb)} MB` : mb > 0 ? `${Math.max(1, Math.round(mb * 1024))} KB` : '0 MB');
@@ -132,6 +135,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
   host,
   settings: initialSettings,
   proxyInfo,
+  onAiStateChange,
   onProxySwitched,
 }) => {
   const [users, setUsers] = useState<PanelUser[]>(initialUsers);
@@ -1862,7 +1866,7 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
               <span className="text-zinc-500 text-[11px] sm:text-xs shrink-0">Reverse Proxy Engine</span>
-              <span className="text-orange-400 text-[11px] sm:text-xs truncate sm:text-right">Caddy 2 (Caddyfile + Admin API)</span>
+              <span className="text-orange-400 text-[11px] sm:text-xs truncate sm:text-right">{formatProxyEngineLabel(proxyInfo?.engine)}</span>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 rounded-lg border border-white/[0.06] bg-[#09090b] p-3 font-mono">
@@ -1871,6 +1875,8 @@ export const UsersAndSettingsView: React.FC<UsersAndSettingsViewProps> = ({
             </div>
           </div>
         </div>
+
+        <AiPluginCard onStateChange={onAiStateChange} />
       </div>
 
       <ShadcnDialog

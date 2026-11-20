@@ -30,7 +30,7 @@ _nd_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="login logout whoami account accounts apps create delete link unlink info status open ps containers images git push pull diff deploy redeploy stop restart down logs exec run shell server-exec server-shell php db volume volumes backup backups proxy shield edge top stats clean audit env domain domains files file cat edit folder ls version help completion"
+    commands="login logout whoami account accounts apps create delete link unlink info status open ps containers images git push pull diff deploy redeploy stop restart down logs exec run shell server-exec server-shell php db volume volumes backup backups proxy ai shield edge top stats clean audit env domain domains files file cat edit folder ls version help completion"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
@@ -76,6 +76,10 @@ _nd_completions() {
             ;;
         proxy)
             COMPREPLY=( $(compgen -W "list add enable disable toggle rm reload logs status options" -- ${cur}) )
+            return 0
+            ;;
+        ai)
+            COMPREPLY=( $(compgen -W "status enable disable" -- ${cur}) )
             return 0
             ;;
         shield)
@@ -149,7 +153,8 @@ _nd() {
         'volumes:Manage persistent Docker volumes'
         'backup:Manage application backups and schedules'
         'backups:Manage application backups and schedules'
-        'proxy:Manage Caddy reverse proxy routes'
+        'proxy:Manage the reverse proxy (Caddy, Angie, Ferron)'
+        'ai:Install or remove the optional AI assistant'
         'shield:Manage Edge Shield reverse proxy nodes'
         'edge:Manage multi-panel Edge Shield daemon on Shield VPS'
         'top:Show live resource usage'
@@ -180,7 +185,7 @@ const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandN
         'link', 'unlink', 'info', 'status', 'open', 'ps',
         'containers', 'images', 'git', 'push', 'pull', 'diff', 'deploy', 'redeploy', 'stop', 'restart', 'down',
         'logs', 'exec', 'run', 'shell', 'server-exec', 'server-shell', 'php', 'db',
-        'volume', 'volumes', 'backup', 'backups', 'proxy', 'shield', 'edge', 'top', 'stats', 'clean', 'audit',
+        'volume', 'volumes', 'backup', 'backups', 'proxy', 'ai', 'shield', 'edge', 'top', 'stats', 'clean', 'audit',
         'env', 'domain', 'domains', 'files', 'file', 'cat', 'edit', 'folder', 'ls', 'version', 'help', 'completion'
     )
     $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
