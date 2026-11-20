@@ -84,6 +84,7 @@ func main() {
 	p.Copilot.StartupPlugin(context.Background())
 	// Site Traffic on the dashboard: Angie and Ferron report their request counters through their driver.
 	sysinfo.SetProxyRequestsTotalFunc(p.ProxyRequestsTotal)
+	p.StartTrafficCollector()
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
 	go p.InitBandwidthQoS()
@@ -338,6 +339,8 @@ func main() {
 	app.Post("/api/v1/proxy/preflight", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxyPreflight)
 	app.Post("/api/v1/proxy/switch", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.ProxySwitch)
 
+	// Requests per site over the last hour (Traffic page). Users see only their own sites.
+	app.Get("/api/v1/traffic", p.APIAuthMiddleware, p.TrafficSummary)
 	// Optional AI plugin: install / remove the omp engine.
 	app.Get("/api/v1/ai/plugin", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginStatus)
 	app.Post("/api/v1/ai/plugin/enable", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginEnable)

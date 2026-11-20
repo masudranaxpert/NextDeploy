@@ -107,6 +107,7 @@ Enabling downloads the [omp](https://github.com/can1357/oh-my-pi) release this p
 | **Compose & Stacks** | Git webhook auto-deploy or local delta push (`nd push`), automatic blue/green container deployments, and environment variable vaults. |
 | **Edge Shield (DDoS/Proxy)** | Multi-panel edge CDN architecture. Route traffic through distributed edge VPS nodes with automatic TLS synchronization on Caddy, Angie or Ferron, plus Shield-only domains and garbage-domain cleanup (`nd edge domain`). |
 | **CLI Companion (`nd`)** | Inspect resources (`nd top`), stream container & proxy logs (`nd logs`, `nd proxy logs -f`), switch the proxy engine (`nd proxy engine`), delta sync files (`nd push --deploy`), and run interactive shell sessions (`nd shell`). |
+| **Traffic per Site** | The Traffic page shows requests, 4xx/5xx errors and a per-minute trend for every project, PHP site and the panel over the last 15, 30 or 60 minutes. Numbers come from the proxy's own counters (Angie status zones, Caddy per-host metrics), read once a minute, so requests are never slowed down; users see only their own sites. |
 | **Disaster Recovery** | Manual snapshots & scheduled backups with direct S3/Rclone cloud sync, plus `.nd-migrate` single-archive VPS-to-VPS migrations. |
 
 ---

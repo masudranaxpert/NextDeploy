@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Activity,
+  BarChart3,
   Archive,
   ArrowLeftRight,
   Bot,
@@ -78,6 +79,7 @@ export function buildNavGroups(params: {
           badge: { text: String(apps.filter((a) => !a.php).length), tone: 'count' },
         },
         { id: 'monitor', label: 'Monitoring', icon: <Activity className="h-3.5 w-3.5" /> },
+        { id: 'traffic', label: 'Traffic', icon: <BarChart3 className="h-3.5 w-3.5" /> },
       ],
     },
     ...(phpEnabled || isAdmin

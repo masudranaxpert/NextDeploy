@@ -4,6 +4,7 @@ export const VALID_NAVIGATION_SECTIONS: NavigationSection[] = [
   'overview',
   'nextdeploy-ai',
   'monitor',
+  'traffic',
   'apps',
   'containers',
   'images',

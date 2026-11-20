@@ -75,3 +75,18 @@ type Capabilities struct {
 type RequestCounter interface {
 	RequestsTotal(ctx context.Context) (uint64, error)
 }
+
+// ZoneStats are the running request totals of one proxy server zone (one site).
+type ZoneStats struct {
+	Requests uint64
+	S2xx     uint64
+	S3xx     uint64
+	S4xx     uint64
+	S5xx     uint64
+}
+
+// ZoneCounter is implemented by drivers that count requests per site. Keys are the
+// engine's own zone names; the panel maps them back to sites with its desired state.
+type ZoneCounter interface {
+	ZoneCounters(ctx context.Context) (map[string]ZoneStats, error)
+}

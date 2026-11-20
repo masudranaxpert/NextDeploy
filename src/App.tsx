@@ -51,6 +51,7 @@ const ImagesView = lazyRetry(() => import('./features/docker/ImagesView').then((
 const VolumesView = lazyRetry(() => import('./features/docker/VolumesView').then((m) => ({ default: m.VolumesView })));
 const VpsTerminalView = lazyRetry(() => import('./features/terminal/VpsTerminalView').then((m) => ({ default: m.VpsTerminalView })));
 const MonitorView = lazyRetry(() => import('./features/monitoring/MonitorView').then((m) => ({ default: m.MonitorView })));
+const TrafficView = lazyRetry(() => import('./features/traffic/TrafficView').then((m) => ({ default: m.TrafficView })));
 const GitAndRegistriesView = lazyRetry(() => import('./features/integrations/GitAndRegistriesView').then((m) => ({ default: m.GitAndRegistriesView })));
 const CaddyProxyView = lazyRetry(() => import('./features/proxy/CaddyProxyView').then((m) => ({ default: m.CaddyProxyView })));
 const CaddyOptionsView = lazyRetry(() => import('./features/proxy/CaddyOptionsView').then((m) => ({ default: m.CaddyOptionsView })));
@@ -147,6 +148,7 @@ if (typeof window !== 'undefined') {
   else if (path.startsWith('/volumes')) void import('./features/docker/VolumesView');
   else if (path.startsWith('/nextdeploy-ai') || path.startsWith('/copilot')) void import('./features/copilot/CopilotView');
   else if (path.startsWith('/monitor')) void import('./features/monitoring/MonitorView');
+  else if (path.startsWith('/traffic')) void import('./features/traffic/TrafficView');
   else if (path === '/login' || path === '/setup') void import('./features/auth/AuthView');
 }
 
@@ -1435,6 +1437,15 @@ export default function App() {
                 onChanged={async () => {
                   const r = await backendApi.bootstrap();
                   if (r.ok) setPhpEnabled(Boolean((r.data as any)?.php?.enabled));
+                }}
+              />
+            ) : activeNav === 'traffic' ? (
+              <TrafficView
+                onOpenApp={(id, kind) => {
+                  if (kind === 'php' || kind === 'wordpress' || kind === 'static') {
+                    try { sessionStorage.setItem(`nd_php_app_${id}`, '1'); } catch {}
+                  }
+                  navigateTo('apps', id);
                 }}
               />
             ) : activeNav === 'monitor' ? (

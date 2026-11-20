@@ -276,3 +276,58 @@ func (d *Driver) RequestsTotal(ctx context.Context) (uint64, error) {
 	}
 	return total, nil
 }
+
+var _ proxy.ZoneCounter = (*Driver)(nil)
+
+// ZoneCounters returns every status zone's request and response-class totals. Zones are
+// named by ZoneName (one per site) and nd_gw_<port> for gateway ports.
+func (d *Driver) ZoneCounters(ctx context.Context) (map[string]proxy.ZoneStats, error) {
+	ctx = contextOrBackground(ctx)
+	raw, err := d.queryStatusPayload(ctx, d.ContainerName())
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		HTTP struct {
+			ServerZones map[string]struct {
+				Requests struct {
+					Total int64 `json:"total"`
+				} `json:"requests"`
+				Responses map[string]int64 `json:"responses"`
+			} `json:"server_zones"`
+		} `json:"http"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("parse angie status JSON: %w", err)
+	}
+	out := make(map[string]proxy.ZoneStats, len(parsed.HTTP.ServerZones))
+	for name, z := range parsed.HTTP.ServerZones {
+		var st proxy.ZoneStats
+		if z.Requests.Total > 0 {
+			st.Requests = uint64(z.Requests.Total)
+		}
+		for code, n := range z.Responses {
+			if n <= 0 || code == "" {
+				continue
+			}
+			switch code[0] {
+			case '2':
+				st.S2xx += uint64(n)
+			case '3':
+				st.S3xx += uint64(n)
+			case '4':
+				st.S4xx += uint64(n)
+			case '5':
+				st.S5xx += uint64(n)
+			}
+		}
+		out[name] = st
+	}
+	return out, nil
+}
+
+// ZoneName is the status zone of a site, as written by the renderer.
+func ZoneName(siteID string) string { return SanitizeIdent("nd_" + siteID) }
+
+// GatewayZoneName is the status zone of a gateway port.
+func GatewayZoneName(port int) string { return fmt.Sprintf("nd_gw_%d", port) }

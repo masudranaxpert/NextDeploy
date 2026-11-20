@@ -9,7 +9,7 @@ import (
 
 func (d *Driver) wrapServerBlocks(site proxy.Site, hosts []string, tlsInfo tlsResolution, cfGlobal bool, body string) string {
 	serverNames := strings.Join(hosts, " ")
-	zoneBase := SanitizeIdent("nd_" + site.ID)
+	zoneBase := ZoneName(site.ID)
 
 	var b strings.Builder
 	if tlsInfo.Mode == proxy.TLSNone {
@@ -137,7 +137,7 @@ func renderGatewayServers(gateways []proxy.GatewayPort) string {
 		b.WriteString("server {\n")
 		fmt.Fprintf(&b, "    listen %s;\n", listenAddr)
 		b.WriteString("    server_name _;\n")
-		fmt.Fprintf(&b, "    status_zone nd_gw_%d;\n\n", gw.Port)
+		fmt.Fprintf(&b, "    status_zone %s;\n\n", GatewayZoneName(gw.Port))
 		b.WriteString("    error_page 502 =503 @nd_down;\n")
 		b.WriteString("    location @nd_down {\n")
 		b.WriteString("        internal;\n")

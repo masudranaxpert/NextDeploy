@@ -4,6 +4,7 @@ export type NavigationSection =
   | 'overview'
   | 'nextdeploy-ai'
   | 'monitor'
+  | 'traffic'
   | 'apps'
   | 'containers'
   | 'images'
