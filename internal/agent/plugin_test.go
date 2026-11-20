@@ -259,3 +259,23 @@ func TestPruneEngineDownloadsKeepsOnlyCurrentVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanAntigravityKeepsLogins(t *testing.T) {
+	m, _ := newPluginTestManager(t)
+	root := filepath.Join(m.HomeDir(), ".omp", "antigravity-cli")
+	for _, p := range []string{"bin/1.5.13/agy", "gemini/logins/token"} {
+		full := filepath.Join(root, p)
+		_ = os.MkdirAll(filepath.Dir(full), 0o755)
+		_ = os.WriteFile(full, make([]byte, 2<<20), 0o644)
+	}
+	freed, err := m.CleanAntigravity(context.Background())
+	if err != nil || freed < 2 {
+		t.Fatalf("freed %d MB, err %v", freed, err)
+	}
+	if isDir(filepath.Join(root, "bin")) || !isFile(filepath.Join(root, "gemini/logins/token")) {
+		t.Fatal("bin must be gone and logins kept")
+	}
+	if st := m.PluginStatus(context.Background()); st.AntigravityMB != 0 {
+		t.Fatalf("antigravity size after clean = %d", st.AntigravityMB)
+	}
+}

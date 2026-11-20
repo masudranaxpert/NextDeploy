@@ -75,3 +75,17 @@ func (p *Panel) AIPluginDisable(c *fiber.Ctx) error {
 	p.RecordAuditLog(c, "ai.disable", "ai_plugin", "omp", detail)
 	return c.JSON(fiber.Map{"ok": true, "plugin": p.Copilot.PluginStatus(ctx)})
 }
+
+// POST /api/v1/ai/plugin/clean-antigravity
+func (p *Panel) AIPluginCleanAntigravity(c *fiber.Ctx) error {
+	if p.Copilot == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"ok": false, "error": "AI module unavailable"})
+	}
+	ctx := c.UserContext()
+	freed, err := p.Copilot.CleanAntigravity(ctx)
+	if err != nil {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"ok": false, "error": err.Error()})
+	}
+	p.RecordAuditLog(c, "ai.clean_antigravity", "ai_plugin", "omp", "")
+	return c.JSON(fiber.Map{"ok": true, "freed_mb": freed, "plugin": p.Copilot.PluginStatus(ctx)})
+}

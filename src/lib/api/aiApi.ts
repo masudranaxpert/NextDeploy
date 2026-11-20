@@ -11,6 +11,7 @@ export interface AiPluginStatus {
   source?: 'plugin' | 'system';
   size_mb?: number;
   disk_mb: number;
+  antigravity_mb: number;
   arch: string;
   error?: string;
   progress?: number;
@@ -32,4 +33,6 @@ export const aiApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ purge }),
     }),
+  aiCleanAntigravity: () =>
+    requestJson<PluginResponse & { freed_mb: number }>('/api/v1/ai/plugin/clean-antigravity', { method: 'POST' }),
 };

@@ -82,6 +82,25 @@ export const AiPluginCard: React.FC<AiPluginCardProps> = ({ onStateChange }) => 
     }
   };
 
+  const cleanAntigravity = async () => {
+    const size = fmtMb(st?.antigravity_mb);
+    if (
+      !window.confirm(
+        `Delete the Antigravity CLI (${size})? It is only used by the Gemini / Antigravity provider and is downloaded again the next time you use it. Your login is kept.`
+      )
+    )
+      return;
+    setBusy(true);
+    const res = await backendApi.aiCleanAntigravity();
+    setBusy(false);
+    if (res.ok && res.data?.plugin) {
+      apply(res.data.plugin);
+      toast.success(`Antigravity CLI removed, ${fmtMb(res.data.freed_mb)} freed`);
+    } else {
+      toast.error(res.error || 'Could not remove the Antigravity CLI');
+    }
+  };
+
   const on = Boolean(st?.wanted);
   const installing = Boolean(st?.installing);
   const version = st?.version || st?.target || '';
@@ -132,6 +151,27 @@ export const AiPluginCard: React.FC<AiPluginCardProps> = ({ onStateChange }) => 
               <span className="text-zinc-400">Disk used</span>
               <span className="text-zinc-200 font-semibold">{fmtMb(st.disk_mb)}</span>
             </div>
+            {st.antigravity_mb > 0 && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-[#09090b] p-3">
+                <div className="min-w-0">
+                  <span className="block font-mono text-[11px] text-zinc-400">Antigravity CLI</span>
+                  <span className="block text-[11px] text-zinc-500 mt-0.5">
+                    Used only by the Gemini / Antigravity provider
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2.5">
+                  <span className="font-mono text-[11px] font-semibold text-zinc-200">{fmtMb(st.antigravity_mb)}</span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void cleanAntigravity()}
+                    className="h-7 rounded-md border border-white/[0.08] bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    Clean
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <p className="rounded-lg border border-white/[0.06] bg-[#09090b] p-3 text-[11px] leading-relaxed text-zinc-400">

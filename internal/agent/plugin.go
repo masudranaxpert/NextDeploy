@@ -60,7 +60,7 @@ type PluginStatus struct {
 	Installing bool   `json:"installing"` // a download is running
 	Wanted     bool   `json:"wanted"`     // the admin turned AI on
 	Version    string `json:"version,omitempty"`
-	Target     string `json:"target"` // version Enable installs
+	Target     string `json:"target"`           // version Enable installs
 	Source     string `json:"source,omitempty"` // "plugin" (downloaded), "system" (in the image or OMP_BIN)
 	Path       string `json:"path,omitempty"`
 	SizeMB     int64  `json:"size_mb,omitempty"`
@@ -68,6 +68,8 @@ type PluginStatus struct {
 	Error      string `json:"error,omitempty"`
 	Progress   int    `json:"progress,omitempty"` // download percent while installing
 	DiskMB     int64  `json:"disk_mb"`            // engine plus the tools omp downloaded itself
+	// AntigravityMB is the Antigravity CLI omp downloads for the Gemini/Antigravity provider.
+	AntigravityMB int64 `json:"antigravity_mb"`
 }
 
 type pluginState struct {
@@ -181,6 +183,7 @@ func (m *Manager) PluginStatus(ctx context.Context) PluginStatus {
 		total += dirSize(d)
 	}
 	st.DiskMB = (total + (1<<20 - 1)) >> 20
+	st.AntigravityMB = (dirSize(m.antigravityBinDir()) + (1<<20 - 1)) >> 20
 	return st
 }
 
@@ -670,4 +673,31 @@ func removeOtherVersionDirs(dir, keep string) {
 func isDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+func (m *Manager) antigravityBinDir() string {
+	if m.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(m.HomeDir(), ".omp", "antigravity-cli", "bin")
+}
+
+// CleanAntigravity deletes the Antigravity CLI binaries (~230 MB each version). omp downloads
+// the CLI again the next time the Gemini/Antigravity provider is used; logins are kept. The
+// engine is stopped first so no running CLI holds the files.
+func (m *Manager) CleanAntigravity(ctx context.Context) (freedMB int64, err error) {
+	dir := m.antigravityBinDir()
+	if dir == "" || !isDir(dir) {
+		return 0, nil
+	}
+	if m.activePrompt.Load() {
+		return 0, errors.New("AI is answering a request; stop it first")
+	}
+	freed := dirSize(dir)
+	m.stopEngine()
+	m.killEngineProcesses()
+	if err := os.RemoveAll(dir); err != nil {
+		return 0, err
+	}
+	return (freed + (1<<20 - 1)) >> 20, nil
 }

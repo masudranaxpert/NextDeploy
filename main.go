@@ -342,6 +342,7 @@ func main() {
 	app.Get("/api/v1/ai/plugin", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginStatus)
 	app.Post("/api/v1/ai/plugin/enable", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginEnable)
 	app.Post("/api/v1/ai/plugin/disable", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginDisable)
+	app.Post("/api/v1/ai/plugin/clean-antigravity", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.AIPluginCleanAntigravity)
 	// AI Copilot (omp RPC headless harness)
 	app.Get("/api/v1/copilot/status", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.RequireAIMiddleware, p.CopilotStatus)
 	app.Get("/api/v1/copilot/stream", p.APIAuthMiddleware, p.RequireAdminMiddleware, p.RequireAIMiddleware, p.CopilotStream)
