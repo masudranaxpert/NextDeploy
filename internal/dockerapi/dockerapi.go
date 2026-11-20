@@ -372,6 +372,20 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 		}
 	}
 
+	// Forget the previous samples of containers that no longer exist: every deploy creates new
+	// container IDs, and the cache would otherwise keep one full stats snapshot per old container.
+	existing := make(map[string]struct{}, len(all))
+	for _, c := range all {
+		existing[c.ID] = struct{}{}
+	}
+	prevContainerStatsMu.Lock()
+	for id := range prevContainerStats {
+		if _, ok := existing[id]; !ok {
+			delete(prevContainerStats, id)
+		}
+	}
+	prevContainerStatsMu.Unlock()
+
 	ids := make([]string, 0, len(list))
 	for _, c := range list {
 		if containerStatsEligible(c.State) {

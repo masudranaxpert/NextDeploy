@@ -547,6 +547,10 @@ sleep 0.3
 	default:
 		return c.Status(400).SendString("invalid action")
 	}
+	// The proxy watchdog brings a stopped proxy back unless the admin stopped it here.
+	if err == nil && action != "reconcile_network" {
+		p.setProxyStoppedByAdmin(ctx, action == "stop")
+	}
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}

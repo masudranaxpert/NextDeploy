@@ -45,6 +45,34 @@ type DeployJobRecord struct {
 	FinishedAt time.Time `json:"finished_at,omitempty"`
 }
 
+// deployJobTTL is how long a finished job stays in memory for status polling. Every job keeps
+// its full build output, and the log is already stored in the database (deploy logs), so old
+// jobs only cost memory; without pruning the panel grew with every deploy until a restart.
+const deployJobTTL = 2 * time.Hour
+
+// pruneDeployJobsLocked drops finished jobs older than deployJobTTL, keeping each app's latest
+// job (LatestDeployJobForApp). The caller holds deployMu.
+func pruneDeployJobsLocked(jobs map[string]*DeployJobRecord, now time.Time) {
+	latest := make(map[string]*DeployJobRecord, len(jobs))
+	for _, j := range jobs {
+		if cur, ok := latest[j.AppID]; !ok || j.CreatedAt.After(cur.CreatedAt) {
+			latest[j.AppID] = j
+		}
+	}
+	for id, j := range jobs {
+		if j.Running || latest[j.AppID] == j {
+			continue
+		}
+		finished := j.FinishedAt
+		if finished.IsZero() {
+			finished = j.CreatedAt
+		}
+		if now.Sub(finished) > deployJobTTL {
+			delete(jobs, id)
+		}
+	}
+}
+
 func (p *Panel) RemoveDeployRun(appID string) {
 	p.deployMu.Lock()
 	defer p.deployMu.Unlock()
@@ -215,6 +243,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 		CreatedAt: time.Now(),
 	}
 	p.deployJobs[jobID] = jobRec
+	pruneDeployJobsLocked(p.deployJobs, time.Now())
 	p.deployMu.Unlock()
 
 	go func() {

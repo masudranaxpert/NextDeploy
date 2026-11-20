@@ -1265,6 +1265,7 @@ func (p *Panel) StartBackgroundJobs() {
 	go p.orphanStagingSweepLoop()
 	go p.migrateSweepLoop()
 	go p.auditLogPruneLoop()
+	go p.phpLogRotateLoop()
 	go p.caddyNetworkReconcileLoop()
 	go p.StartBandwidthQoSLoop()
 	go p.StartMonitorCollector()
@@ -1281,7 +1282,8 @@ func (p *Panel) caddyNetworkReconcileLoop() {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		loopCtx, loopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		loopCtx, loopCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		p.ensureProxyRunning(loopCtx)
 		_ = dockerapi.EnsureProxySharedNetwork(loopCtx, p.proxyServiceKey())
 		loopCancel()
 	}
@@ -1509,4 +1511,20 @@ func (p *Panel) DeleteRegistry(c *fiber.Ctx) error {
 	}
 	SetFlash(c, "Registry deleted successfully.")
 	return c.Redirect("/registries")
+}
+
+// phpLogRotateLoop keeps PHP sites' log files (error_log and friends) below 10 MB each.
+func (p *Panel) phpLogRotateLoop() {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if p.PHP != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			if n := p.PHP.RotateSiteLogs(ctx); n > 0 {
+				log.Printf("php logs: rotated %d log file(s) above 10 MB", n)
+			}
+			cancel()
+		}
+		<-ticker.C
+	}
 }

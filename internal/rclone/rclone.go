@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -262,6 +263,27 @@ type GoogleDriveTokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
 	TokenType    string `json:"token_type"`
+	Scope        string `json:"scope"`
+}
+
+// ErrDriveScopeMissing means the user left Google Drive access unticked on Google's consent
+// screen (it lists each permission with its own checkbox). Such a token signs in but every
+// Drive call fails with "insufficient authentication scopes".
+var ErrDriveScopeMissing = errors.New("Google did not grant access to Google Drive: on the consent screen, tick the box for \"See, edit, create, and delete all of your Google Drive files\" and connect again")
+
+// hasFullDriveScope reports whether a space-separated OAuth scope list includes full Drive
+// access. An empty list (older responses) is accepted.
+func hasFullDriveScope(scope string) bool {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return true
+	}
+	for _, s := range strings.Fields(scope) {
+		if s == "https://www.googleapis.com/auth/drive" {
+			return true
+		}
+	}
+	return false
 }
 
 // ExtractGoogleAuthCode pulls the code parameter out of a pasted redirect URL or returns raw code.
@@ -336,6 +358,9 @@ func ExchangeGoogleDriveCode(ctx context.Context, clientID, clientSecret, code, 
 	var tokenResp GoogleDriveTokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return "", err
+	}
+	if !hasFullDriveScope(tokenResp.Scope) {
+		return "", ErrDriveScopeMissing
 	}
 
 	tokenJSON, err := json.Marshal(map[string]interface{}{
@@ -980,18 +1005,18 @@ func SearchGoogleDriveFile(ctx context.Context, token, folderID, filePath string
 				}
 				if json.Unmarshal(body, &searchResult) == nil && len(searchResult.Files) > 0 {
 					if searchResult.Files[0].WebViewLink != "" {
-		return searchResult.Files[0].WebViewLink, nil
+						return searchResult.Files[0].WebViewLink, nil
+					}
+					return "https://drive.google.com/file/d/" + searchResult.Files[0].ID + "/view", nil
+				}
+			}
+		}
 	}
-	return "https://drive.google.com/file/d/" + searchResult.Files[0].ID + "/view", nil
-}
-}
-}
-}
 
-if folderID != "" && folderID != "root" {
-	return "https://drive.google.com/drive/folders/" + folderID, nil
-}
-return "", fmt.Errorf("file %q not found on Google Drive", filename)
+	if folderID != "" && folderID != "root" {
+		return "https://drive.google.com/drive/folders/" + folderID, nil
+	}
+	return "", fmt.Errorf("file %q not found on Google Drive", filename)
 }
 
 // TestGoogleDrive verifies token validity and returns storage quota and user info.

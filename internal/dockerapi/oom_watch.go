@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 )
 
 // Docker sends an "oom" event when the kernel kills a process of a container for exceeding the
@@ -98,4 +99,20 @@ func ContainerOOM(id string) OOMInfo {
 	oomMu.Lock()
 	defer oomMu.Unlock()
 	return oomByID[id]
+}
+
+// ContainerExists reports whether a container with this name exists. err is set only when the
+// Docker API itself could not be asked (so "missing" is never confused with "Docker is down").
+func ContainerExists(ctx context.Context, name string) (bool, error) {
+	cli, err := apiClient()
+	if err != nil {
+		return false, err
+	}
+	if _, err := cli.ContainerInspect(ctx, name); err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

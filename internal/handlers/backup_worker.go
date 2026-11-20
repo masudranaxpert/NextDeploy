@@ -87,6 +87,11 @@ func (p *Panel) processScheduledBackups() {
 				}
 				dest, err := p.DB.GetBackupDestination(ctx, schedule.DestinationID)
 				if err != nil {
+					// Leave a visible failure instead of skipping the backup without a trace.
+					if hid, herr := p.DB.CreateBackupHistory(ctx, app.ID, schedule.DestinationID, schedule.BackupType, "", "running", "", 0); herr == nil {
+						_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, hid, "failed",
+							"Scheduled backup skipped: its destination no longer exists. Edit the schedule and pick a destination.", "")
+					}
 					continue
 				}
 				historyID, err := p.DB.CreateBackupHistory(ctx, app.ID, dest.ID, schedule.BackupType, "", "running", "", 0)
@@ -107,13 +112,17 @@ func (p *Panel) spawnBackupJob(ctx context.Context, historyID int64, appID strin
 	if historyID <= 0 {
 		return false
 	}
-	select {
-	case p.backupSem <- struct{}{}:
-	default:
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", "backup worker busy (concurrency limit)", "")
-		return false
-	}
+	// Backups that become due together (every app at 03:00) wait for a free slot instead of
+	// failing: their schedule already counts them as run, so a failure here would skip the
+	// backup until the next day.
 	go func() {
+		select {
+		case p.backupSem <- struct{}{}:
+		case <-time.After(6 * time.Hour):
+			_ = p.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed",
+				"Backup did not start: other backups kept every backup slot busy for 6 hours.", "")
+			return
+		}
 		defer func() { <-p.backupSem }()
 		p.runBackupJob(ctx, historyID, appID, dest, backupType, volumeNames, retention, pauseContainers)
 	}()
