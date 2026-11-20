@@ -100,7 +100,7 @@ type Manager struct {
 	subMu       sync.RWMutex
 	subscribers map[chan AgentEvent]struct{}
 
-	ompPath string
+	plugin pluginState // optional AI engine download (plugin.go)
 
 	// DataDir is the panel's persistent volume. omp keeps its logins, skills,
 	// settings and conversation history under <DataDir>/omp/agent so they
@@ -141,7 +141,6 @@ func NewManager(database *db.Store, phpMgr *phphosting.Manager, root string) *Ma
 		pendingAsks:   make(map[string]chan []omprpc.AskAnswer),
 		titleState:    make(map[string]*titleInfo),
 		subscribers:   make(map[chan AgentEvent]struct{}),
-		ompPath:       findOMPBinary(),
 		cwdKind:       "root",
 		stop:          make(chan struct{}),
 	}
@@ -275,6 +274,10 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 		return m.client, nil
 	}
 
+	ompPath, err := m.ompBin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	tools := m.buildHostTools()
 	cwd, err := m.resolveCwdLocked()
 	if err != nil {
@@ -293,7 +296,7 @@ func (m *Manager) EnsureStarted(ctx context.Context) (*omprpc.Client, error) {
 		if path, err := m.writeIdentity(); err == nil {
 			args = append(args, "--append-system-prompt", path)
 		}
-		cmd := exec.Command(m.ompPath, append(args, extra...)...)
+		cmd := exec.Command(ompPath, append(args, extra...)...)
 		cmd.Dir = cwd
 		cmd.Stderr = os.Stderr
 		cmd.Env = env
@@ -812,12 +815,13 @@ func (m *Manager) GetStatus() map[string]any {
 	mode := m.autonomyMode
 	needsLogin := m.needsLogin
 	m.mu.RUnlock()
+	binPath, _ := m.binary()
 
 	return map[string]any{
 		"running":      running,
 		"autonomyMode": string(mode),
 		"active":       m.activePrompt.Load(),
-		"binaryPath":   m.ompPath,
+		"binaryPath":   binPath,
 		"needsLogin":   needsLogin,
 	}
 }
@@ -992,7 +996,11 @@ func (m *Manager) loginViaCLI(ctx context.Context, providerID string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, m.ompPath, "login", providerID)
+	ompPath, err := m.ompBin(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, ompPath, "login", providerID)
 	cmd.Env = env
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1352,7 +1360,10 @@ func (m *Manager) writeOverlay() (string, error) {
 		dir = m.AgentDir()
 	}
 	path := filepath.Join(dir, "nextdeploy-overlay.yml")
-	body := "tools:\n  approvalMode: " + string(m.autonomyMode) + "\nsecrets:\n  enabled: true\n"
+	// The panel pins the engine version (plugin.go), so omp must not check for or apply
+	// updates on its own.
+	body := "tools:\n  approvalMode: " + string(m.autonomyMode) + "\nsecrets:\n  enabled: true\n" +
+		"startup:\n  checkUpdate: false\nupdate:\n  auto: false\n"
 	return path, os.WriteFile(path, []byte(body), 0o600)
 }
 

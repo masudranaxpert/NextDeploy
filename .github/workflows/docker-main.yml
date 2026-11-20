@@ -107,23 +107,12 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Resolve latest omp version
-        id: omp_version
-        run: |
-          URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/can1357/oh-my-pi/releases/latest || true)
-          TAG="${URL##*/}"
-          case "$TAG" in v*) ;; *) TAG=latest ;; esac
-          echo "omp_version=$TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            OMP_VERSION=${{ steps.omp_version.outputs.tag }}
           tags: ${{ env.IMAGE_NAME }}:latest
           labels: |
             org.opencontainers.image.title=NextDeploy

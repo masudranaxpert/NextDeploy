@@ -29,7 +29,7 @@ NextDeploy is designed to be lean, modern, and developer-first:
 - **~35 MB idle footprint**: One static Go binary (Fiber) plus a reverse proxy container of your choice (Caddy, Angie or Ferron). Leaves your VPS RAM for your actual applications.
 - **Unified Hosting Model**: Run complex multi-container Docker Compose stacks right alongside production PHP/WordPress workloads (with isolated PHP-FPM pools & MariaDB).
 - **Edge Shield Ingress**: Terminate TLS and absorb traffic on remote edge VPS nodes (`nd edge`) before tunneling back to your origin server, complete with per-domain trusted proxy preservation.
-- **Built-in Admin AI Copilot**: Built-in admin agent (ND AI) powered by [omp](https://github.com/can1357/oh-my-pi) with tool access to panel logs and runtime diagnostics.
+- **Optional AI Assistant**: An admin agent powered by [omp](https://github.com/can1357/oh-my-pi) with access to panel logs and runtime diagnostics. It is not installed by default; turn it on only if you want it (see [AI assistant](#ai-assistant-optional)).
 - **Cross-Platform CLI (`nd`)**: Manage deployments, tail proxy/container logs, sync local workspaces, and inspect databases right from your terminal.
 
 ---
@@ -56,6 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/masudranaxpert/NextDeploy/main/inst
 | `--dir` | `/opt/nextdeploy` | Host installation and configuration directory |
 | `--data-dir` | `/data` | Persistent data directory (apps, databases, TLS certs) |
 | `--proxy` | `caddy` | Reverse proxy engine: `caddy`, `angie` or `ferron` (experimental). Prompts on a TTY when omitted. See [Proxy engines](#proxy-engines) |
+| `--with-ai` / `--without-ai` | without | Install the optional AI assistant (~250 MB download). Prompts on a TTY when omitted. See [AI assistant](#ai-assistant-optional) |
 
 After installation completes, navigate to **`http://<server-ip>:8080`** (or your domain) to create your initial administrator account.
 
@@ -79,6 +80,22 @@ nd edge install --panel-url URL --token-stdin --proxy angie   # Shield node
 ```
 
 Benchmarks, the decision guide, switching and rollback details are in [docs/proxy-engines.md](docs/proxy-engines.md). The design is recorded in [ADR 001](docs/adr/001-multi-proxy-drivers.md).
+
+---
+
+## AI Assistant (optional)
+
+The panel image does not include the AI engine. Without it, NextDeploy works exactly the same, and the AI menu is hidden. Turn it on at any time:
+
+```bash
+sudo bash install.sh --with-ai     # at install
+nd ai enable                       # later (or Settings → AI assistant)
+nd ai status                       # version and disk use
+nd ai disable --yes                # remove the engine; chats, logins and API keys are kept
+nd ai disable --purge --yes        # also delete chats, logins and stored API keys
+```
+
+Enabling downloads the [omp](https://github.com/can1357/oh-my-pi) release this panel version is tested with (currently `v19.0.0`) for the server's CPU, checks it against the release's SHA256 checksums and stores it in `/data/plugins/omp`, so it survives panel updates. Disabling also deletes the tools omp downloads by itself on first use (the Antigravity CLI and native modules, about 360 MB). Offline servers can copy the `omp-linux-musl-<arch>` binary to `/data/plugins/omp` by hand. Panels that already used the assistant before it became optional keep it: the engine is downloaded again on the first start after the update.
 
 ---
 

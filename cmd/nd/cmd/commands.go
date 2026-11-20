@@ -2832,6 +2832,11 @@ Reverse Proxy Engine & Edge Shield [admin]:
   nd shield add|update|rm|rotate-token|test|setup-script|reassign Manage Edge Shield nodes
   nd edge <subcommand>               Manage multi-panel Edge Shield daemon on an Edge VPS (nd edge --help)
 
+Optional AI Assistant [admin]:
+  nd ai [status]                     Whether the AI assistant is installed, its version and disk use
+  nd ai enable [--version vX.Y.Z]    Download the AI engine and turn the assistant on
+  nd ai disable --yes [--purge]      Remove the engine (--purge also deletes chats, logins, keys)
+
 `)
 	}
 
