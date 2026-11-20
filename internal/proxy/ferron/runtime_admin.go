@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"panel/internal/proxy"
 )
 
 type adminStatusResponse struct {
@@ -255,4 +257,18 @@ func parsePositiveIntPort(s string) int {
 		return 0
 	}
 	return n
+}
+
+var _ proxy.RequestCounter = (*Driver)(nil)
+
+// RequestsTotal is Ferron's own request counter from its admin API.
+func (d *Driver) RequestsTotal(ctx context.Context) (uint64, error) {
+	st, err := d.getStatus(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if st.RequestsTotal < 0 {
+		return 0, nil
+	}
+	return uint64(st.RequestsTotal), nil
 }

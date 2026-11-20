@@ -37,6 +37,7 @@ services:
             PANEL_PERF_LOG: "false"
             WORKSPACES_ROOT: /data/workspaces
         image: masudranaxpert/nextdeploy:latest
+        init: true
         logging:
             driver: json-file
             options:

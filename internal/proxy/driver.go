@@ -68,3 +68,10 @@ type Capabilities struct {
 	AdminAPI                bool `json:"admin_api"`
 	Experimental            bool `json:"experimental"`
 }
+
+// RequestCounter is implemented by drivers that can report how many HTTP requests the proxy
+// has served since it started. The dashboard turns the difference between two readings into
+// the "Site Traffic" rate.
+type RequestCounter interface {
+	RequestsTotal(ctx context.Context) (uint64, error)
+}

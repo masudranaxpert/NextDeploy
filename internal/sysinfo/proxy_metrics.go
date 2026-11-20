@@ -1,6 +1,7 @@
 package sysinfo
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -63,7 +64,33 @@ func proxyMetricsEndpointsSnapshot() []string {
 	return out
 }
 
+// proxyRequestsTotalFn asks the active proxy driver for its request counter (Angie and
+// Ferron keep theirs on an endpoint the panel can only reach through the driver). It is set
+// by the panel; when it reports nothing, the metrics endpoints below are scraped (Caddy).
+var (
+	proxyRequestsTotalMu sync.RWMutex
+	proxyRequestsTotalFn func(ctx context.Context) (uint64, bool)
+)
+
+// SetProxyRequestsTotalFunc installs the driver-backed request counter.
+func SetProxyRequestsTotalFunc(fn func(ctx context.Context) (uint64, bool)) {
+	proxyRequestsTotalMu.Lock()
+	proxyRequestsTotalFn = fn
+	proxyRequestsTotalMu.Unlock()
+}
+
 func queryProxyRequestsTotal() (uint64, bool) {
+	proxyRequestsTotalMu.RLock()
+	fn := proxyRequestsTotalFn
+	proxyRequestsTotalMu.RUnlock()
+	if fn != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		total, ok := fn(ctx)
+		cancel()
+		if ok {
+			return total, true
+		}
+	}
 	for _, u := range proxyMetricsEndpointsSnapshot() {
 		resp, err := proxyMetricsClient.Get(u)
 		if err != nil {

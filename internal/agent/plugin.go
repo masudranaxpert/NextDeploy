@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -402,6 +403,7 @@ func (m *Manager) startInstall(version string) {
 		m.plugin.mu.Unlock()
 		if err == nil {
 			m.stopEngine() // the next request starts the new binary
+			m.pruneEngineDownloads()
 		}
 	}()
 }
@@ -577,6 +579,7 @@ func (m *Manager) StartupPlugin(ctx context.Context) {
 			_ = os.Remove(marker)
 		}
 	}
+	m.pruneEngineDownloads()
 	switch m.DB.GetSetting(ctx, SettingAIEnabled) {
 	case "":
 		used := false
@@ -611,4 +614,60 @@ func (m *Manager) QuickState(ctx context.Context) (enabled, installing bool) {
 	installing = m.plugin.installing
 	m.plugin.mu.Unlock()
 	return m.Available(ctx) && !installing, installing
+}
+
+// pruneEngineDownloads deletes old versions of the tools omp downloads by itself. omp
+// updates the Antigravity CLI (~230 MB per version) and keeps one native-module folder per
+// omp version, but never deletes the previous ones, so each update leaves the old copy
+// behind. Only the version in use is kept.
+func (m *Manager) pruneEngineDownloads() {
+	if m.dataDir == "" {
+		return
+	}
+	root := filepath.Join(m.HomeDir(), ".omp")
+
+	// Antigravity CLI: install.json names the version omp uses.
+	agyDir := filepath.Join(root, "antigravity-cli", "bin")
+	if raw, err := os.ReadFile(filepath.Join(agyDir, "install.json")); err == nil {
+		var info struct {
+			Version string `json:"version"`
+		}
+		if json.Unmarshal(raw, &info) == nil && info.Version != "" && isDir(filepath.Join(agyDir, info.Version)) {
+			removeOtherVersionDirs(agyDir, info.Version)
+		}
+	}
+
+	// Native modules: one folder per omp version, named without the "v".
+	cur := ""
+	if b, err := os.ReadFile(m.pluginVerFile()); err == nil {
+		cur = strings.TrimPrefix(strings.TrimSpace(string(b)), "v")
+	}
+	natDir := filepath.Join(root, "natives")
+	if cur != "" && isDir(filepath.Join(natDir, cur)) {
+		removeOtherVersionDirs(natDir, cur)
+	}
+}
+
+var versionDirPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$`)
+
+// removeOtherVersionDirs deletes version-named folders in dir except keep. Anything that is
+// not a version folder (logins, config files) is left alone.
+func removeOtherVersionDirs(dir, keep string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == keep || !versionDirPattern.MatchString(e.Name()) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err == nil {
+			log.Printf("ai plugin: removed unused %s", filepath.Join(filepath.Base(dir), e.Name()))
+		}
+	}
+}
+
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }

@@ -253,3 +253,26 @@ func splitLogLines(s string) []string {
 	}
 	return out
 }
+
+var _ proxy.RequestCounter = (*Driver)(nil)
+
+// RequestsTotal sums the request counters of every server zone (one per site, plus the panel).
+// The status API only listens on the container's loopback, so it is read from inside it.
+func (d *Driver) RequestsTotal(ctx context.Context) (uint64, error) {
+	ctx = contextOrBackground(ctx)
+	raw, err := d.queryStatusPayload(ctx, d.ContainerName())
+	if err != nil {
+		return 0, err
+	}
+	var parsed angieStatusPayload
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return 0, fmt.Errorf("parse angie status JSON: %w", err)
+	}
+	var total uint64
+	for _, sz := range parsed.HTTP.ServerZones {
+		if sz.Requests.Total > 0 {
+			total += uint64(sz.Requests.Total)
+		}
+	}
+	return total, nil
+}

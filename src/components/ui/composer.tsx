@@ -423,6 +423,7 @@ function ComposerPick<T extends string>({
   onValueChange,
   shown,
   align = "end",
+  searchable,
 }: {
   label: string
   value: T
@@ -430,11 +431,61 @@ function ComposerPick<T extends string>({
   onValueChange: (value: T) => void
   shown?: string
   align?: "start" | "end"
+  /** Show a filter box; on by default for long lists. */
+  searchable?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+  const [active, setActive] = React.useState(0)
   const menuRef = React.useRef<HTMLDivElement>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const listRef = React.useRef<HTMLDivElement>(null)
   const explained = options.some((option) => option.hint)
+  const withSearch = searchable ?? options.length > 8
+
+  // Every word must appear in the name, the provider hint or the id, in any order.
+  const filtered = React.useMemo(() => {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return options
+    return options.filter((o) => {
+      const text = `${o.label} ${o.hint ?? ""} ${o.value}`.toLowerCase()
+      return words.every((w) => text.includes(w))
+    })
+  }, [options, query])
+
+  React.useEffect(() => {
+    if (!open) return
+    setQuery("")
+    const idx = options.findIndex((o) => o.value === value)
+    setActive(idx >= 0 ? idx : 0)
+    // Bring the chosen entry into view when the list opens.
+    window.requestAnimationFrame(() => {
+      listRef.current?.querySelector<HTMLElement>("[data-chosen=true]")?.scrollIntoView({ block: "nearest" })
+    })
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" })
+  }, [active])
+
+  const choose = (v: T) => {
+    onValueChange(v)
+    setOpen(false)
+  }
+
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActive((i) => Math.min(i + 1, filtered.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActive((i) => Math.max(i - 1, 0))
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      const pick = filtered[active] ?? filtered[0]
+      if (pick) choose(pick.value)
+    }
+  }
 
   React.useEffect(() => {
     if (!open) return
@@ -487,23 +538,44 @@ function ComposerPick<T extends string>({
             explained ? "w-72" : "min-w-36"
           )}
         >
-          <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground border-b border-border/50 mb-0.5">
-            {label}
-          </div>
-          <div className="flex flex-col gap-0.5 max-h-56 overflow-y-auto [scrollbar-width:thin]">
-            {options.map((option) => {
+          {withSearch ? (
+            <div className="border-b border-border/50 mb-0.5 px-1 pb-1">
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setActive(0)
+                }}
+                onKeyDown={onSearchKey}
+                placeholder={`Search ${label.toLowerCase()}s`}
+                aria-label={`Search ${label.toLowerCase()}s`}
+                className="h-7 w-full rounded-md bg-transparent px-1.5 text-[12.5px] text-foreground placeholder:text-muted-foreground outline-none"
+              />
+            </div>
+          ) : (
+            <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground border-b border-border/50 mb-0.5">
+              {label}
+            </div>
+          )}
+          <div ref={listRef} className="flex flex-col gap-0.5 max-h-56 overflow-y-auto [scrollbar-width:thin]">
+            {filtered.length === 0 && (
+              <div className="px-2 py-2 text-[12px] text-muted-foreground">No match for "{query}"</div>
+            )}
+            {filtered.map((option, index) => {
               const isSelected = option.value === value
               return (
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => {
-                    onValueChange(option.value)
-                    setOpen(false)
-                  }}
+                  data-index={index}
+                  data-chosen={isSelected}
+                  onClick={() => choose(option.value)}
+                  onMouseEnter={() => setActive(index)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] transition-colors outline-none hover:bg-accent focus-visible:bg-accent",
-                    isSelected ? "glass-chosen text-foreground font-medium" : "text-foreground/85"
+                    isSelected ? "glass-chosen text-foreground font-medium" : "text-foreground/85",
+                    withSearch && index === active && "bg-accent"
                   )}
                 >
                   <span className="flex size-3.5 shrink-0 items-center justify-center">

@@ -82,13 +82,19 @@ func main() {
 	p.Copilot = agent.NewManager(database, p.PHP, root)
 	p.Copilot.SetDataDir(dataDir)
 	p.Copilot.StartupPlugin(context.Background())
+	// Site Traffic on the dashboard: Angie and Ferron report their request counters through their driver.
+	sysinfo.SetProxyRequestsTotalFunc(p.ProxyRequestsTotal)
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
 	go p.InitBandwidthQoS()
 
 	app.Use(perflog.Middleware())
 	app.Use(func(c *fiber.Ctx) error {
-		sysinfo.RecordRequest()
+		// Panel Traffic counts real work; the browser fetching the app's static files after a
+		// reload or update is not.
+		if path := c.Path(); !strings.HasPrefix(path, "/assets/") && path != "/favicon.ico" {
+			sysinfo.RecordRequest()
+		}
 		return c.Next()
 	})
 	app.Use(p.SecurityHeadersMiddleware)

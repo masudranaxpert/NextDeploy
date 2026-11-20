@@ -95,7 +95,7 @@ nd ai disable --yes                # remove the engine; chats, logins and API ke
 nd ai disable --purge --yes        # also delete chats, logins and stored API keys
 ```
 
-Enabling downloads the [omp](https://github.com/can1357/oh-my-pi) release this panel version is tested with (currently `v19.0.0`) for the server's CPU, checks it against the release's SHA256 checksums and stores it in `/data/plugins/omp`, so it survives panel updates. Disabling also deletes the tools omp downloads by itself on first use (the Antigravity CLI and native modules, about 360 MB). Offline servers can copy the `omp-linux-musl-<arch>` binary to `/data/plugins/omp` by hand. Panels that already used the assistant before it became optional keep it: the engine is downloaded again on the first start after the update.
+Enabling downloads the [omp](https://github.com/can1357/oh-my-pi) release this panel version is tested with (currently `v19.0.0`) for the server's CPU, checks it against the release's SHA256 checksums and stores it in `/data/plugins/omp`, so it survives panel updates. Disabling also deletes the tools omp downloads by itself: its native modules (~135 MB, on first start) and, only if you use the Gemini/Antigravity provider, the Antigravity CLI (~230 MB). Versions those tools replace during updates are cleaned up automatically. Offline servers can copy the `omp-linux-musl-<arch>` binary to `/data/plugins/omp` by hand. Panels that already used the assistant before it became optional keep it: the engine is downloaded again on the first start after the update.
 
 ---
 

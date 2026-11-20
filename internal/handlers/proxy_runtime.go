@@ -350,3 +350,18 @@ func (p *Panel) StartProxyRuntime() {
 		}
 	}()
 }
+
+// ProxyRequestsTotal reads the active proxy's request counter for the dashboard's Site Traffic
+// chart. Caddy has none here (its Prometheus endpoint is scraped instead), so it reports false.
+func (p *Panel) ProxyRequestsTotal(ctx context.Context) (uint64, bool) {
+	drv, err := p.ProxyDriver()
+	if err != nil {
+		return 0, false
+	}
+	rc, ok := drv.(proxy.RequestCounter)
+	if !ok {
+		return 0, false
+	}
+	total, err := rc.RequestsTotal(ctx)
+	return total, err == nil
+}

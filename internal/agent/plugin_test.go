@@ -228,3 +228,34 @@ func TestChecksumFor(t *testing.T) {
 		t.Fatal("missing asset must give no checksum")
 	}
 }
+
+func TestPruneEngineDownloadsKeepsOnlyCurrentVersions(t *testing.T) {
+	m, _ := newPluginTestManager(t)
+	root := filepath.Join(m.HomeDir(), ".omp")
+	mk := func(p string) {
+		full := filepath.Join(root, p)
+		_ = os.MkdirAll(filepath.Dir(full), 0o755)
+		_ = os.WriteFile(full, []byte("x"), 0o644)
+	}
+	mk("antigravity-cli/bin/1.5.10/agy")
+	mk("antigravity-cli/bin/1.5.13/agy")
+	_ = os.WriteFile(filepath.Join(root, "antigravity-cli/bin/install.json"), []byte(`{"version":"1.5.13"}`), 0o644)
+	mk("antigravity-cli/gemini/logins/token")
+	mk("natives/18.9.0/a.node")
+	mk("natives/19.0.0/a.node")
+	_ = os.MkdirAll(m.pluginDir(), 0o755)
+	_ = os.WriteFile(m.pluginVerFile(), []byte("v19.0.0\n"), 0o644)
+
+	m.pruneEngineDownloads()
+
+	for _, gone := range []string{"antigravity-cli/bin/1.5.10", "natives/18.9.0"} {
+		if _, err := os.Stat(filepath.Join(root, gone)); !os.IsNotExist(err) {
+			t.Fatalf("%s should be removed", gone)
+		}
+	}
+	for _, kept := range []string{"antigravity-cli/bin/1.5.13/agy", "antigravity-cli/bin/install.json", "antigravity-cli/gemini/logins/token", "natives/19.0.0/a.node"} {
+		if !isFile(filepath.Join(root, kept)) {
+			t.Fatalf("%s must be kept", kept)
+		}
+	}
+}

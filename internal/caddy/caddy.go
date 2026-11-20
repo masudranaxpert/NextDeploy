@@ -669,6 +669,11 @@ func GenerateRootStackCompose(base []byte, panelDomain string, enableHTTPS, enab
 	// Takes effect the next time the panel container itself is recreated (panel update);
 	// proxy syncs only run `compose up` for the proxy service.
 	runutil.SetDefaultComposeLogging(panelSvc)
+	// The panel is PID 1 in its container and starts helpers (omp, its Antigravity CLI) whose
+	// children can outlive them; a tiny init reaps those so no zombie processes pile up.
+	if _, ok := panelSvc["init"]; !ok {
+		panelSvc["init"] = true
+	}
 	services["panel"] = panelSvc
 	doc["services"] = services
 

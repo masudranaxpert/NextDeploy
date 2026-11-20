@@ -1350,6 +1350,8 @@ func (m *Manager) reapIdle() {
 			_ = client.Close()
 		}
 		m.mu.Unlock()
+		// omp updates the tools it downloads while it runs; drop the versions it replaced.
+		m.pruneEngineDownloads()
 	}
 }
 
