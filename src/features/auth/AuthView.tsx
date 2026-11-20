@@ -360,7 +360,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ mode, onSuccess }) => {
           <div className="mt-9 flex gap-8">
             {[
               ['Compose', 'multi-service stacks'],
-              ['Auto TLS', 'via Caddy'],
+              ['Auto TLS', 'free certificates'],
               ['PHP & WP', 'built-in hosting'],
             ].map(([title, sub]) => (
               <div key={title}>

@@ -742,7 +742,7 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                 </div>
                 <p className="text-zinc-400">
                   Once <code className="text-orange-300">migrate.sh</code> completes, update your
-                  domains&apos; DNS records to the new server IP. Caddy automatically provisions
+                  domains&apos; DNS records to the new server IP. The reverse proxy automatically issues
                   fresh TLS 1.3 certificates for every restored domain route.
                 </p>
               </div>
@@ -765,14 +765,14 @@ export const MigrationView: React.FC<MigrationViewProps> = ({
                   },
                   {
                     title: 'volumes/<vol_name>.tar.gz',
-                    desc: 'Crash-consistent tar.gz snapshots of every named Docker volume referenced by selected apps plus Caddy shared volumes.',
+                    desc: 'Crash-consistent tar.gz snapshots of every named Docker volume referenced by selected apps plus the proxy’s shared volumes.',
                   },
                   {
                     title: 'Users & Collaborators',
                     desc: 'All panel users (bcrypt password hashes, roles, status, CPU/RAM/disk quotas, cgroup limits) and per-app collaborator grants.',
                   },
                   {
-                    title: 'Domains & Caddy Config',
+                    title: 'Domains & Proxy Config',
                     desc: 'All domain routes, target ports, HTTPS/www flags, static/media file server mounts, and panel .env settings.',
                   },
                   {

@@ -417,8 +417,8 @@ export const PhpSettingsTab: React.FC<{ app: AppStack; onChanged: () => void | P
               </div>
               <p className="mt-0.5 text-xs text-zinc-500">
                 {detail.settings?.stopped || detail.runtime.state === 'stopped'
-                  ? 'Site is offline — start to restore its Caddy route and PHP-FPM pool'
-                  : 'Take this site offline by removing its Caddy route and freeing its PHP-FPM pool'}
+                  ? 'Site is offline — start to restore its proxy route and PHP-FPM pool'
+                  : 'Take this site offline by removing its proxy route and freeing its PHP-FPM pool'}
               </p>
             </div>
             <GhostButton

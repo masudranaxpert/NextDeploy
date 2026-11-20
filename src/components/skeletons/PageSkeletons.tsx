@@ -360,7 +360,7 @@ export const ProxyRoutesSkeleton: React.FC = () => (
 
 /** 7. Caddy Options Skeleton */
 export const CaddyOptionsSkeleton: React.FC = () => (
-  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading Caddy Options">
+  <div className="space-y-5 nd-skel" aria-busy="true" aria-label="Loading proxy options">
     <div className="flex items-center justify-between">
       <div className="space-y-1">
         <div className="h-5 w-40 rounded bg-white/[0.09]" />

@@ -66,6 +66,16 @@ func RunImport(ctx context.Context, bundlePath string, deleteAfter bool, deps Im
 	if !snapshotHasUsers(snap) {
 		return fmt.Errorf("bundle has no user accounts; re-export from the source panel with the latest NextDeploy version")
 	}
+	log.log("checking that the bundle is complete")
+	var archives []string
+	for _, as := range snap.Apps {
+		if strings.TrimSpace(as.Archive) != "" {
+			archives = append(archives, as.Archive)
+		}
+	}
+	if err := verifyBundle(ctx, bundlePath, archives); err != nil {
+		return fmt.Errorf("%w; nothing was changed on this panel", err)
+	}
 	if deps.ResetBeforeImport {
 		log.log("resetting panel (users, apps, workspaces)")
 		if err := ResetPanelForImport(ctx, deps.DB, deps.Store.Root); err != nil {

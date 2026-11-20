@@ -65,7 +65,7 @@ export const RuleEditorModal: React.FC<Props> = ({ open, initialRule, presets = 
       open={open}
       onClose={onClose}
       title={isEditing ? 'Edit routing rule' : 'Add routing rule'}
-      description="Configure a single Caddy rewrite, redirect, or path block."
+      description="Configure a single rewrite, redirect or path block."
       icon={<Route className="h-4 w-4 text-orange-400" />}
       maxWidth="md"
       footer={

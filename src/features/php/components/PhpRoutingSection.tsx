@@ -214,7 +214,7 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, sav
       }
       return next;
     });
-    toast.success(`Imported ${imported.length} rule(s). Click "Save rules" to apply to Caddy.`);
+    toast.success(`Imported ${imported.length} rule(s). Click "Save rules" to apply them.`);
   };
 
   const saveRoutingOnly = async () => {
@@ -225,7 +225,7 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, sav
         toast.error(res.error || 'Could not save URL routing rules');
         return;
       }
-      toast.success('Caddy routing rules saved and synced');
+      toast.success('Routing rules saved and synced');
       if (onSaved) await onSaved();
     } finally {
       setSavingRouting(false);
@@ -237,7 +237,7 @@ export const PhpRoutingSection: React.FC<Props> = ({ appId, isStatic, value, sav
   return (
     <Card
       title="URL Routing"
-      description="Native Caddy rewrites, redirects, and path blocking. WordPress and Laravel work by default."
+      description="Rewrites, redirects and path blocking run in the reverse proxy. WordPress and Laravel work by default."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <GhostButton onClick={() => setGuideOpen(true)}>

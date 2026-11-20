@@ -33,8 +33,8 @@ interface GuideCopy {
 
 const GUIDE_COPY: Record<GuideLang, GuideCopy> = {
   en: {
-    title: 'URL Routing & Caddy Guide',
-    description: 'How fallback modes, Caddy rewrite rules, and .htaccess imports work.',
+    title: 'URL Routing Guide',
+    description: 'How fallback modes, rewrite rules and .htaccess imports work.',
     close: 'Close',
     langLabel: 'Documentation language',
     fallbackTitle: 'Missing File Fallback (try_files)',
@@ -60,10 +60,10 @@ const GUIDE_COPY: Record<GuideLang, GuideCopy> = {
     ],
     rulesTitle: 'Ordered Rules',
     rulesIntro:
-      'Rules run top-to-bottom inside Caddy before fast-path caching. Static assets on disk still load normally unless blocked.',
+      'Rules run top-to-bottom in the reverse proxy before fast-path caching. Static assets on disk still load normally unless blocked.',
     actionsTitle: 'Rule Actions',
     actions: [
-      { label: 'Rewrite', detail: 'Changes the internal request path inside Caddy without changing the browser URL.' },
+      { label: 'Rewrite', detail: 'Changes the internal request path in the proxy without changing the browser URL.' },
       { label: 'Redirect', detail: 'Sends an HTTP redirect (301 permanent, 302 temporary, 307/308) to the new URL.' },
       { label: 'Block', detail: 'Immediately stops access with HTTP 403, 404, or 410 (for dot-dirs, config files, etc.).' },
     ],
@@ -107,8 +107,8 @@ const GUIDE_COPY: Record<GuideLang, GuideCopy> = {
       'Use Import .htaccess to scan htdocs/ automatically, or manage rules from terminal with nd php rules scan <app> and nd php rules list <app>.',
   },
   bn: {
-    title: 'URL রাউটিং ও Caddy গাইড',
-    description: 'ফলব্যাক মোড, Caddy রি-রাইট রুল এবং .htaccess ইম্পোর্ট যেভাবে কাজ করে।',
+    title: 'URL রাউটিং গাইড',
+    description: 'ফলব্যাক মোড, রি-রাইট রুল এবং .htaccess ইম্পোর্ট যেভাবে কাজ করে।',
     close: 'বন্ধ করুন',
     langLabel: 'ডকুমেন্টেশনের ভাষা',
     fallbackTitle: 'ফাইল না পাওয়া গেলে ফলব্যাক (try_files)',
@@ -134,10 +134,10 @@ const GUIDE_COPY: Record<GuideLang, GuideCopy> = {
     ],
     rulesTitle: 'রুলস ক্রমানুসারে চলে',
     rulesIntro:
-      'Caddy-তে ক্যাশিংয়ের আগেই রুলগুলো ওপর থেকে নিচে একে একে যাচাই হয়। ব্লক রুল না থাকলে ডিস্কের আসল স্ট্যাটিক ফাইল স্বাভাবিকভাবে লোড হয়।',
+      'রিভার্স প্রক্সিতে ক্যাশিংয়ের আগেই রুলগুলো ওপর থেকে নিচে একে একে যাচাই হয়। ব্লক রুল না থাকলে ডিস্কের আসল স্ট্যাটিক ফাইল স্বাভাবিকভাবে লোড হয়।',
     actionsTitle: 'রুলের ধরন (Action)',
     actions: [
-      { label: 'Rewrite', detail: 'ব্রাউজারের URL না বদলে Caddy-র ভেতরে রিকোয়েস্ট পাথ পরিবর্তন করে।' },
+      { label: 'Rewrite', detail: 'ব্রাউজারের URL না বদলে প্রক্সির ভেতরে রিকোয়েস্ট পাথ পরিবর্তন করে।' },
       { label: 'Redirect', detail: 'ব্রাউজারকে নতুন ঠিকানায় পাঠায় (301 স্থায়ী, 302 অস্থায়ী, 307/308)।' },
       { label: 'Block', detail: 'HTTP 403, 404 বা 410 দিয়ে ডট-ফোল্ডার বা সংবেদনশীল পাথের অ্যাক্সেস বন্ধ করে।' },
     ],

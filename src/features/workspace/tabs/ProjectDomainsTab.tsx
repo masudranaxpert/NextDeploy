@@ -485,7 +485,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
 
   const handleInspectLabels = async (d: DomainRoute) => {
     const fallbackYaml = [
-      `# Caddy Docker proxy labels for ${d.domain}`,
+      `# Reverse proxy labels for ${d.domain}`,
       `services:`,
       `  ${d.targetService}:`,
       `    labels:`,
@@ -912,7 +912,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                         className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-zinc-900 px-2.5 py-1.5 h-8 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-800 cursor-pointer"
                       >
                         <Code2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                        Caddy
+                        Labels
                       </button>
 
                       <button
@@ -1154,7 +1154,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
                   />
                   <div>
                     <div className="text-xs font-medium text-zinc-200">Automatic HTTPS</div>
-                    <div className="text-[11px] text-zinc-500">Provision TLS via Caddy</div>
+                    <div className="text-[11px] text-zinc-500">Issue and renew a free TLS certificate</div>
                   </div>
                 </label>
 
@@ -1351,7 +1351,7 @@ export const ProjectDomainsTab: React.FC<ProjectDomainsTabProps> = ({
             <div className="flex items-center justify-between border-b border-white/[0.07] pb-3">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-100">
-                  Generated Caddy Labels —{' '}
+                  Generated Proxy Labels —{' '}
                   <span className="font-mono text-orange-400">{caddyModal.domain}</span>
                 </h3>
                 <p className="text-[11px] text-zinc-400 mt-0.5">
