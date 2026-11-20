@@ -41,6 +41,20 @@ const ContainersViewComponent: React.FC<ContainersViewProps> = ({
     (ContainerService & { appId: string; appName: string; owner: string; ownerId?: number; ownerRole?: string }) | null
   >(null);
 
+  // Out-of-memory kills reported by Docker since the panel started, by short id and name.
+  const oomByKey = React.useMemo(() => {
+    const m = new Map<string, { count: number; last: string }>();
+    for (const lc of liveContainers || []) {
+      const count = Number(lc?.oom_count) || 0;
+      if (count <= 0) continue;
+      const info = { count, last: String(lc.last_oom || '') };
+      m.set(String(lc.ID || '').slice(0, 12), info);
+      m.set(String(lc.Name || '').replace(/^\//, ''), info);
+    }
+    return m;
+  }, [liveContainers]);
+  const oomOf = (c: { id: string; name: string }) => oomByKey.get(c.id) || oomByKey.get(c.name.replace(/^\//, ''));
+
   // 1. Containers mapped to projects/compose services
   const appContainers = apps.flatMap((app) =>
     app.services.map((svc) => ({
@@ -276,6 +290,19 @@ const ContainersViewComponent: React.FC<ContainersViewProps> = ({
                     <td className="px-4 py-3">
                       <div className="flex flex-col items-start gap-0.5 min-w-0">
                         <StatusBadge status={c.state} />
+                        {(() => {
+                          const oom = oomOf(c);
+                          if (!oom) return null;
+                          const when = oom.last ? new Date(oom.last).toLocaleString() : '';
+                          return (
+                            <span
+                              title={`The kernel killed a process in this container for exceeding its memory limit${when ? ` (last: ${when})` : ''}. Raise the memory limit or lower its usage.`}
+                              className="rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-px text-[10px] font-medium text-rose-300"
+                            >
+                              Out of memory{oom.count > 1 ? ` ×${oom.count}` : ''}
+                            </span>
+                          );
+                        })()}
                         {c.uptime && (
                           <span
                             className="font-mono text-[10px] text-zinc-400 truncate max-w-full"

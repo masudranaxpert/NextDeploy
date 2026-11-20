@@ -52,6 +52,7 @@ func printBackupHelp() {
 }
 
 func runBackupList(cl *client.Client, args []string) error {
+	jsonOut, args := extractJSONFlag(args)
 	urlPath := "/api/v1/backups/history"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		appID, _, _ := resolveAppID(args)
@@ -70,31 +71,81 @@ func runBackupList(cl *client.Client, args []string) error {
 		return fmt.Errorf("error: %s", client.JSONError(data))
 	}
 
-	var history []struct {
-		ID        int64  `json:"id"`
-		AppID     string `json:"app_id"`
-		DestID    int64  `json:"destination_id"`
-		Status    string `json:"status"`
-		Size      int64  `json:"size_bytes"`
-		CreatedAt string `json:"created_at"`
+	if jsonOut {
+		fmt.Println(strings.TrimSpace(string(data)))
+		return nil
 	}
-	_ = json.Unmarshal(data, &history)
+	history := decodeBackupHistory(data)
 	if len(history) == 0 {
 		fmt.Println("No backup history found.")
 		return nil
 	}
 
-	fmt.Printf("%-6s %-16s %-8s %-10s %-12s %-20s\n", "ID", "APP ID", "DEST ID", "STATUS", "SIZE", "DATE")
-	fmt.Println(strings.Repeat("─", 80))
+	fmt.Printf("%-6s %-26s %-8s %-10s %-12s %-20s\n", "ID", "APP ID", "DEST ID", "STATUS", "SIZE", "DATE")
+	fmt.Println(strings.Repeat("─", 88))
 	for _, h := range history {
 		sizeStr := formatFileSize(h.Size)
 		dateStr := h.CreatedAt
 		if len(dateStr) > 19 {
 			dateStr = dateStr[:19]
 		}
-		fmt.Printf("%-6d %-16s %-8d %-10s %-12s %-20s\n", h.ID, h.AppID, h.DestID, h.Status, sizeStr, dateStr)
+		fmt.Printf("%-6d %-26s %-8d %-10s %-12s %-20s\n", h.ID, h.AppID, h.DestID, h.Status, sizeStr, dateStr)
+		if h.Status == "failed" && h.Error != "" {
+			fmt.Printf("       ↳ %s\n", truncateRunes(h.Error, 160))
+		}
 	}
 	return nil
+}
+
+type backupHistoryRow struct {
+	ID        int64
+	AppID     string
+	DestID    int64
+	Status    string
+	Size      int64
+	CreatedAt string
+	Error     string
+}
+
+// decodeBackupHistory reads the backup history list. Older panels sent the raw database rows
+// (AppID, SizeBytes, ...), newer ones snake_case keys; both are accepted.
+func decodeBackupHistory(data []byte) []backupHistoryRow {
+	var raw []map[string]any
+	if json.Unmarshal(data, &raw) != nil {
+		return nil
+	}
+	pick := func(m map[string]any, keys ...string) any {
+		for _, k := range keys {
+			if v, ok := m[k]; ok && v != nil {
+				return v
+			}
+		}
+		return nil
+	}
+	str := func(v any) string { s, _ := v.(string); return s }
+	num := func(v any) int64 { f, _ := v.(float64); return int64(f) }
+	out := make([]backupHistoryRow, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, backupHistoryRow{
+			ID:        num(pick(m, "id", "ID")),
+			AppID:     str(pick(m, "app_id", "AppID")),
+			DestID:    num(pick(m, "destination_id", "DestinationID")),
+			Status:    str(pick(m, "status", "Status")),
+			Size:      num(pick(m, "size_bytes", "SizeBytes")),
+			CreatedAt: str(pick(m, "created_at", "CreatedAt")),
+			Error:     str(pick(m, "error_message", "ErrorMessage")),
+		})
+	}
+	return out
+}
+
+func truncateRunes(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func runBackupCreate(cl *client.Client, args []string) error {
@@ -385,12 +436,26 @@ func runBackupDestList(cl *client.Client, args []string) error {
 		return fmt.Errorf("error: %s", client.JSONError(data))
 	}
 
-	var dests []struct {
+	jsonOut, _ := extractJSONFlag(args)
+	if jsonOut {
+		fmt.Println(strings.TrimSpace(string(data)))
+		return nil
+	}
+	type destRow struct {
 		ID       int64  `json:"id"`
 		Name     string `json:"name"`
 		Provider string `json:"provider"`
 	}
-	_ = json.Unmarshal(data, &dests)
+	// The panel answers {"destinations": [...]}; a bare list is accepted too.
+	var dests []destRow
+	var wrapped struct {
+		Destinations []destRow `json:"destinations"`
+	}
+	if json.Unmarshal(data, &wrapped) == nil && wrapped.Destinations != nil {
+		dests = wrapped.Destinations
+	} else {
+		_ = json.Unmarshal(data, &dests)
+	}
 	if len(dests) == 0 {
 		fmt.Println("No backup destinations configured. Configure Google Drive or S3/R2 in NextDeploy Panel (/backup).")
 		return nil

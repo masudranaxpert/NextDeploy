@@ -513,6 +513,7 @@ func runProxyStatus(cl *client.Client, args []string) error {
 		PanelEnableHTTPS bool   `json:"panel_enable_https"`
 		PanelEnableWWW   bool   `json:"panel_enable_www"`
 		LiveConfig       string `json:"live_config"`
+		Engine           string `json:"engine"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return fmt.Errorf("parse error: %w", err)
@@ -523,7 +524,11 @@ func runProxyStatus(cl *client.Client, args []string) error {
 	}
 	fmt.Printf("Panel Domain: %s  (HTTPS: %v, WWW: %v)\n", ui.Bold(domain), resp.PanelEnableHTTPS, resp.PanelEnableWWW)
 	if strings.TrimSpace(resp.LiveConfig) != "" {
-		fmt.Println("\nLive Caddy Config:")
+		engine := strings.TrimSpace(resp.Engine)
+		if engine == "" {
+			engine = "caddy"
+		}
+		fmt.Printf("\nLive %s config:\n", strings.ToUpper(engine[:1])+engine[1:])
 		fmt.Println(strings.TrimSpace(resp.LiveConfig))
 	}
 	return nil

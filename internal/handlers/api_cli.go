@@ -210,8 +210,20 @@ func (p *Panel) APICliWhoami(c *fiber.Ctx) error {
 		}
 	}
 
+	// The address apps are reached on: behind Cloudflare a DNS lookup of the panel domain
+	// only gives Cloudflare's IP. Users routed through a Shield get the Shield's IP.
+	serverIP := ""
+	if u.Role != db.RoleAdmin {
+		if node := p.ResolveUserShield(ctx, &u); node != nil && node.IP != "" {
+			serverIP = node.IP
+		}
+	}
+	if serverIP == "" {
+		serverIP = p.originPublicIP(ctx)
+	}
 	res := fiber.Map{
 		"ok":       true,
+		"server_ip": serverIP,
 		"user_id":  u.ID,
 		"username": u.Username,
 		"role":     u.Role,

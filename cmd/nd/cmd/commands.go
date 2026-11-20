@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.9.9"
+var Version = "2.9.10"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -772,7 +772,11 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 			out["status"] = "error"
 			out["error"] = client.JSONError(wBody)
 		}
-		if vpsIP := resolveHostIP(cfg.ServerURL); vpsIP != "" {
+		vpsIP := whoamiData.ServerIP
+		if vpsIP == "" {
+			vpsIP = resolveHostIP(cfg.ServerURL)
+		}
+		if vpsIP != "" {
 			out["vps_ip"] = vpsIP
 		}
 		if cfg.CurrentAccount != "" {
@@ -810,7 +814,11 @@ func RunWhoami(cl *client.Client, cfg config.Config, args []string) error {
 		ui.KeyValue("Account", fmt.Sprintf("%s %s", ui.Bold(cfg.CurrentAccount), ui.Green("(active)")))
 	}
 	ui.KeyValue("Server URL", ui.Cyan(cfg.ServerURL))
-	if vpsIP := resolveHostIP(cfg.ServerURL); vpsIP != "" {
+	vpsIP := whoamiData.ServerIP // what the panel reports (DNS may only give a CDN address)
+	if vpsIP == "" {
+		vpsIP = resolveHostIP(cfg.ServerURL)
+	}
+	if vpsIP != "" {
 		ui.KeyValue("VPS IP", ui.Bold(vpsIP))
 	}
 	if whoamiData.Username != "" {
@@ -1046,6 +1054,13 @@ func RunPS(cl *client.Client, args []string) error {
 		Health struct {
 			Healthy bool `json:"healthy"`
 		} `json:"health"`
+		OOMKilled []string `json:"oom_killed"`
+		PHP       *struct {
+			SiteType   string `json:"site_type"`
+			PHPVersion string `json:"php_version"`
+			Runtime    string `json:"runtime"`
+			Running    bool   `json:"running"`
+		} `json:"php"`
 	}
 	if err := json.Unmarshal(body, &data); err != nil {
 		fmt.Println(string(body))
@@ -1068,6 +1083,22 @@ func RunPS(cl *client.Client, args []string) error {
 		return nil
 	}
 
+	// PHP and static sites are served by the owner's shared PHP runtime, not their own containers.
+	if data.PHP != nil && len(data.PS) == 0 {
+		kind := data.PHP.SiteType
+		if kind == "" {
+			kind = "php"
+		}
+		fmt.Printf("\n=== %s (%s) — %s (%s site, PHP %s)\n",
+			ui.HiCyan(data.App.Name), ui.Dim(data.App.ID), ui.HealthBadge(data.PHP.Running), kind, data.PHP.PHPVersion)
+		if data.PHP.Running {
+			fmt.Printf("  Served by the shared PHP runtime %s\n", data.PHP.Runtime)
+		} else {
+			fmt.Printf("  The PHP runtime %s is not running; restart it with: nd php restart %s\n", data.PHP.Runtime, data.App.ID)
+		}
+		return nil
+	}
+
 	healthStr := ui.HealthBadge(data.Health.Healthy)
 	if len(data.PS) == 0 {
 		healthStr = ui.Dim("idle")
@@ -1077,6 +1108,9 @@ func RunPS(cl *client.Client, args []string) error {
 	if len(data.PS) == 0 {
 		fmt.Println("  No containers running. Deploy with: nd push or nd deploy")
 		return nil
+	}
+	if len(data.OOMKilled) > 0 {
+		ui.Warn("Out of memory: processes in %s were killed for exceeding the memory limit. Raise the app's memory limit or lower its usage.", strings.Join(data.OOMKilled, ", "))
 	}
 
 	headers := []string{"Service", "Container", "Image", "Ports", "State", "Status"}

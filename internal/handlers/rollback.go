@@ -139,8 +139,10 @@ func (p *Panel) PromoteSlot(c *fiber.Ctx) error {
 	dir := p.AppSourcePath(ctx, appID)
 	envFiles := p.ComposeEnvFiles(ctx, appID)
 
+	restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles)
 	upRes := dockerx.ComposeUpNoBuild(ctx, dir, slotPaths, slotProject, nil, envFiles)
 	if !upRes.OK {
+		restorePrev()
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"ok":    false,
 			"error": fmt.Sprintf("failed to promote slot %s: %s", targetSlot, upRes.Output),
@@ -235,8 +237,10 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		envFiles := p.ComposeEnvFiles(ctx, appID)
 
 		// Apply compose up without re-building so existing slot image is preserved
+		restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles)
 		upRes := dockerx.ComposeUpNoBuild(ctx, dir, slotPaths, slotProject, nil, envFiles)
 		if !upRes.OK {
+			restorePrev()
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"ok":    false,
 				"error": fmt.Sprintf("failed to activate standby slot %s: %s", targetSlot, upRes.Output),

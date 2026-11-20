@@ -52,7 +52,8 @@ func parseUserConfigHostsText(content, engineName string) []string {
 func normalizeUserConfigHostToken(raw string) string {
 	h := strings.ToLower(strings.TrimSpace(raw))
 	h = strings.Trim(h, `"'`)
-	if h == "" || h == "_" || h == "*" || strings.HasPrefix(h, "*:") || strings.HasPrefix(h, ":") {
+	if h == "" || h == "_" || h == "*" || strings.HasPrefix(h, "*:") || strings.HasPrefix(h, ":") ||
+		strings.ContainsAny(h, "$|{}") {
 		return ""
 	}
 	h = strings.TrimPrefix(h, "http://")

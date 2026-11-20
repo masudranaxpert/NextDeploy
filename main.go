@@ -14,6 +14,7 @@ import (
 
 	"panel/internal/agent"
 	"panel/internal/db"
+	"panel/internal/dockerapi"
 	"panel/internal/handlers"
 	"panel/internal/perflog"
 	"panel/internal/phphosting"
@@ -85,6 +86,7 @@ func main() {
 	// Site Traffic on the dashboard: Angie and Ferron report their request counters through their driver.
 	sysinfo.SetProxyRequestsTotalFunc(p.ProxyRequestsTotal)
 	p.StartTrafficCollector()
+	dockerapi.StartOOMWatcher()
 	// Initialize deployRuns map to prevent race condition
 	p.InitDeployRuns()
 	go p.InitBandwidthQoS()

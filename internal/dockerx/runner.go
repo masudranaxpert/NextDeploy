@@ -126,6 +126,12 @@ func ComposeUp(ctx context.Context, projectDir string, composeFiles []string, pr
 	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "up", "-d", "--build")
 }
 
+// ComposeBuild builds the images of a compose project without starting anything.
+func ComposeBuild(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
+	fixLineEndings(projectDir)
+	return runCompose(ctx, projectDir, composeFiles, project, logW, envFiles, "build")
+}
+
 // ComposeUpNoBuild starts existing containers/images without re-building from workspace source files.
 func ComposeUpNoBuild(ctx context.Context, projectDir string, composeFiles []string, project string, logW io.Writer, envFiles []string) Result {
 	fixLineEndings(projectDir)

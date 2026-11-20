@@ -389,10 +389,18 @@ func (p *Panel) SPABootstrap(c *fiber.Ctx) error {
 		dockerapi.ContainerRow
 		CPUPercent float64 `json:"cpu_percent"`
 		MemoryMB   int64   `json:"memory_mb"`
+		// Out-of-memory kills since the panel started (often a child process; the container
+		// itself may still be running).
+		OOMCount int    `json:"oom_count,omitempty"`
+		LastOOM  string `json:"last_oom,omitempty"`
 	}
 	containerList := make([]containerWithUsage, len(containers))
 	for i, c := range containers {
 		containerList[i] = containerWithUsage{ContainerRow: c, CPUPercent: liveByID[c.ID].CPUPercent, MemoryMB: liveByID[c.ID].MemoryMB}
+		if o := dockerapi.ContainerOOM(c.ID); o.Count > 0 {
+			containerList[i].OOMCount = o.Count
+			containerList[i].LastOOM = o.Last.UTC().Format(time.RFC3339)
+		}
 	}
 	images := p.visibleImages(ctx, u, allImages, allContainers)
 	var ownerPtr *int64

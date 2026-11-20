@@ -281,7 +281,7 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 			msg := fmt.Sprintf("backup crashed: %v", r)
 			log.Printf("[backup] %s (id=%d app=%s type=%s)", msg, historyID, appID, backupType)
 			logMu.WriteString("\n" + msg + "\n")
-			_ = p.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed", msg, logMu.String())
+			_ = p.DB.UpdateBackupHistoryStatusWithLog(context.Background(), historyID, "failed", friendlyBackupError(msg), logMu.String())
 		}
 	}()
 	appendLog := func(s string) {
@@ -294,7 +294,7 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 	app, err := p.DB.GetApp(ctx, appID)
 	if err != nil {
 		appendLog(fmt.Sprintf("Error: Failed to get app: %v", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", friendlyBackupError(err.Error()), logMu.String())
 		return
 	}
 
@@ -306,7 +306,7 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 	}
 	if err := validateBackupDestinationConfig(dest.Provider, configMap); err != nil {
 		appendLog(fmt.Sprintf("Error: %v", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", friendlyBackupError(err.Error()), logMu.String())
 		return
 	}
 
@@ -335,7 +335,7 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 
 	fail := func(e error) {
 		appendLog("error: " + e.Error())
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", e.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", friendlyBackupError(e.Error()), logMu.String())
 	}
 
 	uploadProg := func(snap string) {
@@ -438,7 +438,7 @@ func (p *Panel) runBackupJob(_ context.Context, historyID int64, appID string, d
 
 	if err != nil {
 		appendLog(fmt.Sprintf("Error: Upload failed: %v", err))
-		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", err.Error(), logMu.String())
+		_ = p.DB.UpdateBackupHistoryStatusWithLog(ctx, historyID, "failed", friendlyBackupError(err.Error()), logMu.String())
 		return
 	}
 	if st, statErr := os.Stat(tarPath); statErr == nil {

@@ -11,6 +11,7 @@ import (
 	"panel/internal/db"
 	"panel/internal/dockerapi"
 	"panel/internal/phphosting"
+	"panel/internal/proxy"
 	"panel/internal/runutil"
 	"panel/internal/sysinfo"
 	"panel/internal/volumex"
@@ -314,7 +315,7 @@ func (p *Panel) APIBackupHistory(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(rows)
+		return c.JSON(backupHistoryJSON(rows))
 	}
 
 	var apps []db.App
@@ -333,10 +334,44 @@ func (p *Panel) APIBackupHistory(c *fiber.Ctx) error {
 		rows, _ := p.DB.ListBackupHistory(ctx, a.ID, 10)
 		allRows = append(allRows, rows...)
 	}
-	if allRows == nil {
-		allRows = []db.BackupHistory{}
+	return c.JSON(backupHistoryJSON(allRows))
+}
+
+// backupHistoryItem is the API shape of one backup run (db.BackupHistory has no JSON tags).
+type backupHistoryItem struct {
+	ID            int64  `json:"id"`
+	AppID         string `json:"app_id"`
+	DestinationID int64  `json:"destination_id"`
+	BackupType    string `json:"backup_type"`
+	VolumeName    string `json:"volume_name,omitempty"`
+	RemotePath    string `json:"remote_path,omitempty"`
+	Status        string `json:"status"`
+	ErrorMessage  string `json:"error_message,omitempty"`
+	SizeBytes     int64  `json:"size_bytes"`
+	CreatedAt     string `json:"created_at"`
+}
+
+func backupHistoryJSON(rows []db.BackupHistory) []backupHistoryItem {
+	out := make([]backupHistoryItem, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, backupHistoryItem{
+			ID: r.ID, AppID: r.AppID, DestinationID: r.DestinationID, BackupType: r.BackupType,
+			VolumeName: r.VolumeName, RemotePath: r.RemotePath, Status: r.Status,
+			ErrorMessage: friendlyBackupError(r.ErrorMessage), SizeBytes: r.SizeBytes, CreatedAt: r.CreatedAt,
+		})
 	}
-	return c.JSON(allRows)
+	return out
+}
+
+// friendlyBackupError turns well-known cloud errors into the action that fixes them.
+func friendlyBackupError(msg string) string {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "insufficient authentication scopes"), strings.Contains(low, "invalid_grant"),
+		strings.Contains(low, "token has been expired or revoked"):
+		return "Google Drive access expired or lacks Drive permission. Reconnect Google Drive on the Backup page. (" + strings.TrimSpace(msg) + ")"
+	}
+	return msg
 }
 
 // APIBackupManual triggers a manual backup for an application.
@@ -543,7 +578,9 @@ func (p *Panel) APIBackupScheduleDelete(c *fiber.Ctx) error {
 
 // ─── Proxy Reload & System (/api/v1/proxy/..., /api/v1/system/...) ───────────
 
-// APIProxyReload reconciles and reloads Caddy proxy routes.
+// APIProxyReload rebuilds and reloads the active proxy: personal proxy routes, then (Angie,
+// Ferron) the full config is re-rendered, validated and applied with a forced reload, which
+// also re-attaches every running app container to its upstream.
 // POST /api/v1/proxy/reload
 func (p *Panel) APIProxyReload(c *fiber.Ctx) error {
 	u, ok := currentUser(c)
@@ -551,9 +588,22 @@ func (p *Panel) APIProxyReload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "admin privileges required"})
 	}
 	ctx := c.UserContext()
+	engine := p.ProxyEngine()
 	p.ReconcileProxyRoutes(ctx)
-	p.RecordAuditLog(c, "proxy_reload", "proxy", "caddy", "Reloaded Caddy proxy routes via CLI")
-	return c.JSON(fiber.Map{"ok": true, "message": "Proxy routes reloaded successfully"})
+	msg := "Proxy routes reloaded"
+	if !p.isCaddyEngine() {
+		res, err := p.ProxySyncNow(ctx, proxy.Reason{Kind: "cli_reload", Detail: "nd proxy reload"}, true)
+		if err != nil {
+			p.RecordAuditLog(c, "proxy_reload", "proxy", engine, "Proxy reload failed: "+err.Error())
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		msg = fmt.Sprintf("%s config applied and reloaded", engine)
+		if res.Generation != "" {
+			msg += " (generation " + res.Generation + ")"
+		}
+	}
+	p.RecordAuditLog(c, "proxy_reload", "proxy", engine, "Reloaded "+engine+" proxy via CLI")
+	return c.JSON(fiber.Map{"ok": true, "engine": engine, "message": msg})
 }
 
 // APISystemTop returns current host telemetry (CPU, RAM, Disk, Containers).

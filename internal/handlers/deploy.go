@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"panel/internal/caddy"
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/proxy"
@@ -284,12 +285,50 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 				p.StopOtherComposeStacks(runCtx, app, id, slotProject)
 			}
 
-			if isPinnedMode {
+			// Databases and other servers that own a named volume must never run in two slots at
+			// once: both copies would write the same data files and corrupt them. Build the new
+			// images while the old slot still serves, then stop the old slot, then start the new one.
+			var stateful []string
+			if base, _, ok := p.EffectiveBaseCompose(runCtx, app, id); ok {
+				stateful = caddy.StatefulServices(base)
+			}
+			blocked := false
+			stoppedPrevious := false
+			if len(stateful) > 0 && isPinnedMode {
+				blocked = true
+				r.writeTimestampedLineLocked(fmt.Sprintf("[stateful] ✖ Preview slot not started: %s keep(s) data in a shared volume, and a preview would run a second copy on the same data. Unpin the app to deploy.", strings.Join(stateful, ", ")))
+				res = dockerx.Result{OK: false, Output: "preview slot refused: stateful services " + strings.Join(stateful, ", ")}
+			} else if len(stateful) > 0 && !hasDirectPort {
+				r.writeTimestampedLineLocked(fmt.Sprintf("[stateful] %s keep(s) data in a shared volume and must run once. Building first; the previous slot stops right before the new one starts.", strings.Join(stateful, ", ")))
+				if bres := dockerx.ComposeBuild(runCtx, dir, slotPaths, slotProject, stream, envFiles); !bres.OK {
+					blocked = true
+					res = bres
+					r.writeTimestampedLineLocked("[stateful] ✖ Build failed. The running slot was not touched.")
+				} else {
+					for _, otherSlot := range []string{"blue", "green"} {
+						if otherSlot == targetSlot {
+							continue
+						}
+						prevProj := p.SlotProjectName(app, id, otherSlot)
+						prevPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, otherSlot)
+						_ = dockerx.ComposeDown(runCtx, dir, prevPaths, prevProj, nil, envFiles)
+						_ = dockerapi.RemoveContainersByComposeProject(runCtx, prevProj)
+					}
+					p.StopOtherComposeStacks(runCtx, app, id, slotProject)
+					stoppedPrevious = currentSlot != ""
+				}
+			}
+
+			if blocked {
+				// nothing started; the active slot keeps serving
+			} else if isPinnedMode {
 				r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] Production is pinned on Slot %s. Deploying preview release to Slot %s...", pinnedSlot, targetSlot))
 			} else {
 				r.writeTimestampedLineLocked(fmt.Sprintf("[zero-downtime] Deploying Slot %s (active production: %s)...", targetSlot, currentSlot))
 			}
-			res = fn(runCtx, dir, slotPaths, slotProject, stream, envFiles)
+			if !blocked {
+				res = fn(runCtx, dir, slotPaths, slotProject, stream, envFiles)
+			}
 
 			if res.OK {
 				r.writeTimestampedLineLocked("[readiness] Verifying health and socket readiness...")
@@ -364,7 +403,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						}()
 					}
 				}
-			} else {
+			} else if !blocked {
 				r.writeTimestampedLineLocked("[zero-downtime] Compose build/up failed on target slot. Keeping active slot running.")
 				_ = dockerx.ComposeDown(runCtx, dir, slotPaths, slotProject, nil, envFiles)
 			}
@@ -375,6 +414,17 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 					_, _ = p.SyncAppSlotComposeCtx(runCtx, id, currentSlot, false)
 				} else {
 					_ = p.DB.ReleaseAppPorts(runCtx, id)
+				}
+				// The previous slot was stopped for its database; bring it back.
+				if stoppedPrevious {
+					r.writeTimestampedLineLocked(fmt.Sprintf("[stateful] Restarting the previous slot %s...", currentSlot))
+					prevProj := p.SlotProjectName(app, id, currentSlot)
+					prevPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, currentSlot)
+					if up := dockerx.ComposeUpNoBuild(runCtx, dir, prevPaths, prevProj, stream, envFiles); up.OK {
+						r.writeTimestampedLineLocked(fmt.Sprintf("[stateful] ✓ Slot %s is running again.", currentSlot))
+					} else {
+						r.writeTimestampedLineLocked(fmt.Sprintf("[stateful] ✖ Could not restart slot %s; start the app again from the panel.", currentSlot))
+					}
 				}
 				p.syncProxyCutoverForDeploy(runCtx, id, currentSlot, "app_rollback_ports", r)
 				p.triggerRootCaddySync()

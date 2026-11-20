@@ -280,6 +280,28 @@ func addDockerUpstream(dst map[string]proxy.UpstreamRef, up *proxy.UpstreamRef) 
 		cp.Name = name
 		dst[name] = cp
 	}
+	// Blue/green: the standby slot's containers start (and register through their Docker
+	// labels) before the cutover re-renders the config. Declare the other slot's upstream too,
+	// so Angie can attach them right away instead of logging "cannot find http upstream" and
+	// leaving the new slot's upstream empty ("no live upstreams", 503) until the next reload.
+	if sib := siblingSlotUpstream(name); sib != "" {
+		if _, exists := dst[sib]; !exists {
+			cp := *up
+			cp.Name = sib
+			dst[sib] = cp
+		}
+	}
+}
+
+// siblingSlotUpstream returns the other blue/green slot's name of a slot upstream, or "".
+func siblingSlotUpstream(name string) string {
+	switch {
+	case strings.HasSuffix(name, "_blue"):
+		return strings.TrimSuffix(name, "_blue") + "_green"
+	case strings.HasSuffix(name, "_green"):
+		return strings.TrimSuffix(name, "_green") + "_blue"
+	}
+	return ""
 }
 
 func cleanHosts(hosts []string) []string {

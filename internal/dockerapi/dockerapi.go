@@ -1208,6 +1208,10 @@ type ContainerReadinessInfo struct {
 	Health       string
 	IPAddress    string
 	ExposedPorts []int
+	// OOMKilled is true when the kernel killed a process of the container for running out of
+	// its memory limit (the container may still be running if only a child process died).
+	OOMKilled    bool
+	RestartCount int
 }
 
 // InspectContainerReadiness retrieves live status, network address, and exposed ports for a container.
@@ -1225,8 +1229,10 @@ func InspectContainerReadiness(ctx context.Context, containerName string) (Conta
 				Running: insp.State.Running,
 				Status:  insp.State.Status,
 			}
+			info.RestartCount = insp.RestartCount
 			if insp.State != nil {
 				info.ExitCode = insp.State.ExitCode
+				info.OOMKilled = insp.State.OOMKilled
 				if insp.State.Health != nil {
 					info.Health = insp.State.Health.Status
 				}

@@ -533,7 +533,7 @@ func parseUserConfigSites(content, filePath, engineName string) []UserConfigSite
 					hostSeen:    make(map[string]struct{}),
 					upSeen:      make(map[string]struct{}),
 				}
-			} else {
+			} else if engineName != EngineAngie {
 				isNonHostBlock := header == "" ||
 					strings.HasPrefix(header, "(") ||
 					strings.HasPrefix(low, "snippet ") ||
@@ -667,7 +667,72 @@ func parseUserConfigSites(content, filePath, engineName string) []UserConfigSite
 		}
 	}
 
+	if engineName == EngineAngie || engineName == "" {
+		if ups := parseAngieUpstreamBlocks(lines); len(ups) > 0 {
+			for i := range sites {
+				if sites[i].Engine == EngineAngie {
+					sites[i].Upstreams = resolveAngieUpstreamNames(sites[i].Upstreams, ups)
+				}
+			}
+		}
+	}
 	return sites
+}
+
+// parseAngieUpstreamBlocks reads `upstream NAME { server ADDR ...; }` blocks: proxy_pass
+// http://NAME refers to them, and a health check must try the servers, not "NAME" as a host.
+func parseAngieUpstreamBlocks(lines []string) map[string][]string {
+	out := map[string][]string{}
+	cur := ""
+	depth := 0
+	for _, raw := range lines {
+		code := strings.TrimSpace(stripConfigLineComment(raw))
+		if cur == "" && depth == 0 && strings.HasPrefix(code, "upstream ") && strings.HasSuffix(code, "{") {
+			cur = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(code, "upstream "), "{"))
+		} else if cur != "" && depth == 1 && (strings.HasPrefix(code, "server ") || strings.HasPrefix(code, "server\t")) {
+			f := strings.Fields(strings.TrimSuffix(code, ";"))
+			if len(f) >= 2 {
+				out[cur] = append(out[cur], strings.TrimSuffix(f[1], ";"))
+			}
+		}
+		depth += countBracesOutsideQuotes(code)
+		if depth <= 0 {
+			depth, cur = 0, ""
+		}
+	}
+	return out
+}
+
+// resolveAngieUpstreamNames replaces scheme://NAME[/path] targets that name an upstream block
+// with one scheme://SERVER target per server of that block.
+func resolveAngieUpstreamNames(targets []string, ups map[string][]string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(t string) {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, t := range targets {
+		scheme, rest := "", t
+		if i := strings.Index(t, "://"); i >= 0 {
+			scheme, rest = t[:i+3], t[i+3:]
+		}
+		host := rest
+		if j := strings.IndexAny(host, "/?"); j >= 0 {
+			host = host[:j]
+		}
+		servers, ok := ups[host]
+		if !ok || len(servers) == 0 {
+			add(t)
+			continue
+		}
+		for _, srv := range servers {
+			add(scheme + srv)
+		}
+	}
+	return out
 }
 
 func findInlineCommentIndex(line string) int {

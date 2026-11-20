@@ -80,6 +80,30 @@ func (p *Panel) APIAppGet(c *fiber.Ctx) error {
 	}
 	if c.QueryBool("include_health", false) {
 		out["health"] = p.collectAppHealth(ctx, app, appID)
+		// Containers whose processes were killed for exceeding the memory limit.
+		var oom []string
+		for _, row := range psRows {
+			if info, err := dockerapi.InspectContainerReadiness(ctx, row.Name); err == nil && info.OOMKilled {
+				oom = append(oom, row.Name)
+			}
+		}
+		if len(oom) > 0 {
+			out["oom_killed"] = oom
+		}
+	}
+	// PHP and static sites run in the owner's shared PHP runtime, not in their own containers.
+	if site, err := p.DB.GetPHPSite(ctx, appID); err == nil {
+		runtime := phphosting.RuntimeContainer(site.OwnerID, site.PHPVersion)
+		running := false
+		if info, err := dockerapi.InspectContainerReadiness(ctx, runtime); err == nil {
+			running = info.Running
+		}
+		out["php"] = fiber.Map{
+			"site_type":   site.SiteType,
+			"php_version": site.PHPVersion,
+			"runtime":     runtime,
+			"running":     running,
+		}
 	}
 	return c.JSON(out)
 }

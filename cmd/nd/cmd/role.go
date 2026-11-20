@@ -20,6 +20,7 @@ type whoamiPayload struct {
 	AllowServerExec    bool   `json:"allow_server_exec"`
 	AllowContainerExec bool   `json:"allow_container_exec"`
 	AllowAppDelete     bool   `json:"allow_app_delete"`
+	ServerIP           string `json:"server_ip"`
 	Quota              *struct {
 		Unlimited    bool    `json:"unlimited"`
 		MaxApps      int     `json:"max_apps"`
