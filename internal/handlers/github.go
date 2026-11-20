@@ -905,16 +905,11 @@ func (p *Panel) triggerWebhookDeploy(app db.App, appID string) {
 		if gitPreamble == "" {
 			gitPreamble = "Repository sync completed."
 		}
-		targetSlot := "blue"
-		if app.ActiveSlot == "blue" {
-			targetSlot = "green"
-		}
-		if _, err := p.SyncAppSlotComposeCtx(bg, appID, targetSlot); err != nil {
+		project, paths, err := p.ResolveComposeActionTarget(bg, app, appID, "Redeploy (pull + up)")
+		if err != nil {
 			_ = p.DB.InsertDeployLog(bg, appID, "Webhook deploy", false, err.Error())
 			return
 		}
-		project := p.SlotProjectName(app, appID, targetSlot)
-		paths := p.EffectiveComposePathsForSlot(bg, app, appID, targetSlot)
 		_, _ = p.StartComposeJob(appID, project, paths, "Webhook redeploy", dockerx.ComposePullUp, gitPreamble)
 	}()
 }

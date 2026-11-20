@@ -2679,7 +2679,7 @@ func RunStop(cl *client.Client, args []string) error {
 		payload["service"] = service
 	}
 
-	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), payload)
+	body, status, err := cl.DoWithTimeout("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), payload, 90*time.Second)
 	if err != nil {
 		return err
 	}
@@ -2703,7 +2703,7 @@ func RunDown(cl *client.Client, args []string) error {
 		return err
 	}
 
-	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), map[string]interface{}{})
+	body, status, err := cl.DoWithTimeout("POST", fmt.Sprintf("/api/v1/apps/%s/stop", url.PathEscape(appID)), map[string]interface{}{}, 90*time.Second)
 	if err != nil {
 		return err
 	}
@@ -2747,7 +2747,7 @@ func RunRestart(cl *client.Client, args []string) error {
 		payload["recreate"] = true
 	}
 
-	body, status, err := cl.Do("POST", fmt.Sprintf("/api/v1/apps/%s/restart", url.PathEscape(appID)), payload)
+	body, status, err := cl.DoWithTimeout("POST", fmt.Sprintf("/api/v1/apps/%s/restart", url.PathEscape(appID)), payload, 90*time.Second)
 	if err != nil {
 		return err
 	}

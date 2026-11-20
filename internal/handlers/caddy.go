@@ -199,6 +199,21 @@ func (p *Panel) SyncAppCaddyOverrideCtx(ctx context.Context, appID string) error
 	if err != nil {
 		return err
 	}
+	// Preserve Blue-Green slotted labels and host port partitioning whenever this app already uses
+	// a slot override file; otherwise writing an unslotted override drops Angie/Ferron slot labels.
+	activeSlot := strings.TrimSpace(app.ActiveSlot)
+	if activeSlot == "blue" || activeSlot == "green" {
+		slotOverride := p.ComposeSlotOverridePath(ctx, appID, activeSlot)
+		if st, sErr := os.Stat(slotOverride); sErr == nil && !st.IsDir() {
+			if _, err := p.SyncAppSlotComposeCtx(ctx, appID, activeSlot, false); err != nil {
+				return err
+			}
+			if strings.TrimSpace(app.PinnedSlot) != "" && strings.TrimSpace(app.StandbySlot) != "" {
+				_, _ = p.SyncAppSlotComposeCtx(ctx, appID, strings.TrimSpace(app.StandbySlot), true)
+			}
+			return nil
+		}
+	}
 	domains, err := p.DB.ListAppDomains(ctx, appID)
 	if err != nil {
 		return err

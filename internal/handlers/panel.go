@@ -478,12 +478,13 @@ func (p *Panel) legacyProjectNames(app db.App, id string) []string {
 		seen[s] = struct{}{}
 		out = append(out, s)
 	}
-	// Canonical (app-ID based, unique) first: fast path for stacks deployed after the rename.
-	add(p.composeProjectName(app, id))
-	// Slot projects for zero-downtime blue/green deployments (active slot first):
+	// Active Blue/Green slot first (when running, it must win over any legacy bare project being retired).
 	if app.ActiveSlot != "" {
 		add(p.SlotProjectName(app, id, app.ActiveSlot))
 	}
+	// Canonical (app-ID based, unique) next for legacy non-slotted stacks:
+	add(p.composeProjectName(app, id))
+	// Remaining slot candidates:
 	add(p.SlotProjectName(app, id, "blue"))
 	add(p.SlotProjectName(app, id, "green"))
 	if app.StandbySlot != "" {

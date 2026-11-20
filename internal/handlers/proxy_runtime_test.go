@@ -12,6 +12,7 @@ import (
 	"panel/internal/proxy"
 	"panel/internal/proxy/angie"
 	"panel/internal/proxy/ferron"
+	"panel/internal/workspace"
 
 	"gopkg.in/yaml.v3"
 )
@@ -326,5 +327,57 @@ func TestSyncProxyCutoverForDeployAppliesAngie(t *testing.T) {
 	}
 	if !strings.Contains(r.Output.String(), "Synced angie upstream to slot green") {
 		t.Fatalf("expected cutover log message, got:\n%s", r.Output.String())
+	}
+}
+
+func TestSyncAppCaddyOverridePreservesActiveSlotLabels(t *testing.T) {
+	store := openProxyTestStore(t)
+	ctx := context.Background()
+	_ = store.SetSetting(ctx, db.SettingProxyEngine, "angie")
+	ws := workspace.NewStore(t.TempDir())
+	adminID, err := store.CreateUser(ctx, "admin", "hash", db.RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	const appID = "shop-1234"
+	if err := store.CreateApp(ctx, appID, "shop", adminID); err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	_ = store.UpdateAppSlots(ctx, appID, "green", "blue")
+	if _, err := store.CreateAppDomain(ctx, db.AppDomain{
+		AppID:   appID,
+		Service: "app",
+		Domain:  "shop.example.com",
+		Port:    3000,
+	}); err != nil {
+		t.Fatalf("CreateAppDomain: %v", err)
+	}
+	appDir := ws.Path(appID)
+	if err := os.MkdirAll(appDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "docker-compose.yml"), []byte("services:\n  app:\n    container_name: shop-custom\n    image: nginx:alpine\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Panel{DB: store, Store: ws}
+	p.proxyRT.newDriverFn = testDriverFactory
+	p.proxyRT.buildStateFn = func(context.Context) (*proxy.State, error) { return &proxy.State{}, nil }
+
+	// Seed active green slot override, then trigger SyncAppCaddyOverrideCtx (as nd push / env / domain actions do).
+	if _, err := p.SyncAppSlotComposeCtx(ctx, appID, "green", false); err != nil {
+		t.Fatalf("SyncAppSlotComposeCtx: %v", err)
+	}
+	if err := p.SyncAppCaddyOverrideCtx(ctx, appID); err != nil {
+		t.Fatalf("SyncAppCaddyOverrideCtx: %v", err)
+	}
+
+	overrideBytes, err := os.ReadFile(p.ComposeOverridePath(ctx, appID))
+	if err != nil {
+		t.Fatalf("read generated compose: %v", err)
+	}
+	text := string(overrideBytes)
+	if !strings.Contains(text, "_green.port") || !strings.Contains(text, "shop-1234-green_shop-custom") {
+		t.Fatalf("expected SyncAppCaddyOverrideCtx to preserve green slot Angie label & container name, got:\n%s", text)
 	}
 }

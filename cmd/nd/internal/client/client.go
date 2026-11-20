@@ -85,6 +85,7 @@ func (c *Client) DoWithTimeout(method, path string, body any, timeout time.Durat
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("X-NextDeploy-Client", "cli")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

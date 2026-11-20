@@ -631,14 +631,27 @@ func (p *Panel) APIAppRestart(c *fiber.Ctx) error {
 
 	if service != "" {
 		if req.Recreate {
-			composeFiles := p.EffectiveComposePaths(ctx, app, appID)
-			envFiles := p.ComposeEnvFiles(ctx, appID)
 			project := p.ActiveComposeProjectName(ctx, app, appID)
-			dir := p.AppCheckoutPath(appID)
+			var composeFiles []string
+			switch {
+			case strings.HasSuffix(project, "-blue"):
+				_, _ = p.SyncAppSlotComposeCtx(ctx, appID, "blue", strings.TrimSpace(app.PinnedSlot) == "green")
+				composeFiles = p.EffectiveComposePathsForSlot(ctx, app, appID, "blue")
+			case strings.HasSuffix(project, "-green"):
+				_, _ = p.SyncAppSlotComposeCtx(ctx, appID, "green", strings.TrimSpace(app.PinnedSlot) == "blue")
+				composeFiles = p.EffectiveComposePathsForSlot(ctx, app, appID, "green")
+			default:
+				_ = p.SyncAppCaddyOverrideCtx(ctx, appID)
+				composeFiles = p.EffectiveComposePaths(ctx, app, appID)
+			}
+			envFiles := p.ComposeEnvFiles(ctx, appID)
+			dir := p.AppSourcePath(ctx, appID)
 			res := dockerx.ComposeRecreate(ctx, dir, composeFiles, project, nil, envFiles, service)
 			if !res.OK {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("recreate failed for service %q: %s", service, res.Output)})
 			}
+			_ = p.ProxySync(ctx, proxy.Reason{Kind: "app_recreate", ID: appID, Detail: service})
+			p.triggerRootCaddySync()
 			return c.JSON(fiber.Map{"ok": true, "app_id": appID, "service": service, "message": fmt.Sprintf("Recreated container for service %q", service)})
 		}
 		project := p.ActiveComposeProjectName(ctx, app, appID)
