@@ -297,3 +297,34 @@ func TestHostPathMismatches(t *testing.T) {
 		t.Fatalf("outside a container paths stay as-is, got %q", got)
 	}
 }
+
+func TestSyncProxyCutoverForDeployAppliesAngie(t *testing.T) {
+	store := openProxyTestStore(t)
+	ctx := context.Background()
+	_ = store.SetSetting(ctx, db.SettingProxyEngine, "angie")
+	slot := "blue"
+	fd := &fakeDriver{}
+	p := &Panel{DB: store}
+	p.proxyRT.newDriverFn = func(string) (proxy.Driver, error) { return fd, nil }
+	p.proxyRT.buildStateFn = func(context.Context) (*proxy.State, error) {
+		return &proxy.State{
+			Sites: []proxy.Site{{ID: "site-" + slot, Hosts: []string{"app.example.com"}}},
+		}, nil
+	}
+
+	r := &DeployRun{}
+	p.syncProxyCutoverForDeploy(ctx, "app-1", "blue", "app_cutover", r)
+	if fd.applies.Load() != 1 {
+		t.Fatalf("initial angie cutover apply count = %d, want 1", fd.applies.Load())
+	}
+
+	// Simulate atomic slot cutover blue -> green: ProxySyncNow must render and apply the new slot generation.
+	slot = "green"
+	p.syncProxyCutoverForDeploy(ctx, "app-1", "green", "app_cutover", r)
+	if fd.applies.Load() != 2 {
+		t.Fatalf("post-cutover angie apply count = %d, want 2", fd.applies.Load())
+	}
+	if !strings.Contains(r.Output.String(), "Synced angie upstream to slot green") {
+		t.Fatalf("expected cutover log message, got:\n%s", r.Output.String())
+	}
+}

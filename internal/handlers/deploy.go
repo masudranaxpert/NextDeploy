@@ -13,6 +13,7 @@ import (
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/proxy"
 )
 
 const (
@@ -324,6 +325,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.Mu.Lock()
 						r.writeTimestampedLineLocked(fmt.Sprintf("[pinned-mode] ✓ Preview slot %s is live and healthy! Production remains pinned on slot %s.", targetSlot, pinnedSlot))
 						r.Mu.Unlock()
+						p.syncProxyCutoverForDeploy(runCtx, id, targetSlot, "app_preview", r)
 						p.triggerRootCaddySync()
 						go func() {
 							bg, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -335,13 +337,15 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 						r.Mu.Lock()
 						r.writeTimestampedLineLocked(fmt.Sprintf("[zero-downtime] ✓ Atomic cutover completed. Active slot is now %s.", targetSlot))
 						r.Mu.Unlock()
+						// Cutover file-rendered proxies (Angie/Ferron) BEFORE stopping the previous slot so live traffic never hits a dead upstream (503).
+						p.syncProxyCutoverForDeploy(runCtx, id, targetSlot, "app_cutover", r)
 						// Tear down every other compose project candidate (blue/green/legacy) so only targetSlot runs
 						for _, otherSlot := range []string{"blue", "green"} {
 							if otherSlot == targetSlot {
 								continue
 							}
 							r.Mu.Lock()
-							r.writeTimestampedLineLocked(fmt.Sprintf("[connection-draining] Stopping inactive slot %s so Caddy only routes to %s...", otherSlot, targetSlot))
+							r.writeTimestampedLineLocked(fmt.Sprintf("[connection-draining] Stopping inactive slot %s so proxy only routes to %s...", otherSlot, targetSlot))
 							r.Mu.Unlock()
 							prevProj := p.SlotProjectName(app, id, otherSlot)
 							prevPaths := p.EffectiveComposePathsForSlot(runCtx, app, id, otherSlot)
@@ -372,6 +376,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 				} else {
 					_ = p.DB.ReleaseAppPorts(runCtx, id)
 				}
+				p.syncProxyCutoverForDeploy(runCtx, id, currentSlot, "app_rollback_ports", r)
 				p.triggerRootCaddySync()
 			}
 
@@ -390,6 +395,7 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 				}
 			}
 			if res.OK {
+				_ = p.ProxySync(runCtx, proxy.Reason{Kind: "app_lifecycle", ID: id, Detail: action})
 				p.triggerRootCaddySync()
 			}
 		}
@@ -431,4 +437,21 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 		}
 	}()
 	return jobID, nil
+}
+
+func (p *Panel) syncProxyCutoverForDeploy(ctx context.Context, appID, slot, kind string, r *DeployRun) {
+	if p.isCaddyEngine() {
+		return
+	}
+	res, err := p.ProxySyncNow(ctx, proxy.Reason{Kind: kind, ID: appID, Detail: slot}, false)
+	if r == nil {
+		return
+	}
+	r.Mu.Lock()
+	defer r.Mu.Unlock()
+	if err != nil {
+		r.writeTimestampedLineLocked(fmt.Sprintf("[proxy] WARN: %s sync failed after cutover to slot %s: %v", p.ProxyEngine(), slot, err))
+		return
+	}
+	r.writeTimestampedLineLocked(fmt.Sprintf("[proxy] ✓ Synced %s upstream to slot %s (gen %s).", p.ProxyEngine(), slot, res.Generation))
 }

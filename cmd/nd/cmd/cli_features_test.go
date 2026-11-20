@@ -538,3 +538,68 @@ func TestCLI_ProxyLogsToggleAndOptions(t *testing.T) {
 		t.Fatalf("expected real_ip=cloudflare, got %q", savedRealIP)
 	}
 }
+
+func TestCLI_PushDeployValidationAndRebuild(t *testing.T) {
+	var mode string
+	var gotRebuild bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/app-1/git":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "source_type": "workspace"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/app-1/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/apps/app-1/workspace/archive":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "files_extracted": 1})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/apps/app-1/deploy":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			gotRebuild, _ = body["rebuild"].(bool)
+			switch mode {
+			case "timeout":
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "status": "timeout", "job_id": "job-t", "message": "still running"})
+			case "html":
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = w.Write([]byte("<html>login</html>"))
+			case "failed":
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "status": "failed", "job_id": "job-f", "message": "build error"})
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "status": "success", "job_id": "job-ok"})
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	singleFile := filepath.Join(dir, "index.txt")
+	if err := os.WriteFile(singleFile, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cl := client.New(config.Config{ServerURL: ts.URL, Token: "test-token"}, "test-sess")
+
+	for _, badMode := range []string{"timeout", "html", "failed"} {
+		mode = badMode
+		if err := RunPush(cl, []string{"app-1", dir, "--deploy", "-y"}); err == nil {
+			t.Fatalf("directory push mode=%s must fail instead of returning false success", badMode)
+		}
+		if err := RunPush(cl, []string{"app-1", singleFile, "--deploy", "-y"}); err == nil {
+			t.Fatalf("single-file push mode=%s must fail instead of returning false success", badMode)
+		}
+	}
+
+	mode = "success"
+	gotRebuild = false
+	out, err := captureOutput(func() error {
+		return RunPush(cl, []string{"app-1", dir, "--rebuild", "-y"})
+	})
+	if err != nil {
+		t.Fatalf("expected --rebuild push to succeed, got: %v", err)
+	}
+	if !gotRebuild {
+		t.Fatal("expected --rebuild flag to pass rebuild=true to /deploy endpoint")
+	}
+	if !strings.Contains(out, "Push and deployment completed successfully") {
+		t.Fatalf("expected success output, got:\n%s", out)
+	}
+}

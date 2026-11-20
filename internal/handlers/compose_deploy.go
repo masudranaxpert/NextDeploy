@@ -14,6 +14,7 @@ import (
 
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
+	"panel/internal/proxy"
 	"panel/internal/volumex"
 	"panel/internal/workspace"
 
@@ -246,6 +247,7 @@ func (p *Panel) DeleteAppResources(ctx context.Context, id string) error {
 		return err
 	}
 	p.triggerRootCaddySync()
+	_ = p.ProxySync(ctx, proxy.Reason{Kind: "app_deleted", ID: id})
 	p.InvalidateAfterAppDeployChange(id)
 	_ = os.RemoveAll(dir)
 	p.CleanupWorkspaceDir(id)

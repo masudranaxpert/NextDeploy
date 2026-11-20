@@ -11,6 +11,7 @@ import (
 	"panel/internal/dockerapi"
 	"panel/internal/dockerx"
 	"panel/internal/gitx"
+	"panel/internal/proxy"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -149,6 +150,9 @@ func (p *Panel) PromoteSlot(c *fiber.Ctx) error {
 	// Update active slot in DB and clear production pin so normal zero-downtime flow resumes (or user can pin new slot)
 	_ = p.DB.UpdateAppSlots(ctx, appID, targetSlot, currentSlot)
 	_ = p.DB.UpdateAppPinnedSlot(ctx, appID, "")
+	if !p.isCaddyEngine() {
+		_, _ = p.ProxySyncNow(ctx, proxy.Reason{Kind: "app_promote", ID: appID, Detail: targetSlot}, false)
+	}
 
 	// Stop and remove the previous production slot so only the newly promoted slot serves traffic
 	for _, otherSlot := range []string{"blue", "green"} {
@@ -247,6 +251,9 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		// Atomic cutover in DB & clear any production pin
 		_ = p.DB.UpdateAppSlots(ctx, appID, targetSlot, currentSlot)
 		_ = p.DB.UpdateAppPinnedSlot(ctx, appID, "")
+		if !p.isCaddyEngine() {
+			_, _ = p.ProxySyncNow(ctx, proxy.Reason{Kind: "app_rollback", ID: appID, Detail: targetSlot}, false)
+		}
 		for _, otherSlot := range []string{"blue", "green"} {
 			if otherSlot == targetSlot {
 				continue

@@ -30,12 +30,13 @@ type PushResult struct {
 }
 
 // RunPush syncs local workspace files to the server and optionally triggers deploy.
-// Usage: nd push [app_id] [local_dir] [--deploy] [--prune] [-y] [--json]
+// Usage: nd push [app_id] [local_dir] [--deploy] [--rebuild] [--prune] [-y] [--json]
 func RunPush(cl *client.Client, rawArgs []string) error {
 	prune := false
 	autoConfirm := false
 	jsonOutput := false
 	doDeploy := false
+	rebuild := false
 	var args []string
 	var flagAppID string
 
@@ -43,16 +44,20 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		a := rawArgs[i]
 		switch {
 		case a == "-h" || a == "--help":
-			fmt.Println("Usage: nd push [app_id] [local_path] [--deploy] [--prune] [-y] [--json]")
+			fmt.Println("Usage: nd push [app_id] [local_path] [--deploy] [--rebuild] [--prune] [-y] [--json]")
 			fmt.Println("\nPush local workspace files or a single file to the server.")
 			fmt.Println("\nFlags:")
 			fmt.Println("  -a, --app <app_id>   Target application ID (optional if linked)")
 			fmt.Println("  -d, --deploy         Trigger auto-deployment after push")
+			fmt.Println("  --rebuild            Pull base images and rebuild (implies --deploy)")
 			fmt.Println("  --prune              Delete server-only files not found locally")
 			fmt.Println("  -y, --yes            Auto-confirm prune without prompt")
 			fmt.Println("  -j, --json           Output result as JSON")
 			return nil
 		case a == "--deploy" || a == "-d":
+			doDeploy = true
+		case a == "--rebuild":
+			rebuild = true
 			doDeploy = true
 		case a == "--prune":
 			prune = true
@@ -156,7 +161,7 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		_ = mw.Close()
 
 		respBody, status, err := cl.DoRaw("POST",
-			"/api/v1/apps/"+appID+"/workspace/archive",
+			"/api/v1/apps/"+url.PathEscape(appID)+"/workspace/archive",
 			mw.FormDataContentType(),
 			&buf)
 		if err != nil {
@@ -170,22 +175,26 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 			ui.Success("Successfully pushed %s to %s", relSlash, appID)
 		}
 
+		jobID := ""
 		if doDeploy {
-			if !jsonOutput {
-				fmt.Println("→ Deploying...")
-			}
-			body, status, err := cl.DoWithTimeout("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/deploy", map[string]interface{}{
-				"wait_seconds": 120,
-			}, 3*time.Minute)
+			jobID, err = triggerPushDeploy(cl, appID, rebuild, jsonOutput)
 			if err != nil {
-				return fmt.Errorf("deploy failed: %w", err)
+				return err
 			}
-			if status >= 400 {
-				return fmt.Errorf("deploy error: %s", client.JSONError(body))
+		}
+		if jsonOutput {
+			res := PushResult{
+				AppID:       appID,
+				Uploaded:    1,
+				DeployJobID: jobID,
+				Status:      "success",
 			}
-			if !jsonOutput {
-				fmt.Println("✓ Push and deployment completed successfully.")
-			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(res)
+		}
+		if doDeploy {
+			fmt.Println("✓ Push and deployment completed successfully.")
 		}
 		return nil
 	}
@@ -203,7 +212,7 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 	}
 
 	// Fetch server manifest with locks included so lockfiles are checked via hash and not needlessly re-uploaded
-	manifestBody, status, err := cl.Do("GET", "/api/v1/apps/"+appID+"/manifest?hash=true&include_locks=true", nil)
+	manifestBody, status, err := cl.Do("GET", "/api/v1/apps/"+url.PathEscape(appID)+"/manifest?hash=true&include_locks=true", nil)
 	if err != nil {
 		return fmt.Errorf("manifest fetch failed: %w (deployment aborted)", err)
 	}
@@ -283,7 +292,7 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		_ = mw.Close()
 
 		respBody, status, err := cl.DoRaw("POST",
-			"/api/v1/apps/"+appID+"/workspace/archive",
+			"/api/v1/apps/"+url.PathEscape(appID)+"/workspace/archive",
 			mw.FormDataContentType(),
 			&buf)
 		if err != nil {
@@ -355,35 +364,9 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 
 	jobID := ""
 	if doDeploy {
-		// Step 3: Trigger deploy
-		if !jsonOutput {
-			fmt.Println("→ Deploying...")
-		}
-		body, status, err := cl.DoWithTimeout("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/deploy", map[string]interface{}{
-			"wait_seconds": 120,
-		}, 3*time.Minute)
+		jobID, err = triggerPushDeploy(cl, appID, rebuild, jsonOutput)
 		if err != nil {
-			return fmt.Errorf("deploy failed: %w", err)
-		}
-		if status >= 400 {
-			return fmt.Errorf("deploy error: %s", client.JSONError(body))
-		}
-
-		var depData struct {
-			JobID  string `json:"job_id"`
-			Status string `json:"status"`
-			OK     *bool  `json:"ok"`
-			Error  string `json:"error"`
-		}
-		if err := json.Unmarshal(body, &depData); err == nil {
-			if depData.Error != "" || (depData.OK != nil && !*depData.OK && depData.Status == "failed") {
-				msg := depData.Error
-				if msg == "" {
-					msg = "deployment failed"
-				}
-				return fmt.Errorf("deploy error: %s", msg)
-			}
-			jobID = depData.JobID
+			return err
 		}
 	}
 
@@ -408,4 +391,59 @@ func RunPush(cl *client.Client, rawArgs []string) error {
 		fmt.Println("✓ Workspace synchronized successfully. (Run with --deploy to auto-deploy)")
 	}
 	return nil
+}
+
+func triggerPushDeploy(cl *client.Client, appID string, rebuild, jsonOutput bool) (string, error) {
+	if !jsonOutput {
+		if rebuild {
+			fmt.Println("→ Rebuilding & deploying...")
+		} else {
+			fmt.Println("→ Deploying...")
+		}
+	}
+	payload := map[string]interface{}{
+		"wait_seconds": 120,
+	}
+	if rebuild {
+		payload["rebuild"] = true
+	}
+	body, status, err := cl.DoWithTimeout("POST", "/api/v1/apps/"+url.PathEscape(appID)+"/deploy", payload, 3*time.Minute)
+	if err != nil {
+		return "", fmt.Errorf("deploy failed: %w", err)
+	}
+	if status >= 400 {
+		return "", fmt.Errorf("deploy error: %s", client.JSONError(body))
+	}
+
+	var depData struct {
+		JobID      string `json:"job_id"`
+		Status     string `json:"status"`
+		OK         *bool  `json:"ok"`
+		Message    string `json:"message"`
+		OutputTail string `json:"output_tail"`
+		Error      string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &depData); err != nil {
+		return "", fmt.Errorf("deploy error: unexpected response from server (%w)", err)
+	}
+	if depData.Error != "" {
+		return "", fmt.Errorf("deploy error: %s", depData.Error)
+	}
+	if depData.Status == "timeout" {
+		if !jsonOutput && depData.OutputTail != "" {
+			fmt.Println(depData.OutputTail)
+		}
+		return "", fmt.Errorf("deployment did not finish within wait window (status=timeout, job_id=%s); check progress with: nd logs --deploy -f", depData.JobID)
+	}
+	if (depData.OK != nil && !*depData.OK) || (depData.OK == nil && depData.Status != "success" && depData.Status != "started") {
+		if !jsonOutput && depData.OutputTail != "" {
+			fmt.Println(depData.OutputTail)
+		}
+		msg := depData.Message
+		if msg == "" {
+			msg = fmt.Sprintf("status=%q", depData.Status)
+		}
+		return "", fmt.Errorf("deploy failed (%s, job_id=%s)", msg, depData.JobID)
+	}
+	return depData.JobID, nil
 }
