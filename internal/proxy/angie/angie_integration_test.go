@@ -303,7 +303,15 @@ func TestIntegrationAngieLiveStatusPrometheusAndSymlinkReload(t *testing.T) {
 		}
 	}
 
-	st2, err := liveDrv.Status(t.Context())
+	// Angie applies a reload asynchronously (the master starts new workers after the signal),
+	// so the generation counter moves a moment after the reload command returns.
+	var st2 proxy.Status
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(150 * time.Millisecond) {
+		st2, err = liveDrv.Status(t.Context())
+		if err == nil && st2.Generation == "2" {
+			break
+		}
+	}
 	if err != nil || st2.Generation != "2" {
 		t.Fatalf("expected generation 2 after reload, got %+v err=%v", st2, err)
 	}
