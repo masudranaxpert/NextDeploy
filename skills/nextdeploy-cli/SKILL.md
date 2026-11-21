@@ -18,7 +18,7 @@ Read the matching reference file before running domain-specific commands:
 
 | Topic | When to Read | Reference |
 | --- | --- | --- |
-| **Apps, Git, Sync & Env** | Compose apps, `nd git`, `nd push`/`pull`/`diff`, `nd deploy`, `nd domain`, `nd env`, `nd files`, `nd exec`/`shell` | [apps-git-and-sync.md](references/apps-git-and-sync.md) |
+| **Apps, Git, Sync & Env** | Compose apps, direct TCP/UDP ports (`nextdeploy.ports.direct`), `nd git`, `nd push`/`pull`/`diff`, `nd deploy`, `nd domain`, `nd env`, `nd files`, `nd exec`/`shell` | [apps-git-and-sync.md](references/apps-git-and-sync.md) |
 | **PHP, WordPress, DB & Routing** | PHP/WordPress/static sites, `nd db` / `nd php db`, cron, `fix-perms`, `pma`, `.htaccess` -> Caddy rules, fallback modes | [php-routing-and-htaccess.md](references/php-routing-and-htaccess.md) |
 | **Proxy, Caddy & Edge Shield** | Custom `nd proxy` routes (`add`, `toggle`, `logs`, `options`), Real-IP/Cloudflare profiles, `nd shield`, Shield VPS `nd edge` | [proxy-and-edge.md](references/proxy-and-edge.md) |
 | **Volumes, Backups & Ops** | `nd volume`, `nd backup`, `nd top`, `nd clean`, `nd audit`, global flags, troubleshooting | [volumes-backups-and-ops.md](references/volumes-backups-and-ops.md) |

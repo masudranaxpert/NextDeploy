@@ -125,3 +125,98 @@ services:
 		}
 	}
 }
+
+func TestDirectPortsLabelAndRustDeskDefaults(t *testing.T) {
+	inputYAML := `
+services:
+  hbbs:
+    image: rustdesk/rustdesk-server:latest
+    ports:
+      - "21115:21115"
+      - "21116:21116"
+      - "21116:21116/udp"
+      - "21118:21118"
+  hbbr:
+    image: rustdesk/rustdesk-server:latest
+    ports:
+      - "21117:21117"
+      - "21119:21119"
+  custom_all:
+    image: mycompany/raw-tcp:1
+    labels:
+      nextdeploy.ports.direct: "true"
+    ports:
+      - "9001:9001"
+      - "9002:9002"
+  custom_mixed:
+    image: mycompany/game-with-ui:1
+    labels:
+      - "nextdeploy.ports.direct=7777,7780-7782"
+    ports:
+      - "7777:7777"
+      - "7781:7781"
+      - "8085:8080"
+  forced_http:
+    image: mycompany/http-on-3478:1
+    labels:
+      nextdeploy.ports.direct: "false"
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+`
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal([]byte(inputYAML), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	services := doc["services"].(map[string]interface{})
+	bindings, err := ExtractAndPartitionHostPorts(services, true)
+	if err != nil {
+		t.Fatalf("ExtractAndPartitionHostPorts: %v", err)
+	}
+
+	type key struct {
+		svc   string
+		port  int
+		proto string
+	}
+	got := map[key]bool{}
+	for _, b := range bindings {
+		got[key{b.Service, b.HostPort, b.Protocol}] = b.Direct
+	}
+
+	want := map[key]bool{
+		{"hbbs", 21115, "tcp"}:        true,
+		{"hbbs", 21116, "tcp"}:        true,
+		{"hbbs", 21116, "udp"}:        true,
+		{"hbbs", 21118, "tcp"}:        false, // WebSocket/HTTP web client remains proxyable
+		{"hbbr", 21117, "tcp"}:        true,
+		{"hbbr", 21119, "tcp"}:        false, // WebSocket/HTTP web client remains proxyable
+		{"custom_all", 9001, "tcp"}:   true,
+		{"custom_all", 9002, "tcp"}:   true,
+		{"custom_mixed", 7777, "tcp"}: true,
+		{"custom_mixed", 7781, "tcp"}: true,
+		{"custom_mixed", 8085, "tcp"}: false, // Admin HTTP UI stays HTTP-proxied
+		{"forced_http", 3478, "tcp"}:  false, // Explicit opt-out overrides default list
+		{"forced_http", 3478, "udp"}:  true,  // UDP always stays direct
+	}
+	for k, expected := range want {
+		actual, ok := got[k]
+		if !ok {
+			t.Fatalf("missing binding for %+v (got %+v)", k, got)
+		}
+		if actual != expected {
+			t.Fatalf("binding %+v: Direct=%v, want %v", k, actual, expected)
+		}
+	}
+
+	// Verify custom_mixed kept 7777 & 7781 in ports: and moved 8080 to expose:
+	mixed := services["custom_mixed"].(map[string]interface{})
+	keptPorts := mixed["ports"].([]interface{})
+	if len(keptPorts) != 2 {
+		t.Fatalf("expected 2 kept direct ports on custom_mixed, got %+v", keptPorts)
+	}
+	exposed := mixed["expose"].([]interface{})
+	if len(exposed) != 1 || exposed[0] != "8080" {
+		t.Fatalf("expected 8080 in expose on custom_mixed, got %+v", exposed)
+	}
+}

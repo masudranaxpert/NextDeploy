@@ -442,7 +442,7 @@ func listContainerUsageFiltered(ctx context.Context, keep func(types.Container) 
 		row.MemUsage = memUsage
 		row.MemLimit = cur.MemoryStats.Limit
 		if row.MemLimit > 0 {
-			row.MemPercent = math.Round(((float64(row.MemUsage) / float64(row.MemLimit)) * 100)*10) / 10
+			row.MemPercent = math.Round(((float64(row.MemUsage)/float64(row.MemLimit))*100)*10) / 10
 		}
 		row.MemUsageHuman = formatBytes(int64(row.MemUsage))
 		row.MemLimitHuman = formatBytes(int64(row.MemLimit))
@@ -1216,12 +1216,13 @@ func ContainerComposeLabels(ctx context.Context, containerName string) (project,
 
 // ContainerReadinessInfo returns state, health status, IP address, and exposed TCP ports for readiness probing.
 type ContainerReadinessInfo struct {
-	Running      bool
-	Status       string
-	ExitCode     int
-	Health       string
-	IPAddress    string
-	ExposedPorts []int
+	Running        bool
+	Status         string
+	ExitCode       int
+	Health         string
+	IPAddress      string
+	OnPanelNetwork bool
+	ExposedPorts   []int
 	// OOMKilled is true when the kernel killed a process of the container for running out of
 	// its memory limit (the container may still be running if only a child process died).
 	OOMKilled    bool
@@ -1277,10 +1278,26 @@ func InspectContainerReadiness(ctx context.Context, containerName string) (Conta
 				if insp.NetworkSettings.IPAddress != "" {
 					info.IPAddress = insp.NetworkSettings.IPAddress
 				}
-				for _, netw := range insp.NetworkSettings.Networks {
-					if netw != nil && netw.IPAddress != "" {
+				if netw, ok := insp.NetworkSettings.Networks["NextDeploy"]; ok && netw != nil {
+					info.OnPanelNetwork = true
+					if netw.IPAddress != "" {
 						info.IPAddress = netw.IPAddress
-						break
+					}
+				} else {
+					for name, netw := range insp.NetworkSettings.Networks {
+						if netw == nil {
+							continue
+						}
+						if strings.EqualFold(name, "NextDeploy") {
+							info.OnPanelNetwork = true
+							if netw.IPAddress != "" {
+								info.IPAddress = netw.IPAddress
+							}
+							break
+						}
+						if info.IPAddress == "" && netw.IPAddress != "" {
+							info.IPAddress = netw.IPAddress
+						}
 					}
 				}
 			}
@@ -1305,15 +1322,34 @@ func InspectContainerReadiness(ctx context.Context, containerName string) (Conta
 		return ContainerReadinessInfo{}, err
 	}
 
-	ipOut, _ := exec.CommandContext(ctx, "docker", "inspect", "--format", `{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}`, containerName).Output()
-	ipAddr := strings.TrimSpace(string(ipOut))
+	netOut, _ := exec.CommandContext(ctx, "docker", "inspect", "--format", `{{json .NetworkSettings.Networks}}`, containerName).Output()
+	var nets map[string]struct {
+		IPAddress string `json:"IPAddress"`
+	}
+	var ipAddr string
+	var onPanelNet bool
+	if json.Unmarshal(netOut, &nets) == nil {
+		for name, n := range nets {
+			if strings.EqualFold(name, "NextDeploy") {
+				onPanelNet = true
+				if n.IPAddress != "" {
+					ipAddr = n.IPAddress
+				}
+				break
+			}
+			if ipAddr == "" && n.IPAddress != "" {
+				ipAddr = n.IPAddress
+			}
+		}
+	}
 
 	return ContainerReadinessInfo{
-		Running:   state.Running,
-		Status:    state.Status,
-		ExitCode:  state.ExitCode,
-		Health:    state.Health.Status,
-		IPAddress: ipAddr,
+		Running:        state.Running,
+		Status:         state.Status,
+		ExitCode:       state.ExitCode,
+		Health:         state.Health.Status,
+		IPAddress:      ipAddr,
+		OnPanelNetwork: onPanelNet,
 	}, nil
 }
 

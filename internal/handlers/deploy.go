@@ -318,7 +318,9 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 			// once: both copies would write the same data files and corrupt them. Build the new
 			// images while the old slot still serves, then stop the old slot, then start the new one.
 			var stateful []string
+			var baseCompose []byte
 			if base, _, ok := p.EffectiveBaseCompose(runCtx, app, id); ok {
+				baseCompose = base
 				stateful = caddy.StatefulServices(base)
 			}
 			blocked := false
@@ -361,22 +363,19 @@ func (p *Panel) StartComposeJob(id, project string, composePaths []string, actio
 
 			if res.OK {
 				r.writeTimestampedLineLocked("[readiness] Verifying health and socket readiness...")
-				targetPort := 80
 				domains, _ := p.DB.ListAppDomains(runCtx, id)
-				if len(domains) > 0 && domains[0].Port > 0 {
-					targetPort = domains[0].Port
-				} else if len(bindings) > 0 && bindings[0].ContainerPort > 0 {
-					targetPort = bindings[0].ContainerPort
-				}
 
 				rows, psRes := dockerx.ComposePS(runCtx, dir, slotPaths, slotProject, envFiles)
 				if psRes.OK && len(rows) > 0 {
 					for _, row := range rows {
+						targetPorts, skipHTTP := resolveServiceReadinessTarget(row.Service, len(rows), domains, bindings, baseCompose)
 						if err := p.ProbeContainerReadiness(runCtx, ReadinessProbeOptions{
-							ContainerName: row.Name,
-							TargetPort:    targetPort,
-							Timeout:       60 * time.Second,
-							LogW:          stream,
+							ContainerName:           row.Name,
+							TargetPorts:             targetPorts,
+							SkipHTTP:                skipHTTP,
+							AllowRunningWithoutPort: true,
+							Timeout:                 60 * time.Second,
+							LogW:                    stream,
 						}); err != nil {
 							r.writeTimestampedLineLocked(fmt.Sprintf("[readiness] ✖ Probe failed for %s: %v. Aborting deployment, active slot %s untouched.", row.Name, err, currentSlot))
 							_ = dockerx.ComposeDown(runCtx, dir, slotPaths, slotProject, nil, envFiles)

@@ -99,3 +99,27 @@ nd shell [app_id] [-c container]                           # Interactive bash/sh
 nd server-exec <command...>                                # Run command on VPS host (requires allow_server_exec)
 nd server-shell                                            # Interactive root TTY on VPS host (admin)
 ```
+
+---
+
+## Direct TCP/UDP Ports (`nextdeploy.ports.direct`)
+
+By default, published Compose TCP ports are routed through the reverse proxy (Caddy/Angie/Ferron) as HTTP gateways. UDP ports, databases, and well-known non-HTTP TCP ports (including RustDesk `21115–21117`, STUN/TURN `3478`/`5349`, and Minecraft `25565`) are automatically kept directly host-bound on the container (`Direct: true`).
+
+For any other non-HTTP TCP app (or to override the default), set the `nextdeploy.ports.direct` label on the service in `docker-compose.yml` (do not use `network_mode: host`, which is blocked by compose security checks):
+
+```yaml
+# 1. All ports on this service stay direct L4 (raw TCP/UDP)
+labels:
+  nextdeploy.ports.direct: "true"
+
+# 2. Only specific ports/ranges stay direct L4; other ports (e.g. Web UI 8080) remain HTTP-proxied
+labels:
+  nextdeploy.ports.direct: "7777,7780-7782"
+
+# 3. Force direct mode off so TCP ports use the HTTP reverse proxy (UDP always remains direct)
+labels:
+  nextdeploy.ports.direct: "false"
+```
+
+Multi-service stacks are readiness-probed per service on each service's own TCP port(s), skipping HTTP probes on direct raw-TCP ports and allowing UDP-only/portless worker or isolated direct-L4 containers to settle via Docker `HEALTHCHECK` or crash-free running state.

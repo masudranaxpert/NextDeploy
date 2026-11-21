@@ -20,12 +20,30 @@ func (p *Panel) statefulServicesOf(ctx context.Context, app db.App, appID string
 	return caddy.StatefulServices(base)
 }
 
+// hasDirectHostPort reports whether any binding uses direct host-port publishing
+// (which cannot overlap between Blue and Green slots).
+func hasDirectHostPort(bindings []caddy.HostPortBinding) bool {
+	for _, b := range bindings {
+		if b.Direct {
+			return true
+		}
+	}
+	return false
+}
+
 // stopOtherSlotsForStateful stops every slot except targetSlot when the app has stateful
-// services, so switching slots (promote, rollback) never runs the database twice on the same
-// data. It returns a restore function that starts currentSlot again if the switch fails; it is a
-// no-op when nothing was stopped.
-func (p *Panel) stopOtherSlotsForStateful(ctx context.Context, app db.App, appID, targetSlot, currentSlot, dir string, envFiles []string) func() {
-	if len(p.statefulServicesOf(ctx, app, appID)) == 0 {
+// services or direct host-bound ports, so switching slots (promote, rollback) never runs
+// two copies on the same volume or collides on host ports. It returns a restore function
+// that starts currentSlot again if the switch fails; it is a no-op when nothing was stopped.
+func (p *Panel) stopOtherSlotsForStateful(ctx context.Context, app db.App, appID, targetSlot, currentSlot, dir string, envFiles []string, forceStop ...bool) func() {
+	mustStop := len(p.statefulServicesOf(ctx, app, appID)) > 0
+	for _, f := range forceStop {
+		if f {
+			mustStop = true
+			break
+		}
+	}
+	if !mustStop {
 		return func() {}
 	}
 	for _, other := range []string{"blue", "green"} {

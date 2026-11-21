@@ -17,6 +17,11 @@ type HostPortBinding struct {
 	Direct        bool
 }
 
+// DirectPortsLabel lets a Compose service opt specific ports (e.g. "21115,21116,21117" or
+// "21115-21117"), all ports ("true"/"all"), or no TCP ports ("false") into direct L4 host binding
+// instead of HTTP reverse-proxying through Caddy/Angie/Ferron.
+const DirectPortsLabel = "nextdeploy.ports.direct"
+
 var nonHTTPContainerPorts = map[int]bool{
 	21:    true, // FTP
 	22:    true, // SSH
@@ -33,7 +38,9 @@ var nonHTTPContainerPorts = map[int]bool{
 	1883:  true, // MQTT
 	3306:  true, // MySQL/MariaDB
 	3389:  true, // RDP
+	3478:  true, // STUN/TURN
 	4222:  true, // NATS
+	5349:  true, // STUN/TURN TLS
 	5432:  true, // PostgreSQL
 	5672:  true, // RabbitMQ AMQP
 	6379:  true, // Redis/Valkey
@@ -42,6 +49,10 @@ var nonHTTPContainerPorts = map[int]bool{
 	9042:  true, // Cassandra
 	9092:  true, // Kafka
 	11211: true, // Memcached
+	21115: true, // RustDesk hbbs NAT type test
+	21116: true, // RustDesk hbbs ID/heartbeat
+	21117: true, // RustDesk hbbr relay
+	25565: true, // Minecraft
 	26257: true, // CockroachDB
 	27017: true, // MongoDB
 	27018: true, // MongoDB
@@ -49,9 +60,88 @@ var nonHTTPContainerPorts = map[int]bool{
 	33060: true, // MySQL X
 }
 
+func serviceLabelValue(svc map[string]interface{}, key string) (string, bool) {
+	raw, ok := svc["labels"]
+	if !ok || raw == nil {
+		return "", false
+	}
+	switch labels := raw.(type) {
+	case map[string]interface{}:
+		if v, exists := labels[key]; exists && v != nil {
+			return strings.TrimSpace(fmt.Sprint(v)), true
+		}
+	case map[interface{}]interface{}:
+		for k, v := range labels {
+			if ks, ok := k.(string); ok && ks == key && v != nil {
+				return strings.TrimSpace(fmt.Sprint(v)), true
+			}
+		}
+	case map[string]string:
+		if v, exists := labels[key]; exists {
+			return strings.TrimSpace(v), true
+		}
+	case []interface{}:
+		for _, item := range labels {
+			s := strings.TrimSpace(fmt.Sprint(item))
+			k, v, hasEq := strings.Cut(s, "=")
+			if hasEq && strings.TrimSpace(k) == key {
+				return strings.TrimSpace(v), true
+			}
+		}
+	case []string:
+		for _, item := range labels {
+			s := strings.TrimSpace(item)
+			k, v, hasEq := strings.Cut(s, "=")
+			if hasEq && strings.TrimSpace(k) == key {
+				return strings.TrimSpace(v), true
+			}
+		}
+	}
+	return "", false
+}
+
+func directPortLabelDecision(svc map[string]interface{}, b HostPortBinding) (direct bool, matched bool) {
+	val, ok := serviceLabelValue(svc, DirectPortsLabel)
+	if !ok || val == "" {
+		return false, false
+	}
+	lower := strings.ToLower(val)
+	switch lower {
+	case "true", "1", "yes", "all", "*":
+		return true, true
+	case "false", "0", "no", "none":
+		return false, true
+	}
+	for _, tok := range strings.FieldsFunc(lower, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == ';'
+	}) {
+		tok = strings.TrimSuffix(strings.TrimSuffix(tok, "/tcp"), "/udp")
+		if startStr, endStr, isRange := strings.Cut(tok, "-"); isRange {
+			startPort, err1 := strconv.Atoi(strings.TrimSpace(startStr))
+			endPort, err2 := strconv.Atoi(strings.TrimSpace(endStr))
+			if err1 == nil && err2 == nil && startPort > 0 && endPort >= startPort {
+				if (b.ContainerPort >= startPort && b.ContainerPort <= endPort) ||
+					(b.HostPort >= startPort && b.HostPort <= endPort) {
+					return true, true
+				}
+			}
+			continue
+		}
+		if portNum, err := strconv.Atoi(tok); err == nil && portNum > 0 {
+			if b.ContainerPort == portNum || b.HostPort == portNum {
+				return true, true
+			}
+		}
+	}
+	return false, false
+}
+
 func isDirectHostPort(b HostPortBinding, svc map[string]interface{}) bool {
 	if strings.EqualFold(b.Protocol, "udp") {
 		return true
+	}
+	if direct, matched := directPortLabelDecision(svc, b); matched {
+		return direct
 	}
 	if nonHTTPContainerPorts[b.ContainerPort] {
 		return true

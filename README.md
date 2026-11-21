@@ -83,6 +83,44 @@ Benchmarks, the decision guide, switching and rollback details are in [docs/prox
 
 ---
 
+## Direct TCP/UDP Ports (Non-HTTP Apps)
+
+By default, published TCP ports in a Docker Compose app are routed through the reverse proxy (Caddy, Angie, or Ferron) as HTTP gateways. UDP ports, databases, and common non-HTTP TCP ports (such as RustDesk `21115–21117`, STUN/TURN `3478`/`5349`, and Minecraft `25565`) are kept directly host-bound on the container automatically.
+
+For any other raw TCP service (game servers, VPN/relay daemons, custom binary protocols), control direct L4 binding per service using the `nextdeploy.ports.direct` Compose label — no `network_mode: host` required:
+
+```yaml
+services:
+  # Keep ALL ports on this service directly host-bound (raw TCP/UDP)
+  raw-tcp-app:
+    image: example/raw-tcp:latest
+    labels:
+      nextdeploy.ports.direct: "true"
+    ports:
+      - "7777:7777"
+      - "7778:7778"
+
+  # Keep specific ports/ranges direct while HTTP-proxying a Web UI port (8080)
+  mixed-app:
+    image: example/game-with-ui:latest
+    labels:
+      nextdeploy.ports.direct: "7777,7780-7782"
+    ports:
+      - "7777:7777"
+      - "7781:7781"
+      - "8085:8080"
+
+  # Force direct mode OFF so TCP ports use the HTTP reverse proxy (UDP stays direct)
+  http-override:
+    image: example/http-on-3478:latest
+    labels:
+      nextdeploy.ports.direct: "false"
+    ports:
+      - "3478:3478"
+```
+
+---
+
 ## AI Assistant (optional)
 
 The panel image does not include the AI engine. Without it, NextDeploy works exactly the same, and the AI menu is hidden. Turn it on at any time:

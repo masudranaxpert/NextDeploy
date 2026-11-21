@@ -127,7 +127,8 @@ func (p *Panel) PromoteSlot(c *fiber.Ctx) error {
 	}
 
 	// Regenerate full production compose override (previewOnly = false) for targetSlot
-	if _, err := p.SyncAppSlotComposeCtx(ctx, appID, targetSlot, false); err != nil {
+	bindings, err := p.SyncAppSlotComposeCtx(ctx, appID, targetSlot, false)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"ok":    false,
 			"error": fmt.Sprintf("failed to sync production labels for slot %s: %v", targetSlot, err),
@@ -139,7 +140,7 @@ func (p *Panel) PromoteSlot(c *fiber.Ctx) error {
 	dir := p.AppSourcePath(ctx, appID)
 	envFiles := p.ComposeEnvFiles(ctx, appID)
 
-	restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles)
+	restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles, hasDirectHostPort(bindings))
 	upRes := dockerx.ComposeUpNoBuild(ctx, dir, slotPaths, slotProject, nil, envFiles)
 	if !upRes.OK {
 		restorePrev()
@@ -229,7 +230,7 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		}
 
 		// Ensure the target slot has full production labels (previewOnly = false)
-		_, _ = p.SyncAppSlotComposeCtx(ctx, appID, targetSlot, false)
+		bindings, _ := p.SyncAppSlotComposeCtx(ctx, appID, targetSlot, false)
 
 		slotProject := p.SlotProjectName(app, appID, targetSlot)
 		slotPaths := p.EffectiveComposePathsForSlot(ctx, app, appID, targetSlot)
@@ -237,7 +238,7 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		envFiles := p.ComposeEnvFiles(ctx, appID)
 
 		// Apply compose up without re-building so existing slot image is preserved
-		restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles)
+		restorePrev := p.stopOtherSlotsForStateful(ctx, app, appID, targetSlot, currentSlot, dir, envFiles, hasDirectHostPort(bindings))
 		upRes := dockerx.ComposeUpNoBuild(ctx, dir, slotPaths, slotProject, nil, envFiles)
 		if !upRes.OK {
 			restorePrev()
@@ -269,7 +270,7 @@ func (p *Panel) RollbackDeployment(c *fiber.Ctx) error {
 		}
 		p.StopOtherComposeStacks(ctx, app, appID, slotProject)
 		_ = p.syncRootStackCompose(ctx)
-	p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
+		p.applyRootStackComposeBackground(p.nextDeployComposePath(), p.proxyServiceKey())
 
 		p.RecordAuditLog(c, "rollback_deployment", "app", appID, fmt.Sprintf("Rolled back to release #%d (Slot %s)", logID, targetSlot))
 		_ = p.DB.InsertDeployLogWithSnapshot(ctx, appID, "Rollback", true,
