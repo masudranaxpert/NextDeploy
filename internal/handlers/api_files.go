@@ -371,13 +371,14 @@ func (p *Panel) APIAppFileSave(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid path: " + pathErr.Error()})
 	}
 
-	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+	if err := workspace.EnsureReadableDir(p.Store.Path(appID), filepath.Dir(full)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed creating directory: " + err.Error()})
 	}
 	if filepath.Base(cleanRel) == ".env" {
 		content = normalizeEnvContent(content)
 	}
-	if err := os.WriteFile(full, []byte(content), 0640); err != nil {
+	mode := workspace.FileModeForPath(cleanRel, []byte(content), 0)
+	if err := workspace.WriteFile(full, []byte(content), mode); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed writing file: " + err.Error()})
 	}
 

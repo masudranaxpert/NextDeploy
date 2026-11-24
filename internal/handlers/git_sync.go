@@ -14,6 +14,7 @@ import (
 
 	"panel/internal/db"
 	"panel/internal/gitx"
+	"panel/internal/workspace"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -152,7 +153,7 @@ func (p *Panel) SetGitSync(ctx context.Context, appID string, enabled, force boo
 // It never deletes anything and never overwrites a workspace file that is newer than the checkout copy.
 // The .git directory and the panel-managed root .env are skipped.
 func copyCheckoutIntoWorkspace(repoDir, wsDir string) (copied, keptNewer, unchanged int, err error) {
-	if err = os.MkdirAll(wsDir, 0o750); err != nil {
+	if err = os.MkdirAll(wsDir, workspace.WorkspaceDirMode); err != nil {
 		return
 	}
 	err = filepath.WalkDir(repoDir, func(path string, d fs.DirEntry, werr error) error {
@@ -167,7 +168,7 @@ func copyCheckoutIntoWorkspace(repoDir, wsDir string) (copied, keptNewer, unchan
 			if d.Name() == ".git" {
 				return filepath.SkipDir
 			}
-			return os.MkdirAll(filepath.Join(wsDir, rel), 0o750)
+			return workspace.EnsureReadableDir(wsDir, filepath.Join(wsDir, rel))
 		}
 		if !d.Type().IsRegular() {
 			return nil // symlinks and special files are not carried over
@@ -218,7 +219,7 @@ func sameFileContent(a, b string, ai, bi os.FileInfo) (bool, error) {
 }
 
 func copyFilePreserve(src, dst string, info os.FileInfo) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), workspace.WorkspaceDirMode); err != nil {
 		return err
 	}
 	in, err := os.Open(src)

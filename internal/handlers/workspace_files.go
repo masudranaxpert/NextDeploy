@@ -334,7 +334,7 @@ func (p *Panel) BrowseMove(c *fiber.Ctx) error {
 			_ = os.RemoveAll(newFull)
 		}
 
-		_ = os.MkdirAll(filepath.Dir(newFull), 0750)
+		_ = workspace.EnsureReadableDir(p.Store.Path(id), filepath.Dir(newFull))
 		_ = os.Rename(oldFull, newFull)
 	}
 
@@ -450,7 +450,7 @@ func (p *Panel) BrowseMkdir(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"ok": false, "message": "Invalid path"})
 	}
 
-	if err := os.MkdirAll(fullPath, 0750); err != nil {
+	if err := workspace.EnsureReadableDir(p.Store.Path(id), fullPath); err != nil {
 		return c.Status(500).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 

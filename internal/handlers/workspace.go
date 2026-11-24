@@ -70,17 +70,17 @@ func (p *Panel) BrowseCreate(c *fiber.Ctx) error {
 	}
 
 	if strings.HasSuffix(name, "/") {
-		if err := os.MkdirAll(full, 0750); err != nil {
+		if err := workspace.EnsureReadableDir(p.Store.Path(id), full); err != nil {
 			return respond(500, false, err.Error())
 		}
 		p.InvalidateAfterAppWorkspaceChange(id)
 		return respond(200, true, "Folder created")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+	if err := workspace.EnsureReadableDir(p.Store.Path(id), filepath.Dir(full)); err != nil {
 		return respond(500, false, err.Error())
 	}
-	if err := os.WriteFile(full, nil, 0640); err != nil {
+	if err := workspace.WriteFile(full, nil, workspace.FileModeForPath(rel, nil, 0)); err != nil {
 		return respond(500, false, err.Error())
 	}
 	p.InvalidateAfterAppWorkspaceChange(id)

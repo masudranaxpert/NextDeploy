@@ -109,12 +109,12 @@ func (s *Store) extractTarStream(wsID, base string, r io.Reader, headerBuf []byt
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(dest, 0750); err != nil {
+			if err := EnsureReadableDir(base, dest); err != nil {
 				return extractedFiles, totalBytes, err
 			}
 
 		case tar.TypeReg, tar.TypeRegA:
-			if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+			if err := EnsureReadableDir(base, filepath.Dir(dest)); err != nil {
 				return extractedFiles, totalBytes, err
 			}
 
@@ -138,17 +138,8 @@ func (s *Store) extractTarStream(wsID, base string, r io.Reader, headerBuf []byt
 				}
 			}
 
-			mode := os.FileMode(0640)
-			if header.Mode&0111 != 0 {
-				mode = 0750
-			} else {
-				ext := strings.ToLower(filepath.Ext(cleanRel))
-				if ext == ".sh" || ext == ".bash" || bytes.HasPrefix(buf.Bytes(), []byte("#!")) {
-					mode = 0750
-				}
-			}
-
-			if err := os.WriteFile(dest, buf.Bytes(), mode); err != nil {
+			mode := FileModeForPath(cleanRel, buf.Bytes(), os.FileMode(header.Mode).Perm())
+			if err := WriteFile(dest, buf.Bytes(), mode); err != nil {
 				return extractedFiles, totalBytes, err
 			}
 			extractedFiles++
@@ -215,7 +206,7 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 		}
 
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0750); err != nil {
+			if err := EnsureReadableDir(base, dest); err != nil {
 				return extractedFiles, totalBytes, err
 			}
 			continue
@@ -225,7 +216,7 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 			return extractedFiles, totalBytes, errors.New("archive uncompressed size exceeds maximum limit")
 		}
 
-		if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+		if err := EnsureReadableDir(base, filepath.Dir(dest)); err != nil {
 			return extractedFiles, totalBytes, err
 		}
 
@@ -248,17 +239,8 @@ func (s *Store) extractZipStream(wsID, base string, r io.Reader) (int, int64, er
 			}
 		}
 
-		mode := f.Mode().Perm()
-		if mode == 0 {
-			mode = 0640
-		}
-		if mode&0111 == 0 {
-			ext := strings.ToLower(filepath.Ext(cleanRel))
-			if ext == ".sh" || ext == ".bash" || bytes.HasPrefix(buf.Bytes(), []byte("#!")) {
-				mode |= 0750
-			}
-		}
-		if err := os.WriteFile(dest, buf.Bytes(), mode); err != nil {
+		mode := FileModeForPath(cleanRel, buf.Bytes(), f.Mode().Perm())
+		if err := WriteFile(dest, buf.Bytes(), mode); err != nil {
 			return extractedFiles, totalBytes, err
 		}
 		extractedFiles++

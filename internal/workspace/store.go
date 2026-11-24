@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,12 +15,74 @@ type Store struct {
 
 const ReservedDir = ".nextdeploy"
 
+// Standard POSIX permissions for app workspace files and directories so non-root
+// container users (e.g. USER node/app/worker in Dockerfiles or bind mounts) can
+// read workspace files and traverse directories, matching git clone defaults.
+const (
+	WorkspaceDirMode    os.FileMode = 0755
+	WorkspaceFileMode   os.FileMode = 0644
+	WorkspaceExecMode   os.FileMode = 0755
+	WorkspaceSecretMode os.FileMode = 0600
+)
+
+// FileModeForPath returns the target POSIX file mode for a workspace file:
+// secret .env files stay 0600, scripts/executables get 0755, and regular files get 0644.
+func FileModeForPath(relPath string, data []byte, hint os.FileMode) os.FileMode {
+	if IsProtectedEnvFile(relPath) {
+		return WorkspaceSecretMode
+	}
+	if hint&0111 != 0 {
+		return WorkspaceExecMode
+	}
+	ext := strings.ToLower(filepath.Ext(relPath))
+	if ext == ".sh" || ext == ".bash" || bytes.HasPrefix(data, []byte("#!")) {
+		return WorkspaceExecMode
+	}
+	return WorkspaceFileMode
+}
+
+// EnsureReadableDir creates dir (0755) and repairs any restrictive existing directories
+// along the chain between base and dir (inclusive) so non-root container users can traverse them.
+func EnsureReadableDir(base, dir string) error {
+	if err := os.MkdirAll(dir, WorkspaceDirMode); err != nil {
+		return err
+	}
+	cleanBase := filepath.Clean(base)
+	cleanDir := filepath.Clean(dir)
+	for cur := cleanDir; ; {
+		if fi, err := os.Stat(cur); err == nil && fi.IsDir() && fi.Mode().Perm()&0055 != 0055 {
+			_ = os.Chmod(cur, fi.Mode().Perm()|WorkspaceDirMode)
+		}
+		if cur == cleanBase {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		if rel, err := filepath.Rel(cleanBase, parent); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			break
+		}
+		cur = parent
+	}
+	return nil
+}
+
+// WriteFile writes data to dest with explicit mode and enforces permissions even when overwriting
+// an existing file that previously had restrictive (e.g. 0600/0640) permissions.
+func WriteFile(dest string, data []byte, mode os.FileMode) error {
+	if err := os.WriteFile(dest, data, mode); err != nil {
+		return err
+	}
+	return os.Chmod(dest, mode)
+}
+
 func NewStore(root string) *Store {
 	return &Store{Root: root}
 }
 
 func (s *Store) ensureRoot() error {
-	return os.MkdirAll(s.Root, 0750)
+	return os.MkdirAll(s.Root, WorkspaceDirMode)
 }
 
 func (s *Store) Path(id string) string {
@@ -51,14 +114,15 @@ func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, err
 	if err := containedInBase(filepath.Clean(base), full); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+	if err := EnsureReadableDir(base, filepath.Dir(full)); err != nil {
 		return "", err
 	}
 	// Re-check after the directories exist, then refuse to follow a link at the last step.
 	if err := containedInBase(filepath.Clean(base), full); err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|noFollowFlag, 0640)
+	mode := FileModeForPath(strings.Join(safeParts, "/"), nil, 0)
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|noFollowFlag, mode)
 	if err != nil {
 		return "", err
 	}
@@ -66,6 +130,7 @@ func (s *Store) SaveUploadedFile(wsID, relPath string, r io.Reader) (string, err
 	if _, err := io.Copy(f, r); err != nil {
 		return "", err
 	}
+	_ = f.Chmod(mode)
 	return full, nil
 }
 
@@ -77,7 +142,7 @@ func (s *Store) ClearUploadedProjectForGitSource(wsID string) error {
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.MkdirAll(base, 0750)
+			return os.MkdirAll(base, WorkspaceDirMode)
 		}
 		return err
 	}

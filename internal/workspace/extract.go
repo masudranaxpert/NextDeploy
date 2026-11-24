@@ -17,7 +17,7 @@ func (s *Store) ClearAllUserFiles(wsID string) error {
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.MkdirAll(base, 0750)
+			return os.MkdirAll(base, WorkspaceDirMode)
 		}
 		return err
 	}
@@ -31,10 +31,10 @@ func (s *Store) ClearAllUserFiles(wsID string) error {
 
 func (s *Store) WriteMeta(wsID string, name string) error {
 	base := s.Path(wsID)
-	if err := os.MkdirAll(base, 0750); err != nil {
+	if err := os.MkdirAll(base, WorkspaceDirMode); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(base, ".panel-meta"), []byte(strings.TrimSpace(name)+"\n"), 0600)
+	return os.WriteFile(filepath.Join(base, ".panel-meta"), []byte(strings.TrimSpace(name)+"\n"), WorkspaceSecretMode)
 }
 
 const maxUncompressedZipBytes = 2 << 30
@@ -75,7 +75,7 @@ func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64)
 			base = filepath.Join(append([]string{base}, safe...)...)
 		}
 	}
-	if err := os.MkdirAll(base, 0750); err != nil {
+	if err := EnsureReadableDir(s.Path(wsID), base); err != nil {
 		return err
 	}
 	zr, err := zip.NewReader(r, size)
@@ -109,24 +109,26 @@ func (s *Store) ExtractZipTo(wsID, destSubdir string, r io.ReaderAt, size int64)
 			continue // ignore symlinks inside uploaded archives to prevent traversal attacks
 		}
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0750); err != nil {
+			if err := EnsureReadableDir(base, dest); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+		if err := EnsureReadableDir(base, filepath.Dir(dest)); err != nil {
 			return err
 		}
 		rc, err := f.Open()
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+		mode := FileModeForPath(filepath.ToSlash(p), nil, f.Mode().Perm())
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 		if err != nil {
 			_ = rc.Close()
 			return err
 		}
 		written, err := io.CopyN(out, rc, int64(f.UncompressedSize64)+1)
+		_ = out.Chmod(mode)
 		_ = out.Close()
 		_ = rc.Close()
 		if err != nil && err != io.EOF {

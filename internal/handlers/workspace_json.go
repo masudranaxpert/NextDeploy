@@ -255,10 +255,11 @@ func (p *Panel) WorkspaceFileSave(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+	if err := workspace.EnsureReadableDir(p.Store.Path(appID), filepath.Dir(full)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
-	if err := os.WriteFile(full, []byte(body.Content), 0640); err != nil {
+	data := []byte(body.Content)
+	if err := workspace.WriteFile(full, data, workspace.FileModeForPath(body.Path, data, 0)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"ok": false, "message": err.Error()})
 	}
 	if savingCompose {

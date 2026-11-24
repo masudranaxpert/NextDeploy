@@ -1,6 +1,6 @@
-# PHP, WordPress, MariaDB & Caddy Routing (`nd`)
+# PHP, WordPress, MariaDB & URL Routing (`nd`)
 
-Reference for PHP/WordPress/static hosting (`nd php`), MariaDB databases (`nd db` / `nd php db`), cron jobs, and converting Apache `.htaccess` rules into Caddy routing (`nd php rules`).
+Reference for PHP/WordPress/static hosting (`nd php`), MariaDB databases (`nd db` / `nd php db`), cron jobs, and converting Apache `.htaccess` rules into reverse proxy routing (`nd php rules` for Caddy, Angie, or Ferron).
 
 ---
 
@@ -12,8 +12,8 @@ nd php create <name> [domain] [--domain <d>] [--no-default-domain] [--php 8.3] [
 nd php info [app_id] [--json]
 nd php set [app_id] [--php 8.3] [--memory 256M] [--upload 64M] [--extensions "gd,intl,zip"]
 
-nd php stop [app_id]                 # Remove Caddy route and free PHP-FPM pool
-nd php start [app_id]                # Restore Caddy route and start site
+nd php stop [app_id]                 # Remove reverse proxy route and free PHP-FPM pool
+nd php start [app_id]                # Restore reverse proxy route and start site
 nd php restart [app_id]              # Restart PHP-FPM runtime container
 nd php fix-perms [app_id]            # Repair ownership & POSIX permissions in htdocs/ (755/775/644)
 nd php pma [app_id]                  # Generate one-click phpMyAdmin SSO login URL
@@ -52,9 +52,9 @@ nd php cron run [app_id] <cron_id>   # Trigger immediate execution
 
 ---
 
-## Caddy URL Routing & `.htaccess` Conversion (`nd php rules`)
+## URL Routing & `.htaccess` Conversion (`nd php rules`)
 
-NextDeploy serves PHP and static sites behind **Caddy**, which does not read Apache `.htaccess` files at runtime. Use `nd php rules` to scan `.htaccess`, convert rules into Caddy routing rules, and configure fallback behavior.
+NextDeploy serves PHP and static sites behind the active reverse proxy (**Caddy**, **Angie**, or **Ferron**), which does not read Apache `.htaccess` files at runtime. Use `nd php rules` to scan `.htaccess`, convert rules into portable NextDeploy routing rules, and configure fallback behavior.
 
 ### Quick Flow
 

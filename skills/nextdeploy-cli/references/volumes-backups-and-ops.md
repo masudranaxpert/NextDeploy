@@ -1,6 +1,19 @@
-# Volumes, Backups & Operations (`nd`)
+# AI Assistant, Volumes, Backups & Operations (`nd`)
 
-Reference for Docker volumes, backup snapshots/schedules/destinations, system monitoring, pruning, audit logs, and CLI troubleshooting.
+Reference for the optional AI assistant plugin (`nd ai`), Docker volumes, backup snapshots/schedules/destinations, system monitoring, pruning, audit logs, and CLI troubleshooting.
+
+---
+
+## Optional AI Assistant (`nd ai`)
+
+The AI assistant (`omp` engine) is optional and admin-managed. Enabling downloads the tested `omp` release (~250 MB) into `/data/plugins/omp`; disabling removes the engine and tools it downloaded (keeping chats/logins unless `--purge` is passed).
+
+```bash
+nd ai status [--json]                                  # Enabled state, omp version, and disk usage
+nd ai enable [--version vX.Y.Z] [--no-wait] [--json]   # Turn AI on and download omp
+nd ai disable [--yes] [--json]                         # Turn AI off and delete engine (keeps chats/keys)
+nd ai disable --purge --yes [--json]                   # Also delete chats, logins, and stored API keys
+```
 
 ---
 
@@ -37,10 +50,12 @@ nd backup dest list
 
 ---
 
-## System Monitoring, Cleanup & Audit
+## System Monitoring, Users, Cleanup & Audit
 
 ```bash
 nd top                               # Live CPU, RAM, disk, and top container usage (alias: nd stats)
+nd quota                             # View your account resource quotas and usage
+nd users                             # List panel users (admin)
 nd clean [--all]                     # Prune build cache & dangling images (--all includes stopped containers/unused images)
 nd audit                             # View panel security audit log (admin)
 nd update                            # Self-update nd CLI from GitHub Releases

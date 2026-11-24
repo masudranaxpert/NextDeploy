@@ -25,6 +25,7 @@ import (
 	"panel/internal/quota"
 	"panel/internal/runutil"
 	"panel/internal/sandbox"
+	"panel/internal/workspace"
 	"panel/internal/wsmanifest"
 
 	"github.com/gofiber/fiber/v2"
@@ -242,7 +243,7 @@ func (p *Panel) APIAppCreate(c *fiber.Ctx) error {
 	}
 
 	wsPath := p.Store.Path(id)
-	if err := os.MkdirAll(wsPath, 0750); err != nil {
+	if err := os.MkdirAll(wsPath, workspace.WorkspaceDirMode); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fmt.Sprintf("failed creating workspace: %v", err)})
 	}
 	if err := p.Store.WriteMeta(id, slug); err != nil {
@@ -282,7 +283,7 @@ func (p *Panel) APIAppCreate(c *fiber.Ctx) error {
 		if err := sandbox.CheckComposeSecurity([]byte(req.ComposeContent), wsPath); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("initial compose security check failed: %v", err)})
 		}
-		_ = os.WriteFile(filepath.Join(wsPath, "docker-compose.yml"), []byte(req.ComposeContent), 0640)
+		_ = workspace.WriteFile(filepath.Join(wsPath, "docker-compose.yml"), []byte(req.ComposeContent), workspace.WorkspaceFileMode)
 		_ = p.SyncAppCaddyOverrideCtx(ctx, id)
 	}
 
@@ -1548,10 +1549,12 @@ func (p *Panel) APIAppWorkspaceApply(c *fiber.Ctx) error {
 		if pErr != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("invalid write path %q: %v", w.Path, pErr)})
 		}
-		if err := os.MkdirAll(filepath.Dir(full), 0750); err != nil {
+		if err := workspace.EnsureReadableDir(p.Store.Path(appID), filepath.Dir(full)); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := os.WriteFile(full, []byte(w.Content), 0640); err != nil {
+		wBytes := []byte(w.Content)
+		mode := workspace.FileModeForPath(wPath, wBytes, 0)
+		if err := workspace.WriteFile(full, wBytes, mode); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		cleanRel := filepath.ToSlash(strings.Trim(wPath, "/"))

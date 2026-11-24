@@ -1,17 +1,17 @@
-# Proxy, Caddy & Edge Shield (`nd`)
+# Proxy Engines (Caddy, Angie, Ferron) & Edge Shield (`nd`)
 
-Reference for custom Caddy reverse proxy routes, global Caddy options (timeouts & Real-IP), Edge Shield proxy nodes (`nd shield`), and the standalone multi-panel Shield VPS daemon (`nd edge`).
+Reference for custom reverse proxy routes (`nd proxy`), switching the panel proxy engine (`nd proxy engine`), global proxy options (timeouts & Real-IP), Edge Shield nodes (`nd shield`), and the standalone multi-panel Shield VPS daemon (`nd edge` + `nd edge domain`).
 
 ---
 
-## Caddy Reverse Proxy Routes (`nd proxy`)
+## Reverse Proxy Routes (`nd proxy`)
 
 Route any domain to an internal/external upstream HTTP(S) service or configure HTTP redirects.
 
 ```bash
 # List and inspect routes
 nd proxy list [--json]
-nd proxy status [--json]             # Show panel domain TLS settings and live Caddy admin config
+nd proxy status [--json]             # Show active proxy engine, panel TLS settings, and live status
 
 # Add a reverse proxy or redirect route
 nd proxy add <domain> <upstream_url> [flags]
@@ -33,13 +33,28 @@ nd proxy toggle <route_id> [on|off] [--json]
 nd proxy rm <route_id>
 nd proxy reload
 
-# Inspect or tail Caddy server logs
+# Inspect or tail reverse proxy logs
 nd proxy logs [-n 100] [-f|--follow] [--json]
 ```
 
 ---
 
-## Global Caddy Timeouts & Real-IP (`nd proxy options`)
+## Reverse Proxy Engine Switching (`nd proxy engine`)
+
+Inspect or switch the panel's active reverse proxy engine between **Caddy** (default), **Angie** (low RAM / high idle HTTP/2 concurrency), and **Ferron** (experimental). Admin only.
+
+```bash
+nd proxy engine status [--json]                         # Active engine, version, running state, last switch
+nd proxy engine preflight <caddy|angie|ferron> [--json] # Check blockers, warnings, and rendered config validation
+nd proxy engine set <caddy|angie|ferron> --yes [--experimental] [--json]
+```
+
+- Switching validates configs and rolls back automatically on failure.
+- Selecting `ferron` requires `--experimental`.
+
+---
+
+## Global Proxy Timeouts & Real-IP (`nd proxy options`)
 
 Manage server-wide timeouts, request body pause limits, header size caps, and trusted Real-IP proxy ranges.
 
@@ -61,7 +76,7 @@ nd proxy options set \
 
 Valid profiles: `default`, `balanced`, `high`, `strict`, `custom`.
 Valid `--real-ip` modes: `none`, `cloudflare`, `custom`.
-Pass `--no-apply` to save without triggering an immediate Caddy reload.
+Pass `--no-apply` to save without triggering an immediate proxy reload.
 
 ---
 
@@ -84,19 +99,46 @@ nd shield rm <node_id>
 
 ## Multi-Panel Edge Daemon (`nd edge`)
 
-Run on the **Edge Shield VPS** itself to install, monitor, and maintain the `nd-edge` daemon serving one or more NextDeploy panels.
+Run on the **Edge Shield VPS** itself to install, switch proxies, manage standalone domains, and maintain the `nd-edge` daemon serving one or more NextDeploy panels.
 
 ```bash
-nd edge install --panel-url https://panel.example.com --token <shield_token>
+# Install & switch reverse proxy engine on the Shield VPS
+nd edge install --panel-url https://panel.example.com --token-stdin [--proxy caddy|angie|ferron] [--experimental] [--acme-email E] [--dns-gate on|off] [--adopt-existing] [--force]
+nd edge switch-proxy <caddy|angie|ferron> [--experimental] [--yes]
+
+# Multi-panel registration & sync
 nd edge add-panel --panel-url https://panel2.example.com --token-stdin
 nd edge remove-panel <panel_id|name>
-
 nd edge list [--json]                # List connected panels & last sync revision
 nd edge status [--json] [host]       # Per-host TLS & route reconciliation state
-nd edge sync [--panel ID] [--force]  # Trigger immediate Caddyfile sync
-nd edge doctor                       # Firewall, port 80/443, and TLS diagnostics
+nd edge sync [--panel ID] [--force]  # Trigger immediate proxy config sync
+nd edge doctor                       # Services, config, certificates, disk, and firewall diagnostics
 nd edge set-token <panel_id|name> --token-stdin
 nd edge set-url <panel_id|name> --panel-url <url>
 nd edge upgrade [--url <url>] [--sha256 <hex>]
 nd edge uninstall [--all]
+```
+
+### Standalone Manual & User-Config Domains (`nd edge domain`)
+
+Manage non-panel reverse-proxy domains directly on the Shield VPS (survives panel syncs and `nd edge switch-proxy`), inspect or delete hand-written `user/*.conf` / unmanaged Caddyfile sites, and prune stale domains safely to 30-day trash:
+
+```bash
+# Add, update, enable/disable, or remove manual domains
+nd edge domain add <domain> <upstream>[,<upstream>...] [--www] [--alias h] [--redirect-www to-apex|to-www] \
+  [--tls auto|none|manual] [--no-verify] [--sni name] [--host-header original|upstream|VAL] \
+  [--max-body 200m] [--timeout 60s] [--real-ip cloudflare|none] [--replace] [--dry-run] [--json]
+nd edge domain set <domain> [flags...]
+nd edge domain enable <domain>
+nd edge domain disable <domain>
+nd edge domain rm <domain>... [--yes] [--json]          # Moves manual domains to 30d trash; also removes user/*.conf / Caddyfile sites
+
+# List, inspect, health-check, and prune stale domains
+nd edge domain list [--all] [--json]                    # Manual + user-config sites; --all adds read-only panel domains
+nd edge domain show <domain> [--config] [--json]        # Inspect config or rendered/raw proxy snippet
+nd edge domain check [<domain>...] [--all] [--json]     # Read-only DNS, origin connectivity & TLS check
+nd edge domain prune [--dry-run] [--apply] [--reason dns|origin|all] [--grace 7d] [--all] [--yes] [--json]
+nd edge domain restore --list | <domain>                # Restore trashed domain (kept 30d)
+nd edge domain export [--file backup.json]
+nd edge domain import --file backup.json [--replace] [--dry-run] [--yes]
 ```
