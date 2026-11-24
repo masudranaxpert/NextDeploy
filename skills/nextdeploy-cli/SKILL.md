@@ -1,6 +1,6 @@
 ---
 name: nextdeploy-cli
-version: 2.9.10
+version: 2.9.11
 description: Manage NextDeploy Docker Compose apps (including direct TCP/UDP ports), PHP/WordPress sites, MariaDB databases, Caddy/Angie/Ferron reverse proxy engines and routes, Edge Shield nodes and manual domains, optional AI assistant, delta file syncs (nd push), Git integration, volumes, and backups using the nd CLI.
 ---
 

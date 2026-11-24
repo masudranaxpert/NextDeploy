@@ -377,8 +377,8 @@ func RunFileWrite(cl *client.Client, rawArgs []string) error {
 		}
 	} else {
 		// Check if input is piped through stdin
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
+		stat, statErr := os.Stdin.Stat()
+		if statErr == nil && stat != nil && (stat.Mode()&os.ModeCharDevice) == 0 {
 			b, err := io.ReadAll(os.Stdin)
 			if err != nil {
 				return fmt.Errorf("failed reading stdin: %w", err)

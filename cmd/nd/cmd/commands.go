@@ -23,7 +23,7 @@ import (
 )
 
 // Version can be overwritten at build time or by main.
-var Version = "2.9.10"
+var Version = "2.9.11"
 
 // resolveHostIP returns the IPv4 address of the server host.
 func resolveHostIP(serverURL string) string {
@@ -1890,7 +1890,7 @@ func RunExec(cl *client.Client, args []string) error {
 			fmt.Println("  -a, --app <app_id>               Target application ID (optional if linked)")
 			fmt.Println("  -s, --service, -c, --container   Target service or container name (optional)")
 			fmt.Println("  -w, --workdir <dir>              Working directory inside container")
-			fmt.Println("  -i, --stdin                      Pass standard input to the command")
+			fmt.Println("  -i, --stdin                      Read standard input (required for piped stdin)")
 			fmt.Println("  -t, --timeout <duration>         Command timeout (e.g. 300s, 5m, default: 300s)")
 			fmt.Println("  --server                         Run directly on the host VPS (requires allow_server_exec)")
 			return nil
@@ -1988,15 +1988,7 @@ func RunExec(cl *client.Client, args []string) error {
 		return runPTYSession(cl, "/api/v1/apps/"+appID+"/ws/terminal", service, strings.Join(cmdTokens, " "))
 	}
 
-	var stdinData string
-	stat, err := os.Stdin.Stat()
-	isPipe := err == nil && (stat.Mode()&os.ModeCharDevice) == 0
-	if stdinFlag || isPipe {
-		data, rerr := io.ReadAll(os.Stdin)
-		if rerr == nil && len(data) > 0 {
-			stdinData = string(data)
-		}
-	}
+	stdinData := readExecStdin(stdinFlag, os.Stdin)
 
 	cmdStr := posixJoin(cmdTokens)
 
@@ -2036,6 +2028,30 @@ func RunExec(cl *client.Client, args []string) error {
 	}
 
 	return parseAndPrintExecResult(body)
+}
+
+// readExecStdin reads stdin for `nd exec` only when -i/--stdin was explicitly requested or
+// stdin is a non-empty regular redirected file (`nd exec ... < script.sh`). Never auto-drain
+// an open pipe without -i, because Windows terminals (Git Bash/Mintty), IDE runners, CI, and
+// agent subprocesses often attach an open non-TTY stdin pipe that never sends EOF.
+func readExecStdin(stdinFlag bool, f *os.File) string {
+	if f == nil {
+		return ""
+	}
+	shouldRead := stdinFlag
+	if !shouldRead {
+		if stat, err := f.Stat(); err == nil && stat.Mode().IsRegular() && stat.Size() > 0 {
+			shouldRead = true
+		}
+	}
+	if !shouldRead {
+		return ""
+	}
+	data, err := io.ReadAll(f)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return string(data)
 }
 
 // RunServerExec executes a command directly on the panel host server (admin + allow_server_exec required).
